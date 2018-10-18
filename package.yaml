@@ -21,6 +21,7 @@ description:         Please see the README on GitHub at <https://github.com/brya
 dependencies:
 - base >= 4.7 && < 5
 - parsec == 3.1.13.0
+- either
 
 library:
   source-dirs: src

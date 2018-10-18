@@ -1,12 +1,16 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module Parse where
 
 import Text.Parsec
 import Data.Char (isMark, isPunctuation, isSymbol)
+import Data.List (intercalate)
+import Data.Either.Combinators (rightToMaybe)
 
 data Expr = Var String
           | Str String
           | App Expr [Expr]
-  deriving Show
+  deriving (Show, Eq)
 
 and' a b = a && b
 
@@ -55,14 +59,48 @@ app = do
 
 expr = choice [var, str, app]
 
-sIdent = "_mäin-1"
-pIdent = parse ident "" sIdent
+type Test = (String, String, Parsec String () String, Maybe String)
 
-sStr = "\"Hello, \\\"World!\\\"\""
-pStr = parse str "" sStr
+tIdent :: Test
+tIdent = ("parse identifier",
+          "_mäin-1",
+          ident,
+          Just "_mäin-1")
 
-sApp = "(display \"Hello, World!\")"
-pApp = parse app "" sApp
+tStr :: Test
+tStr = ("parse string",
+        "\"Hello, \\\"World!\\\"\"",
+        fmap show str,
+        Just (show (Str "Hello, \\\"World!\\\"")))
+
+tApp :: Test
+tApp = ("parse app",
+        "(display \"Hello, World!\")",
+        fmap show app,
+        Just (show (App (Var "display") [Str "Hello, World!"])))
+
+tests = [tIdent, tStr, tApp]
+
+runTest (name, input, parser, expected) =
+  let result = parse parser name input
+  in if (rightToMaybe result) == expected
+     then Right name
+     else Left (name, result, expected)
+          
+testResults = map runTest tests
+
+prettyTestResults = intercalate "\n" (map pretty testResults)
+  where pretty (Right name) = "Test `" ++ name ++ "` passed!"
+        pretty (Left (name, found, expected)) =
+          "Test `" ++ name ++ "` failed!\n"
+          ++ "  Expected "
+          ++ case expected of
+               Just s  -> "successful parse of\n    `" ++ s ++ "`"
+               Nothing -> "failed parse"
+          ++ "\n  found\n    "
+          ++ show found
+
+printTestResults = putStrLn prettyTestResults      
 
 -- src = "(define main (display \"Hello, World!\"))"
 
