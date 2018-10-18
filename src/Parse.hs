@@ -10,6 +10,7 @@ import Data.Either.Combinators (rightToMaybe)
 data Expr = Var String
           | Str String
           | App Expr [Expr]
+          | Lam String Expr
   deriving (Show, Eq)
 
 and' a b = a && b
@@ -59,6 +60,22 @@ app = do
 
 expr = choice [var, str, app]
 
+lam = do
+  char '('
+  spaces
+  string "lambda"
+  spaces1
+  params <- between (char '(' >> spaces) (spaces >> char ')') (sepEndBy1 ident spaces1)
+  spaces1
+  body <- expr
+  spaces
+  char ')'
+  return (foldr (\param inner -> Lam param inner) body params)
+
+
+
+--- Testing
+
 type Test = (String, String, Parsec String () String, Maybe String)
 
 tIdent :: Test
@@ -79,14 +96,28 @@ tApp = ("parse app",
         fmap show app,
         Just (show (App (Var "display") [Str "Hello, World!"])))
 
-tests = [tIdent, tStr, tApp]
+tLam :: Test
+tLam = ("parse lambda",
+        "(lambda (a b) (+ a b))",
+        fmap show lam,
+        Just (show (Lam "a"
+                        (Lam "b"
+                             (App (Var "+") [Var "a", Var "b"])))))
+
+-- tDef :: Test
+-- tDef = ("parse var definition",
+--         "(define pi 3.1415)",
+--         fmap show def,
+--         Just (show (Def "pi" ())))
+
+tests = [tIdent, tStr, tApp, tLam]
 
 runTest (name, input, parser, expected) =
   let result = parse parser name input
   in if (rightToMaybe result) == expected
      then Right name
      else Left (name, result, expected)
-          
+
 testResults = map runTest tests
 
 prettyTestResults = intercalate "\n" (map pretty testResults)
@@ -100,7 +131,4 @@ prettyTestResults = intercalate "\n" (map pretty testResults)
           ++ "\n  found\n    "
           ++ show found
 
-printTestResults = putStrLn prettyTestResults      
-
--- src = "(define main (display \"Hello, World!\"))"
-
+printTestResults = putStrLn prettyTestResults
