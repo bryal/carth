@@ -7,20 +7,29 @@ import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.List (intercalate)
 import Data.Either.Combinators (rightToMaybe)
 
-data Expr = Var String
+data Expr = Nil
+          | Num String
           | Str String
+          | Bool Bool
+          | Var String
           | App Expr [Expr]
+          | If Expr Expr Expr
           | Lam String Expr
+          | Let [(String, Expr)] Expr
+          -- | TypeAscript ...
+          -- | Cast ...
+          | New String [Expr]
+          -- | Match Expr [(Patt, Expr)]
   deriving (Show, Eq)
 
 and' a b = a && b
 
 isBracket c = elem c "()[]{}"
 
-(<:>) p q = do
-  a <- p
-  as <- q
-  return (a:as)
+(<:>) p q = p >>= (\c -> fmap (c:) q)
+
+(<++>) :: Parsec s u String -> Parsec s u String -> Parsec s u String
+(<++>) p q = p >>= (\s -> fmap (s++) q)
 
 spaces1 = skipMany1 space
 
@@ -33,13 +42,15 @@ identFirstChar = letter <|> symbol
 identRestChar = identFirstChar <|> digit
 ident = identFirstChar <:> many identRestChar
 
-var = fmap Var ident
-
 escaped :: Parsec String () String
 escaped = do
   char '\\'
   c <- anyChar
   return ['\\', c]
+
+nil = fmap (const Nil) (string "nil")
+
+num = fmap Num (many1 digit <++> option "" (char '.' <:> many1 digit))
 
 str' = do
   char '"'
@@ -48,6 +59,12 @@ str' = do
   return (concat s)
 
 str = fmap Str str'
+
+bool :: Parsec String u Expr
+bool = fmap Bool ((<|>) (fmap (const True) (string "true"))
+                        (fmap (const False) (string "false")))
+
+var = fmap Var ident
 
 app = do
   char '('
@@ -58,7 +75,7 @@ app = do
   char ')'
   return (App rator rands)
 
-expr = choice [var, str, app]
+---if' = ...
 
 lam = do
   char '('
@@ -72,17 +89,26 @@ lam = do
   char ')'
   return (foldr (\param inner -> Lam param inner) body params)
 
+--let' = ...
+
+--new = ...
+
+expr = choice [var, str, app]
+
 
 
 --- Testing
 
 type Test = (String, String, Parsec String () String, Maybe String)
 
-tIdent :: Test
-tIdent = ("parse identifier",
-          "_mäin-1",
-          ident,
-          Just "_mäin-1")
+tNil :: Test
+tNil = ("parse nil", "nil", fmap show nil, Just (show Nil))
+
+tInt :: Test
+tInt = ("parse integer", "123", fmap show num, Just (show (Num "123")))
+
+tFloat :: Test
+tFloat = ("parse float", "123.456", fmap show num, Just (show (Num "123.456")))
 
 tStr :: Test
 tStr = ("parse string",
@@ -90,11 +116,25 @@ tStr = ("parse string",
         fmap show str,
         Just (show (Str "Hello, \\\"World!\\\"")))
 
+tBool :: Test
+tBool = ("parse bool",
+         "true false",
+         fmap show (sepBy bool (char ' ')),
+         Just (show [Bool True, Bool False]))
+
+tVar :: Test
+tVar = ("parse variable",
+        "_mäin-1",
+        fmap show var,
+        Just (show (Var "_mäin-1")))
+
 tApp :: Test
 tApp = ("parse app",
         "(display \"Hello, World!\")",
         fmap show app,
         Just (show (App (Var "display") [Str "Hello, World!"])))
+
+-- tIf
 
 tLam :: Test
 tLam = ("parse lambda",
@@ -104,13 +144,11 @@ tLam = ("parse lambda",
                         (Lam "b"
                              (App (Var "+") [Var "a", Var "b"])))))
 
--- tDef :: Test
--- tDef = ("parse var definition",
---         "(define pi 3.1415)",
---         fmap show def,
---         Just (show (Def "pi" ())))
+-- tLet       
 
-tests = [tIdent, tStr, tApp, tLam]
+-- tNew
+
+tests = [tNil, tInt, tFloat, tBool, tVar, tStr, tApp, tLam]
 
 runTest (name, input, parser, expected) =
   let result = parse parser name input
