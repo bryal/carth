@@ -94,9 +94,8 @@ let' = parens (do string "let"
                   spaces1
                   body <- expr
                   return (Let binds body))
-  where bindings = parens ((>>) spaces
-                                (sepEndBy (parens (liftM2 (,) ident (spaces1 >> expr)))
-                                          spaces))
+  where bindings = parens ((>>) spaces (sepEndBy binding spaces))
+        binding = parens (liftM2 (,) ident (spaces1 >> expr))
 
 new = parens (do string "new"
                  spaces1
