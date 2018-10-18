@@ -6,13 +6,14 @@ import Text.Parsec
 import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.List (intercalate)
 import Data.Either.Combinators (rightToMaybe)
+import Control.Monad
 
 data Expr = Nil
           | Num String
           | Str String
           | Bool Bool
           | Var String
-          | App Expr [Expr]
+          | App Expr Expr
           | If Expr Expr Expr
           | Lam String Expr
           | Let [(String, Expr)] Expr
@@ -26,10 +27,9 @@ and' a b = a && b
 
 isBracket c = elem c "()[]{}"
 
-(<:>) p q = p >>= (\c -> fmap (c:) q)
+(<:>) = liftM2 (:)
 
-(<++>) :: Parsec s u String -> Parsec s u String -> Parsec s u String
-(<++>) p q = p >>= (\s -> fmap (s++) q)
+(<++>) = liftM2 (++)
 
 spaces1 = skipMany1 space
 
@@ -47,6 +47,8 @@ escaped = do
   char '\\'
   c <- anyChar
   return ['\\', c]
+
+parens = between (char '(' >> spaces) (spaces >> char ')') 
 
 nil = fmap (const Nil) (string "nil")
 
@@ -66,34 +68,44 @@ bool = fmap Bool ((<|>) (fmap (const True) (string "true"))
 
 var = fmap Var ident
 
-app = do
-  char '('
-  spaces
-  rator <- expr
-  rands <- many (spaces1 >> expr)
-  spaces
-  char ')'
-  return (App rator rands)
+app = parens (do rator <- expr
+                 rands <- many1 (spaces1 >> expr)
+                 return (foldl App rator rands))
 
----if' = ...
+if' = parens (do string "if"
+                 spaces1
+                 pred <- expr
+                 spaces1
+                 conseq <- expr
+                 spaces1
+                 alt <- expr
+                 return (If pred conseq alt))
 
-lam = do
-  char '('
-  spaces
-  string "lambda"
-  spaces1
-  params <- between (char '(' >> spaces) (spaces >> char ')') (sepEndBy1 ident spaces1)
-  spaces1
-  body <- expr
-  spaces
-  char ')'
-  return (foldr (\param inner -> Lam param inner) body params)
+lam = parens (do string "lambda"
+                 spaces1
+                 params <- parens (sepEndBy1 ident spaces1)
+                 spaces1
+                 body <- expr
+                 return (foldr Lam body params))
 
---let' = ...
+let' = parens (do string "let"
+                  spaces1
+                  binds <- bindings
+                  spaces1
+                  body <- expr
+                  return (Let binds body))
+  where bindings = parens ((>>) spaces
+                                (sepEndBy (parens (liftM2 (,) ident (spaces1 >> expr)))
+                                          spaces))
 
---new = ...
+new = parens (do string "new"
+                 spaces1
+                 variant <- ident
+                 spaces1
+                 members <- sepEndBy1 expr spaces1
+                 return (New variant members))
 
-expr = choice [var, str, app]
+expr = choice [nil, num, str, bool, var, app, if', lam, let', new]
 
 
 
@@ -130,11 +142,17 @@ tVar = ("parse variable",
 
 tApp :: Test
 tApp = ("parse app",
-        "(display \"Hello, World!\")",
+        "(++ \"Hello\" \" World!\")",
         fmap show app,
-        Just (show (App (Var "display") [Str "Hello, World!"])))
+        Just (show (App (App (Var "++") (Str "Hello")) (Str " World!"))))
 
--- tIf
+tIf :: Test
+tIf = ("parse if",
+       "(if (= a b) 0 (+ x y))",
+       fmap show if',
+       Just (show (If (App (App (Var "=") (Var "a")) (Var "b"))
+                      (Num "0")
+                      (App (App (Var "+") (Var "x")) (Var "y")))))
 
 tLam :: Test
 tLam = ("parse lambda",
@@ -142,13 +160,22 @@ tLam = ("parse lambda",
         fmap show lam,
         Just (show (Lam "a"
                         (Lam "b"
-                             (App (Var "+") [Var "a", Var "b"])))))
+                             (App (App (Var "+") (Var "a")) (Var "b"))))))
 
--- tLet       
+tLet :: Test
+tLet = ("parse let",
+        "(let ((a 1)(b 0)) (+ a b))",
+        fmap show let',
+        Just (show (Let [("a", Num "1"), ("b", Num "0")]
+                        (App (App (Var "+") (Var "a")) (Var "b")))))
 
--- tNew
+tNew :: Test
+tNew = ("parse new",
+        "(new Pair a 1)",
+        fmap show new,
+        Just (show (New "Pair" [Var "a", Num "1"])))
 
-tests = [tNil, tInt, tFloat, tBool, tVar, tStr, tApp, tLam]
+tests = [tNil, tInt, tFloat, tBool, tVar, tStr, tApp, tIf, tLam, tLet, tNew]
 
 runTest (name, input, parser, expected) =
   let result = parse parser name input
