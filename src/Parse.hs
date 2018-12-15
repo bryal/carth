@@ -1,204 +1,186 @@
-{-# OPTIONS -F -pgmF laspell #-}
-
 {-# LANGUAGE FlexibleContexts #-}
 
-(module Parse)
+module Parse where
 
-(import Text.Parsec)
-(import Data.Char (isMark isPunctuation isSymbol))
-(import Data.List (intercalate))
-(import Data.Either.Combinators (rightToMaybe))
-(import Control.Monad)
+import Control.Monad
+import Data.Char (isMark, isPunctuation, isSymbol)
+import Data.Either.Combinators (rightToMaybe)
+import Data.List (intercalate)
+import Text.Parsec
 
-(data Expr
-  (= Nil
-     (Num  String)
-     (Str  String)
-     (Bool Bool)
-     (Var  String)
-     (App  Expr Expr)
-     (If   Expr Expr Expr)
-     (Lam  String Expr)
-     (Let  [(, String Expr)] Expr)
-     (New  String [Expr]))
-  (deriving Show Eq))
+data Expr = Nil
+          | Num String
+          | Str String
+          | Bool Bool
+          | Var String
+          | App Expr Expr
+          | If Expr Expr Expr
+          | Lam String Expr
+          | Let [(String, Expr)] Expr
+          | New String [Expr]
+  deriving (Show, Eq)
 
-(= (and' a b)
-   (&& a b))
+isBracket c = elem c "()[]{}"
 
-(= (isBracket c)
-   (elem c "()[]{}"))
+(<:>) = liftM2 (:)
 
-(= <:>
- (liftM2 :))
+(<++>) = liftM2 (++)
 
-(= <++>
- (liftM2 ++))
+spaces1 = skipMany1 space
 
-(= spaces1
-   (skipMany1 space))
+symbol = satisfy (\c -> and [ any (\pred -> pred c) [isMark, isPunctuation, isSymbol]
+                            , not (isBracket c)
+                            , not (c == '"') ])
 
-(= symbol
-   (satisfy (\ (c) (and [(any (\ (pred) (pred c)) [isMark isPunctuation isSymbol])
-                         (not (isBracket c))
-                         (not (== c '"'))]))))
+identFirstChar = letter <|> symbol
 
-(= identFirstChar (<|> letter symbol))
-(= identRestChar (<|> identFirstChar digit))
-(= ident (<:> identFirstChar (many identRestChar)))
+identRestChar = identFirstChar <|> digit
 
-(:: escaped (Parsec String () String))
-(= escaped (do (char '\\')
-               (<- c anyChar)
-               (return ['\\' c])))
+ident = identFirstChar <:> many identRestChar
 
-(= parens (between (>> (char '(') spaces)
-                   (>> spaces     (char ')'))))
+escaped :: Parsec String () String
+escaped = do char '\\'
+             c <- anyChar
+             return ['\\', c]
 
-(= nil (fmap (const Nil) (string "nil")))
+parens = between (char '(' >> spaces) (spaces >> char ')')
 
-(= num (fmap Num (<++> (many1 digit) (option "" (<:> (char '.') (many1 digit))))))
+nil = fmap (const Nil) (string "nil")
 
-(= str' (do (char '"')
-            (<- s (many (<|> escaped (fmap (\ (c) [c]) (noneOf ['"'])))))
-            (char '"')
-            (return (concat s))))
+num = fmap Num
+           (many1 digit <++> option "" (char '.' <:> many1 digit))
 
-(= str (fmap Str str'))
+str' = do char '"'
+          s <- many (escaped <|> (fmap (\c -> [c]) (noneOf ['"'])))
+          char '"'
+          return (concat s)
 
-(:: bool (Parsec String u Expr))
-(= bool (fmap Bool (<|> (fmap (const True) (string "true"))
-                        (fmap (const False) (string "false")))))
+str = fmap Str str'
 
-(= var (fmap Var ident))
+bool :: Parsec String u Expr
+bool = fmap Bool (fmap (const True) (string "true") <|> fmap (const False) (string "false"))
 
-(= app (parens (do (<- rator expr)
-                   (<- rands (many1 (>> spaces1 expr)))
-                   (return (foldl App rator rands)))))
+var = fmap Var ident
 
-(= if' (parens (do (string "if")
-                   spaces1
-                   (<- pred expr)
-                   spaces1
-                   (<- conseq expr)
-                   spaces1
-                   (<- alt expr)
-                   (return (If pred conseq alt)))))
+app = parens (do rator <- expr
+                 rands <- many1 (spaces1 >> expr)
+                 return (foldl App rator rands))
 
-(= lam (parens (do (string "lambda")
-                   spaces1
-                   (<- params (parens (sepEndBy1 ident spaces1)))
-                   spaces1
-                   (<- body expr)
-                   (return (foldr Lam body params)))))
+if' = parens (do string "if"
+                 spaces1
+                 pred <- expr
+                 spaces1
+                 conseq <- expr
+                 spaces1
+                 alt <- expr
+                 return (If pred conseq alt))
 
-(= let' (let ((= bindings (parens (>> spaces (sepEndBy binding spaces))))
-              (= binding  (parens (liftM2 , ident (>> spaces1 expr)))))
-          (parens (do (string "let")
-                      spaces1
-                      (<- binds bindings)
-                      spaces1
-                      (<- body expr)
-                      (return (Let binds body))))))
+lam = parens (do string "lambda"
+                 spaces1
+                 params <- (parens (sepEndBy1 ident spaces1))
+                 spaces1
+                 body <- expr
+                 return (foldr Lam body params))
 
-(= new (parens (do (string "new")
-                   spaces1
-                   (<- variant ident)
-                   spaces1
-                   (<- members (sepEndBy1 expr spaces1))
-                   (return (New variant members)))))
+let' = let bindings = (parens ((>>) spaces (sepEndBy binding spaces)))
+           binding = (parens (liftM2 (,) ident ((>>) spaces1 expr)))
+       in parens (do string "let"
+                     spaces1
+                     binds <- bindings
+                     spaces1
+                     body <- expr
+                     return (Let binds body))
 
-(= expr (choice [nil num str bool var app if' lam let' new]))
+new = parens (do string "new"
+                 spaces1
+                 variant <- ident
+                 spaces1
+                 members <- (sepEndBy1 expr spaces1)
+                 return (New variant members))
 
+expr = choice [nil, num, str, bool, var, app, if', lam, let', new]
 
+type Test = (String, String, Parsec String () String, Maybe String)
 
---- Testing
+tNil :: Test
+tNil = ("parse nil", "nil", fmap show nil, Just (show Nil))
 
-(type Test (, String String (Parsec String () String) (Maybe String)))
+tInt :: Test
+tInt = ("parse integer", "123", fmap show num, Just (show (Num "123")))
 
-(:: tNil Test)
-(= tNil (, "parse nil" "nil" (fmap show nil) (Just (show Nil))))
+tFloat :: Test
+tFloat = ("parse float", "123.456", fmap show num, Just (show (Num "123.456")))
 
-(:: tInt Test)
-(= tInt (, "parse integer" "123" (fmap show num) (Just (show (Num "123")))))
+tStr :: Test
+tStr = ( "parse string"
+       , "\"Hello, \\\"World!\\\"\""
+       , fmap show str
+       , Just (show (Str "Hello, \\\"World!\\\"")))
 
-(:: tFloat Test)
-(= tFloat (, "parse float" "123.456" (fmap show num) (Just (show (Num "123.456")))))
+tBool :: Test
+tBool = ( "parse bool"
+        , "true false"
+        , fmap show (sepBy bool (char ' '))
+        , Just (show [Bool True, Bool False]))
 
-(:: tStr Test)
-(= tStr (, "parse string"
-           "\"Hello, \\\"World!\\\"\""
-           (fmap show str)
-           (Just (show (Str "Hello, \\\"World!\\\"")))))
+tVar :: Test
+tVar = ("parse variable", "_m�in-1", fmap show var, Just (show (Var "_m�in-1")))
 
-(:: tBool Test)
-(= tBool (, "parse bool"
-            "true false"
-            (fmap show (sepBy bool (char ' ')))
-            (Just (show [(Bool True) (Bool False)]))))
+tApp :: Test
+tApp = ( "parse app"
+       , "(++ \"Hello\" \" World!\")"
+       , fmap show app
+       , Just (show (App (App (Var "++") (Str "Hello")) (Str " World!"))))
 
-(:: tVar Test)
-(= tVar (, "parse variable"
-           "_mäin-1"
-           (fmap show var)
-           (Just (show (Var "_mäin-1")))))
+tIf :: Test
+tIf = ( "parse if"
+      , "(if (= a b) 0 (+ x y))"
+      , fmap show if'
+      , Just (show (If (App (App (Var "=") (Var "a")) (Var "b"))
+                       (Num "0")
+                       (App (App (Var "+") (Var "x")) (Var "y")))))
 
-(:: tApp Test)
-(= tApp (, "parse app"
-           "(++ \"Hello\" \" World!\")"
-           (fmap show app)
-           (Just (show (App (App (Var "++") (Str "Hello")) (Str " World!"))))))
+tLam :: Test
+tLam = ( "parse lambda"
+       , "(lambda (a b) (+ a b))"
+       , fmap show lam
+       , Just (show (Lam "a" (Lam "b" (App (App (Var "+") (Var "a")) (Var "b"))))))
 
-(:: tIf Test)
-(= tIf (, "parse if"
-          "(if (= a b) 0 (+ x y))"
-          (fmap show if')
-          (Just (show (If (App (App (Var "=") (Var "a")) (Var "b"))
-                          (Num "0")
-                          (App (App (Var "+") (Var "x")) (Var "y")))))))
+tLet :: Test
+tLet = ( "parse let"
+       , "(let ((a 1)(b 0)) (+ a b))"
+       , fmap show let'
+       , Just (show (Let [("a", Num "1"), ("b", Num "0")]
+                         (App (App (Var "+") (Var "a")) (Var "b")))))
 
-(:: tLam Test)
-(= tLam (, "parse lambda"
-           "(lambda (a b) (+ a b))"
-           (fmap show lam)
-           (Just (show (Lam "a"
-                            (Lam "b"
-                                 (App (App (Var "+") (Var "a")) (Var "b"))))))))
+tNew :: Test
+tNew = ( "parse new"
+       , "(new Pair a 1)"
+       , fmap show new
+       , Just (show (New "Pair" [Var "a", Num "1"])))
 
-(:: tLet Test)
-(= tLet (, "parse let"
-           "(let ((a 1)(b 0)) (+ a b))"
-           (fmap show let')
-           (Just (show (Let [(, "a" (Num "1")) (, "b" (Num "0"))]
-                            (App (App (Var "+") (Var "a")) (Var "b")))))))
+tests = [tNil, tInt, tFloat, tBool, tVar, tStr, tApp, tIf, tLam, tLet, tNew]
 
-(:: tNew Test)
-(= tNew (, "parse new"
-           "(new Pair a 1)"
-           (fmap show new)
-           (Just (show (New "Pair" [(Var "a") (Num "1")])))))
+runTest (name, input, parser, expected) =
+  let result = (parse parser name input)
+  in if rightToMaybe result == expected
+       then Right name
+       else (Left (name, result, expected))
 
-(= tests [tNil tInt tFloat tBool tVar tStr tApp tIf tLam tLet tNew])
+testResults = map runTest tests
 
-(= (runTest (, name input parser expected))
-   (let ((= result (parse parser name input)))
-     (if (== (rightToMaybe result) expected)
-         (Right name)
-       (Left (, name result expected)))))
+prettyTestResults =
+  let pretty (Right name) = mconcat ["Test `", name, "` passed!"]
+      pretty (Left (name, found, expected)) =
+        mconcat [ "Test `"
+                , name
+                , "` failed!\n"
+                , "  Expected "
+                , case expected of
+                    Just s -> "successful parse of\n    `" ++ s ++ "`"
+                    Nothing -> "failed parse"
+                , "\n  found\n    "
+                , show found ]
+  in intercalate "\n" (map pretty testResults)
 
-(= testResults (map runTest tests))
-
-(= prettyTestResults
-   (let ((= (pretty (Right name))
-            (mconcat ["Test `" name "` passed!"]))
-         (= (pretty (Left (, name found expected)))
-            (mconcat ["Test `" name "` failed!\n"
-                      "  Expected "
-                      (case expected
-                        ((Just s) (++ "successful parse of\n    `" (++ s "`")))
-                        (Nothing  "failed parse"))
-                      "\n  found\n    "
-                      (show found)])))
-     (intercalate "\n" (map pretty testResults))))
-
-(= printTestResults (putStrLn prettyTestResults))
+printTestResults = putStrLn prettyTestResults
