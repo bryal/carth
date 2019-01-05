@@ -6,98 +6,129 @@ import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.Either.Combinators (rightToMaybe)
 import Data.List (intercalate)
+import Data.Functor
 import Text.Parsec
+
+type Ident = String
 
 data Expr
   = Nil
-  | Num String
+  | Int Int
+  | Double Double
   | Str String
   | Bool Bool
-  | Var String
+  | Var Ident
   | App Expr Expr
   | If Expr Expr Expr
-  | Lam String Expr
-  | Let [(String, Expr)] Expr
-  | New String [Expr]
+  | Lam Ident Expr
+  | Let [(Ident, Expr)] Expr
+  | New Ident [Expr]
   deriving (Show, Eq)
 
-expr = choice [nil, num, str, bool, var, app, if', lam, let', new]
+type Parser = Parsec String ()
 
-nil = fmap (const Nil) (string "nil")
+expr :: Parser Expr
+expr = choice [nil, double, int, str, bool, var, pexpr]
 
-num = fmap Num (many1 digit <++> option "" (char '.' <:> many1 digit))
+nil :: Parser Expr
+nil = string "nil" $> Nil
 
+double :: Parser Expr
+double = fmap (Double . read) (intS <++> (char '.' <:> intS))
+
+int :: Parser Expr
+int = fmap (Int . read) intS
+
+intS :: Parser String
+intS = many1 digit
+
+str :: Parser Expr
 str = do
   char '"'
-  s <- many (escaped <|> (fmap (\c -> [c]) (noneOf ['"'])))
+  s <- many (escaped <|> fmap pure (noneOf ['"']))
   char '"'
-  return (Str (concat s))
+  pure (Str (concat s))
   where
-    escaped :: Parsec String () String
+    escaped :: Parser String
     escaped = do
       char '\\'
       c <- anyChar
       return ['\\', c]
 
-bool :: Parsec String u Expr
-bool = fmap Bool (fmap (const True) (string "true") <|> fmap (const False) (string "false"))
+bool :: Parser Expr
+bool = (string "true" $> Bool True) <|> (string "false" $> Bool False)
 
+var :: Parser Expr
 var = fmap Var ident
 
-app = parens (do rator <- expr
-                 rands <- many1 (spaces1 >> expr)
-                 return (foldl App rator rands))
+pexpr :: Parser Expr
+pexpr = parens (choice [app, if', lam, let', new])
 
-if' = parens (do string "if"
-                 spaces1
-                 pred <- expr
-                 spaces1
-                 conseq <- expr
-                 spaces1
-                 alt <- expr
-                 return (If pred conseq alt))
+app :: Parser Expr
+app = do
+  rator <- expr
+  rands <- many1 (spaces1 >> expr)
+  pure (foldl App rator rands)
 
-lam = parens (do string "lambda"
-                 spaces1
-                 params <- (parens (sepEndBy1 ident spaces1))
-                 spaces1
-                 body <- expr
-                 return (foldr Lam body params))
+if' :: Parser Expr
+if' = do
+  string "if"
+  spaces1
+  pred <- expr
+  spaces1
+  conseq <- expr
+  spaces1
+  alt <- expr
+  pure (If pred conseq alt)
 
-let' = let bindings = (parens ((>>) spaces (sepEndBy binding spaces)))
-           binding = (parens (liftM2 (,) ident ((>>) spaces1 expr)))
-       in parens (do string "let"
-                     spaces1
-                     binds <- bindings
-                     spaces1
-                     body <- expr
-                     return (Let binds body))
+lam :: Parser Expr
+lam = do
+  string "lambda"
+  spaces1
+  params <- parens (sepEndBy1 ident spaces1)
+  spaces1
+  body <- expr
+  pure (foldr Lam body params)
 
-new = parens (do string "new"
-                 spaces1
-                 variant <- ident
-                 spaces1
-                 members <- (sepEndBy1 expr spaces1)
-                 return (New variant members))
+let' :: Parser Expr
+let' = do
+  string "let"
+  spaces1
+  bindings <- parens (sepEndBy binding spaces)
+  spaces1
+  body <- expr
+  pure (Let bindings body)
+  where
+    binding = parens (liftM2 (,) ident (spaces1 *> expr))
 
+new :: Parser Expr
+new = do
+  string "new"
+  spaces1
+  variant <- ident
+  spaces1
+  members <- sepEndBy1 expr spaces1
+  pure (New variant members)
+
+ident :: Parser Ident
 ident = identFirst <:> many identRest
+  where
+    identFirst = letter <|> symbol
+    identRest = identFirst <|> digit
+    symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
+                                , not (elem c "()[]{}")
+                                , not (c == '"') ])
 
-identFirst = letter <|> symbol
-
-identRest = identFirst <|> digit
-
-symbol = satisfy (\c -> and [ any (\pred -> pred c) [isMark, isPunctuation, isSymbol]
-                            , not (isBracket c)
-                            , not (c == '"') ])
-
-isBracket c = elem c "()[]{}"
-
+(<:>) :: Parser a -> Parser [a] -> Parser [a]
 (<:>) = liftM2 (:)
 
+(<++>) :: Parser [a] -> Parser [a] -> Parser [a]
 (<++>) = liftM2 (++)
 
+spaces1 :: Parser ()
 spaces1 = skipMany1 space
 
+parens :: Parser a -> Parser a
 parens = between (char '(' >> spaces) (spaces >> char ')')
 
 
@@ -130,13 +161,14 @@ runTest (name, input, parser, expected) =
        then Right name
        else (Left (name, result, expected))
 
+
 tests = [tNil, tInt, tFloat, tBool, tVar, tStr, tApp, tIf, tLam, tLet, tNew]
 
 tNil, tInt, tFloat, tStr, tBool, tVar, tApp, tIf, tLam, tLet, tNew :: Test
 
 tNil = ("parse nil", "nil", fmap show nil, Just (show Nil))
-tInt = ("parse integer", "123", fmap show num, Just (show (Num "123")))
-tFloat = ("parse float", "123.456", fmap show num, Just (show (Num "123.456")))
+tInt = ("parse int", "123", fmap show int, Just (show (Int 123)))
+tFloat = ("parse double", "123.456", fmap show double, Just (show (Double 123.456)))
 tStr = ( "parse string"
        , "\"Hello, \\\"World!\\\"\""
        , fmap show str
@@ -154,7 +186,7 @@ tIf = ( "parse if"
       , "(if (= a b) 0 (+ x y))"
       , fmap show if'
       , Just (show (If (App (App (Var "=") (Var "a")) (Var "b"))
-                       (Num "0")
+                       (Int 0)
                        (App (App (Var "+") (Var "x")) (Var "y")))))
 tLam = ( "parse lambda"
        , "(lambda (a b) (+ a b))"
@@ -163,9 +195,9 @@ tLam = ( "parse lambda"
 tLet = ( "parse let"
        , "(let ((a 1)(b 0)) (+ a b))"
        , fmap show let'
-       , Just (show (Let [("a", Num "1"), ("b", Num "0")]
+       , Just (show (Let [("a", Int 1), ("b", Int 0)]
                          (App (App (Var "+") (Var "a")) (Var "b")))))
 tNew = ( "parse new"
-       , "(new Pair a 1)"
+       , "(new Pair a 1.0)"
        , fmap show new
-       , Just (show (New "Pair" [Var "a", Num "1"])))
+       , Just (show (New "Pair" [Var "a", Double 1.0])))
