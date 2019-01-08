@@ -24,13 +24,14 @@ expr = choice [nil, double, int, str, bool, var, pexpr]
 nil :: Parser Expr
 nil = try (string "nil" <* notFollowedBy identRest) $> Nil
 
-double :: Parser Expr
-double = fmap (Double . read) (try (option "" (string "-") <++> uintS <++> string ".") <++> uintS)
-
-int :: Parser Expr
-int = fmap (Int . read) (try (option "" (string "-") <++> uintS))
-
-uintS :: Parser String
+double, int :: Parser Expr
+double = do
+  l <- try (option "" (string "-") <++> uintS <++> string ".")
+  r <- uintS
+  e <- option "" (char 'e' <:> intS)
+  pure ((Double . read . concat) [l, r, e])
+int = fmap (Int . read) intS
+intS = try (option "" (string "-") <++> uintS)
 uintS = many1 digit
 
 str :: Parser Expr
@@ -47,8 +48,9 @@ str = do
       return ['\\', c]
 
 bool :: Parser Expr
-bool = ((string "true" $> Bool True) <|> (string "false" $> Bool False)) <*
-         notFollowedBy identRest
+bool = try ((<*) ((<|>) (string "true" $> Bool True)
+                        (string "false" $> Bool False))
+                 (notFollowedBy identRest))
 
 var :: Parser Expr
 var = fmap Var ident

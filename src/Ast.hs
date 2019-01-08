@@ -23,14 +23,14 @@ data Expr
 
 instance Arbitrary Expr where
   arbitrary = frequency [ (5, pure Nil)
-                        , (20, fmap Int arbitrary)
-                        , (20, fmap Double arbitrary)
-                        , (10, fmap (Str . getUnicodeString) arbitrary)
+                        , (15, fmap Int arbitrary)
+                        , (15, fmap Double arbitrary)
+                        , (8, fmap (Str . getUnicodeString) arbitrary)
                         , (5, fmap Bool arbitrary)
-                        , (40, fmap Var arbitraryIdent)
-                        , (30, applyArbitrary2 App)
-                        , (8, applyArbitrary3 If)
-                        , (5, liftM2 Lam arbitraryIdent arbitrary)
+                        , (30, fmap Var arbitraryIdent)
+                        , (20, applyArbitrary2 App)
+                        , (10, applyArbitrary3 If)
+                        , (10, liftM2 Lam arbitraryIdent arbitrary)
                         , (10, arbitraryLet) ]
     where arbitraryIdent :: Gen Ident
           arbitraryIdent = choose (1, 15) >>= flip vectorOf c
