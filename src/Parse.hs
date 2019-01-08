@@ -1,31 +1,22 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Parse where
+module Parse (parse, Expr (..)) where
 
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol)
-import Data.Either.Combinators (rightToMaybe)
-import Data.List (intercalate)
 import Data.Functor
-import Text.Parsec
+import qualified Text.Parsec as Parsec
+import Text.Parsec hiding (parse)
 
-type Ident = String
-
-data Expr
-  = Nil
-  | Int Int
-  | Double Double
-  | Str String
-  | Bool Bool
-  | Var Ident
-  | App Expr Expr
-  | If Expr Expr Expr
-  | Lam Ident Expr
-  | Let [(Ident, Expr)] Expr
-  | New Ident [Expr]
-  deriving (Show, Eq)
+import Ast
 
 type Parser = Parsec String ()
+
+-- Use Parsec LanguageDef for easy handling of comments and reserved keywords
+-- http://hackage.haskell.org/package/parsec-3.1.13.0/docs/Text-Parsec-Token.html
+
+parse :: SourceName -> String -> Either ParseError Expr
+parse = Parsec.parse expr
 
 expr :: Parser Expr
 expr = choice [nil, double, int, str, bool, var, pexpr]
@@ -99,15 +90,6 @@ let' = do
   where
     binding = parens (liftM2 (,) ident (spaces1 *> expr))
 
-new :: Parser Expr
-new = do
-  string "new"
-  spaces1
-  variant <- ident
-  spaces1
-  members <- sepEndBy1 expr spaces1
-  pure (New variant members)
-
 ident :: Parser Ident
 ident = identFirst <:> many identRest
 
@@ -126,76 +108,8 @@ symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
 spaces1 :: Parser ()
 spaces1 = skipMany1 space
 
+-- Note that () and [] can be used interchangeably, as long as the
+-- opening and closing bracket matches.
 parens :: Parser a -> Parser a
-parens = between (char '(' >> spaces) (spaces >> char ')')
-
-
-
---- Tests
-
-type Test = (String, String, Parsec String () String, Maybe String)
-
-printTestResults = putStrLn prettyTestResults
-
-prettyTestResults =
-  let pretty (Right name) = mconcat ["Test `", name, "` passed!"]
-      pretty (Left (name, found, expected)) =
-        mconcat [ "Test `"
-                , name
-                , "` failed!\n"
-                , "  Expected "
-                , case expected of
-                    Just s -> "successful parse of\n    `" ++ s ++ "`"
-                    Nothing -> "failed parse"
-                , "\n  found\n    "
-                , show found ]
-  in intercalate "\n" (map pretty testResults)
-
-testResults = map runTest tests
-
-runTest (name, input, parser, expected) =
-  let result = (parse parser name input)
-  in if rightToMaybe result == expected
-       then Right name
-       else (Left (name, result, expected))
-
-
-tests = [tNil, tInt, tFloat, tBool, tVar, tStr, tApp, tIf, tLam, tLet, tNew]
-
-tNil, tInt, tFloat, tStr, tBool, tVar, tApp, tIf, tLam, tLet, tNew :: Test
-
-tNil = ("parse nil", "nil", fmap show nil, Just (show Nil))
-tInt = ("parse int", "123", fmap show int, Just (show (Int 123)))
-tFloat = ("parse double", "123.456", fmap show double, Just (show (Double 123.456)))
-tStr = ( "parse string"
-       , "\"Hello, \\\"World!\\\"\""
-       , fmap show str
-       , Just (show (Str "Hello, \\\"World!\\\"")))
-tBool = ( "parse bool"
-        , "true false"
-        , fmap show (sepBy bool (char ' '))
-        , Just (show [Bool True, Bool False]))
-tVar = ("parse variable", "_m�in-1", fmap show var, Just (show (Var "_m�in-1")))
-tApp = ( "parse app"
-       , "(++ \"Hello\" \" World!\")"
-       , fmap show app
-       , Just (show (App (App (Var "++") (Str "Hello")) (Str " World!"))))
-tIf = ( "parse if"
-      , "(if (= a b) 0 (+ x y))"
-      , fmap show if'
-      , Just (show (If (App (App (Var "=") (Var "a")) (Var "b"))
-                       (Int 0)
-                       (App (App (Var "+") (Var "x")) (Var "y")))))
-tLam = ( "parse lambda"
-       , "(lambda (a b) (+ a b))"
-       , fmap show lam
-       , Just (show (Lam "a" (Lam "b" (App (App (Var "+") (Var "a")) (Var "b"))))))
-tLet = ( "parse let"
-       , "(let ((a 1)(b 0)) (+ a b))"
-       , fmap show let'
-       , Just (show (Let [("a", Int 1), ("b", Int 0)]
-                         (App (App (Var "+") (Var "a")) (Var "b")))))
-tNew = ( "parse new"
-       , "(new Pair a 1.0)"
-       , fmap show new
-       , Just (show (New "Pair" [Var "a", Double 1.0])))
+parens p = choice (map (\(l, r) -> between (char l >> spaces) (spaces >> char r) p)
+                       [('(', ')'), ('[', ']')])
