@@ -31,16 +31,16 @@ expr :: Parser Expr
 expr = choice [nil, double, int, str, bool, var, pexpr]
 
 nil :: Parser Expr
-nil = string "nil" $> Nil
+nil = try (string "nil" <* notFollowedBy identRest) $> Nil
 
 double :: Parser Expr
-double = fmap (Double . read) (intS <++> (char '.' <:> intS))
+double = fmap (Double . read) (try (option "" (string "-") <++> uintS <++> string ".") <++> uintS)
 
 int :: Parser Expr
-int = fmap (Int . read) intS
+int = fmap (Int . read) (try (option "" (string "-") <++> uintS))
 
-intS :: Parser String
-intS = many1 digit
+uintS :: Parser String
+uintS = many1 digit
 
 str :: Parser Expr
 str = do
@@ -56,13 +56,14 @@ str = do
       return ['\\', c]
 
 bool :: Parser Expr
-bool = (string "true" $> Bool True) <|> (string "false" $> Bool False)
+bool = ((string "true" $> Bool True) <|> (string "false" $> Bool False)) <*
+         notFollowedBy identRest
 
 var :: Parser Expr
 var = fmap Var ident
 
 pexpr :: Parser Expr
-pexpr = parens (choice [app, if', lam, let', new])
+pexpr = parens (choice [if', lam, let', app])
 
 app :: Parser Expr
 app = do
@@ -72,8 +73,7 @@ app = do
 
 if' :: Parser Expr
 if' = do
-  string "if"
-  spaces1
+  try (string "if" *> spaces1)
   pred <- expr
   spaces1
   conseq <- expr
@@ -83,8 +83,7 @@ if' = do
 
 lam :: Parser Expr
 lam = do
-  string "lambda"
-  spaces1
+  try (string "lambda" *> spaces1)
   params <- parens (sepEndBy1 ident spaces1)
   spaces1
   body <- expr
@@ -92,8 +91,7 @@ lam = do
 
 let' :: Parser Expr
 let' = do
-  string "let"
-  spaces1
+  try (string "let" >> spaces1)
   bindings <- parens (sepEndBy binding spaces)
   spaces1
   body <- expr
@@ -112,12 +110,12 @@ new = do
 
 ident :: Parser Ident
 ident = identFirst <:> many identRest
-  where
-    identFirst = letter <|> symbol
-    identRest = identFirst <|> digit
-    symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
-                                , not (elem c "()[]{}")
-                                , not (c == '"') ])
+
+identFirst = letter <|> symbol
+identRest = identFirst <|> digit
+symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
+                            , not (elem c "()[]{}")
+                            , not (c == '"') ])
 
 (<:>) :: Parser a -> Parser [a] -> Parser [a]
 (<:>) = liftM2 (:)
