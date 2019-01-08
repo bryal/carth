@@ -1,6 +1,6 @@
-name:                octaesar
+name:                carth
 version:             0.1.0.0
-github:              "bryal/octaesar"
+github:              "bryal/carth"
 license:             AGPL-3
 author:              "Johan Johansson"
 maintainer:          "96.bryal@gmail.com"
@@ -16,7 +16,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/bryal/octaesar#readme>
+description:         Please see the README on GitHub at <https://github.com/bryal/carth#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -28,7 +28,7 @@ library:
   source-dirs: src
 
 executables:
-  octaesar-exe:
+  carth-exe:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -36,10 +36,10 @@ executables:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - octaesar
+    - carth
 
 tests:
-  octaesar-test:
+  carth-test:
     main:                Spec.hs
     source-dirs:         test
     ghc-options:
@@ -47,6 +47,6 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
-    - octaesar
+    - carth
     - hspec
     - hspec-discover

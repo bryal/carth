@@ -1,8 +1,6 @@
-#+TITLE: The Octaesar programming language
+#+TITLE: The Carth programming language
 
-I have two cats. The name of the language is a portmanteau of their names Octavia and Caesar.
-
-Also it's a rewrite of [[https://github.com/bryal/kvasir][kvasir]] in Haskell.
+Rewrite of [[https://github.com/bryal/kvasir][kvasir]] in Haskell.
 
 ** License
 
