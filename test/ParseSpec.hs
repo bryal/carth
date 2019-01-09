@@ -10,6 +10,7 @@ import Ast
 import Parse
 
 spec :: Spec
-spec = describe "parse" $ do
-  it "parses a program to an AST, and is the inverse of pretty"
-     (withMaxSuccess 1e3 (\progAst -> parse "spec" (pretty progAst) == Right progAst))
+spec = do
+  describe "parse" $
+    it "parses a program to an AST, and is the inverse of pretty" $
+    withMaxSuccess 1e3 (\progAst -> parse "spec" (pretty progAst) == Right progAst)

@@ -23,6 +23,7 @@ dependencies:
 - parsec == 3.1.13.0
 - either
 - QuickCheck
+- containers
 
 library:
   source-dirs: src

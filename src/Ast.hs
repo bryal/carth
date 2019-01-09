@@ -1,12 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Ast (Ident, Expr (..), pretty) where
+module Ast (Id (..), Expr (..), Program (..), pretty) where
 
 import Data.List (intercalate)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Control.Monad
 import Test.QuickCheck
 
-type Ident = String
+newtype Id = Id String
+  deriving (Show, Eq, Ord)
 
 data Expr
   = Unit
@@ -14,12 +17,20 @@ data Expr
   | Double Double
   | Str String
   | Bool Bool
-  | Var Ident
+  | Var Id
   | App Expr Expr
   | If Expr Expr Expr
-  | Lam Ident Expr
-  | Let [(Ident, Expr)] Expr
+  | Lam Id Expr
+  | Let [(Id, Expr)] Expr
   deriving (Show, Eq)
+
+type Defs = Map Id Expr
+
+data Program = Program Expr Defs
+  deriving (Show, Eq)
+
+instance Arbitrary Program where
+  arbitrary = applyArbitrary2 Program
 
 instance Arbitrary Expr where
   arbitrary = frequency [ (5, pure Unit)
@@ -27,22 +38,23 @@ instance Arbitrary Expr where
                         , (15, fmap Double arbitrary)
                         , (8, fmap (Str . getUnicodeString) arbitrary)
                         , (5, fmap Bool arbitrary)
-                        , (30, fmap Var arbitraryIdent)
+                        , (30, fmap Var arbitrary)
                         , (20, applyArbitrary2 App)
                         , (10, applyArbitrary3 If)
-                        , (10, liftM2 Lam arbitraryIdent arbitrary)
+                        , (10, applyArbitrary2 Lam)
                         , (10, arbitraryLet) ]
-    where arbitraryIdent :: Gen Ident
-          arbitraryIdent = choose (1, 15) >>= flip vectorOf c
-          c = frequency [ (26, choose ('a', 'z'))
-                        , (26, choose ('A', 'Z'))
-                        , (4, elements ['_', '-', '+', '?']) ]
-          arbitraryLet :: Gen Expr
+    where arbitraryLet :: Gen Expr
           arbitraryLet = do
             n <- choose (0, 6)
-            bindings <- vectorOf n (liftM2 (,) arbitraryIdent arbitrary)
+            bindings <- vectorOf n (applyArbitrary2 (,))
             body <- arbitrary
             pure (Let bindings body)
+
+instance Arbitrary Id where
+  arbitrary = fmap Id (choose (1, 15) >>= flip vectorOf c)
+    where c = frequency [ (26, choose ('a', 'z'))
+                        , (26, choose ('A', 'Z'))
+                        , (4, elements ['_', '-', '+', '?']) ]
 
 -- variable def of name and val (expr)
 
@@ -62,7 +74,7 @@ pretty' d = \case
   Double x -> show x
   Str s -> '"' : s ++ "\""
   Bool b -> if b then "true" else "false"
-  Var v -> v
+  Var (Id v) -> v
   App f x ->
     concat [ "(", pretty' (d + 1) f, "\n"
            , replicate (d + 1) ' ',  pretty' (d + 1) x, ")" ]
@@ -70,7 +82,7 @@ pretty' d = \case
     concat [ "(if ", pretty' (d + 4) pred, "\n"
            , replicate (d + 4) ' ', pretty' (d + 4) cons, "\n"
            , replicate (d + 2) ' ', pretty' (d + 2) alt, ")" ]
-  Lam param body ->
+  Lam (Id param) body ->
     concat [ "(lambda [", param, "]", "\n"
            , replicate (d + 8) ' ', pretty' (d + 8) body, ")" ]
   Let binds body ->
@@ -79,6 +91,6 @@ pretty' d = \case
                          (map (prettyBind (d + 6)) binds)
            , "]\n"
            , replicate (d + 2) ' ' ++ pretty' (d + 2) body, ")" ]
-  where prettyBind d (var, val) =
+  where prettyBind d (Id var, val) =
           concat [ "[", var, "\n"
                  , replicate (d + 1) ' ', pretty' (d + 1) val, "]" ]

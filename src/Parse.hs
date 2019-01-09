@@ -1,10 +1,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Parse (parse, Expr (..)) where
+module Parse (parse) where
 
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.Functor
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
 
@@ -15,8 +17,32 @@ type Parser = Parsec String ()
 -- Use Parsec LanguageDef for easy handling of comments and reserved keywords
 -- http://hackage.haskell.org/package/parsec-3.1.13.0/docs/Text-Parsec-Token.html
 
-parse :: SourceName -> String -> Either ParseError Expr
-parse = Parsec.parse expr
+parse :: SourceName -> String -> Either ParseError Program
+parse = Parsec.parse program
+
+program :: Parser Program
+program = do
+  spaces
+  defs <- fmap Map.fromList (sepEndBy def spaces)
+  main <- maybe (fail "main function not defined") pure (Map.lookup (Id "main") defs)
+  pure (Program main (Map.delete (Id "main") defs))
+
+def :: Parser (Id, Expr)
+def = parens (try (string "define" *> spaces1) *> (varDef <|> funDef))
+
+varDef :: Parser (Id, Expr)
+varDef = do
+  name <- ident
+  spaces1
+  body <- expr
+  pure (name, body)
+
+funDef :: Parser (Id, Expr)
+funDef = do
+  (name, params) <- parens (liftM2 (,) ident (spaces1 *> sepEndBy1 ident spaces1))
+  spaces1
+  body <- expr
+  pure (name, foldr Lam body params)
 
 expr :: Parser Expr
 expr = choice [unit, double, int, str, bool, var, pexpr]
@@ -92,8 +118,8 @@ let' = do
   where
     binding = parens (liftM2 (,) ident (spaces1 *> expr))
 
-ident :: Parser Ident
-ident = identFirst <:> many identRest
+ident :: Parser Id
+ident = fmap Id (identFirst <:> many identRest)
 
 identFirst = letter <|> symbol
 identRest = identFirst <|> digit
