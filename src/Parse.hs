@@ -19,10 +19,10 @@ parse :: SourceName -> String -> Either ParseError Expr
 parse = Parsec.parse expr
 
 expr :: Parser Expr
-expr = choice [nil, double, int, str, bool, var, pexpr]
+expr = choice [unit, double, int, str, bool, var, pexpr]
 
-nil :: Parser Expr
-nil = try (string "nil" <* notFollowedBy identRest) $> Nil
+unit :: Parser Expr
+unit = try (string "unit" <* notFollowedBy identRest) $> Unit
 
 double, int :: Parser Expr
 double = do

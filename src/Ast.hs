@@ -9,7 +9,7 @@ import Test.QuickCheck
 type Ident = String
 
 data Expr
-  = Nil
+  = Unit
   | Int Int
   | Double Double
   | Str String
@@ -22,7 +22,7 @@ data Expr
   deriving (Show, Eq)
 
 instance Arbitrary Expr where
-  arbitrary = frequency [ (5, pure Nil)
+  arbitrary = frequency [ (5, pure Unit)
                         , (15, fmap Int arbitrary)
                         , (15, fmap Double arbitrary)
                         , (8, fmap (Str . getUnicodeString) arbitrary)
@@ -57,7 +57,7 @@ pretty = pretty' 0
 -- Pretty print starting at indentation depth `d`
 pretty' :: Int -> Expr -> String
 pretty' d = \case
-  Nil -> "nil"
+  Unit -> "unit"
   Int n -> show n
   Double x -> show x
   Str s -> '"' : s ++ "\""
