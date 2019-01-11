@@ -3,7 +3,6 @@
 module Ast (Id (..), Pat (..), Expr (..), Program (..)) where
 
 import NonEmpty
-import Data.List (intercalate)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Control.Monad
@@ -82,5 +81,5 @@ arbitraryRestIdent = shortList c
                       , (26, choose ('A', 'Z'))
                       , (4, elements ['_', '-', '+', '?']) ]
 
-shortList :: Arbitrary a => Gen a -> Gen [a]
+shortList :: Gen a -> Gen [a]
 shortList gen = choose (0, 8) >>= flip vectorOf gen

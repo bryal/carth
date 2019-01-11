@@ -76,7 +76,7 @@ instance Pretty Id where
   pretty' _ (Id s) = s
 
 instance Pretty Pat where
-  pretty' d = \case
+  pretty' _ = \case
     PConstructor c -> c
     PConstruction c ps ->
       concat [ "(", c, " ", intercalate " " (nonEmptyToList (map1 pretty ps)), ")" ]

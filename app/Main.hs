@@ -2,7 +2,6 @@
 
 module Main where
 
-import Control.Monad
 import Data.Functor
 import Lib
 
@@ -32,4 +31,5 @@ parseFile file = readFile file <&> parse file >>= \case
     exitFailure
   Right pgm -> print pgm >> pure pgm
 
+usage :: IO ()
 usage = putStrLn "Usage: carth SRC-FILE" >> exitFailure

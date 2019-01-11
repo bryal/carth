@@ -3,7 +3,6 @@
 module Parse (parse) where
 
 import NonEmpty
-import Pretty
 import Ast
 import Control.Monad
 import Data.Maybe
@@ -11,7 +10,6 @@ import Data.Composition
 import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.Functor
 import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
 import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
 
@@ -60,6 +58,8 @@ double = do
   e <- option "" (char 'e' <:> intS)
   pure ((Double . read . concat) [l, r, e])
 int = fmap (Int . read) intS
+
+intS, uintS :: Parser String
 intS = try (option "" (string "-") <++> uintS)
 uintS = many1 digit
 
@@ -149,17 +149,19 @@ let' = do
 
 ident :: Parser Id
 ident = fmap Id (identFirst <:> many identRest)
-
-identFirst = lower <|> symbol
-identRest = letter <|> symbol <|> digit
-symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
-                            , not (elem c "()[]{}")
-                            , not (c == '"') ])
+  where identFirst = lower <|> symbol
 
 constructor :: Parser String
 constructor = constructorFirst <:> many identRest
   where constructorFirst = upper <|> char ':'
 
+identRest :: Parser Char
+identRest = letter <|> symbol <|> digit
+
+symbol :: Parser Char
+symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
+                            , not (elem c "()[]{}")
+                            , not (c == '"') ])
 
 (<:>) :: Parser a -> Parser [a] -> Parser [a]
 (<:>) = liftM2 (:)

@@ -28,6 +28,16 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options:
+  - -Wall
+  - -Wcompat
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wredundant-constraints
+
+  - -fno-warn-name-shadowing
+  - -fno-warn-orphans
+  - -fno-warn-unused-do-bind
 
 executables:
   carth-exe:
