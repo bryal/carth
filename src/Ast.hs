@@ -46,6 +46,7 @@ instance Arbitrary Program where
     main <- arbitrary
     defs <- choose (0, 4) >>= flip vectorOf arbitrary
     pure (Program main (Map.fromList defs))
+  shrink (Program main defs) = [Program main' defs' | (main', defs') <- shrink (main, defs)]
 
 instance Arbitrary Expr where
   arbitrary = frequency [ (5, pure Unit)
@@ -62,11 +63,22 @@ instance Arbitrary Expr where
                         , (4, fmap FunMatch arbitrary)
                         , (15, fmap Constructor arbitraryConstructor)
                         , (5, fmap Char arbitrary)]
+  shrink = \case
+    App f x -> [Unit, f, x] ++ [App f' x' | (f', x') <- shrink (f, x)]
+    If p c a -> [Unit, p, c, a] ++ [If p' c' a' | (p', c', a') <- shrink (p, c, a)]
+    Fun p b -> [Unit, b] ++ [Fun p' b' | (p', b') <- shrink (p, b)]
+    Let bs x -> [Unit, x] ++ [Let bs' x' | (bs', x') <- shrink (bs, x)]
+    Match e cs -> [Unit, e] ++ [Match e' cs' | (e', cs') <- shrink (e, cs)]
+    FunMatch cs -> Unit : map FunMatch (shrink cs)
+    _ -> []
 
 instance Arbitrary Pat where
   arbitrary = frequency [ (3, fmap PConstructor arbitraryConstructor)
                         , (1, liftM2 PConstruction arbitraryConstructor arbitrary)
                         , (3, fmap PVar arbitrary)]
+  shrink = \case
+    PConstruction c ps -> PConstructor c : map (PConstruction c) (shrink ps)
+    _ -> []
 
 instance Arbitrary Id where
   arbitrary = do

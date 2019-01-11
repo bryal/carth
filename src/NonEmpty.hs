@@ -9,6 +9,7 @@ import Test.QuickCheck.Gen
 
 instance Arbitrary a => Arbitrary (NonEmpty a) where
   arbitrary = liftM2 (:|) arbitrary (choose (0, 4) >>= flip vectorOf arbitrary)
+  shrink (x:|xs) = [x':|xs' | (x', xs') <- shrink (x, xs)]
 
 intersperse1 :: a -> NonEmpty a -> NonEmpty a
 intersperse1 = NonEmpty.intersperse
