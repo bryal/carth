@@ -1,0 +1,8 @@
+* Carth
+
+** TODO Translate kvasir todo
+** INACTIVE Hoogle equivalent
+   https://wiki.haskell.org/Hoogle
+** INACTIVE Web playground
+   Like play.rustlang.org
+** INACTIVE Language server protocol
