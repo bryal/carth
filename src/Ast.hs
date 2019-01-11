@@ -33,6 +33,7 @@ data Expr
   | Match Expr (NonEmpty (Pat, Expr))
   | FunMatch (NonEmpty (Pat, Expr))
   | Constructor String
+  | Char Char
   deriving (Show, Eq)
 
 type Defs = Map Id Expr
@@ -41,7 +42,10 @@ data Program = Program Expr Defs
   deriving (Show, Eq)
 
 instance Arbitrary Program where
-  arbitrary = liftM2 Program arbitrary (fmap Map.fromList (shortList arbitrary))
+  arbitrary = do
+    main <- arbitrary
+    defs <- choose (0, 4) >>= flip vectorOf arbitrary
+    pure (Program main (Map.fromList defs))
 
 instance Arbitrary Expr where
   arbitrary = frequency [ (5, pure Unit)
@@ -56,7 +60,8 @@ instance Arbitrary Expr where
                         , (5, applyArbitrary2 Let)
                         , (4, applyArbitrary2 Match)
                         , (4, fmap FunMatch arbitrary)
-                        , (15, fmap Constructor arbitraryConstructor) ]
+                        , (15, fmap Constructor arbitraryConstructor)
+                        , (5, fmap Char arbitrary)]
 
 instance Arbitrary Pat where
   arbitrary = frequency [ (3, fmap PConstructor arbitraryConstructor)
@@ -67,19 +72,13 @@ instance Arbitrary Id where
   arbitrary = do
     first <- frequency [ (26, choose ('a', 'z')), (4, elements ['_', '-', '+', '?']) ]
     rest <- arbitraryRestIdent
-    pure (Id (first:rest))
-
-instance Arbitrary a => Arbitrary (NonEmpty a) where
-  arbitrary = liftM2 (:|) arbitrary (shortList arbitrary)
+    pure (Id (first:rest ++ "-foo"))
 
 arbitraryConstructor :: Gen String
 arbitraryConstructor = liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
 
 arbitraryRestIdent :: Gen String
-arbitraryRestIdent = shortList c
+arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
   where c = frequency [ (26, choose ('a', 'z'))
                       , (26, choose ('A', 'Z'))
                       , (4, elements ['_', '-', '+', '?']) ]
-
-shortList :: Gen a -> Gen [a]
-shortList gen = choose (0, 8) >>= flip vectorOf gen

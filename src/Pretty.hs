@@ -37,7 +37,7 @@ instance Pretty Expr where
     Unit -> "unit"
     Int n -> show n
     Double x -> show x
-    Str s -> '"' : s ++ "\""
+    Str s -> '"' : (s >>= showChar') ++ "\""
     Bool b -> if b then "true" else "false"
     Var (Id v) -> v
     App f x ->
@@ -49,7 +49,7 @@ instance Pretty Expr where
              , replicate (d + 2) ' ', pretty' (d + 2) alt, ")" ]
     Fun (Id param) body ->
       concat [ "(fun [", param, "]", "\n"
-             , replicate (d + 8) ' ', pretty' (d + 8) body, ")" ]
+             , replicate (d + 2) ' ', pretty' (d + 2) body, ")" ]
     Let binds body ->
       concat [ "(let ["
              , intercalate1 ("\n" ++ replicate (d + 6) ' ')
@@ -68,9 +68,23 @@ instance Pretty Expr where
                             (map1 (prettyBracketPair (d + 2)) cs)
              , ")"]
     Constructor c -> c
+    Char c -> showChar c
     where prettyBracketPair d (a, b) =
             concat [ "[", pretty' (d + 1) a, "\n"
                    , replicate (d + 1) ' ', pretty' (d + 1) b, "]" ]
+          showChar' = \case
+            '\0' -> "\\0"
+            '\a' -> "\\a"
+            '\b' -> "\\b"
+            '\t' -> "\\t"
+            '\n' -> "\\n"
+            '\v' -> "\\v"
+            '\f' -> "\\f"
+            '\r' -> "\\r"
+            '\\' -> "\\\\"
+            '\"' -> "\\\""
+            c -> [c]
+          showChar c = "'" ++ showChar' c ++ "'"
 
 instance Pretty Id where
   pretty' _ (Id s) = s

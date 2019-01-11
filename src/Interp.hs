@@ -3,4 +3,4 @@ module Interp (interpret) where
 import Ast
 
 interpret :: Program -> Either String ()
-interpret pgm = Left "not yet implemented"
+interpret _ = Left "not yet implemented"

@@ -3,6 +3,12 @@ module NonEmpty (NonEmpty (..), intersperse1, intercalate1, map1, nonEmptyToList
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty (..), nonEmpty)
 import Data.Composition
+import Control.Monad
+import Test.QuickCheck.Arbitrary
+import Test.QuickCheck.Gen
+
+instance Arbitrary a => Arbitrary (NonEmpty a) where
+  arbitrary = liftM2 (:|) arbitrary (choose (0, 4) >>= flip vectorOf arbitrary)
 
 intersperse1 :: a -> NonEmpty a -> NonEmpty a
 intersperse1 = NonEmpty.intersperse

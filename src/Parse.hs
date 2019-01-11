@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleContexts, LambdaCase #-}
 
 module Parse (parse) where
 
@@ -46,7 +46,7 @@ funDef = do
   pure (name, foldr Fun body params)
 
 expr :: Parser Expr
-expr = choice [unit, double, int, str, bool, var, eConstructor, pexpr]
+expr = choice [unit, double, int, charLit, str, bool, var, eConstructor, pexpr]
 
 unit :: Parser Expr
 unit = try (string "unit" <* notFollowedBy identRest) $> Unit
@@ -63,18 +63,33 @@ intS, uintS :: Parser String
 intS = try (option "" (string "-") <++> uintS)
 uintS = many1 digit
 
+charLit :: Parser Expr
+charLit = char '\'' *> fmap Char (escaped <|> anyChar) <* char '\''
+
 str :: Parser Expr
 str = do
   char '"'
-  s <- many (escaped <|> fmap pure (noneOf ['"']))
+  s <- many (escaped <|> noneOf ['"'])
   char '"'
-  pure (Str (concat s))
-  where
-    escaped :: Parser String
-    escaped = do
-      char '\\'
-      c <- anyChar
-      return ['\\', c]
+  pure (Str s)
+
+escaped :: Parser Char
+escaped = do
+  char '\\'
+  c <- choice (map char ['0', 'a', 'b', 't', 'n', 'v', 'f', 'r', '\\', '\"'])
+  return (escapeChar c)
+  where escapeChar = \case
+          '0' -> '\0'
+          'a' -> '\a'
+          'b' -> '\b'
+          't' -> '\t'
+          'n' -> '\n'
+          'v' -> '\v'
+          'f' -> '\f'
+          'r' -> '\r'
+          '\\' -> '\\'
+          '\"' -> '"'
+          c -> error ("ICE: Unknown escape character \'" ++ c : "\'")
 
 bool :: Parser Expr
 bool = try ((<*) ((<|>) (string "true" $> Bool True)
