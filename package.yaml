@@ -24,6 +24,7 @@ dependencies:
 - either
 - QuickCheck
 - containers
+- composition
 
 library:
   source-dirs: src

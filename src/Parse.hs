@@ -2,15 +2,18 @@
 
 module Parse (parse) where
 
+import NonEmpty
+import Pretty
+import Ast
 import Control.Monad
+import Data.Maybe
+import Data.Composition
 import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.Functor
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
-
-import Ast
 
 type Parser = Parsec String ()
 
@@ -42,10 +45,10 @@ funDef = do
   (name, params) <- parens (liftM2 (,) ident (spaces1 *> sepEndBy1 ident spaces1))
   spaces1
   body <- expr
-  pure (name, foldr Lam body params)
+  pure (name, foldr Fun body params)
 
 expr :: Parser Expr
-expr = choice [unit, double, int, str, bool, var, pexpr]
+expr = choice [unit, double, int, str, bool, var, eConstructor, pexpr]
 
 unit :: Parser Expr
 unit = try (string "unit" <* notFollowedBy identRest) $> Unit
@@ -81,8 +84,34 @@ bool = try ((<*) ((<|>) (string "true" $> Bool True)
 var :: Parser Expr
 var = fmap Var ident
 
+eConstructor :: Parser Expr
+eConstructor = fmap Constructor constructor
+
 pexpr :: Parser Expr
-pexpr = parens (choice [if', lam, let', app])
+pexpr = parens (choice [funMatch, match, if', fun, let', app])
+
+funMatch :: Parser Expr
+funMatch = try (string "fun-match" *> spaces1) *> fmap FunMatch cases
+
+match :: Parser Expr
+match = do
+  try (string "match" *> spaces1)
+  e <- expr
+  spaces1
+  cs <- cases
+  pure (Match e cs)
+
+cases :: Parser (NonEmpty (Pat, Expr))
+cases = sepEndBy1' case' spaces1
+
+case' :: Parser (Pat, Expr)
+case' = parens (liftM2 (,) pat (spaces1 *> expr))
+
+pat :: Parser Pat
+pat = patTor <|> patTion <|> patVar
+  where patTor = fmap PConstructor constructor
+        patTion = parens (liftM2 PConstruction constructor (spaces1 *> sepEndBy1' pat spaces1))
+        patVar = fmap PVar ident
 
 app :: Parser Expr
 app = do
@@ -100,18 +129,18 @@ if' = do
   alt <- expr
   pure (If pred conseq alt)
 
-lam :: Parser Expr
-lam = do
-  try (string "lambda" *> spaces1)
+fun :: Parser Expr
+fun = do
+  try (string "fun" *> spaces1)
   params <- parens (sepEndBy1 ident spaces1)
   spaces1
   body <- expr
-  pure (foldr Lam body params)
+  pure (foldr Fun body params)
 
 let' :: Parser Expr
 let' = do
   try (string "let" >> spaces1)
-  bindings <- parens (sepEndBy binding spaces)
+  bindings <- parens (sepEndBy1' binding spaces)
   spaces1
   body <- expr
   pure (Let bindings body)
@@ -121,11 +150,16 @@ let' = do
 ident :: Parser Id
 ident = fmap Id (identFirst <:> many identRest)
 
-identFirst = letter <|> symbol
-identRest = identFirst <|> digit
+identFirst = lower <|> symbol
+identRest = letter <|> symbol <|> digit
 symbol = satisfy (\c -> and [ any ($ c) [isMark, isPunctuation, isSymbol]
                             , not (elem c "()[]{}")
                             , not (c == '"') ])
+
+constructor :: Parser String
+constructor = constructorFirst <:> many identRest
+  where constructorFirst = upper <|> char ':'
+
 
 (<:>) :: Parser a -> Parser [a] -> Parser [a]
 (<:>) = liftM2 (:)
@@ -141,3 +175,6 @@ spaces1 = skipMany1 space
 parens :: Parser a -> Parser a
 parens p = choice (map (\(l, r) -> between (char l >> spaces) (spaces >> char r) p)
                        [('(', ')'), ('[', ']')])
+
+sepEndBy1' :: Stream s m t => ParsecT s u m a -> ParsecT s u m sep -> ParsecT s u m (NonEmpty a)
+sepEndBy1' = fmap (fromJust . nonEmpty) .* sepEndBy1
