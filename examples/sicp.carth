@@ -1,0 +1,18 @@
+(define main
+  (display (concat (list "Hello" ", " "World!"))))
+
+(define concat
+  (foldr ++ ""))
+
+(define (foldr f init)
+  (fun-match
+    [Nil init]
+    [(Cons x xs) (Cons (f x) (foldr f init xs))]))
+
+(define ++
+  (fun-match
+    [Nil snd]
+    [(Cons x xs) (. (Cons x) (++ xs))]))
+
+(define (const c x) c)
+(define (snd a b) b)
