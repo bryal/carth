@@ -25,6 +25,7 @@ program :: Parser Program
 program = do
   spaces
   defs <- fmap Map.fromList (sepEndBy def spaces)
+  eof
   main <- maybe (fail "main function not defined") pure (Map.lookup (Id "main") defs)
   pure (Program main (Map.delete (Id "main") defs))
 
