@@ -1,6 +1,8 @@
 module Interp (interpret) where
 
-import Ast
+import Annot
 
-interpret :: Program -> Either String ()
+type InterpErr = String
+
+interpret :: Program -> Either InterpErr ()
 interpret _ = Left "not yet implemented"

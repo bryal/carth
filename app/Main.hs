@@ -2,9 +2,10 @@
 
 module Main where
 
-import Data.Functor
-import Lib
-
+import Parse
+import Check
+import Interp
+import Data.Composition
 import System.Environment
 import System.Exit
 
@@ -16,20 +17,12 @@ main = do
     _ -> usage
 
 interpretFile :: FilePath -> IO ()
-interpretFile file = parseFile file <&> interpret >>= \case
-  Left err -> do
-    putStrLn "Interpretation error"
-    putStrLn err
-    exitFailure
-  Right () -> pure ()
-
-parseFile :: String -> IO Program
-parseFile file = readFile file <&> parse file >>= \case
-  Left err -> do
-    putStrLn "Syntax error"
-    print err
-    exitFailure
-  Right pgm -> print pgm >> pure pgm
+interpretFile file = readFile file >>= parse' file >>= typecheck' >>= interpret'
+  where parse' = handleErr "Syntax error" .* parse
+        typecheck' = handleErr "Type error" . typecheck
+        interpret' = handleErr "Interpretation error" . interpret
+        handleErr title =
+          either (\err -> putStrLn title >> putStrLn (show err) >> exitFailure) pure
 
 usage :: IO ()
 usage = putStrLn "Usage: carth SRC-FILE" >> exitFailure
