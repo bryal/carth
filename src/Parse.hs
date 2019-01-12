@@ -14,15 +14,7 @@ import qualified Text.Parsec.Token as Token
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor.Identity
 
-
-import Pretty
-
-
-
 type Parser = Parsec String ()
-
--- Use Parsec LanguageDef for easy handling of comments and reserved keywords
--- http://hackage.haskell.org/package/parsec-3.1.13.0/docs/Text-Parsec-Token.html
 
 parse :: SourceName -> String -> Either ParseError Program
 parse = Parsec.parse program
