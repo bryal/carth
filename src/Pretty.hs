@@ -57,7 +57,8 @@ instance Pretty Expr where
              , "]\n"
              , replicate (d + 2) ' ' ++ pretty' (d + 2) body, ")" ]
     Match e cs ->
-      concat [ "(match ", pretty' (d + 7) e, "\n"
+      concat [ "(match ", pretty' (d + 7) e
+             , "\n", replicate (d + 2) ' '
              , intercalate1 ("\n" ++ replicate (d + 2) ' ')
                             (map1 (prettyBracketPair (d + 2)) cs)
              , ")"]

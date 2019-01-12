@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Ast (Id (..), Pat (..), Expr (..), Program (..)) where
+module Ast (Id (..), Pat (..), Expr (..), Program (..), reserveds) where
 
 import NonEmpty
 import qualified Data.Map.Strict as Map
@@ -52,7 +52,7 @@ instance Arbitrary Expr where
   arbitrary = frequency [ (5, pure Unit)
                         , (15, fmap Int arbitrary)
                         , (15, fmap Double arbitrary)
-                        , (8, fmap (Str . getUnicodeString) arbitrary)
+                        , (8, fmap (Str . getPrintableString) arbitrary)
                         , (5, fmap Bool arbitrary)
                         , (30, fmap Var arbitrary)
                         , (8, applyArbitrary2 App)
@@ -62,7 +62,12 @@ instance Arbitrary Expr where
                         , (4, applyArbitrary2 Match)
                         , (4, fmap FunMatch arbitrary)
                         , (15, fmap Constructor arbitraryConstructor)
-                        , (5, fmap Char arbitrary)]
+                        , (5, fmap Char arbitraryChar)]
+    where arbitraryChar = oneof [ choose ('a', 'z')
+                                , choose ('A', 'Z')
+                                , choose ('0', '9')
+                                , elements ['+', '-', '?', '(', ']', '#']
+                                , elements ['\n', '\t', '\0', '\a'] ]
   shrink = \case
     App f x -> [Unit, f, x] ++ [App f' x' | (f', x') <- shrink (f, x)]
     If p c a -> [Unit, p, c, a] ++ [If p' c' a' | (p', c', a') <- shrink (p, c, a)]
@@ -82,9 +87,16 @@ instance Arbitrary Pat where
 
 instance Arbitrary Id where
   arbitrary = do
-    first <- frequency [ (26, choose ('a', 'z')), (4, elements ['_', '-', '+', '?']) ]
+    let first = frequency [ (26, choose ('a', 'z')), (4, elements ['_', '?']) ]
+    firsts <- frequency [ (10, fmap pure first)
+                        , (1, liftM2 (\a b -> a:[b])
+                                     (elements ['-', '+'])
+                                     (choose ('a', 'z'))) ]
     rest <- arbitraryRestIdent
-    pure (Id (first:rest ++ "-foo"))
+    let id = firsts ++ rest
+    if elem id reserveds
+      then arbitrary
+      else pure (Id id)
 
 arbitraryConstructor :: Gen String
 arbitraryConstructor = liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
@@ -94,3 +106,15 @@ arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
   where c = frequency [ (26, choose ('a', 'z'))
                       , (26, choose ('A', 'Z'))
                       , (4, elements ['_', '-', '+', '?']) ]
+
+reserveds :: [String]
+reserveds =
+  [ "define"
+  , "unit"
+  , "true"
+  , "false"
+  , "fun-match"
+  , "match"
+  , "if"
+  , "fun"
+  , "let" ]
