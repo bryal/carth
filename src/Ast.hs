@@ -1,10 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Ast (Id (..), Pat (..), Expr (..), Program (..), reserveds) where
+module Ast (Id (..), Pat (..), Expr (..), Def, Program (..), reserveds) where
 
 import NonEmpty
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import Data.String
 import Control.Monad
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Arbitrary
@@ -29,23 +28,26 @@ data Expr
   | App Expr Expr
   | If Expr Expr Expr
   | Fun Id Expr
-  | Let (NonEmpty (Id, Expr)) Expr
+  | Let (NonEmpty Def) Expr
   | Match Expr (NonEmpty (Pat, Expr))
   | FunMatch (NonEmpty (Pat, Expr))
   | Constructor String
   | Char Char
   deriving (Show, Eq)
 
-type Defs = Map Id Expr
+type Def = (Id, Expr)
 
-data Program = Program Expr Defs
+data Program = Program Expr [Def]
   deriving (Show, Eq)
+
+instance IsString Id where
+  fromString = Id
 
 instance Arbitrary Program where
   arbitrary = do
     main <- arbitrary
     defs <- choose (0, 4) >>= flip vectorOf arbitrary
-    pure (Program main (Map.fromList defs))
+    pure (Program main defs)
   shrink (Program main defs) = [Program main' defs' | (main', defs') <- shrink (main, defs)]
 
 instance Arbitrary Expr where

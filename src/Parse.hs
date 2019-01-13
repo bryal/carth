@@ -7,7 +7,6 @@ import Ast
 import Control.Monad
 import Data.Maybe
 import Data.Functor
-import qualified Data.Map.Strict as Map
 import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
 import qualified Text.Parsec.Token as Token
@@ -21,10 +20,10 @@ parse = Parsec.parse program
 
 program :: Parser Program
 program = do
-  defs <- fmap Map.fromList (many1 def)
+  defs <- many1 def
   eof
-  main <- maybe (fail "main function not defined") pure (Map.lookup (Id "main") defs)
-  pure (Program main (Map.delete (Id "main") defs))
+  main <- maybe (fail "main function not defined") pure (lookup (Id "main") defs)
+  pure (Program main (filter ((/= (Id "main")) . fst) defs))
 
 def :: Parser (Id, Expr)
 def = parens (reserved "define" *> (varDef <|> funDef))
