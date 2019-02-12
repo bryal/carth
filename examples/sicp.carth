@@ -1,5 +1,5 @@
 (define main
-  (display (concat (list "Hello" ", " "World!"))))
+  (display (concat (Cons "Hello" (Cons ", " (Cons "World!" Nil))))))
 
 (define concat
   (foldr ++ ""))
