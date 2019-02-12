@@ -1,6 +1,8 @@
 * Carth
 
 ** TODO Translate kvasir todo
+** NEXT Consider using lib for pretty printing
+   https://hackage.haskell.org/package/pretty-1.1.1.1
 ** INACTIVE Hoogle equivalent
    https://wiki.haskell.org/Hoogle
 ** INACTIVE Web playground
