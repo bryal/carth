@@ -1,14 +1,30 @@
-module Annot (Program (..), Expr (..), Def, Defs, Pat (..), Id (..), Type, Scheme (..)) where
+module Annot
+  ( Program (..)
+  , Expr (..)
+  , Def, Defs
+  , Pat (..)
+  , Id (..)
+  , Type (..), Scheme (..)
+  , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar ) where
 
 import NonEmpty
 import Data.Map.Strict (Map)
 import Data.String
+import Data.Set
 
 -- Type annotated AST
 
-data Type
+data Type = TVar String
+          | TConst String
+          | TFun Type Type
+  deriving (Show, Eq)
 
-data Scheme = Scheme [String] Type
+typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type
+typeUnit = TConst "Unit"; typeInt = TConst "Int"; typeDouble = TConst "Double"
+typeChar = TConst "Char"; typeStr = TConst "Str"; typeBool   = TConst "Bool";
+
+data Scheme = Forall (Set String) Type
+  deriving (Show, Eq)
 
 newtype Id = Id String
   deriving (Show, Eq, Ord)
@@ -37,9 +53,10 @@ data Expr
   deriving (Show, Eq)
 
 type Def = (Id, Expr)
-type Defs = Map Id Expr
+type Defs = Map Id (Scheme, Expr)
 
 data Program = Program Expr Defs
+  deriving Show
 
 instance IsString Id where
   fromString = Id

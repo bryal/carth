@@ -10,7 +10,10 @@ import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Modifiers
 
 newtype Id = Id String
-  deriving (Show, Eq, Ord)
+  deriving (Eq, Ord)
+
+instance Show Id where
+  show (Id x) = x
 
 data Pat
   = PConstructor String
