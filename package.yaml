@@ -25,6 +25,7 @@ dependencies:
 - QuickCheck
 - containers
 - composition
+- mtl
 
 library:
   source-dirs: src

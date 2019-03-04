@@ -22,7 +22,8 @@ interpretFile file = readFile file >>= parse' file >>= typecheck' >>= interpret'
         typecheck' = handleErr "Type error" . typecheck
         interpret' = handleErr "Interpretation error" . interpret
         handleErr title =
-          either (\err -> putStrLn title >> putStrLn (show err) >> exitFailure) pure
+          either (\err -> putStrLn title >> putStrLn (show err) >> exitFailure)
+                 (\x -> putStrLn (show x) $> x)
 
 usage :: IO ()
 usage = putStrLn "Usage: carth SRC-FILE" >> exitFailure
