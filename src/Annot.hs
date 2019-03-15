@@ -1,20 +1,26 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Annot
   ( Program (..)
   , Expr (..)
   , Def, Defs
   , Pat (..)
   , Id (..)
-  , Type (..), Scheme (..)
+  , TVar, Type (..)
+  , Scheme (..), scmParams, scmBody
   , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar ) where
 
 import NonEmpty
 import Data.Map.Strict (Map)
 import Data.String
 import Data.Set
+import Control.Lens
 
 -- Type annotated AST
 
-data Type = TVar String
+type TVar = String
+
+data Type = TVar TVar
           | TConst String
           | TFun Type Type
   deriving (Show, Eq)
@@ -23,8 +29,9 @@ typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type
 typeUnit = TConst "Unit"; typeInt = TConst "Int"; typeDouble = TConst "Double"
 typeChar = TConst "Char"; typeStr = TConst "Str"; typeBool   = TConst "Bool";
 
-data Scheme = Forall (Set String) Type
+data Scheme = Forall { _scmParams :: (Set TVar), _scmBody :: Type }
   deriving (Show, Eq)
+makeLenses ''Scheme
 
 newtype Id = Id String
   deriving (Show, Eq, Ord)

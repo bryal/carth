@@ -4,8 +4,9 @@ module Pretty where
 
 import NonEmpty
 import Ast
+import qualified Annot
 import Data.List (intercalate)
-import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
 -- Pretty printing
 
@@ -21,7 +22,7 @@ class Pretty a where
 
 instance Pretty Program where
   pretty' d (Program main defs) =
-    let allDefs = (Id "main", main) : Map.toList defs
+    let allDefs = (Id "main", main) : defs
         prettyDef (Id name, val) =
           concat [ replicate d ' ', "(define ", name, "\n"
                  , replicate (d + 2) ' ', pretty' (d + 2) val, ")" ]
@@ -94,5 +95,15 @@ instance Pretty Pat where
   pretty' _ = \case
     PConstructor c -> c
     PConstruction c ps ->
-      concat [ "(", c, " ", intercalate " " (nonEmptyToList (map1 pretty ps)), ")" ]
+      concat ["(", c, " ", intercalate " " (nonEmptyToList (map1 pretty ps)), ")"]
     PVar (Id v) -> v
+
+instance Pretty Annot.Scheme where
+  pretty' _ (Annot.Forall ps b) =
+    concat ["forall ", intercalate " " (Set.toList ps), ". ", pretty b]
+
+instance Pretty Annot.Type where
+  pretty' _ = \case
+    Annot.TVar tv -> tv
+    Annot.TConst c -> c
+    Annot.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
