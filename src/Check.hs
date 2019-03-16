@@ -18,21 +18,21 @@ import Data.Maybe
 import Control.Monad.Except
 import Control.Monad.State.Strict
 import Control.Monad.Reader
-import Control.Lens
+import Control.Lens (use, assign, makeLenses, over, (<<+=))
 
 type TypeErr = String
 
 type Env = Map Id Scheme
 
-data St = St { _tvCount :: Int }
+-- | Map of substitutions from type-variables to more specific types
+type Subst = Map TVar Type
+
+data St = St { _tvCount :: Int, _substs :: Subst }
 makeLenses ''St
 
 -- TODO: Try handling substitution maps in the state or a monad of its own
 -- | Type checker monad
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
-
--- | Map of substitutions from type-variables to more specific types
-type Subst = Map TVar Type
 
 typecheck :: Program -> Either TypeErr Annot.Program
 typecheck = runInfer . inferProgram
@@ -41,7 +41,7 @@ runInfer :: Infer Annot.Program -> Either TypeErr Annot.Program
 runInfer i = runExcept (evalStateT (runReaderT i Map.empty) initSt)
 
 initSt :: St
-initSt = St { _tvCount = 0 }
+initSt = St { _tvCount = 0, _substs = Map.empty }
 
 fresh :: Infer Type
 fresh = fmap (TVar . ("#"++) . show) (tvCount <<+= 1)
@@ -58,11 +58,11 @@ withLocal b = local (uncurry Map.insert b)
 inferProgram :: Program -> Infer Annot.Program
 inferProgram (Program main defs) = do
   let allDefs = ("main", main) : defs
-  (_, scms) <- inferDefs allDefs
-  let s = unlines (map (\((Id id), scm) -> id ++ " : " ++ pretty scm) scms)
+  scms <- inferDefs allDefs
+  let s = unlines (map (\(Id id, scm) -> id ++ " : " ++ pretty scm) scms)
   error ("Inferred top-level type schemes:\n" ++ s)
 
-inferDefs :: [Def] -> Infer (Subst, [(Id, Scheme)])
+inferDefs :: [Def] -> Infer [(Id, Scheme)]
 inferDefs defs = do
   let ordered = orderDefs defs
   inferDefsComponents ordered
@@ -79,64 +79,52 @@ orderDefs :: [Def] -> [SCC Def]
 orderDefs defs = stronglyConnComp graph
   where graph = map (\def@(name, _) -> (def, name, fvDef def)) defs
 
-inferDefsComponents :: [SCC Def] -> Infer (Subst, [(Id, Scheme)])
+inferDefsComponents :: [SCC Def] -> Infer [(Id, Scheme)]
 inferDefsComponents = \case
-  [] -> pure (nullSubst, [])
+  [] -> pure []
   (scc:sccs) -> do
     let defs = flattenSCC scc
     let names = map fst defs
     ts <- replicateM (length defs) fresh
     let defsTs = zip names (map (Forall Set.empty) ts)
     let bodies = map snd defs
-    s <- withLocals defsTs $
-      flip3 foldM (zip bodies ts) nullSubst $ \s1 (body, t) -> do
-        (s2, t') <- local (substEnv s1) (infer body)
-        let s2' = composeSubsts s2 s1
-        s3 <- unify (subst s2' t) t'
-        pure (composeSubsts s3 s2')
-    local (substEnv s) $ do
-      env' <- ask
-      let scms = map (generalize env') (map (subst s) ts)
-      let defsScms = zip names scms
-      (s', scmsRest) <- withLocals defsScms (inferDefsComponents sccs)
-      pure (composeSubsts s' s, (defsScms ++ scmsRest))
+    withLocals defsTs $
+      forM (zip bodies ts) $ \(body, t1) -> do
+        t2 <- infer body
+        unify t1 t2
+    scms <- mapM generalize ts
+    let defsScms = zip names scms
+    scmsRest <- withLocals defsScms (inferDefsComponents sccs)
+    pure (defsScms ++ scmsRest)
 
-flip3 :: (a -> b -> c -> d) -> (c -> b -> a -> d)
-flip3 f = \c b a -> f a b c
-
-infer :: Expr -> Infer (Subst, Type)
+infer :: Expr -> Infer Type
 infer = \case
-  Unit   -> litT typeUnit; Int _ -> litT typeInt; Double _ -> litT typeDouble
-  Char _ -> litT typeChar; Str _ -> litT typeStr; Bool _   -> litT typeBool
-  Var x -> fmap (nullSubst,) (lookupEnv x)
+  Unit   -> pure typeUnit; Int _ -> pure typeInt; Double _ -> pure typeDouble
+  Char _ -> pure typeChar; Str _ -> pure typeStr; Bool _   -> pure typeBool
+  Var x -> lookupEnv x
   App f a -> do
-    (s1, tf) <- infer f
-    (s2, ta) <- local (substEnv s1) (infer a)
+    tf <- infer f
+    ta <- infer a
     tr <- fresh
-    s3 <- unify (subst s2 tf) (TFun ta tr)
-    pure (foldr1 composeSubsts [s3, s2, s1], subst s3 tr)
+    unify tf (TFun ta tr)
+    pure tr
   If p c a -> do
-    (s1, tp) <- infer p
-    (s2, tc) <- local (substEnv s1) (infer c)
-    let s2' = composeSubsts s2 s1
-    (s3, ta) <- local (substEnv s2') (infer a)
-    let s3' = composeSubsts s3 s2'
-    s4 <- unify typeBool (subst s3' tp)
-    let s4' = composeSubsts s4 s3'
-    s5 <- unify (subst s4' tc) (subst s4 ta)
-    pure (composeSubsts s5 s4', (subst s5 tc))
+    tp <- infer p
+    tc <- infer c
+    ta <- infer a
+    unify typeBool tp
+    unify tc ta
+    pure tc
   Fun p b -> do
     tp <- fresh
-    (s, tb) <- withLocal (p, Forall Set.empty tp) (infer b)
-    pure (s, TFun (subst s tp) tb)
+    tb <- withLocal (p, Forall Set.empty tp) (infer b)
+    pure (TFun tp tb)
   Let defs b -> do
-    (s1, defsScms) <- inferDefs (nonEmptyToList defs)
-    (s2, tb) <- local (substEnv s1) (withLocals defsScms (infer b))
-    pure (composeSubsts s2 s1, tb)
+    defsScms <- inferDefs (nonEmptyToList defs)
+    withLocals defsScms (infer b)
   Match _a _cs -> undefined
   FunMatch _cs -> undefined
   Constructor _c -> undefined
-  where litT t = pure (nullSubst, t)
 
 lookupEnv :: Id -> Infer Type
 lookupEnv x = asks (Map.lookup x) >>= \case
@@ -158,23 +146,26 @@ substEnv s env = fmap (over Annot.scmBody (subst s)) env
 composeSubsts :: Subst -> Subst -> Subst
 composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1
 
-nullSubst :: Subst
-nullSubst = Map.empty
-
 -- Unification
 --------------------------------------------------------------------------------
 
-unify ::  Type -> Type -> Infer Subst
-unify = curry $ \case
-  (TConst a,   TConst b) | a == b -> pure nullSubst
-  (TVar a,     TVar b) | a == b   -> pure nullSubst
+unify :: Type -> Type -> Infer ()
+unify t1 t2 = do
+  s1 <- use substs
+  s2 <- unify' (subst s1 t1) (subst s1 t2)
+  assign substs (composeSubsts s2 s1)
+
+unify' :: Type -> Type -> Infer Subst
+unify' = curry $ \case
+  (TConst a,   TConst b) | a == b -> pure Map.empty
+  (TVar a,     TVar b) | a == b   -> pure Map.empty
   (TVar a,     t) | occursIn a t  ->
     throwError (concat ["Infinite type: ", a, ", ", show t ])
   (TVar a,     t)                 -> pure (Map.singleton a t)
-  (t,          TVar a)            -> unify (TVar a) t
+  (t,          TVar a)            -> unify' (TVar a) t
   (TFun t1 t2, TFun t1' t2')      -> do
-    s1 <- unify t1 t1'
-    s2 <- unify (subst s1 t2) (subst s1 t2')
+    s1 <- unify' t1 t1'
+    s2 <- unify' (subst s1 t2) (subst s1 t2')
     pure (composeSubsts s2 s1)
   (t1,         t2)                ->
     throwError (concat ["Unification failed: ", show t1, ", ", show t2])
@@ -191,8 +182,12 @@ instantiate (Forall params t) = do
   args <- mapM (const fresh) params'
   pure (subst (Map.fromList (zip params' args)) t)
 
-generalize :: Env -> Type -> Scheme
-generalize env t = Forall (generalize' env t) t
+generalize :: Type -> Infer Scheme
+generalize t = do
+  env <- ask
+  s <- use substs
+  let t' = subst s t
+  pure (Forall (generalize' (substEnv s env) t') t')
 
 generalize' :: Env -> Type -> Set TVar
 generalize' env t = Set.difference (ftv t) (ftvEnv env)
