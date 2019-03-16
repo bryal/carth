@@ -4,16 +4,16 @@ module Annot
   ( Program (..)
   , Expr (..)
   , Def, Defs
-  , Pat (..)
-  , Id (..)
   , TVar, Type (..)
   , Scheme (..), scmParams, scmBody
-  , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar ) where
+  , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar
+  , typeOfMain ) where
 
 import NonEmpty
+import Ast (Id, Pat (..))
 import Data.Map.Strict (Map)
-import Data.String
-import Data.Set
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Control.Lens
 
 -- Type annotated AST
@@ -33,14 +33,8 @@ data Scheme = Forall { _scmParams :: (Set TVar), _scmBody :: Type }
   deriving (Show, Eq)
 makeLenses ''Scheme
 
-newtype Id = Id String
-  deriving (Show, Eq, Ord)
-
-data Pat
-  = PConstructor String
-  | PConstruction String (NonEmpty Pat)
-  | PVar Id
-  deriving (Show, Eq)
+typeOfMain :: Scheme
+typeOfMain = Forall Set.empty (TFun typeUnit typeInt)
 
 data Expr
   = Unit
@@ -64,6 +58,3 @@ type Defs = Map Id (Scheme, Expr)
 
 data Program = Program Expr Defs
   deriving Show
-
-instance IsString Id where
-  fromString = Id
