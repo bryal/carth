@@ -7,7 +7,7 @@ module Annot
   , TVar, Type (..)
   , Scheme (..), scmParams, scmBody
   , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar
-  , typeOfMain ) where
+  , mainType, mainScheme ) where
 
 import NonEmpty
 import Ast (Id, Pat (..))
@@ -33,8 +33,11 @@ data Scheme = Forall { _scmParams :: (Set TVar), _scmBody :: Type }
   deriving (Show, Eq)
 makeLenses ''Scheme
 
-typeOfMain :: Scheme
-typeOfMain = Forall Set.empty (TFun typeUnit typeInt)
+mainType :: Type
+mainType = TFun typeUnit typeInt
+
+mainScheme :: Scheme
+mainScheme = Forall Set.empty mainType
 
 data Expr
   = Unit

@@ -1,4 +1,6 @@
 (define main
-  (id 1337))
+  (const (id 1337)))
 
 (define (id x) x)
+
+(define (const c _) c)

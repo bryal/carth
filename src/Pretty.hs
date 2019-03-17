@@ -86,7 +86,7 @@ instance Pretty Pat where
 
 instance Pretty Annot.Program where
   pretty' d (Annot.Program main defs) =
-    let allDefs = (Id "main", (Annot.typeOfMain, main)) : Map.toList defs
+    let allDefs = (Id "main", (Annot.mainScheme, main)) : Map.toList defs
         prettyDef (Id name, (scm, val)) =
           concat [ replicate d ' ', "(define ", name, " ; ", pretty scm, "\n"
                  , replicate (d + 2) ' ', pretty' (d + 2) val, ")" ]

@@ -4,7 +4,6 @@ module Check (typecheck) where
 
 import NonEmpty
 import Ast
-import Pretty
 import Annot ( TVar, Type (..), Scheme (..)
              , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar )
 import qualified Annot
@@ -38,7 +37,7 @@ typecheck :: Program -> Either TypeErr Annot.Program
 typecheck = runInfer . inferProgram
 
 runInfer :: Infer Annot.Program -> Either TypeErr Annot.Program
-runInfer i = runExcept (evalStateT (runReaderT i Map.empty) initSt)
+runInfer m = runExcept (evalStateT (runReaderT m Map.empty) initSt)
 
 initSt :: St
 initSt = St { _tvCount = 0, _substs = Map.empty }
@@ -47,7 +46,10 @@ fresh :: Infer Type
 fresh = fmap (TVar . ("#"++) . show) (tvCount <<+= 1)
 
 withLocals :: [(Id, Scheme)] -> Infer a -> Infer a
-withLocals bs = local (Map.union (Map.fromList bs))
+withLocals = withLocals' . Map.fromList
+
+withLocals' :: Map Id Scheme -> Infer a -> Infer a
+withLocals' = local . Map.union
 
 withLocal :: (Id, Scheme) -> Infer a -> Infer a
 withLocal b = local (uncurry Map.insert b)
@@ -58,11 +60,14 @@ withLocal b = local (uncurry Map.insert b)
 inferProgram :: Program -> Infer Annot.Program
 inferProgram (Program main defs) = do
   let allDefs = ("main", main) : defs
-  scms <- inferDefs allDefs
-  let s = unlines (map (\(Id id, scm) -> id ++ " : " ++ pretty scm) scms)
-  error ("Inferred top-level type schemes:\n" ++ s)
+  allDefs' <- inferDefs allDefs
+  let (mainScm, main') = fromJust (Map.lookup "main" allDefs')
+  let defs' = Map.delete "main" allDefs'
+  mainT <- instantiate mainScm
+  unify Annot.mainType mainT
+  pure (Annot.Program main' defs')
 
-inferDefs :: [Def] -> Infer [(Id, Scheme)]
+inferDefs :: [Def] -> Infer Annot.Defs
 inferDefs defs = do
   let ordered = orderDefs defs
   inferDefsComponents ordered
@@ -79,49 +84,52 @@ orderDefs :: [Def] -> [SCC Def]
 orderDefs defs = stronglyConnComp graph
   where graph = map (\def@(name, _) -> (def, name, fvDef def)) defs
 
-inferDefsComponents :: [SCC Def] -> Infer [(Id, Scheme)]
+inferDefsComponents :: [SCC Def] -> Infer Annot.Defs
 inferDefsComponents = \case
-  [] -> pure []
+  [] -> pure Map.empty
   (scc:sccs) -> do
-    let defs = flattenSCC scc
-    let names = map fst defs
-    ts <- replicateM (length defs) fresh
-    let defsTs = zip names (map (Forall Set.empty) ts)
-    let bodies = map snd defs
-    withLocals defsTs $
+    let (names, bodies) = unzip (flattenSCC scc)
+    ts <- replicateM (length names) fresh
+    bodies' <- withLocals (zip names (map (Forall Set.empty) ts)) $
       forM (zip bodies ts) $ \(body, t1) -> do
-        t2 <- infer body
+        (t2, body') <- infer body
         unify t1 t2
+        pure body'
     scms <- mapM generalize ts
-    let defsScms = zip names scms
-    scmsRest <- withLocals defsScms (inferDefsComponents sccs)
-    pure (defsScms ++ scmsRest)
+    let annotDefs = Map.fromList (zip names (zip scms bodies'))
+    annotRest <- withLocals (zip names scms) (inferDefsComponents sccs)
+    pure (Map.union annotRest annotDefs)
 
-infer :: Expr -> Infer Type
+infer :: Expr -> Infer (Type, Annot.Expr)
 infer = \case
-  Unit   -> pure typeUnit; Int _ -> pure typeInt; Double _ -> pure typeDouble
-  Char _ -> pure typeChar; Str _ -> pure typeStr; Bool _   -> pure typeBool
-  Var x -> lookupEnv x
+  Unit -> pure (typeUnit, Annot.Unit)
+  Int n -> pure (typeInt, Annot.Int n)
+  Double x -> pure (typeDouble, Annot.Double x)
+  Char c -> pure (typeChar, Annot.Char c)
+  Str s -> pure (typeStr, Annot.Str s)
+  Bool b -> pure (typeBool, Annot.Bool b)
+  Var x -> fmap (, Annot.Var x) (lookupEnv x)
   App f a -> do
-    tf <- infer f
-    ta <- infer a
+    (tf, f') <- infer f
+    (ta, a') <- infer a
     tr <- fresh
     unify tf (TFun ta tr)
-    pure tr
+    pure (tr, Annot.App f' a')
   If p c a -> do
-    tp <- infer p
-    tc <- infer c
-    ta <- infer a
+    (tp, p') <- infer p
+    (tc, c') <- infer c
+    (ta, a') <- infer a
     unify typeBool tp
     unify tc ta
-    pure tc
+    pure (tc, Annot.If p' c' a')
   Fun p b -> do
     tp <- fresh
-    tb <- withLocal (p, Forall Set.empty tp) (infer b)
-    pure (TFun tp tb)
+    (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
+    pure (TFun tp tb, Annot.Fun p b')
   Let defs b -> do
-    defsScms <- inferDefs (nonEmptyToList defs)
-    withLocals defsScms (infer b)
+    annotDefs <- inferDefs (nonEmptyToList defs)
+    let defsScms = fmap (\(scm, _) -> scm) annotDefs
+    withLocals' defsScms (infer b)
   Match _a _cs -> undefined
   FunMatch _cs -> undefined
   Constructor _c -> undefined
