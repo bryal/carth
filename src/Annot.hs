@@ -1,36 +1,60 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Annot
-  ( Program (..)
-  , Expr (..)
-  , Def, Defs
-  , TVar, Type (..)
-  , Scheme (..), scmParams, scmBody
-  , typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar
-  , mainType, mainScheme ) where
+    ( Program(..)
+    , Expr(..)
+    , Def
+    , Defs
+    , TVar
+    , Type(..)
+    , Scheme(..)
+    , scmParams
+    , scmBody
+    , typeUnit
+    , typeInt
+    , typeDouble
+    , typeStr
+    , typeBool
+    , typeChar
+    , mainType
+    , mainScheme
+    ) where
 
-import NonEmpty
-import Ast (Id, Pat (..))
+import Ast (Id, Pat(..))
+import Control.Lens
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Control.Lens
+import NonEmpty
 
 -- Type annotated AST
-
 type TVar = String
 
-data Type = TVar TVar
-          | TConst String
-          | TFun Type Type
-  deriving (Show, Eq)
+data Type
+    = TVar TVar
+    | TConst String
+    | TFun Type
+           Type
+    deriving (Show, Eq)
 
 typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type
-typeUnit = TConst "Unit"; typeInt = TConst "Int"; typeDouble = TConst "Double"
-typeChar = TConst "Char"; typeStr = TConst "Str"; typeBool   = TConst "Bool";
+typeUnit = TConst "Unit"
 
-data Scheme = Forall { _scmParams :: (Set TVar), _scmBody :: Type }
-  deriving (Show, Eq)
+typeInt = TConst "Int"
+
+typeDouble = TConst "Double"
+
+typeChar = TConst "Char"
+
+typeStr = TConst "Str"
+
+typeBool = TConst "Bool"
+
+data Scheme = Forall
+    { _scmParams :: (Set TVar)
+    , _scmBody :: Type
+    } deriving (Show, Eq)
+
 makeLenses ''Scheme
 
 mainType :: Type
@@ -40,24 +64,33 @@ mainScheme :: Scheme
 mainScheme = Forall Set.empty mainType
 
 data Expr
-  = Unit
-  | Int Int
-  | Double Double
-  | Str String
-  | Bool Bool
-  | Var Id
-  | App Expr Expr
-  | If Expr Expr Expr
-  | Fun Id Expr
-  | Let Defs Expr
-  | Match Expr (NonEmpty (Pat, Expr))
-  | FunMatch (NonEmpty (Pat, Expr))
-  | Constructor String
-  | Char Char
-  deriving (Show, Eq)
+    = Unit
+    | Int Int
+    | Double Double
+    | Str String
+    | Bool Bool
+    | Var Id
+    | App Expr
+          Expr
+    | If Expr
+         Expr
+         Expr
+    | Fun Id
+          Expr
+    | Let Defs
+          Expr
+    | Match Expr
+            (NonEmpty (Pat, Expr))
+    | FunMatch (NonEmpty (Pat, Expr))
+    | Constructor String
+    | Char Char
+    deriving (Show, Eq)
 
 type Def = (Id, Expr)
+
 type Defs = Map Id (Scheme, Expr)
 
-data Program = Program Expr Defs
-  deriving Show
+data Program =
+    Program Expr
+            Defs
+    deriving (Show)
