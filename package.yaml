@@ -27,6 +27,7 @@ dependencies:
 - composition
 - mtl
 - lens
+- utility-ht
 
 library:
   source-dirs: src

@@ -22,7 +22,9 @@ interpretFile f = readFile f >>= parse' f >>= typecheck' >>= interpret'
   where
     parse' = handleErr "Parse" show pretty .* parse
     typecheck' = handleErr "Typecheck" id pretty . typecheck
-    interpret' = handleErr "Interpret" id show . interpret
+    interpret' p =
+        let result = interpret p
+        in putStrLn "Interpret result:" >> print result
 
 handleErr :: String -> (e -> String) -> (a -> String) -> Either e a -> IO a
 handleErr title f g =
