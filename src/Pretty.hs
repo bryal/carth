@@ -40,14 +40,7 @@ instance Pretty Program where
 instance Pretty Expr where
     pretty' d =
         \case
-            Unit -> "unit"
-            Int n -> show n
-            Double x -> show x
-            Str s -> '"' : (s >>= showChar'') ++ "\""
-            Bool b ->
-                if b
-                    then "true"
-                    else "false"
+            Lit l -> pretty l
             Var (Id v) -> v
             App f x ->
                 concat
@@ -112,7 +105,6 @@ instance Pretty Expr where
                     , ")"
                     ]
             Constructor c -> c
-            Char c -> showChar' c
 
 instance Pretty Id where
     pretty' _ (Id s) = s
@@ -130,6 +122,19 @@ instance Pretty Pat where
                     , ")"
                     ]
             PVar (Id v) -> v
+
+instance Pretty Const where
+    pretty' _ =
+        \case
+            Unit -> "unit"
+            Int n -> show n
+            Double x -> show x
+            Char c -> showChar' c
+            Str s -> '"' : (s >>= showChar'') ++ "\""
+            Bool b ->
+                if b
+                    then "true"
+                    else "false"
 
 -- Instance Annot
 --------------------------------------------------------------------------------
@@ -153,14 +158,7 @@ instance Pretty Annot.Program where
 instance Pretty Annot.Expr where
     pretty' d =
         \case
-            Annot.Unit -> "unit"
-            Annot.Int n -> show n
-            Annot.Double x -> show x
-            Annot.Str s -> '"' : (s >>= showChar'') ++ "\""
-            Annot.Bool b ->
-                if b
-                    then "true"
-                    else "false"
+            Annot.Lit l -> pretty l
             Annot.Var (Id v) -> v
             Annot.App f x ->
                 concat
@@ -225,7 +223,6 @@ instance Pretty Annot.Expr where
                     , ")"
                     ]
             Annot.Constructor c -> c
-            Annot.Char c -> showChar' c
       where
         prettyBinding d (name, (scm, body)) =
             prettyBracketPair d (name, body) ++ " ; " ++ pretty scm

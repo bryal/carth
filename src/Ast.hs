@@ -2,6 +2,7 @@
 
 module Ast
     ( Id(..)
+    , Const(..)
     , Pat(..)
     , Expr(..)
     , Def
@@ -30,12 +31,17 @@ data Pat
     | PVar Id
     deriving (Show, Eq)
 
-data Expr
+data Const
     = Unit
     | Int Int
     | Double Double
+    | Char Char
     | Str String
     | Bool Bool
+    deriving (Show, Eq)
+
+data Expr
+    = Lit Const
     | Var Id
     | App Expr
           Expr
@@ -50,7 +56,6 @@ data Expr
             (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
     | Constructor String
-    | Char Char
     deriving (Show, Eq)
 
 type Def = (Id, Expr)
@@ -74,11 +79,12 @@ instance Arbitrary Program where
 instance Arbitrary Expr where
     arbitrary =
         frequency
-            [ (5, pure Unit)
-            , (15, fmap Int arbitrary)
-            , (15, fmap Double arbitrary)
-            , (8, fmap (Str . getPrintableString) arbitrary)
-            , (5, fmap Bool arbitrary)
+            [ (5, pure (Lit Unit))
+            , (15, fmap (Lit . Int) arbitrary)
+            , (15, fmap (Lit . Double) arbitrary)
+            , (8, fmap (Lit . Str . getPrintableString) arbitrary)
+            , (5, fmap (Lit . Bool) arbitrary)
+            , (5, fmap (Lit . Char) arbitraryChar)
             , (30, fmap Var arbitrary)
             , (8, applyArbitrary2 App)
             , (5, applyArbitrary3 If)
@@ -87,7 +93,6 @@ instance Arbitrary Expr where
             , (4, applyArbitrary2 Match)
             , (4, fmap FunMatch arbitrary)
             , (15, fmap Constructor arbitraryConstructor)
-            , (5, fmap Char arbitraryChar)
             ]
       where
         arbitraryChar =
@@ -100,15 +105,17 @@ instance Arbitrary Expr where
                 ]
     shrink =
         \case
-            App f x -> [Unit, f, x] ++ [App f' x' | (f', x') <- shrink (f, x)]
+            App f x ->
+                [Lit Unit, f, x] ++ [App f' x' | (f', x') <- shrink (f, x)]
             If p c a ->
-                [Unit, p, c, a] ++
+                [Lit Unit, p, c, a] ++
                 [If p' c' a' | (p', c', a') <- shrink (p, c, a)]
-            Fun p b -> [Unit, b] ++ [Fun p' b' | (p', b') <- shrink (p, b)]
-            Let bs x -> [Unit, x] ++ [Let bs' x' | (bs', x') <- shrink (bs, x)]
+            Fun p b -> [Lit Unit, b] ++ [Fun p' b' | (p', b') <- shrink (p, b)]
+            Let bs x ->
+                [Lit Unit, x] ++ [Let bs' x' | (bs', x') <- shrink (bs, x)]
             Match e cs ->
-                [Unit, e] ++ [Match e' cs' | (e', cs') <- shrink (e, cs)]
-            FunMatch cs -> Unit : map FunMatch (shrink cs)
+                [Lit Unit, e] ++ [Match e' cs' | (e', cs') <- shrink (e, cs)]
+            FunMatch cs -> Lit Unit : map FunMatch (shrink cs)
             _ -> []
 
 instance Arbitrary Pat where

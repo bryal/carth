@@ -47,7 +47,7 @@ expr :: Parser Expr
 expr = choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
 
 unit :: Parser Expr
-unit = try (reserved "unit") $> Unit
+unit = try (reserved "unit") $> Lit Unit
 
 num :: Parser Expr
 num = do
@@ -67,16 +67,18 @@ num = do
                               then -x
                               else x))
                 a
-    pure e
+    pure (Lit e)
 
 charLit :: Parser Expr
-charLit = fmap Char (Token.charLiteral lexer)
+charLit = fmap (Lit . Char) (Token.charLiteral lexer)
 
 str :: Parser Expr
-str = fmap Str (Token.stringLiteral lexer)
+str = fmap (Lit . Str) (Token.stringLiteral lexer)
 
 bool :: Parser Expr
-bool = try ((reserved "true" $> Bool True) <|> (reserved "false" $> Bool False))
+bool = do
+    b <- try ((reserved "true" $> True) <|> (reserved "false" $> False))
+    pure (Lit (Bool b))
 
 var :: Parser Expr
 var = fmap Var ident

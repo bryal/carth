@@ -113,12 +113,7 @@ inferDefsComponents =
 infer :: Expr -> Infer (Type, Annot.Expr)
 infer =
     \case
-        Unit -> pure (typeUnit, Annot.Unit)
-        Int n -> pure (typeInt, Annot.Int n)
-        Double x -> pure (typeDouble, Annot.Double x)
-        Char c -> pure (typeChar, Annot.Char c)
-        Str s -> pure (typeStr, Annot.Str s)
-        Bool b -> pure (typeBool, Annot.Bool b)
+        Lit l -> pure (litType l, Annot.Lit l)
         Var x -> fmap (, Annot.Var x) (lookupEnv x)
         App f a -> do
             (tf, f') <- infer f
@@ -144,6 +139,16 @@ infer =
         Match _a _cs -> undefined
         FunMatch _cs -> undefined
         Constructor _c -> undefined
+
+litType :: Const -> Type
+litType =
+    \case
+        Unit -> typeUnit
+        Int _ -> typeInt
+        Double _ -> typeDouble
+        Char _ -> typeChar
+        Str _ -> typeStr
+        Bool _ -> typeBool
 
 lookupEnv :: Id -> Infer Type
 lookupEnv x =
@@ -237,12 +242,7 @@ fvDef (name, body) = Set.toList (Set.delete name (fv body))
 fv :: Expr -> Set Id
 fv =
     \case
-        Unit -> nil
-        Int _ -> nil
-        Double _ -> nil
-        Bool _ -> nil
-        Char _ -> nil
-        Str _ -> nil
+        Lit _ -> nil
         Var x -> Set.singleton x
         App f a -> Set.unions (map fv [f, a])
         If p c a -> Set.unions (map fv [p, c, a])

@@ -20,8 +20,8 @@ module Annot
     , mainScheme
     ) where
 
-import Ast (Id, Pat(..))
-import Control.Lens
+import Ast (Const(..), Id, Pat(..))
+import Control.Lens (makeLenses)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -64,11 +64,7 @@ mainScheme :: Scheme
 mainScheme = Forall Set.empty mainType
 
 data Expr
-    = Unit
-    | Int Int
-    | Double Double
-    | Str String
-    | Bool Bool
+    = Lit Const
     | Var Id
     | App Expr
           Expr
@@ -83,7 +79,6 @@ data Expr
             (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
     | Constructor String
-    | Char Char
     deriving (Show, Eq)
 
 type Def = (Id, Expr)
