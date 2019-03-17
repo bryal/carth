@@ -58,7 +58,7 @@ data Scheme = Forall
 makeLenses ''Scheme
 
 mainType :: Type
-mainType = TFun typeUnit typeInt
+mainType = TFun typeUnit typeUnit
 
 mainScheme :: Scheme
 mainScheme = Forall Set.empty mainType

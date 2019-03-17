@@ -10,6 +10,7 @@ import Annot
         typeInt, typeStr, typeUnit)
 import qualified Annot
 import Ast
+import qualified Builtin
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -45,7 +46,7 @@ typecheck :: Program -> Either TypeErr Annot.Program
 typecheck = runInfer . inferProgram
 
 runInfer :: Infer Annot.Program -> Either TypeErr Annot.Program
-runInfer m = runExcept (evalStateT (runReaderT m Map.empty) initSt)
+runInfer m = runExcept (evalStateT (runReaderT m Builtin.schemes) initSt)
 
 initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}

@@ -6,31 +6,29 @@ module Interp
 
 import Annot
 import Ast (Const(..), Id(..))
+import qualified Builtin
 import Control.Applicative (liftA3)
 import Control.Monad.Reader
 import Data.Bool.HT
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-
-data Val
-    = VConst Const
-    | VFun (Val -> Val)
+import Val
 
 type Env = Map String Val
 
-type Eval = Reader Env
+type Eval = ReaderT Env IO
 
-interpret :: Program -> Int
+interpret :: Program -> IO ()
 interpret p = runEval (evalProgram p)
 
-runEval :: Eval a -> a
-runEval m = runReader m Map.empty
+runEval :: Eval a -> IO a
+runEval m = runReaderT m Builtin.values
 
-evalProgram :: Program -> Eval Int
+evalProgram :: Program -> Eval ()
 evalProgram (Program main defs) = do
     f <- evalLet defs main
-    pure (unwrapInt (unwrapFun f (VConst Unit)))
+    fmap unwrapUnit (unwrapFun' f (VConst Unit))
 
 evalDefs :: Defs -> Eval (Map String Val)
 evalDefs defs = do
@@ -44,7 +42,10 @@ eval =
     \case
         Lit c -> pure (VConst c)
         Var (Id x) -> lookupEnv x
-        App f a -> fmap unwrapFun (eval f) <*> eval a
+        App ef ea -> do
+            f <- fmap unwrapFun' (eval ef)
+            a <- eval ea
+            f a
         If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
         Fun (Id p) b -> do
             env <- ask
@@ -70,36 +71,5 @@ withLocals defs = local (Map.union defs)
 withLocal :: String -> Val -> Eval a -> Eval a
 withLocal var val = local (Map.insert var val)
 
-unwrapInt :: Val -> Int
-unwrapInt =
-    \case
-        VConst (Int n) -> n
-        x -> ice ("Unwrapping int, found " ++ showVariant x)
-
-unwrapBool :: Val -> Bool
-unwrapBool =
-    \case
-        VConst (Bool b) -> b
-        x -> ice ("Unwrapping bool, found " ++ showVariant x)
-
-unwrapFun :: Val -> (Val -> Val)
-unwrapFun =
-    \case
-        VFun f -> f
-        x -> ice ("Unwrapping function, found " ++ showVariant x)
-
-showVariant :: Val -> String
-showVariant =
-    \case
-        VConst c ->
-            case c of
-                Unit -> "unit"
-                Int _ -> "int"
-                Double _ -> "double"
-                Str _ -> "string"
-                Bool _ -> "bool"
-                Char _ -> "character"
-        VFun _ -> "function"
-
-ice :: String -> a
-ice msg = error ("Internal compiler error: " ++ msg)
+unwrapFun' :: Val -> (Val -> Eval Val)
+unwrapFun' v = \x -> lift (unwrapFun v x)
