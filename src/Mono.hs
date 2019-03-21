@@ -3,23 +3,17 @@
 -- | Monomorphization
 module Mono
     ( monomorphize
-    , Program(..)
-    , Expr(..)
-    , Defs
+    , Defs(..)
     , Type(..)
-    , typeUnit
-    , typeInt
-    , typeDouble
-    , typeStr
-    , typeBool
-    , typeChar
-    , mainType
+    , MProgram
+    , MExpr
     , ice
     ) where
 
+import Annot hiding (Type)
 import qualified Annot
-import Ast (Const(..))
-import Check (unify'')
+import Check (CExpr, CProgram, Scheme(..), unify'')
+import qualified Check
 import Control.Applicative (liftA2, liftA3)
 import Control.Lens (makeLenses, over, views)
 import Control.Monad.Except
@@ -35,82 +29,55 @@ data Type
            Type
     deriving (Show, Eq, Ord)
 
-typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type
-typeUnit = TConst "Unit"
+instance Annot.Type Type where
+    tConst = TConst
+    tFun = TFun
 
-typeInt = TConst "Int"
+type MExpr = Expr Type Defs
 
-typeDouble = TConst "Double"
+newtype Defs =
+    Defs (Map (String, Type) MExpr)
 
-typeChar = TConst "Char"
-
-typeStr = TConst "Str"
-
-typeBool = TConst "Bool"
-
-mainType :: Type
-mainType = TFun typeUnit typeUnit
-
-data Expr
-    = Lit Const
-    | Var String
-          Type
-    | App Expr
-          Expr
-    | If Expr
-         Expr
-         Expr
-    | Fun (String, Type)
-          Expr
-    | Let Defs
-          Expr
-    deriving (Show, Eq)
-
-type Defs = Map (String, Type) Expr
-
-data Program =
-    Program Expr
-            Defs
-    deriving (Show)
+type MProgram = Program Type Defs
 
 data Env = Env
-    { _defs :: Map String (Annot.Scheme, Annot.Expr)
-    , _tvBinds :: Map Annot.TVar Type
+    { _defs :: Map String (Scheme, CExpr)
+    , _tvBinds :: Map Check.TVar Type
     }
 
 makeLenses ''Env
 
-type Insts = Map String (Map Type Expr)
+type Insts = Map String (Map Type MExpr)
 
 -- | The monomorphization monad
 type Mono = ReaderT Env (State Insts)
 
-monomorphize :: Annot.Program -> Program
-monomorphize (Annot.Program main ds) =
+monomorphize :: CProgram -> MProgram
+monomorphize (Program main ds) =
     (uncurry (flip Program))
         (evalState (runReaderT (monoLet ds main) initEnv) Map.empty)
 
 initEnv :: Env
 initEnv = Env {_defs = Map.empty, _tvBinds = Map.empty}
 
-mono :: Annot.Expr -> Mono Expr
+mono :: CExpr -> Mono MExpr
 mono =
     \case
-        Annot.Lit c -> pure (Lit c)
-        Annot.Var x t -> do
+        Lit c -> pure (Lit c)
+        Var x t -> do
             t' <- monotype t
             addInst x t'
             pure (Var x t')
-        Annot.App f a -> liftA2 App (mono f) (mono a)
-        Annot.If p c a -> liftA3 If (mono p) (mono c) (mono a)
-        Annot.Fun (p, tp) b -> do
+        App f a -> liftA2 App (mono f) (mono a)
+        If p c a -> liftA3 If (mono p) (mono c) (mono a)
+        Fun (p, tp) b -> do
             tp' <- monotype tp
             b' <- mono b
             pure (Fun (p, tp') b')
-        Annot.Let ds b -> fmap (uncurry Let) (monoLet ds b)
+        Let ds b -> fmap (uncurry Let) (monoLet ds b)
 
-monoLet :: Annot.Defs -> Annot.Expr -> Mono (Defs, Expr)
-monoLet ds body = do
+monoLet :: Check.Defs -> CExpr -> Mono (Defs, MExpr)
+monoLet (Check.Defs ds) body = do
     let ks = Map.keys ds
     parentInsts <- gets (lookups ks)
     let newEmptyInsts = (fmap (const Map.empty) ds)
@@ -123,7 +90,7 @@ monoLet ds body = do
                 (name, dInsts) <- dsInsts
                 (t, body) <- Map.toList dInsts
                 pure ((name, t), body)
-    pure (ds', body')
+    pure (Defs ds', body')
 
 addInst :: String -> Type -> Mono ()
 addInst x t1 = do
@@ -132,27 +99,27 @@ addInst x t1 = do
         Nothing -> pure () -- If x is not in insts, it's a function parameter. Ignore.
         Just xInsts ->
             unless (Map.member t1 xInsts) $ do
-                (Annot.Forall _ t2, body) <-
+                (Forall _ t2, body) <-
                     views defs (lookup' (ice (x ++ " not in defs")) x)
-                let s = either ice id (runExcept (unify'' (annottype t1) t2))
+                let s = either ice id (runExcept (unify'' (checktype t1) t2))
                 s' <- mapM monotype s
                 body' <- local (over tvBinds (Map.union s')) (mono body)
                 insertInst x t1 body'
 
-monotype :: Annot.Type -> Mono Type
+monotype :: Check.Type -> Mono Type
 monotype =
     \case
-        Annot.TVar v -> views tvBinds (lookup' (ice (v ++ " not in tvBinds")) v)
-        Annot.TConst c -> pure (TConst c)
-        Annot.TFun a b -> liftA2 TFun (monotype a) (monotype b)
+        Check.TVar v -> views tvBinds (lookup' (ice (v ++ " not in tvBinds")) v)
+        Check.TConst c -> pure (TConst c)
+        Check.TFun a b -> liftA2 TFun (monotype a) (monotype b)
 
-annottype :: Type -> Annot.Type
-annottype =
+checktype :: Type -> Check.Type
+checktype =
     \case
-        TConst c -> Annot.TConst c
-        TFun a b -> Annot.TFun (annottype a) (annottype b)
+        TConst c -> tConst c
+        TFun a b -> tFun (checktype a) (checktype b)
 
-insertInst :: String -> Type -> Expr -> Mono ()
+insertInst :: String -> Type -> MExpr -> Mono ()
 insertInst x t b = modify (Map.adjust (Map.insert t b) x)
 
 lookup' :: Ord k => v -> k -> Map k v -> v

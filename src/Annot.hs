@@ -3,12 +3,7 @@
 module Annot
     ( Program(..)
     , Expr(..)
-    , Defs
-    , TVar
     , Type(..)
-    , Scheme(..)
-    , scmParams
-    , scmBody
     , typeUnit
     , typeInt
     , typeDouble
@@ -16,69 +11,46 @@ module Annot
     , typeBool
     , typeChar
     , mainType
-    , mainScheme
     ) where
 
 import Ast (Const(..))
-import Control.Lens (makeLenses)
-import Data.Map.Strict (Map)
-import Data.Set (Set)
-import qualified Data.Set as Set
 
--- Type annotated AST
-type TVar = String
+class Type t where
+    tConst :: String -> t
+    tFun :: t -> t -> t
 
-data Type
-    = TVar TVar
-    | TConst String
-    | TFun Type
-           Type
-    deriving (Show, Eq)
+typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type t => t
+typeUnit = tConst "Unit"
 
-typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type
-typeUnit = TConst "Unit"
+typeInt = tConst "Int"
 
-typeInt = TConst "Int"
+typeDouble = tConst "Double"
 
-typeDouble = TConst "Double"
+typeChar = tConst "Char"
 
-typeChar = TConst "Char"
+typeStr = tConst "Str"
 
-typeStr = TConst "Str"
+typeBool = tConst "Bool"
 
-typeBool = TConst "Bool"
+mainType :: Type t => t
+mainType = tFun typeUnit typeUnit
 
-data Scheme = Forall
-    { _scmParams :: (Set TVar)
-    , _scmBody :: Type
-    } deriving (Show, Eq)
-
-makeLenses ''Scheme
-
-mainType :: Type
-mainType = TFun typeUnit typeUnit
-
-mainScheme :: Scheme
-mainScheme = Forall Set.empty mainType
-
-data Expr
+data Expr t ds
     = Lit Const
     | Var String
-          Type
-    | App Expr
-          Expr
-    | If Expr
-         Expr
-         Expr
-    | Fun (String, Type)
-          Expr
-    | Let Defs
-          Expr
+          t
+    | App (Expr t ds)
+          (Expr t ds)
+    | If (Expr t ds)
+         (Expr t ds)
+         (Expr t ds)
+    | Fun (String, t)
+          (Expr t ds)
+    | Let ds
+          (Expr t ds)
     deriving (Show, Eq)
 
-type Defs = Map String (Scheme, Expr)
-
-data Program =
-    Program Expr
-            Defs
+data Program t ds =
+    Program (Expr t ds)
+            ds
     deriving (Show)

@@ -4,13 +4,20 @@
 module Check
     ( typecheck
     , unify''
+    , Scheme(..)
+    , scmParams
+    , scmBody
+    , CExpr
+    , CProgram
+    , TVar
+    , Type(..)
+    , Defs(..)
     ) where
 
-import Annot
-       (Scheme(..), TVar, Type(..), typeBool, typeChar, typeDouble,
-        typeInt, typeStr, typeUnit)
+import Annot hiding (Type)
 import qualified Annot
-import Ast
+import qualified Ast
+import Ast (Const(..), Def, Id(..))
 import Control.Lens ((<<+=), assign, makeLenses, over, use, view)
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -24,6 +31,34 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
 import NonEmpty
+
+-- Type annotated AST
+type TVar = String
+
+data Type
+    = TVar TVar
+    | TConst String
+    | TFun Type
+           Type
+    deriving (Show, Eq)
+
+instance Annot.Type Type where
+    tConst = TConst
+    tFun = TFun
+
+data Scheme = Forall
+    { _scmParams :: (Set TVar)
+    , _scmBody :: Type
+    } deriving (Show, Eq)
+
+makeLenses ''Scheme
+
+newtype Defs =
+    Defs (Map String (Scheme, CExpr))
+
+type CExpr = Expr Type Defs
+
+type CProgram = Program Type Defs
 
 type TypeErr = String
 
@@ -43,10 +78,10 @@ makeLenses ''St
 -- | Type checker monad
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
-typecheck :: Program -> Either TypeErr Annot.Program
+typecheck :: Ast.Program -> Either TypeErr CProgram
 typecheck = runInfer . inferProgram
 
-runInfer :: Infer Annot.Program -> Either TypeErr Annot.Program
+runInfer :: Infer CProgram -> Either TypeErr CProgram
 runInfer m =
     runExcept $ do
         (p, st) <- runStateT (runReaderT m builtinSchemes) initSt
@@ -77,16 +112,16 @@ withLocal b = local (uncurry Map.insert b)
 
 -- Inference
 --------------------------------------------------------------------------------
-inferProgram :: Program -> Infer Annot.Program
-inferProgram (Program main defs) = do
+inferProgram :: Ast.Program -> Infer CProgram
+inferProgram (Ast.Program main defs) = do
     let allDefs = ("main", main) : defs
-    allDefs' <- inferDefs allDefs
+    Defs allDefs' <- inferDefs allDefs
     let (Forall _ mainT, main') = fromJust (Map.lookup "main" allDefs')
     let defs' = Map.delete "main" allDefs'
-    unify Annot.mainType mainT
-    pure (Annot.Program main' defs')
+    unify mainType mainT
+    pure (Program main' (Defs defs'))
 
-inferDefs :: [Def] -> Infer Annot.Defs
+inferDefs :: [Def] -> Infer Defs
 inferDefs defs = do
     let ordered = orderDefs defs
     inferDefsComponents ordered
@@ -104,10 +139,10 @@ orderDefs defs = stronglyConnComp graph
   where
     graph = map (\def@(name, _) -> (def, name, fvDef def)) defs
 
-inferDefsComponents :: [SCC Def] -> Infer Annot.Defs
+inferDefsComponents :: [SCC Def] -> Infer Defs
 inferDefsComponents =
     \case
-        [] -> pure Map.empty
+        [] -> pure (Defs Map.empty)
         (scc:sccs) -> do
             let (idents, bodies) = unzip (flattenSCC scc)
             let names = map (\(Id x) -> x) idents
@@ -120,38 +155,39 @@ inferDefsComponents =
                     pure body'
             scms <- mapM generalize ts
             let annotDefs = Map.fromList (zip names (zip scms bodies'))
-            annotRest <- withLocals (zip names scms) (inferDefsComponents sccs)
-            pure (Map.union annotRest annotDefs)
+            Defs annotRest <-
+                withLocals (zip names scms) (inferDefsComponents sccs)
+            pure (Defs (Map.union annotRest annotDefs))
 
-infer :: Expr -> Infer (Type, Annot.Expr)
+infer :: Ast.Expr -> Infer (Type, CExpr)
 infer =
     \case
-        Lit l -> pure (litType l, Annot.Lit l)
-        Var x@(Id x') -> fmap (\t -> (t, Annot.Var x' t)) (lookupEnv x)
-        App f a -> do
+        Ast.Lit l -> pure (litType l, Lit l)
+        Ast.Var x@(Id x') -> fmap (\t -> (t, Var x' t)) (lookupEnv x)
+        Ast.App f a -> do
             (tf, f') <- infer f
             (ta, a') <- infer a
             tr <- fresh
             unify tf (TFun ta tr)
-            pure (tr, Annot.App f' a')
-        If p c a -> do
+            pure (tr, App f' a')
+        Ast.If p c a -> do
             (tp, p') <- infer p
             (tc, c') <- infer c
             (ta, a') <- infer a
             unify typeBool tp
             unify tc ta
-            pure (tc, Annot.If p' c' a')
-        Fun (Id p) b -> do
+            pure (tc, If p' c' a')
+        Ast.Fun (Id p) b -> do
             tp <- fresh
             (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
-            pure (TFun tp tb, Annot.Fun (p, tp) b')
-        Let defs b -> do
-            annotDefs <- inferDefs (nonEmptyToList defs)
+            pure (TFun tp tb, Fun (p, tp) b')
+        Ast.Let defs b -> do
+            Defs annotDefs <- inferDefs (nonEmptyToList defs)
             let defsScms = fmap (\(scm, _) -> scm) annotDefs
             withLocals' defsScms (infer b)
-        Match _ _ -> undefined
-        FunMatch _ -> undefined
-        Constructor _ -> undefined
+        Ast.Match _ _ -> undefined
+        Ast.FunMatch _ -> undefined
+        Ast.Constructor _ -> undefined
 
 litType :: Const -> Type
 litType =
@@ -171,24 +207,23 @@ lookupEnv (Id x) =
 
 -- Substitution
 --------------------------------------------------------------------------------
-substProgram :: Subst -> Annot.Program -> Annot.Program
-substProgram s (Annot.Program main defs) =
-    Annot.Program (substExpr s main) (fmap (substDef s) defs)
+substProgram :: Subst -> CProgram -> CProgram
+substProgram s (Program main (Defs defs)) =
+    Program (substExpr s main) (Defs (fmap (substDef s) defs))
 
-substDef :: Subst -> (Scheme, Annot.Expr) -> (Scheme, Annot.Expr)
+substDef :: Subst -> (Scheme, CExpr) -> (Scheme, CExpr)
 substDef s = bimap id (substExpr s)
 
-substExpr :: Subst -> Annot.Expr -> Annot.Expr
+substExpr :: Subst -> CExpr -> CExpr
 substExpr s =
     \case
-        Annot.Lit c -> Annot.Lit c
-        Annot.Var x t -> Annot.Var x (subst s t)
-        Annot.App f a -> Annot.App (substExpr s f) (substExpr s a)
-        Annot.If p c a ->
-            Annot.If (substExpr s p) (substExpr s c) (substExpr s a)
-        Annot.Fun (p, tp) b -> Annot.Fun (p, subst s tp) (substExpr s b)
-        Annot.Let defs body ->
-            Annot.Let (fmap (substDef s) defs) (substExpr s body)
+        Lit c -> Lit c
+        Var x t -> Var x (subst s t)
+        App f a -> App (substExpr s f) (substExpr s a)
+        If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
+        Fun (p, tp) b -> Fun (p, subst s tp) (substExpr s b)
+        Let (Defs defs) body ->
+            Let (Defs (fmap (substDef s) defs)) (substExpr s body)
 
 subst :: Subst -> Type -> Type
 subst s t =
@@ -198,7 +233,7 @@ subst s t =
         TFun a b -> TFun (subst s a) (subst s b)
 
 substEnv :: Subst -> Env -> Env
-substEnv s env = fmap (over Annot.scmBody (subst s)) env
+substEnv s env = fmap (over scmBody (subst s)) env
 
 composeSubsts :: Subst -> Subst -> Subst
 composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1
@@ -274,15 +309,15 @@ ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
 fvDef :: Def -> [Id]
 fvDef (name, body) = Set.toList (Set.delete name (fv body))
 
-fv :: Expr -> Set Id
+fv :: Ast.Expr -> Set Id
 fv =
     \case
-        Lit _ -> nil
-        Var x -> Set.singleton x
-        App f a -> Set.unions (map fv [f, a])
-        If p c a -> Set.unions (map fv [p, c, a])
-        Fun p b -> Set.delete p (fv b)
-        Let bs e ->
+        Ast.Lit _ -> nil
+        Ast.Var x -> Set.singleton x
+        Ast.App f a -> Set.unions (map fv [f, a])
+        Ast.If p c a -> Set.unions (map fv [p, c, a])
+        Ast.Fun p b -> Set.delete p (fv b)
+        Ast.Let bs e ->
             let fvE = fv e
                 fvBs =
                     foldl
@@ -291,16 +326,17 @@ fv =
                         (fmap snd bs)
                 bvBs = Set.fromList (map fst (nonEmptyToList bs))
             in Set.difference (Set.union fvE fvBs) bvBs
-        Match e cs ->
+        Ast.Match e cs ->
             Set.union (fv e) (Set.difference (fvClauses cs) (bvClauses cs))
-        FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
-        Constructor _ -> nil
+        Ast.FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
+        Ast.Constructor _ -> nil
   where
     fvClauses = foldl (\acc c -> Set.union acc (fv (snd c))) Set.empty
     bvClauses = Set.unions . map (patVars . fst) . nonEmptyToList
     patVars =
         \case
-            PConstructor _ -> nil
-            PConstruction _ ps -> Set.unions (map patVars (nonEmptyToList ps))
-            PVar var -> Set.singleton var
+            Ast.PConstructor _ -> nil
+            Ast.PConstruction _ ps ->
+                Set.unions (map patVars (nonEmptyToList ps))
+            Ast.PVar var -> Set.singleton var
     nil = Set.empty

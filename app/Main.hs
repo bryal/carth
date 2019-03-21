@@ -32,18 +32,18 @@ parse' f src =
         Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
         Right p -> putStrLn ("Parse result:\n" ++ pretty p ++ "\n") $> p
 
-typecheck' :: Ast.Program -> IO Annot.Program
+typecheck' :: Ast.Program -> IO Check.CProgram
 typecheck' p =
     case typecheck p of
         Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
         Right p -> putStrLn ("Typecheck result:\n" ++ pretty p ++ "\n") $> p
 
-monomorphize' :: Annot.Program -> IO Mono.Program
+monomorphize' :: Check.CProgram -> IO Mono.MProgram
 monomorphize' p =
     let p' = monomorphize p
     in putStrLn ("Monomorphization result:\n" ++ pretty p' ++ "\n") $> p'
 
-interpret' :: Mono.Program -> IO ()
+interpret' :: Mono.MProgram -> IO ()
 interpret' p = putStrLn "Interpretation result:" >> interpret p
 
 usage :: IO ()

@@ -5,6 +5,7 @@ module Pretty where
 
 import qualified Annot
 import Ast
+import qualified Check
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -22,8 +23,6 @@ pretty = pretty' 0
 class Pretty a where
     pretty' :: Int -> a -> String
 
--- Instance Ast
---------------------------------------------------------------------------------
 instance Pretty Program where
     pretty' d (Program main defs) =
         let allDefs = (Id "main", main) : defs
@@ -141,11 +140,11 @@ instance Pretty Const where
 instance Pretty String where
     pretty' _ = id
 
--- Instance Annot
---------------------------------------------------------------------------------
-instance Pretty Annot.Program where
-    pretty' d (Annot.Program main defs) =
-        let allDefs = ("main", (Annot.mainScheme, main)) : Map.toList defs
+instance Pretty Check.CProgram where
+    pretty' d (Annot.Program main (Check.Defs defs)) =
+        let allDefs =
+                ("main", (Check.Forall Set.empty Annot.mainType, main)) :
+                Map.toList defs
             prettyDef (name, (scm, val)) =
                 concat
                     [ replicate d ' '
@@ -160,11 +159,28 @@ instance Pretty Annot.Program where
                     ]
         in unlines (map prettyDef allDefs)
 
-instance Pretty Annot.Expr where
+instance Pretty Mono.MProgram where
+    pretty' d (Annot.Program main (Mono.Defs defs)) =
+        let allDefs = (("main", Annot.mainType), main) : Map.toList defs
+            prettyDef ((name, t), val) =
+                concat
+                    [ replicate d ' '
+                    , "(define "
+                    , name
+                    , " #instance "
+                    , pretty t
+                    , "\n"
+                    , replicate (d + 2) ' '
+                    , pretty' (d + 2) val
+                    , ")"
+                    ]
+        in unlines (map prettyDef allDefs)
+
+instance (Pretty t, Pretty ds) => Pretty (Annot.Expr t ds) where
     pretty' d =
         \case
             Annot.Lit l -> pretty l
-            Annot.Var v t -> "(: " ++ v ++ " " ++ pretty t ++ ")"
+            Annot.Var v t -> pretty (TypeAnnot v t)
             Annot.App f x ->
                 concat
                     [ "("
@@ -201,95 +217,26 @@ instance Pretty Annot.Expr where
             Annot.Let binds body ->
                 concat
                     [ "(let ["
-                    , intercalate
-                          ("\n" ++ replicate (d + 6) ' ')
-                          (map (prettyBinding (d + 6)) (Map.toList binds))
+                    , pretty' d binds
                     , "]\n"
                     , replicate (d + 2) ' ' ++ pretty' (d + 2) body
                     , ")"
                     ]
+
+instance Pretty Check.Defs where
+    pretty' d (Check.Defs binds) =
+        intercalate
+            ("\n" ++ replicate (d + 6) ' ')
+            (map (prettyBinding (d + 6)) (Map.toList binds))
       where
         prettyBinding d (name, (scm, body)) =
             prettyBracketPair d (name, body) ++ " ; " ++ pretty scm
 
-instance Pretty Annot.Scheme where
-    pretty' _ (Annot.Forall ps b) =
-        concat ["forall ", intercalate " " (Set.toList ps), ". ", pretty b]
-
-instance Pretty Annot.Type where
-    pretty' _ =
-        \case
-            Annot.TVar tv -> tv
-            Annot.TConst c -> c
-            Annot.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
-
--- Instance Mono
---------------------------------------------------------------------------------
-instance Pretty Mono.Program where
-    pretty' d (Mono.Program main defs) =
-        let allDefs = (("main", Mono.mainType), main) : Map.toList defs
-            prettyDef ((name, t), val) =
-                concat
-                    [ replicate d ' '
-                    , "(define "
-                    , name
-                    , " #instance "
-                    , pretty t
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , pretty' (d + 2) val
-                    , ")"
-                    ]
-        in unlines (map prettyDef allDefs)
-
-instance Pretty Mono.Expr where
-    pretty' d =
-        \case
-            Mono.Lit l -> pretty l
-            Mono.Var v t -> "(: " ++ v ++ " " ++ pretty t ++ ")"
-            Mono.App f x ->
-                concat
-                    [ "("
-                    , pretty' (d + 1) f
-                    , "\n"
-                    , replicate (d + 1) ' '
-                    , pretty' (d + 1) x
-                    , ")"
-                    ]
-            Mono.If pred cons alt ->
-                concat
-                    [ "(if "
-                    , pretty' (d + 4) pred
-                    , "\n"
-                    , replicate (d + 4) ' '
-                    , pretty' (d + 4) cons
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , pretty' (d + 2) alt
-                    , ")"
-                    ]
-            Mono.Fun (param, tp) body ->
-                concat
-                    [ "(fun [(: "
-                    , param
-                    , " "
-                    , pretty tp
-                    , ")]"
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , pretty' (d + 2) body
-                    , ")"
-                    ]
-            Mono.Let binds body ->
-                concat
-                    [ "(let ["
-                    , intercalate
-                          ("\n" ++ replicate (d + 6) ' ')
-                          (map (prettyBinding (d + 6)) (Map.toList binds))
-                    , "]\n"
-                    , replicate (d + 2) ' ' ++ pretty' (d + 2) body
-                    , ")"
-                    ]
+instance Pretty Mono.Defs where
+    pretty' d (Mono.Defs binds) =
+        intercalate
+            ("\n" ++ replicate (d + 6) ' ')
+            (map (prettyBinding (d + 6)) (Map.toList binds))
       where
         prettyBinding d ((name, t), body) =
             concat
@@ -300,14 +247,33 @@ instance Pretty Mono.Expr where
                 , ")"
                 ]
 
+instance Pretty Check.Scheme where
+    pretty' _ (Check.Forall ps b) =
+        concat ["forall ", intercalate " " (Set.toList ps), ". ", pretty b]
+
+instance Pretty Check.Type where
+    pretty' _ =
+        \case
+            Check.TVar tv -> tv
+            Check.TConst c -> c
+            Check.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
+
 instance Pretty Mono.Type where
     pretty' _ =
         \case
             Mono.TConst c -> c
             Mono.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
 
--- Misc
---------------------------------------------------------------------------------
+data TypeAnnot t =
+    TypeAnnot String
+              t
+
+instance Pretty (TypeAnnot ()) where
+    pretty' _ (TypeAnnot x ()) = x
+
+instance Pretty t => Pretty (TypeAnnot t) where
+    pretty' _ (TypeAnnot v t) = "(: " ++ v ++ " " ++ pretty t ++ ")"
+
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) =
     concat

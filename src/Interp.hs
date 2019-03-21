@@ -4,6 +4,7 @@ module Interp
     ( interpret
     ) where
 
+import Annot hiding (Type)
 import Ast (Const(..))
 import Control.Applicative (liftA3)
 import Control.Monad.Reader
@@ -22,7 +23,7 @@ type Env = Map (String, Type) Val
 
 type Eval = ReaderT Env IO
 
-interpret :: Program -> IO ()
+interpret :: MProgram -> IO ()
 interpret p = runEval (evalProgram p)
 
 runEval :: Eval a -> IO a
@@ -40,18 +41,18 @@ builtinValues =
 plus :: Val -> Val -> Val
 plus a b = VConst (Int (unwrapInt a + unwrapInt b))
 
-evalProgram :: Program -> Eval ()
+evalProgram :: MProgram -> Eval ()
 evalProgram (Program main defs) = do
     f <- evalLet defs main
     fmap unwrapUnit (unwrapFun' f (VConst Unit))
 
 evalDefs :: Defs -> Eval (Map (String, Type) Val)
-evalDefs defs = do
+evalDefs (Defs defs) = do
     let (defNames, defBodies) = unzip (Map.toList defs)
     defVals <- mapM eval defBodies
     pure (Map.fromList (zip defNames defVals))
 
-eval :: Expr -> Eval Val
+eval :: MExpr -> Eval Val
 eval =
     \case
         Lit c -> pure (VConst c)
@@ -67,7 +68,7 @@ eval =
             pure (VFun f)
         Let defs body -> evalLet defs body
 
-evalLet :: Defs -> Expr -> Eval Val
+evalLet :: Defs -> MExpr -> Eval Val
 evalLet defs body = do
     defs' <- evalDefs defs
     withLocals defs' (eval body)
