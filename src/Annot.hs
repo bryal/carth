@@ -3,7 +3,6 @@
 module Annot
     ( Program(..)
     , Expr(..)
-    , Def
     , Defs
     , TVar
     , Type(..)
@@ -20,12 +19,11 @@ module Annot
     , mainScheme
     ) where
 
-import Ast (Const(..), Id, Pat(..))
+import Ast (Const(..))
 import Control.Lens (makeLenses)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import NonEmpty
 
 -- Type annotated AST
 type TVar = String
@@ -65,25 +63,20 @@ mainScheme = Forall Set.empty mainType
 
 data Expr
     = Lit Const
-    | Var Id
+    | Var String
+          Type
     | App Expr
           Expr
     | If Expr
          Expr
          Expr
-    | Fun Id
+    | Fun (String, Type)
           Expr
     | Let Defs
           Expr
-    | Match Expr
-            (NonEmpty (Pat, Expr))
-    | FunMatch (NonEmpty (Pat, Expr))
-    | Constructor String
     deriving (Show, Eq)
 
-type Def = (Id, Expr)
-
-type Defs = Map Id (Scheme, Expr)
+type Defs = Map String (Scheme, Expr)
 
 data Program =
     Program Expr

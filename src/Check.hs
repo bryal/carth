@@ -3,6 +3,7 @@
 
 module Check
     ( typecheck
+    , unify''
     ) where
 
 import Annot
@@ -10,23 +11,23 @@ import Annot
         typeInt, typeStr, typeUnit)
 import qualified Annot
 import Ast
-import qualified Builtin
+import Control.Lens ((<<+=), assign, makeLenses, over, use, view)
+import Control.Monad.Except
+import Control.Monad.Reader
+import Control.Monad.State.Strict
+import Data.Bifunctor
+import Data.Composition
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
 import NonEmpty
 
-import Control.Lens ((<<+=), assign, makeLenses, over, use)
-import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.State.Strict
-import Data.Maybe
-
 type TypeErr = String
 
-type Env = Map Id Scheme
+type Env = Map String Scheme
 
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
@@ -46,7 +47,18 @@ typecheck :: Program -> Either TypeErr Annot.Program
 typecheck = runInfer . inferProgram
 
 runInfer :: Infer Annot.Program -> Either TypeErr Annot.Program
-runInfer m = runExcept (evalStateT (runReaderT m Builtin.schemes) initSt)
+runInfer m =
+    runExcept $ do
+        (p, st) <- runStateT (runReaderT m builtinSchemes) initSt
+        let s = view substs st
+        pure (substProgram s p)
+
+builtinSchemes :: Map String Scheme
+builtinSchemes =
+    Map.fromList
+        [ ("printInt", Forall Set.empty (TFun typeInt typeUnit))
+        , ("+", Forall Set.empty (TFun typeInt (TFun typeInt typeInt)))
+        ]
 
 initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
@@ -54,13 +66,13 @@ initSt = St {_tvCount = 0, _substs = Map.empty}
 fresh :: Infer Type
 fresh = fmap (TVar . ("#" ++) . show) (tvCount <<+= 1)
 
-withLocals :: [(Id, Scheme)] -> Infer a -> Infer a
+withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = withLocals' . Map.fromList
 
-withLocals' :: Map Id Scheme -> Infer a -> Infer a
+withLocals' :: Map String Scheme -> Infer a -> Infer a
 withLocals' = local . Map.union
 
-withLocal :: (Id, Scheme) -> Infer a -> Infer a
+withLocal :: (String, Scheme) -> Infer a -> Infer a
 withLocal b = local (uncurry Map.insert b)
 
 -- Inference
@@ -69,9 +81,8 @@ inferProgram :: Program -> Infer Annot.Program
 inferProgram (Program main defs) = do
     let allDefs = ("main", main) : defs
     allDefs' <- inferDefs allDefs
-    let (mainScm, main') = fromJust (Map.lookup "main" allDefs')
+    let (Forall _ mainT, main') = fromJust (Map.lookup "main" allDefs')
     let defs' = Map.delete "main" allDefs'
-    mainT <- instantiate mainScm
     unify Annot.mainType mainT
     pure (Annot.Program main' defs')
 
@@ -98,7 +109,8 @@ inferDefsComponents =
     \case
         [] -> pure Map.empty
         (scc:sccs) -> do
-            let (names, bodies) = unzip (flattenSCC scc)
+            let (idents, bodies) = unzip (flattenSCC scc)
+            let names = map (\(Id x) -> x) idents
             ts <- replicateM (length names) fresh
             bodies' <-
                 withLocals (zip names (map (Forall Set.empty) ts)) $
@@ -115,7 +127,7 @@ infer :: Expr -> Infer (Type, Annot.Expr)
 infer =
     \case
         Lit l -> pure (litType l, Annot.Lit l)
-        Var x -> fmap (, Annot.Var x) (lookupEnv x)
+        Var x@(Id x') -> fmap (\t -> (t, Annot.Var x' t)) (lookupEnv x)
         App f a -> do
             (tf, f') <- infer f
             (ta, a') <- infer a
@@ -129,17 +141,17 @@ infer =
             unify typeBool tp
             unify tc ta
             pure (tc, Annot.If p' c' a')
-        Fun p b -> do
+        Fun (Id p) b -> do
             tp <- fresh
             (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
-            pure (TFun tp tb, Annot.Fun p b')
+            pure (TFun tp tb, Annot.Fun (p, tp) b')
         Let defs b -> do
             annotDefs <- inferDefs (nonEmptyToList defs)
             let defsScms = fmap (\(scm, _) -> scm) annotDefs
             withLocals' defsScms (infer b)
-        Match _a _cs -> undefined
-        FunMatch _cs -> undefined
-        Constructor _c -> undefined
+        Match _ _ -> undefined
+        FunMatch _ -> undefined
+        Constructor _ -> undefined
 
 litType :: Const -> Type
 litType =
@@ -152,13 +164,32 @@ litType =
         Bool _ -> typeBool
 
 lookupEnv :: Id -> Infer Type
-lookupEnv x =
+lookupEnv (Id x) =
     asks (Map.lookup x) >>= \case
         Just scm -> instantiate scm
         Nothing -> throwError ("Unbound variable: " ++ show x)
 
 -- Substitution
 --------------------------------------------------------------------------------
+substProgram :: Subst -> Annot.Program -> Annot.Program
+substProgram s (Annot.Program main defs) =
+    Annot.Program (substExpr s main) (fmap (substDef s) defs)
+
+substDef :: Subst -> (Scheme, Annot.Expr) -> (Scheme, Annot.Expr)
+substDef s = bimap id (substExpr s)
+
+substExpr :: Subst -> Annot.Expr -> Annot.Expr
+substExpr s =
+    \case
+        Annot.Lit c -> Annot.Lit c
+        Annot.Var x t -> Annot.Var x (subst s t)
+        Annot.App f a -> Annot.App (substExpr s f) (substExpr s a)
+        Annot.If p c a ->
+            Annot.If (substExpr s p) (substExpr s c) (substExpr s a)
+        Annot.Fun (p, tp) b -> Annot.Fun (p, subst s tp) (substExpr s b)
+        Annot.Let defs body ->
+            Annot.Let (fmap (substDef s) defs) (substExpr s body)
+
 subst :: Subst -> Type -> Type
 subst s t =
     case t of
@@ -181,7 +212,10 @@ unify t1 t2 = do
     assign substs (composeSubsts s2 s1)
 
 unify' :: Type -> Type -> Infer Subst
-unify' =
+unify' = lift . lift .* unify''
+
+unify'' :: Type -> Type -> Except TypeErr Subst
+unify'' =
     curry $ \case
         (TConst a, TConst b)
             | a == b -> pure Map.empty
@@ -191,10 +225,10 @@ unify' =
             | occursIn a t ->
                 throwError (concat ["Infinite type: ", a, ", ", show t])
         (TVar a, t) -> pure (Map.singleton a t)
-        (t, TVar a) -> unify' (TVar a) t
+        (t, TVar a) -> unify'' (TVar a) t
         (TFun t1 t2, TFun t1' t2') -> do
-            s1 <- unify' t1 t1'
-            s2 <- unify' (subst s1 t2) (subst s1 t2')
+            s1 <- unify'' t1 t1'
+            s2 <- unify'' (subst s1 t2) (subst s1 t2')
             pure (composeSubsts s2 s1)
         (t1, t2) ->
             throwError (concat ["Unification failed: ", show t1, ", ", show t2])
