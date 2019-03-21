@@ -1,5 +1,5 @@
 (define (main _)
-  (seq (printInt 1337) (seq (printInt 42) (printInt (+ 60 9)))))
+  (seq (id (printInt (id 1337))) (seq (printInt 42) (printInt (+ 60 9)))))
 
 (define (id x) x)
 
