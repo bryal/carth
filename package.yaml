@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - lens
 - utility-ht
+- llvm-hs-pure == 7.0.0
 - llvm-hs == 7.0.0
 
 library:
@@ -42,6 +43,7 @@ library:
   - -fno-warn-name-shadowing
   - -fno-warn-orphans
   - -fno-warn-unused-do-bind
+  - -fno-warn-incomplete-record-updates
 
 executables:
   carth-exe:
