@@ -19,7 +19,7 @@ extra-source-files:
 description:         Please see the README on GitHub at <https://github.com/bryal/carth#readme>
 
 dependencies:
-- base >= 4.7 && < 5
+- base #  >= 4.7 && < 5
 - parsec == 3.1.13.0
 - either
 - QuickCheck
@@ -28,6 +28,7 @@ dependencies:
 - mtl
 - lens
 - utility-ht
+- llvm-hs == 7.0.0
 
 library:
   source-dirs: src
