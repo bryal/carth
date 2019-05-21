@@ -8,7 +8,8 @@ module Ast
     , Def
     , Program(..)
     , reserveds
-    ) where
+    )
+where
 
 import Control.Monad
 import Data.String
@@ -156,12 +157,11 @@ arbitraryConstructor = liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
 arbitraryRestIdent :: Gen String
 arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
   where
-    c =
-        frequency
-            [ (26, choose ('a', 'z'))
-            , (26, choose ('A', 'Z'))
-            , (4, elements ['_', '-', '+', '?'])
-            ]
+    c = frequency
+        [ (26, choose ('a', 'z'))
+        , (26, choose ('A', 'Z'))
+        , (4, elements ['_', '-', '+', '?'])
+        ]
 
 reserveds :: [String]
 reserveds =

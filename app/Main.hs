@@ -2,10 +2,8 @@
 
 module Main where
 
-import qualified Annot
 import qualified Ast
 import Check
-import Data.Composition
 import Data.Functor
 import Interp
 import Mono (monomorphize)
@@ -19,7 +17,7 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        file:[] -> interpretFile file
+        file : [] -> interpretFile file
         _ -> usage
 
 interpretFile :: FilePath -> IO ()
@@ -27,16 +25,14 @@ interpretFile f =
     readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret'
 
 parse' :: FilePath -> String -> IO Ast.Program
-parse' f src =
-    case parse f src of
-        Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
-        Right p -> putStrLn ("Parse result:\n" ++ pretty p ++ "\n") $> p
+parse' f src = case parse f src of
+    Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
+    Right p -> putStrLn ("Parse result:\n" ++ pretty p ++ "\n") $> p
 
 typecheck' :: Ast.Program -> IO Check.CProgram
-typecheck' p =
-    case typecheck p of
-        Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
-        Right p -> putStrLn ("Typecheck result:\n" ++ pretty p ++ "\n") $> p
+typecheck' p = case typecheck p of
+    Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
+    Right p -> putStrLn ("Typecheck result:\n" ++ pretty p ++ "\n") $> p
 
 monomorphize' :: Check.CProgram -> IO Mono.MProgram
 monomorphize' p =

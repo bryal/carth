@@ -1,5 +1,4 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell,
-  TupleSections #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections #-}
 
 module Check
     ( typecheck
@@ -12,7 +11,8 @@ module Check
     , TVar
     , Type(..)
     , Defs(..)
-    ) where
+    )
+where
 
 import Annot hiding (Type)
 import qualified Annot
@@ -82,18 +82,16 @@ typecheck :: Ast.Program -> Either TypeErr CProgram
 typecheck = runInfer . inferProgram
 
 runInfer :: Infer CProgram -> Either TypeErr CProgram
-runInfer m =
-    runExcept $ do
-        (p, st) <- runStateT (runReaderT m builtinSchemes) initSt
-        let s = view substs st
-        pure (substProgram s p)
+runInfer m = runExcept $ do
+    (p, st) <- runStateT (runReaderT m builtinSchemes) initSt
+    let s = view substs st
+    pure (substProgram s p)
 
 builtinSchemes :: Map String Scheme
-builtinSchemes =
-    Map.fromList
-        [ ("printInt", Forall Set.empty (TFun typeInt typeUnit))
-        , ("+", Forall Set.empty (TFun typeInt (TFun typeInt typeInt)))
-        ]
+builtinSchemes = Map.fromList
+    [ ("printInt", Forall Set.empty (TFun typeInt typeUnit))
+    , ("+", Forall Set.empty (TFun typeInt (TFun typeInt typeInt)))
+    ]
 
 initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
@@ -136,74 +134,69 @@ inferDefs defs = do
 -- generalizing.
 orderDefs :: [Def] -> [SCC Def]
 orderDefs defs = stronglyConnComp graph
-  where
-    graph = map (\def@(name, _) -> (def, name, fvDef def)) defs
+    where graph = map (\def@(name, _) -> (def, name, fvDef def)) defs
 
 inferDefsComponents :: [SCC Def] -> Infer Defs
-inferDefsComponents =
-    \case
-        [] -> pure (Defs Map.empty)
-        (scc:sccs) -> do
-            let (idents, bodies) = unzip (flattenSCC scc)
-            let names = map (\(Id x) -> x) idents
-            ts <- replicateM (length names) fresh
-            bodies' <-
-                withLocals (zip names (map (Forall Set.empty) ts)) $
-                forM (zip bodies ts) $ \(body, t1) -> do
-                    (t2, body') <- infer body
-                    unify t1 t2
-                    pure body'
-            scms <- mapM generalize ts
-            let annotDefs = Map.fromList (zip names (zip scms bodies'))
-            Defs annotRest <-
-                withLocals (zip names scms) (inferDefsComponents sccs)
-            pure (Defs (Map.union annotRest annotDefs))
+inferDefsComponents = \case
+    [] -> pure (Defs Map.empty)
+    (scc : sccs) -> do
+        let (idents, bodies) = unzip (flattenSCC scc)
+        let names = map (\(Id x) -> x) idents
+        ts <- replicateM (length names) fresh
+        bodies' <-
+            withLocals (zip names (map (Forall Set.empty) ts))
+            $ forM (zip bodies ts)
+            $ \(body, t1) -> do
+                  (t2, body') <- infer body
+                  unify t1 t2
+                  pure body'
+        scms <- mapM generalize ts
+        let annotDefs = Map.fromList (zip names (zip scms bodies'))
+        Defs annotRest <- withLocals (zip names scms) (inferDefsComponents sccs)
+        pure (Defs (Map.union annotRest annotDefs))
 
 infer :: Ast.Expr -> Infer (Type, CExpr)
-infer =
-    \case
-        Ast.Lit l -> pure (litType l, Lit l)
-        Ast.Var x@(Id x') -> fmap (\t -> (t, Var x' t)) (lookupEnv x)
-        Ast.App f a -> do
-            (tf, f') <- infer f
-            (ta, a') <- infer a
-            tr <- fresh
-            unify tf (TFun ta tr)
-            pure (tr, App f' a')
-        Ast.If p c a -> do
-            (tp, p') <- infer p
-            (tc, c') <- infer c
-            (ta, a') <- infer a
-            unify typeBool tp
-            unify tc ta
-            pure (tc, If p' c' a')
-        Ast.Fun (Id p) b -> do
-            tp <- fresh
-            (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
-            pure (TFun tp tb, Fun (p, tp) b')
-        Ast.Let defs b -> do
-            Defs annotDefs <- inferDefs (nonEmptyToList defs)
-            let defsScms = fmap (\(scm, _) -> scm) annotDefs
-            withLocals' defsScms (infer b)
-        Ast.Match _ _ -> undefined
-        Ast.FunMatch _ -> undefined
-        Ast.Constructor _ -> undefined
+infer = \case
+    Ast.Lit l -> pure (litType l, Lit l)
+    Ast.Var x@(Id x') -> fmap (\t -> (t, Var x' t)) (lookupEnv x)
+    Ast.App f a -> do
+        (tf, f') <- infer f
+        (ta, a') <- infer a
+        tr <- fresh
+        unify tf (TFun ta tr)
+        pure (tr, App f' a')
+    Ast.If p c a -> do
+        (tp, p') <- infer p
+        (tc, c') <- infer c
+        (ta, a') <- infer a
+        unify typeBool tp
+        unify tc ta
+        pure (tc, If p' c' a')
+    Ast.Fun (Id p) b -> do
+        tp <- fresh
+        (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
+        pure (TFun tp tb, Fun (p, tp) b')
+    Ast.Let defs b -> do
+        Defs annotDefs <- inferDefs (nonEmptyToList defs)
+        let defsScms = fmap (\(scm, _) -> scm) annotDefs
+        withLocals' defsScms (infer b)
+    Ast.Match _ _ -> undefined
+    Ast.FunMatch _ -> undefined
+    Ast.Constructor _ -> undefined
 
 litType :: Const -> Type
-litType =
-    \case
-        Unit -> typeUnit
-        Int _ -> typeInt
-        Double _ -> typeDouble
-        Char _ -> typeChar
-        Str _ -> typeStr
-        Bool _ -> typeBool
+litType = \case
+    Unit -> typeUnit
+    Int _ -> typeInt
+    Double _ -> typeDouble
+    Char _ -> typeChar
+    Str _ -> typeStr
+    Bool _ -> typeBool
 
 lookupEnv :: Id -> Infer Type
-lookupEnv (Id x) =
-    asks (Map.lookup x) >>= \case
-        Just scm -> instantiate scm
-        Nothing -> throwError ("Unbound variable: " ++ show x)
+lookupEnv (Id x) = asks (Map.lookup x) >>= \case
+    Just scm -> instantiate scm
+    Nothing -> throwError ("Unbound variable: " ++ show x)
 
 -- Substitution
 --------------------------------------------------------------------------------
@@ -215,22 +208,20 @@ substDef :: Subst -> (Scheme, CExpr) -> (Scheme, CExpr)
 substDef s = bimap id (substExpr s)
 
 substExpr :: Subst -> CExpr -> CExpr
-substExpr s =
-    \case
-        Lit c -> Lit c
-        Var x t -> Var x (subst s t)
-        App f a -> App (substExpr s f) (substExpr s a)
-        If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
-        Fun (p, tp) b -> Fun (p, subst s tp) (substExpr s b)
-        Let (Defs defs) body ->
-            Let (Defs (fmap (substDef s) defs)) (substExpr s body)
+substExpr s = \case
+    Lit c -> Lit c
+    Var x t -> Var x (subst s t)
+    App f a -> App (substExpr s f) (substExpr s a)
+    If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
+    Fun (p, tp) b -> Fun (p, subst s tp) (substExpr s b)
+    Let (Defs defs) body ->
+        Let (Defs (fmap (substDef s) defs)) (substExpr s body)
 
 subst :: Subst -> Type -> Type
-subst s t =
-    case t of
-        TVar tv -> fromMaybe t (Map.lookup tv s)
-        TConst _ -> t
-        TFun a b -> TFun (subst s a) (subst s b)
+subst s t = case t of
+    TVar tv -> fromMaybe t (Map.lookup tv s)
+    TConst _ -> t
+    TFun a b -> TFun (subst s a) (subst s b)
 
 substEnv :: Subst -> Env -> Env
 substEnv s env = fmap (over scmBody (subst s)) env
@@ -250,23 +241,19 @@ unify' :: Type -> Type -> Infer Subst
 unify' = lift . lift .* unify''
 
 unify'' :: Type -> Type -> Except TypeErr Subst
-unify'' =
-    curry $ \case
-        (TConst a, TConst b)
-            | a == b -> pure Map.empty
-        (TVar a, TVar b)
-            | a == b -> pure Map.empty
-        (TVar a, t)
-            | occursIn a t ->
-                throwError (concat ["Infinite type: ", a, ", ", show t])
-        (TVar a, t) -> pure (Map.singleton a t)
-        (t, TVar a) -> unify'' (TVar a) t
-        (TFun t1 t2, TFun t1' t2') -> do
-            s1 <- unify'' t1 t1'
-            s2 <- unify'' (subst s1 t2) (subst s1 t2')
-            pure (composeSubsts s2 s1)
-        (t1, t2) ->
-            throwError (concat ["Unification failed: ", show t1, ", ", show t2])
+unify'' = curry $ \case
+    (TConst a, TConst b) | a == b -> pure Map.empty
+    (TVar a, TVar b) | a == b -> pure Map.empty
+    (TVar a, t) | occursIn a t ->
+        throwError (concat ["Infinite type: ", a, ", ", show t])
+    (TVar a, t) -> pure (Map.singleton a t)
+    (t, TVar a) -> unify'' (TVar a) t
+    (TFun t1 t2, TFun t1' t2') -> do
+        s1 <- unify'' t1 t1'
+        s2 <- unify'' (subst s1 t2) (subst s1 t2')
+        pure (composeSubsts s2 s1)
+    (t1, t2) ->
+        throwError (concat ["Unification failed: ", show t1, ", ", show t2])
 
 occursIn :: TVar -> Type -> Bool
 occursIn a t = Set.member a (ftv t)
@@ -292,11 +279,10 @@ generalize' env t = Set.difference (ftv t) (ftvEnv env)
 -- Free type variables
 --------------------------------------------------------------------------------
 ftv :: Type -> Set TVar
-ftv =
-    \case
-        TVar tv -> Set.singleton tv
-        TConst _ -> Set.empty
-        TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
+ftv = \case
+    TVar tv -> Set.singleton tv
+    TConst _ -> Set.empty
+    TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
 
 ftvEnv :: Env -> Set TVar
 ftvEnv env = Set.unions (map (ftvScheme . snd) (Map.toList env))
@@ -310,33 +296,28 @@ fvDef :: Def -> [Id]
 fvDef (name, body) = Set.toList (Set.delete name (fv body))
 
 fv :: Ast.Expr -> Set Id
-fv =
-    \case
-        Ast.Lit _ -> nil
-        Ast.Var x -> Set.singleton x
-        Ast.App f a -> Set.unions (map fv [f, a])
-        Ast.If p c a -> Set.unions (map fv [p, c, a])
-        Ast.Fun p b -> Set.delete p (fv b)
-        Ast.Let bs e ->
-            let fvE = fv e
-                fvBs =
-                    foldl
-                        (\acc b -> Set.union acc (fv b))
-                        Set.empty
-                        (fmap snd bs)
-                bvBs = Set.fromList (map fst (nonEmptyToList bs))
-            in Set.difference (Set.union fvE fvBs) bvBs
-        Ast.Match e cs ->
-            Set.union (fv e) (Set.difference (fvClauses cs) (bvClauses cs))
-        Ast.FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
-        Ast.Constructor _ -> nil
+fv = \case
+    Ast.Lit _ -> nil
+    Ast.Var x -> Set.singleton x
+    Ast.App f a -> Set.unions (map fv [f, a])
+    Ast.If p c a -> Set.unions (map fv [p, c, a])
+    Ast.Fun p b -> Set.delete p (fv b)
+    Ast.Let bs e ->
+        let
+            fvE = fv e
+            fvBs =
+                foldl (\acc b -> Set.union acc (fv b)) Set.empty (fmap snd bs)
+            bvBs = Set.fromList (map fst (nonEmptyToList bs))
+        in Set.difference (Set.union fvE fvBs) bvBs
+    Ast.Match e cs ->
+        Set.union (fv e) (Set.difference (fvClauses cs) (bvClauses cs))
+    Ast.FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
+    Ast.Constructor _ -> nil
   where
     fvClauses = foldl (\acc c -> Set.union acc (fv (snd c))) Set.empty
     bvClauses = Set.unions . map (patVars . fst) . nonEmptyToList
-    patVars =
-        \case
-            Ast.PConstructor _ -> nil
-            Ast.PConstruction _ ps ->
-                Set.unions (map patVars (nonEmptyToList ps))
-            Ast.PVar var -> Set.singleton var
+    patVars = \case
+        Ast.PConstructor _ -> nil
+        Ast.PConstruction _ ps -> Set.unions (map patVars (nonEmptyToList ps))
+        Ast.PVar var -> Set.singleton var
     nil = Set.empty

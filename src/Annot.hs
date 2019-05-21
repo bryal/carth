@@ -11,7 +11,8 @@ module Annot
     , typeBool
     , typeChar
     , mainType
-    ) where
+    )
+where
 
 import Ast (Const(..))
 

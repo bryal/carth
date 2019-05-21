@@ -275,30 +275,28 @@ instance Pretty t => Pretty (TypeAnnot t) where
     pretty' _ (TypeAnnot v t) = "(: " ++ v ++ " " ++ pretty t ++ ")"
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
-prettyBracketPair d (a, b) =
-    concat
-        [ "["
-        , pretty' (d + 1) a
-        , "\n"
-        , replicate (d + 1) ' '
-        , pretty' (d + 1) b
-        , "]"
-        ]
+prettyBracketPair d (a, b) = concat
+    [ "["
+    , pretty' (d + 1) a
+    , "\n"
+    , replicate (d + 1) ' '
+    , pretty' (d + 1) b
+    , "]"
+    ]
 
 showChar'' :: Char -> String
-showChar'' =
-    \case
-        '\0' -> "\\0"
-        '\a' -> "\\a"
-        '\b' -> "\\b"
-        '\t' -> "\\t"
-        '\n' -> "\\n"
-        '\v' -> "\\v"
-        '\f' -> "\\f"
-        '\r' -> "\\r"
-        '\\' -> "\\\\"
-        '\"' -> "\\\""
-        c -> [c]
+showChar'' = \case
+    '\0' -> "\\0"
+    '\a' -> "\\a"
+    '\b' -> "\\b"
+    '\t' -> "\\t"
+    '\n' -> "\\n"
+    '\v' -> "\\v"
+    '\f' -> "\\f"
+    '\r' -> "\\r"
+    '\\' -> "\\\\"
+    '\"' -> "\\\""
+    c -> [c]
 
 showChar' :: Char -> String
 showChar' c = "'" ++ showChar'' c ++ "'"

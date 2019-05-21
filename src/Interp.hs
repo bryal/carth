@@ -1,8 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Interp
-    ( interpret
-    ) where
+module Interp (interpret) where
 
 import Annot hiding (Type)
 import Ast (Const(..))
@@ -30,13 +28,14 @@ runEval :: Eval a -> IO a
 runEval m = runReaderT m builtinValues
 
 builtinValues :: Map (String, Type) Val
-builtinValues =
-    Map.fromList
-        [ ( ("printInt", TFun typeInt typeUnit)
-          , VFun (\v -> print (unwrapInt v) $> VConst Unit))
-        , ( ("+", TFun typeInt (TFun typeInt typeInt))
-          , VFun (\a -> pure (VFun (\b -> pure (plus a b)))))
-        ]
+builtinValues = Map.fromList
+    [ ( ("printInt", TFun typeInt typeUnit)
+      , VFun (\v -> print (unwrapInt v) $> VConst Unit)
+      )
+    , ( ("+", TFun typeInt (TFun typeInt typeInt))
+      , VFun (\a -> pure (VFun (\b -> pure (plus a b))))
+      )
+    ]
 
 plus :: Val -> Val -> Val
 plus a b = VConst (Int (unwrapInt a + unwrapInt b))
@@ -53,20 +52,19 @@ evalDefs (Defs defs) = do
     pure (Map.fromList (zip defNames defVals))
 
 eval :: MExpr -> Eval Val
-eval =
-    \case
-        Lit c -> pure (VConst c)
-        Var x t -> lookupEnv (x, t)
-        App ef ea -> do
-            f <- fmap unwrapFun' (eval ef)
-            a <- eval ea
-            f a
-        If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
-        Fun (p, pt) b -> do
-            env <- ask
-            let f v = runEval (withLocals env (withLocal (p, pt) v (eval b)))
-            pure (VFun f)
-        Let defs body -> evalLet defs body
+eval = \case
+    Lit c -> pure (VConst c)
+    Var x t -> lookupEnv (x, t)
+    App ef ea -> do
+        f <- fmap unwrapFun' (eval ef)
+        a <- eval ea
+        f a
+    If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
+    Fun (p, pt) b -> do
+        env <- ask
+        let f v = runEval (withLocals env (withLocal (p, pt) v (eval b)))
+        pure (VFun f)
+    Let defs body -> evalLet defs body
 
 evalLet :: Defs -> MExpr -> Eval Val
 evalLet defs body = do
@@ -74,10 +72,9 @@ evalLet defs body = do
     withLocals defs' (eval body)
 
 lookupEnv :: (String, Type) -> Eval Val
-lookupEnv (x, t) =
-    fmap
-        (fromMaybe (ice ("Unbound variable: " ++ x ++ " of type " ++ show t)))
-        (asks (Map.lookup (x, t)))
+lookupEnv (x, t) = fmap
+    (fromMaybe (ice ("Unbound variable: " ++ x ++ " of type " ++ show t)))
+    (asks (Map.lookup (x, t)))
 
 withLocals :: Map (String, Type) Val -> Eval a -> Eval a
 withLocals defs = local (Map.union defs)
@@ -89,38 +86,32 @@ unwrapFun' :: Val -> (Val -> Eval Val)
 unwrapFun' v = \x -> lift (unwrapFun v x)
 
 unwrapUnit :: Val -> ()
-unwrapUnit =
-    \case
-        VConst Unit -> ()
-        x -> ice ("Unwrapping unit, found " ++ showVariant x)
+unwrapUnit = \case
+    VConst Unit -> ()
+    x -> ice ("Unwrapping unit, found " ++ showVariant x)
 
 unwrapInt :: Val -> Int
-unwrapInt =
-    \case
-        VConst (Int n) -> n
-        x -> ice ("Unwrapping int, found " ++ showVariant x)
+unwrapInt = \case
+    VConst (Int n) -> n
+    x -> ice ("Unwrapping int, found " ++ showVariant x)
 
 unwrapBool :: Val -> Bool
-unwrapBool =
-    \case
-        VConst (Bool b) -> b
-        x -> ice ("Unwrapping bool, found " ++ showVariant x)
+unwrapBool = \case
+    VConst (Bool b) -> b
+    x -> ice ("Unwrapping bool, found " ++ showVariant x)
 
 unwrapFun :: Val -> (Val -> IO Val)
-unwrapFun =
-    \case
-        VFun f -> f
-        x -> ice ("Unwrapping function, found " ++ showVariant x)
+unwrapFun = \case
+    VFun f -> f
+    x -> ice ("Unwrapping function, found " ++ showVariant x)
 
 showVariant :: Val -> String
-showVariant =
-    \case
-        VConst c ->
-            case c of
-                Unit -> "unit"
-                Int _ -> "int"
-                Double _ -> "double"
-                Str _ -> "string"
-                Bool _ -> "bool"
-                Char _ -> "character"
-        VFun _ -> "function"
+showVariant = \case
+    VConst c -> case c of
+        Unit -> "unit"
+        Int _ -> "int"
+        Double _ -> "double"
+        Str _ -> "string"
+        Bool _ -> "bool"
+        Char _ -> "character"
+    VFun _ -> "function"

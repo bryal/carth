@@ -1,8 +1,6 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase #-}
 
-module Parse
-    ( parse
-    ) where
+module Parse (parse) where
 
 import Ast
 import Control.Monad
@@ -24,8 +22,10 @@ program :: Parser Program
 program = do
     defs <- many1 def
     eof
-    main <-
-        maybe (fail "main function not defined") pure (lookup (Id "main") defs)
+    main <- maybe
+        (fail "main function not defined")
+        pure
+        (lookup (Id "main") defs)
     pure (Program main (filter ((/= (Id "main")) . fst) defs))
 
 def :: Parser (Id, Expr)
@@ -53,20 +53,11 @@ num :: Parser Expr
 num = do
     neg <- option False (char '-' $> True)
     a <- Token.naturalOrFloat lexer
-    let e =
-            either
-                (\n ->
-                     Int
-                         (fromInteger
-                              (if neg
-                                   then -n
-                                   else n)))
-                (\x ->
-                     Double
-                         (if neg
-                              then -x
-                              else x))
-                a
+    let
+        e = either
+            (\n -> Int (fromInteger (if neg then -n else n)))
+            (\x -> Double (if neg then -x else x))
+            a
     pure (Lit e)
 
 charLit :: Parser Expr
@@ -139,8 +130,7 @@ let' = do
     bindings <- parens (many1' binding)
     body <- expr
     pure (Let bindings body)
-  where
-    binding = parens (liftM2 (,) ident expr)
+    where binding = parens (liftM2 (,) ident expr)
 
 -- Note that () and [] can be used interchangeably, as long as the
 -- opening and closing bracket matches.
@@ -148,24 +138,20 @@ parens :: Parser a -> Parser a
 parens p = choice (map (($ p) . ($ lexer)) [Token.parens, Token.brackets])
 
 constructor :: Parser String
-constructor =
-    try $ do
-        s <- Token.identifier lexer
-        let c = head s
-        if (isUpper c || [c] == ":")
-            then pure s
-            else fail
-                     "Constructor must start with an uppercase letter or colon."
+constructor = try $ do
+    s <- Token.identifier lexer
+    let c = head s
+    if (isUpper c || [c] == ":")
+        then pure s
+        else fail "Constructor must start with an uppercase letter or colon."
 
 ident :: Parser Id
-ident =
-    try $ do
-        s <- Token.identifier lexer
-        let c = head s
-        if (isUpper c || [c] == ":")
-            then fail
-                     "Identifier must not start with an uppercase letter or colon."
-            else pure (Id s)
+ident = try $ do
+    s <- Token.identifier lexer
+    let c = head s
+    if (isUpper c || [c] == ":")
+        then fail "Identifier must not start with an uppercase letter or colon."
+        else pure (Id s)
 
 reserved :: String -> Parser ()
 reserved = Token.reserved lexer
@@ -174,8 +160,7 @@ lexer :: Token.GenTokenParser String () Identity
 lexer = Token.makeTokenParser langDef
 
 langDef :: Token.LanguageDef ()
-langDef =
-    Token.LanguageDef
+langDef = Token.LanguageDef
     { Token.commentStart = ";{"
     , Token.commentEnd = ";}"
     , Token.commentLine = ";"
@@ -183,22 +168,21 @@ langDef =
     , Token.opStart = parserZero
     , Token.opLetter = parserZero
     , Token.reservedOpNames = []
-    , Token.identStart =
-          choice [letter, symbol, try (oneOf "-+" <* notFollowedBy digit)]
+    , Token.identStart = choice
+        [letter, symbol, try (oneOf "-+" <* notFollowedBy digit)]
     , Token.identLetter = letter <|> symbol <|> oneOf "-+" <|> digit
     , Token.reservedNames = reserveds
     , Token.caseSensitive = True
     }
 
 symbol :: Parsec String () Char
-symbol =
-    satisfy
-        (\c ->
-             and
-                 [ any ($ c) [isMark, isPunctuation, isSymbol]
-                 , not (elem c "()[]{}")
-                 , not (elem c "\"-+")
-                 ])
+symbol = satisfy
+    (\c -> and
+        [ any ($ c) [isMark, isPunctuation, isSymbol]
+        , not (elem c "()[]{}")
+        , not (elem c "\"-+")
+        ]
+    )
 
 many1' :: Stream s m t => ParsecT s u m a -> ParsecT s u m (NonEmpty a)
 many1' = fmap (fromJust . nonEmpty) . many1

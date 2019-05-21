@@ -5,7 +5,8 @@ module NonEmpty
     , map1
     , nonEmptyToList
     , nonEmpty
-    ) where
+    )
+where
 
 import Control.Monad
 import Data.Composition
