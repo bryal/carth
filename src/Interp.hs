@@ -13,6 +13,8 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Mono
 
+import Misc
+
 data Val
     = VConst Const
     | VFun (Val -> IO Val)

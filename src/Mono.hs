@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections #-}
 
 -- | Monomorphization
-module Mono (monomorphize, Defs(..), Type(..), MProgram, MExpr, ice) where
+module Mono (monomorphize, Defs(..), Type(..), MProgram, MExpr) where
 
 import Annot hiding (Type)
 import qualified Annot
@@ -15,6 +15,8 @@ import Control.Monad.State
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+
+import Misc
 
 data Type
     = TConst String
@@ -116,6 +118,3 @@ lookup' = Map.findWithDefault
 
 lookups :: Ord k => [k] -> Map k v -> [(k, v)]
 lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
-
-ice :: String -> a
-ice msg = error ("Internal compiler error: " ++ msg)

@@ -23,15 +23,10 @@ class Type t where
 
 typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type t => t
 typeUnit = tConst "Unit"
-
 typeInt = tConst "Int"
-
 typeDouble = tConst "Double"
-
 typeChar = tConst "Char"
-
 typeStr = tConst "Str"
-
 typeBool = tConst "Bool"
 
 mainType :: Type t => t
