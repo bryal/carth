@@ -6,6 +6,7 @@ import qualified Ast
 import Check
 import Data.Functor
 import Interp
+import Compile
 import Mono (monomorphize)
 import qualified Mono
 import Parse
@@ -17,12 +18,17 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        file : [] -> interpretFile file
+        "-i" : file : [] -> interpretFile file
+        file : [] -> compileFile file
         _ -> usage
 
 interpretFile :: FilePath -> IO ()
 interpretFile f =
     readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret'
+
+compileFile :: FilePath -> IO ()
+compileFile f =
+    readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= compile' f
 
 parse' :: FilePath -> String -> IO Ast.Program
 parse' f src = case parse f src of
@@ -41,6 +47,9 @@ monomorphize' p =
 
 interpret' :: Mono.MProgram -> IO ()
 interpret' p = putStrLn "Interpretation result:" >> interpret p
+
+compile' :: FilePath -> Mono.MProgram -> IO ()
+compile' f p = putStrLn "Compilation result:" >> compile f p
 
 usage :: IO ()
 usage = putStrLn "Usage: carth SRC-FILE" >> exitFailure

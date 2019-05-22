@@ -51,7 +51,7 @@ data Expr t ds
           (Expr t ds)
     deriving (Show, Eq)
 
-data Program t ds =
-    Program (Expr t ds)
-            ds
+data Program typ defs =
+    Program (Expr typ defs)
+            defs
     deriving (Show)

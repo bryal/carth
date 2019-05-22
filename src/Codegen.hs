@@ -9,37 +9,29 @@ import qualified LLVM.AST.Global as G
 import qualified LLVM.AST.Instruction as I
 import qualified LLVM.AST.Operand as O
 import qualified LLVM.AST.Type as T
-import qualified LLVM.Context as Ctx
-import qualified LLVM.Module as Mod
-import qualified LLVM.Target as Targ
+import Data.String
+import System.FilePath
 
-compile :: IO ()
-compile = Ctx.withContext
-    (\ctx -> Mod.withModuleFromAST
-        ctx
-        modu
-        (\modu' ->
-            (Targ.withHostTargetMachine
-                (\targ -> Mod.writeObjectToFile targ (Mod.File "out.o") modu')
-            )
-        )
-    )
+import qualified Mono
 
-modu :: L.Module
-modu = L.defaultModule
-    { L.moduleName = "Test"
-    , L.moduleSourceFileName = "Test.src"
-    , L.moduleDefinitions = [putchar, main]
+genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> L.Module
+genModule moduleFilePath main defs = L.defaultModule
+    { L.moduleName = fromString ((takeBaseName moduleFilePath))
+    , L.moduleSourceFileName = fromString moduleFilePath
+    , L.moduleDefinitions = genMain main : genDefs defs
     }
 
-main :: L.Definition
-main = L.GlobalDefinition
-    (G.functionDefaults
-        { G.name = "main"
-        , G.parameters = ([], False)
-        , G.returnType = T.VoidType
-        , G.basicBlocks = [mainEntry]
-        }
+genMain :: Mono.MExpr -> L.Definition
+genMain main = undefined
+    main
+    (L.GlobalDefinition
+        (G.functionDefaults
+            { G.name = "main"
+            , G.parameters = ([], False)
+            , G.returnType = T.VoidType
+            , G.basicBlocks = [mainEntry]
+            }
+        )
     )
 
 mainEntry :: L.BasicBlock
@@ -79,6 +71,9 @@ mainEntry = G.BasicBlock
           )
     ]
     (I.Do (I.Ret Nothing []))
+
+genDefs :: Mono.Defs -> [L.Definition]
+genDefs defs = undefined defs [putchar]
 
 putchar :: L.Definition
 putchar = L.GlobalDefinition
