@@ -39,6 +39,7 @@ library:
   - -Wincomplete-record-updates
   - -Wincomplete-uni-patterns
   - -Wredundant-constraints
+  - -Werror
 
   - -fno-warn-name-shadowing
   - -fno-warn-orphans
@@ -53,6 +54,7 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Werror
     dependencies:
     - carth
 
