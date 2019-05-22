@@ -4,6 +4,7 @@ module Annot
     ( Program(..)
     , Expr(..)
     , Type(..)
+    , Const(..)
     , typeUnit
     , typeInt
     , typeDouble

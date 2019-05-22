@@ -50,7 +50,6 @@ data Scheme = Forall
     { _scmParams :: (Set TVar)
     , _scmBody :: Type
     } deriving (Show, Eq)
-
 makeLenses ''Scheme
 
 newtype Defs =

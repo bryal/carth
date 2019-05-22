@@ -41,6 +41,8 @@ packages:
 # extra-deps: []
 extra-deps:
 - llvm-hs-8.0.0@sha256:bca4c990e355cb4d2ed02d22dd076fe84ffc76f7b5330797c54ff449037a9efc
+- github: llvm-hs/llvm-hs-pretty
+  commit: /852ea9fd3bedf84b203db0a2cb870c00acd92add
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
