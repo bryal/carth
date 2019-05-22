@@ -5,11 +5,14 @@ module Codegen where
 import LLVM.AST
 import qualified LLVM.AST.CallingConvention as CallConv
 import qualified LLVM.AST.Constant as LLConst
+import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.Type as LLType
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
+import qualified Data.Char
+import Data.Bool
 -- import Control.Lens (makeLenses)
 
 import qualified Annot as An
@@ -46,17 +49,27 @@ genExpr = \case
     An.If _ _ _ -> undefined
     An.Fun _ _ -> undefined
     An.Let _ _ -> undefined
-    -- main
-
 
 toLlvmConstant :: An.Const -> LLConst.Constant
 toLlvmConstant = \case
     An.Unit -> litStruct []
-    An.Int _ -> undefined
-    An.Double _ -> undefined
-    An.Char _ -> undefined
+    An.Int n -> litI64 n
+    An.Double x -> litDouble x
+    An.Char c -> litI32 (Data.Char.ord c)
     An.Str _ -> undefined
-    An.Bool _ -> undefined
+    An.Bool b -> litBool b
+
+litI64 :: Int -> LLConst.Constant
+litI64 = LLConst.Int 64 . toInteger
+
+litI32 :: Int -> LLConst.Constant
+litI32 = LLConst.Int 32 . toInteger
+
+litBool :: Bool -> LLConst.Constant
+litBool = LLConst.Int 1 . bool 1 0
+
+litDouble :: Double -> LLConst.Constant
+litDouble = LLConst.Float . LLFloat.Double
 
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False
