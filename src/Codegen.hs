@@ -3,49 +3,81 @@
 module Codegen where
 
 import LLVM.AST
-import qualified LLVM.AST.CallingConvention as CallConv
+import LLVM.AST.Typed
+import qualified LLVM.AST.CallingConvention
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
-import qualified LLVM.AST.Type as LLType
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
+import Control.Monad.State
+import Control.Monad.Reader
 import qualified Data.Char
 import Data.Bool
--- import Control.Lens (makeLenses)
+import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
+import Data.Functor
+import Control.Applicative
+import Data.Maybe
+import Control.Lens (makeLenses, modifying, (<+=))
 
+import Misc
 import qualified Annot as An
 import qualified Mono
 
--- data St = St
---     { blocks :: [BasicBlock] }
--- makeLenses ''St
+-- | An instruction that returns a value. The name refers to the fact that a
+-- mathematical function always returns a value, but an imperative procedure may
+-- only produce side effects.
+data FunInstruction = WithRetType Instruction Type
 
-type Gen a = Writer [BasicBlock] a
+type Env = Map String Operand
+
+data St = St
+    { _currentBlockName :: String
+    , _currentBlockInstrs :: [Named Instruction]
+    , _registerCount :: Word
+    }
+makeLenses ''St
+
+type Gen a = WriterT [BasicBlock] (StateT St (Reader Env)) a
+
+semiRunGen :: Gen a -> Reader Env [BasicBlock]
+semiRunGen g = evalStateT (execWriterT g) initSt
+
+initSt :: St
+initSt = St
+    { _currentBlockName = "entry"
+    , _currentBlockInstrs = []
+    , _registerCount = 0
+    }
 
 genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> Module
 genModule moduleFilePath main defs = defaultModule
     { moduleName = fromString ((takeBaseName moduleFilePath))
     , moduleSourceFileName = fromString moduleFilePath
-    , moduleDefinitions = genMain main : genDefs defs
+    , moduleDefinitions =
+        runReader (genMain main) Map.empty : runReader (genDefs defs) Map.empty
     }
 
-genMain :: Mono.MExpr -> Definition
-genMain main = GlobalDefinition
+genMain :: Mono.MExpr -> Reader Env Definition
+genMain main = semiRunGen (genExpr main) <&> \blocks -> GlobalDefinition
     (functionDefaults
         { LLGlob.name = "main"
         , LLGlob.parameters = ([], False)
         , LLGlob.returnType = VoidType
-        , LLGlob.basicBlocks = execWriter (genExpr main)
+        , LLGlob.basicBlocks = blocks
         }
     )
+
+genDefs :: Mono.Defs -> Reader Env [Definition]
+genDefs defs = undefined defs
 
 genExpr :: Mono.MExpr -> Gen Operand
 genExpr = \case
     An.Lit c -> pure (ConstantOperand (toLlvmConstant c))
-    An.Var _ _ -> undefined
-    An.App _ _ -> undefined
+    An.Var x _ -> lookupVar x
+    An.App f e -> emitAnon =<< liftA2 call (genExpr f) (genExpr e)
     An.If _ _ _ -> undefined
     An.Fun _ _ -> undefined
     An.Let _ _ -> undefined
@@ -58,6 +90,35 @@ toLlvmConstant = \case
     An.Char c -> litI32 (Data.Char.ord c)
     An.Str _ -> undefined
     An.Bool b -> litBool b
+
+lookupVar :: String -> Gen Operand
+lookupVar x = asks (fromMaybe (ice $ "Undefined variable " ++ x) . Map.lookup x)
+
+emitAnon :: FunInstruction -> Gen Operand
+emitAnon (WithRetType instr rt) = do
+    reg <- newAnonRegister
+    modifying currentBlockInstrs ((reg := instr) :)
+    pure (LocalReference rt reg)
+
+newAnonRegister :: Gen Name
+newAnonRegister = fmap UnName (registerCount <+= 1)
+
+call :: Operand -> Operand -> FunInstruction
+call f a = WithRetType
+    (Call
+        { tailCallKind = Just Tail
+        , callingConvention = LLVM.AST.CallingConvention.C
+        , returnAttributes = []
+        , function = Right f
+        , arguments = [(a, [])]
+        , functionAttributes = []
+        , metadata = []
+        }
+    )
+    (getFunRet (typeOf f))
+
+alloca :: Type -> FunInstruction
+alloca t = WithRetType (Alloca t Nothing 0 []) t
 
 litI64 :: Int -> LLConst.Constant
 litI64 = LLConst.Int 64 . toInteger
@@ -74,48 +135,7 @@ litDouble = LLConst.Float . LLFloat.Double
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False
 
-mainEntry :: BasicBlock
-mainEntry = BasicBlock
-    "entry"
-    [ Do $ Call
-          { tailCallKind = Nothing
-          , callingConvention = CallConv.C
-          , returnAttributes = []
-          , function = Right
-              (ConstantOperand
-                  (LLConst.GlobalReference
-                      (LLType.ptr
-                          (FunctionType
-                              { argumentTypes = [LLType.i8]
-                              , resultType = LLType.i32
-                              , isVarArg = False
-                              }
-                          )
-                      )
-                      "putchar"
-                  )
-              )
-          , arguments = [ ( ConstantOperand
-                              (LLConst.Int
-                                  { LLConst.integerBits = 8
-                                  , LLConst.integerValue = 65
-                                  }
-                              )
-                          , []
-                          )
-                        ]
-          , functionAttributes = []
-          , metadata = []
-          }
-    ]
-    (Do (Ret Nothing []))
-
-genDefs :: Mono.Defs -> [Definition]
-genDefs defs = undefined defs [putchar]
-
-putchar :: Definition
-putchar = GlobalDefinition $ functionDefaults
-    { LLGlob.name = "putchar"
-    , LLGlob.parameters = ([LLGlob.Parameter LLType.i8 "x" []], False)
-    , LLGlob.returnType = LLType.i32
-    }
+getFunRet :: Type -> Type
+getFunRet = \case
+    FunctionType rt _ _ -> rt
+    t -> ice $ "Tried to get return type of non-function type " ++ show t
