@@ -1,10 +1,13 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings, LambdaCase, TemplateHaskell, TupleSections
+  , FlexibleContexts #-}
 
 module Codegen where
 
 import LLVM.AST
 import LLVM.AST.Typed
-import qualified LLVM.AST.CallingConvention
+import qualified LLVM.AST.CallingConvention as LLCallConv
+import qualified LLVM.AST.Linkage as LLLink
+import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
@@ -44,6 +47,9 @@ type Gen' = StateT St (Reader Env)
 
 type Gen = WriterT [BasicBlock] Gen'
 
+callConv :: LLCallConv.CallingConvention
+callConv = LLCallConv.C
+
 runGen' :: Gen' a -> a
 runGen' g = runReader (evalStateT g initSt) Map.empty
 
@@ -75,13 +81,49 @@ genMain main = semiRunGen (genExpr main) <&> \blocks -> GlobalDefinition
     )
 
 genDefs :: Mono.Defs -> Gen' [Definition]
-genDefs (Mono.Defs defs) = withDefSigs (Map.keys defs) (genDefs' defs)
+genDefs (Mono.Defs defs) = do
+    let defs' = Map.toList defs
+    withDefSigs defs' (mapM genDef defs')
 
-genDefs' :: Map Mono.TypedVar Mono.MExpr -> Gen' [Definition]
-genDefs' defs = undefined defs
+genDef :: (Mono.TypedVar, Mono.MExpr) -> Gen' Definition
+genDef (Mono.TypedVar n t, e) = case (t, e) of
+    (Mono.TFun _ rt, An.Fun p body) ->
+        fmap GlobalDefinition (genFunDef (mkName n) p rt body)
+    (t, _) -> ice $ "genDef of non-function " ++ show t
 
-withDefSigs :: MonadReader e m => [Mono.TypedVar] -> m a -> m a
-withDefSigs ss ga = local (undefined ss) ga
+genFunDef
+    :: Name -> (String, Mono.Type) -> Mono.Type -> Mono.MExpr -> Gen' Global
+genFunDef name (p, pt) rt body = do
+    assign currentBlockLabel (mkName "entry")
+    assign currentBlockInstrs []
+    basicBlocks <- semiRunGen (genExpr body)
+    pure $ Function
+        { LLGlob.linkage = LLLink.External
+        , LLGlob.visibility = LLVis.Default
+        , LLGlob.dllStorageClass = Nothing
+        , LLGlob.callingConvention = callConv
+        , LLGlob.returnAttributes = []
+        , LLGlob.returnType = toLlvmType rt
+        , LLGlob.name = name
+        , LLGlob.parameters = ([toLlvmParameter p pt], False)
+        , LLGlob.functionAttributes = []
+        , LLGlob.section = Nothing
+        , LLGlob.comdat = Nothing
+        , LLGlob.alignment = 0
+        , LLGlob.garbageCollectorName = Nothing
+        , LLGlob.prefix = Nothing
+        , LLGlob.basicBlocks = basicBlocks
+        , LLGlob.personalityFunction = Nothing
+        , LLGlob.metadata = []
+        }
+
+toLlvmParameter :: String -> Mono.Type -> LLGlob.Parameter
+toLlvmParameter p pt = LLGlob.Parameter (toLlvmType pt) (mkName p) []
+
+withDefSigs :: MonadReader Env m => [(Mono.TypedVar, Mono.MExpr)] -> m a -> m a
+withDefSigs = local . Map.union . Map.fromList . map
+    (\(v@(Mono.TypedVar n t), _) -> (v, globRefOp (toLlvmType t) (mkName n)))
+    where globRefOp t n = ConstantOperand (LLConst.GlobalReference t n)
 
 genExpr :: Mono.MExpr -> Gen Operand
 genExpr = \case
@@ -91,6 +133,21 @@ genExpr = \case
     An.If p c a -> genIf p c a
     An.Fun _ _ -> undefined
     An.Let ds b -> genLet ds b
+
+toLlvmType :: Mono.Type -> Type
+toLlvmType = \case
+    Mono.TConst "Unit" -> StructureType {isPacked = False, elementTypes = []}
+    Mono.TConst "Int" -> IntegerType 64
+    Mono.TConst "Double" -> FloatingPointType DoubleFP
+    Mono.TConst "Char" -> IntegerType 32
+    Mono.TConst "Str" -> undefined
+    Mono.TConst "Bool" -> IntegerType 1
+    Mono.TConst c -> ice $ "toLlvmType of undefined type " ++ c
+    Mono.TFun a r -> FunctionType
+        { resultType = toLlvmType r
+        , argumentTypes = [toLlvmType a]
+        , isVarArg = False
+        }
 
 toLlvmConstant :: An.Const -> LLConst.Constant
 toLlvmConstant = \case
@@ -107,9 +164,9 @@ lookupVar x =
 
 genIf :: Mono.MExpr -> Mono.MExpr -> Mono.MExpr -> Gen Operand
 genIf pred conseq alt = do
-    conseqL <- newLabel "consequent"
-    altL <- newLabel "alternative"
-    nextL <- newLabel "next"
+    conseqL <- newName "consequent"
+    altL <- newName "alternative"
+    nextL <- newName "next"
     predV <- genExpr pred
     commitToNewBlock (condbr predV conseqL altL) conseqL
     conseqV <- genExpr conseq
@@ -140,11 +197,14 @@ commitToNewBlock t l = do
 newAnonRegister :: Gen Name
 newAnonRegister = fmap UnName (registerCount <<+= 1)
 
-newRegister :: String -> Gen Name
-newRegister s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
+newName :: String -> Gen Name
+newName = lift . newName'
 
-newLabel :: String -> Gen Name
-newLabel = newRegister
+newName' :: String -> Gen' Name
+newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
+
+newCounted :: (Word -> a) -> Gen a
+newCounted f = fmap f (registerCount <<+= 1)
 
 condbr :: Operand -> Name -> Name -> Terminator
 condbr c t f = CondBr c t f []
@@ -161,7 +221,7 @@ call :: Operand -> Operand -> FunInstruction
 call f a = WithRetType
     (Call
         { tailCallKind = Just Tail
-        , callingConvention = LLVM.AST.CallingConvention.C
+        , callingConvention = callConv
         , returnAttributes = []
         , function = Right f
         , arguments = [(a, [])]
