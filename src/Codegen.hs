@@ -31,7 +31,7 @@ import qualified Mono
 -- only produce side effects.
 data FunInstruction = WithRetType Instruction Type
 
-type Env = Map String Operand
+type Env = Map Mono.TypedVar Operand
 
 data St = St
     { _currentBlockLabel :: Name
@@ -40,10 +40,15 @@ data St = St
     }
 makeLenses ''St
 
-type Gen a = WriterT [BasicBlock] (StateT St (Reader Env)) a
+type Gen' = StateT St (Reader Env)
 
-semiRunGen :: Gen a -> Reader Env [BasicBlock]
-semiRunGen g = evalStateT (execWriterT g) initSt
+type Gen = WriterT [BasicBlock] Gen'
+
+runGen' :: Gen' a -> a
+runGen' g = runReader (evalStateT g initSt) Map.empty
+
+semiRunGen :: Gen a -> Gen' [BasicBlock]
+semiRunGen = execWriterT
 
 initSt :: St
 initSt = St
@@ -56,11 +61,10 @@ genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> Module
 genModule moduleFilePath main defs = defaultModule
     { moduleName = fromString ((takeBaseName moduleFilePath))
     , moduleSourceFileName = fromString moduleFilePath
-    , moduleDefinitions =
-        runReader (genMain main) Map.empty : runReader (genDefs defs) Map.empty
+    , moduleDefinitions = runGen' (genMain main) : runGen' (genDefs defs)
     }
 
-genMain :: Mono.MExpr -> Reader Env Definition
+genMain :: Mono.MExpr -> Gen' Definition
 genMain main = semiRunGen (genExpr main) <&> \blocks -> GlobalDefinition
     (functionDefaults
         { LLGlob.name = "main"
@@ -70,17 +74,23 @@ genMain main = semiRunGen (genExpr main) <&> \blocks -> GlobalDefinition
         }
     )
 
-genDefs :: Mono.Defs -> Reader Env [Definition]
-genDefs defs = undefined defs
+genDefs :: Mono.Defs -> Gen' [Definition]
+genDefs (Mono.Defs defs) = withDefSigs (Map.keys defs) (genDefs' defs)
+
+genDefs' :: Map Mono.TypedVar Mono.MExpr -> Gen' [Definition]
+genDefs' defs = undefined defs
+
+withDefSigs :: MonadReader e m => [Mono.TypedVar] -> m a -> m a
+withDefSigs ss ga = local (undefined ss) ga
 
 genExpr :: Mono.MExpr -> Gen Operand
 genExpr = \case
     An.Lit c -> pure (ConstantOperand (toLlvmConstant c))
-    An.Var x _ -> lookupVar x
+    An.Var x t -> lookupVar (Mono.TypedVar x t)
     An.App f e -> emitAnon =<< liftA2 call (genExpr f) (genExpr e)
     An.If p c a -> genIf p c a
     An.Fun _ _ -> undefined
-    An.Let _ _ -> undefined
+    An.Let ds b -> genLet ds b
 
 toLlvmConstant :: An.Const -> LLConst.Constant
 toLlvmConstant = \case
@@ -91,8 +101,9 @@ toLlvmConstant = \case
     An.Str _ -> undefined
     An.Bool b -> litBool b
 
-lookupVar :: String -> Gen Operand
-lookupVar x = asks (fromMaybe (ice $ "Undefined variable " ++ x) . Map.lookup x)
+lookupVar :: Mono.TypedVar -> Gen Operand
+lookupVar x =
+    asks (fromMaybe (ice $ "Undefined variable " ++ show x) . Map.lookup x)
 
 genIf :: Mono.MExpr -> Mono.MExpr -> Mono.MExpr -> Gen Operand
 genIf pred conseq alt = do
@@ -108,6 +119,9 @@ genIf pred conseq alt = do
     fromAltL <- use currentBlockLabel
     commitToNewBlock (br nextL) nextL
     emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)])
+
+genLet :: Mono.Defs -> Mono.MExpr -> Gen Operand
+genLet ds b = undefined ds b
 
 emitAnon :: FunInstruction -> Gen Operand
 emitAnon (WithRetType instr rt) = do

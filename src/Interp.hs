@@ -19,7 +19,7 @@ data Val
     = VConst Const
     | VFun (Val -> IO Val)
 
-type Env = Map (String, Type) Val
+type Env = Map TypedVar Val
 
 type Eval = ReaderT Env IO
 
@@ -29,12 +29,12 @@ interpret p = runEval (evalProgram p)
 runEval :: Eval a -> IO a
 runEval m = runReaderT m builtinValues
 
-builtinValues :: Map (String, Type) Val
+builtinValues :: Map TypedVar Val
 builtinValues = Map.fromList
-    [ ( ("printInt", TFun typeInt typeUnit)
+    [ ( TypedVar "printInt" (TFun typeInt typeUnit)
       , VFun (\v -> print (unwrapInt v) $> VConst Unit)
       )
-    , ( ("+", TFun typeInt (TFun typeInt typeInt))
+    , ( TypedVar "+" (TFun typeInt (TFun typeInt typeInt))
       , VFun (\a -> pure (VFun (\b -> pure (plus a b))))
       )
     ]
@@ -47,7 +47,7 @@ evalProgram (Program main defs) = do
     f <- evalLet defs main
     fmap unwrapUnit (unwrapFun' f (VConst Unit))
 
-evalDefs :: Defs -> Eval (Map (String, Type) Val)
+evalDefs :: Defs -> Eval (Map TypedVar Val)
 evalDefs (Defs defs) = do
     let (defNames, defBodies) = unzip (Map.toList defs)
     defVals <- mapM eval defBodies
@@ -64,7 +64,9 @@ eval = \case
     If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
     Fun (p, pt) b -> do
         env <- ask
-        let f v = runEval (withLocals env (withLocal (p, pt) v (eval b)))
+        let
+            f v =
+                runEval (withLocals env (withLocal (TypedVar p pt) v (eval b)))
         pure (VFun f)
     Let defs body -> evalLet defs body
 
@@ -76,12 +78,12 @@ evalLet defs body = do
 lookupEnv :: (String, Type) -> Eval Val
 lookupEnv (x, t) = fmap
     (fromMaybe (ice ("Unbound variable: " ++ x ++ " of type " ++ show t)))
-    (asks (Map.lookup (x, t)))
+    (asks (Map.lookup (TypedVar x t)))
 
-withLocals :: Map (String, Type) Val -> Eval a -> Eval a
+withLocals :: Map TypedVar Val -> Eval a -> Eval a
 withLocals defs = local (Map.union defs)
 
-withLocal :: (String, Type) -> Val -> Eval a -> Eval a
+withLocal :: TypedVar -> Val -> Eval a -> Eval a
 withLocal var val = local (Map.insert var val)
 
 unwrapFun' :: Val -> (Val -> Eval Val)

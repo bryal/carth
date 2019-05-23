@@ -1,7 +1,15 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections #-}
 
 -- | Monomorphization
-module Mono (monomorphize, Defs(..), Type(..), MProgram, MExpr) where
+module Mono
+    ( monomorphize
+    , Defs(..)
+    , Type(..)
+    , TypedVar(..)
+    , MProgram
+    , MExpr
+    )
+where
 
 import Annot hiding (Type)
 import qualified Annot
@@ -28,10 +36,13 @@ instance Annot.Type Type where
     tConst = TConst
     tFun = TFun
 
+data TypedVar = TypedVar String Type
+  deriving (Show, Eq, Ord)
+
 type MExpr = Expr Type Defs
 
 newtype Defs =
-    Defs (Map (String, Type) MExpr)
+    Defs (Map TypedVar MExpr)
 
 type MProgram = Program Type Defs
 
@@ -82,7 +93,7 @@ monoLet (Check.Defs ds) body = do
         ds' = Map.fromList $ do
             (name, dInsts) <- dsInsts
             (t, body) <- Map.toList dInsts
-            pure ((name, t), body)
+            pure (TypedVar name t, body)
     pure (Defs ds', body')
 
 addInst :: String -> Type -> Mono ()

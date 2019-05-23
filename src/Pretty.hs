@@ -161,8 +161,9 @@ instance Pretty Check.CProgram where
 
 instance Pretty Mono.MProgram where
     pretty' d (Annot.Program main (Mono.Defs defs)) =
-        let allDefs = (("main", Annot.mainType), main) : Map.toList defs
-            prettyDef ((name, t), val) =
+        let allDefs = (Mono.TypedVar "main" Annot.mainType, main)
+                      : Map.toList defs
+            prettyDef ((Mono.TypedVar name t), val) =
                 concat
                     [ replicate d ' '
                     , "(define "
@@ -238,7 +239,7 @@ instance Pretty Mono.Defs where
             ("\n" ++ replicate (d + 6) ' ')
             (map (prettyBinding (d + 6)) (Map.toList binds))
       where
-        prettyBinding d ((name, t), body) =
+        prettyBinding d ((Mono.TypedVar name t), body) =
             concat
                 [ "(#instance' "
                 , pretty t
@@ -276,13 +277,7 @@ instance Pretty t => Pretty (TypeAnnot t) where
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) = concat
-    [ "["
-    , pretty' (d + 1) a
-    , "\n"
-    , replicate (d + 1) ' '
-    , pretty' (d + 1) b
-    , "]"
-    ]
+    ["[", pretty' (d + 1) a, "\n", replicate (d + 1) ' ', pretty' (d + 1) b, "]"]
 
 showChar'' :: Char -> String
 showChar'' = \case
