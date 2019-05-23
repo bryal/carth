@@ -20,7 +20,7 @@ import Data.Map.Strict (Map)
 import Data.Functor
 import Control.Applicative
 import Data.Maybe
-import Control.Lens (makeLenses, modifying, (<+=))
+import Control.Lens (makeLenses, modifying, (<<+=), use, uses, assign)
 
 import Misc
 import qualified Annot as An
@@ -34,7 +34,7 @@ data FunInstruction = WithRetType Instruction Type
 type Env = Map String Operand
 
 data St = St
-    { _currentBlockName :: String
+    { _currentBlockLabel :: Name
     , _currentBlockInstrs :: [Named Instruction]
     , _registerCount :: Word
     }
@@ -47,7 +47,7 @@ semiRunGen g = evalStateT (execWriterT g) initSt
 
 initSt :: St
 initSt = St
-    { _currentBlockName = "entry"
+    { _currentBlockLabel = "entry"
     , _currentBlockInstrs = []
     , _registerCount = 0
     }
@@ -78,7 +78,7 @@ genExpr = \case
     An.Lit c -> pure (ConstantOperand (toLlvmConstant c))
     An.Var x _ -> lookupVar x
     An.App f e -> emitAnon =<< liftA2 call (genExpr f) (genExpr e)
-    An.If _ _ _ -> undefined
+    An.If p c a -> genIf p c a
     An.Fun _ _ -> undefined
     An.Let _ _ -> undefined
 
@@ -94,14 +94,54 @@ toLlvmConstant = \case
 lookupVar :: String -> Gen Operand
 lookupVar x = asks (fromMaybe (ice $ "Undefined variable " ++ x) . Map.lookup x)
 
+genIf :: Mono.MExpr -> Mono.MExpr -> Mono.MExpr -> Gen Operand
+genIf pred conseq alt = do
+    conseqL <- newLabel "consequent"
+    altL <- newLabel "alternative"
+    nextL <- newLabel "next"
+    predV <- genExpr pred
+    commitToNewBlock (condbr predV conseqL altL) conseqL
+    conseqV <- genExpr conseq
+    fromConseqL <- use currentBlockLabel
+    commitToNewBlock (br nextL) altL
+    altV <- genExpr alt
+    fromAltL <- use currentBlockLabel
+    commitToNewBlock (br nextL) nextL
+    emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)])
+
 emitAnon :: FunInstruction -> Gen Operand
 emitAnon (WithRetType instr rt) = do
     reg <- newAnonRegister
     modifying currentBlockInstrs ((reg := instr) :)
     pure (LocalReference rt reg)
 
+commitToNewBlock :: Terminator -> Name -> Gen ()
+commitToNewBlock t l = do
+    n <- use currentBlockLabel
+    is <- uses currentBlockInstrs reverse
+    tell [BasicBlock n is (Do t)]
+    assign currentBlockLabel l
+    assign currentBlockInstrs []
+
 newAnonRegister :: Gen Name
-newAnonRegister = fmap UnName (registerCount <+= 1)
+newAnonRegister = fmap UnName (registerCount <<+= 1)
+
+newRegister :: String -> Gen Name
+newRegister s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
+
+newLabel :: String -> Gen Name
+newLabel = newRegister
+
+condbr :: Operand -> Name -> Name -> Terminator
+condbr c t f = CondBr c t f []
+
+br :: Name -> Terminator
+br = flip Br []
+
+phi :: [(Operand, Name)] -> FunInstruction
+phi = \case
+    [] -> ice "phi was given empty list of cases"
+    cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs []) t
 
 call :: Operand -> Operand -> FunInstruction
 call f a = WithRetType
