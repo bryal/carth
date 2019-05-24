@@ -67,7 +67,7 @@ genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> Module
 genModule moduleFilePath main defs = defaultModule
     { moduleName = fromString ((takeBaseName moduleFilePath))
     , moduleSourceFileName = fromString moduleFilePath
-    , moduleDefinitions = runGen' (genMain main) : runGen' (genDefs defs)
+    , moduleDefinitions = runGen' (genMain main) : runGen' (genGlobDefs defs)
     }
 
 genMain :: Mono.MExpr -> Gen' Definition
@@ -80,13 +80,12 @@ genMain main = semiRunGen (genExpr main) <&> \blocks -> GlobalDefinition
         }
     )
 
-genDefs :: Mono.Defs -> Gen' [Definition]
-genDefs (Mono.Defs defs) = do
-    let defs' = Map.toList defs
-    withDefSigs defs' (mapM genDef defs')
+genGlobDefs :: Mono.Defs -> Gen' [Definition]
+genGlobDefs (Mono.Defs defs) =
+    let defs' = Map.toList defs in withGlobDefSigs defs' (mapM genGlobDef defs')
 
-genDef :: (Mono.TypedVar, Mono.MExpr) -> Gen' Definition
-genDef (Mono.TypedVar n t, e) = case (t, e) of
+genGlobDef :: (Mono.TypedVar, Mono.MExpr) -> Gen' Definition
+genGlobDef (Mono.TypedVar n t, e) = case (t, e) of
     (Mono.TFun _ rt, An.Fun p body) ->
         fmap GlobalDefinition (genFunDef (mkName n) p rt body)
     (t, _) -> ice $ "genDef of non-function " ++ show t
@@ -120,8 +119,9 @@ genFunDef name (p, pt) rt body = do
 toLlvmParameter :: String -> Mono.Type -> LLGlob.Parameter
 toLlvmParameter p pt = LLGlob.Parameter (toLlvmType pt) (mkName p) []
 
-withDefSigs :: MonadReader Env m => [(Mono.TypedVar, Mono.MExpr)] -> m a -> m a
-withDefSigs = local . Map.union . Map.fromList . map
+withGlobDefSigs
+    :: MonadReader Env m => [(Mono.TypedVar, Mono.MExpr)] -> m a -> m a
+withGlobDefSigs = local . Map.union . Map.fromList . map
     (\(v@(Mono.TypedVar n t), _) -> (v, globRefOp (toLlvmType t) (mkName n)))
     where globRefOp t n = ConstantOperand (LLConst.GlobalReference t n)
 
@@ -178,13 +178,36 @@ genIf pred conseq alt = do
     emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)])
 
 genLet :: Mono.Defs -> Mono.MExpr -> Gen Operand
-genLet ds b = undefined ds b
+genLet (Mono.Defs ds) b = do
+    let (vs, es) = unzip (Map.toList ds)
+    let (ns, ts) = unzip (map (\(Mono.TypedVar n t) -> (n, t)) vs)
+    ns' <- mapM newName ns
+    let ts' = map toLlvmType ts
+    withDefSigs (zip vs ns') (mapM genDef (zip3 ns' ts' es) *> genExpr b)
+
+withDefSigs :: [(Mono.TypedVar, Name)] -> Gen a -> Gen a
+withDefSigs = local . Map.union . Map.fromList . map
+    (\(v@(Mono.TypedVar _ t), n') -> (v, LocalReference (toLlvmType t) n'))
+
+genDef :: (Name, Type, Mono.MExpr) -> Gen ()
+genDef (n, t, e) = genExpr e >>= genVar n t
+
+genVar :: Name -> Type -> Operand -> Gen ()
+genVar var t val = emitReg var (alloca t) >>= emit . store val
+
+emit :: Instruction -> Gen ()
+emit instr = emit' (Do instr)
+
+emit' :: (Named Instruction) -> Gen ()
+emit' = modifying currentBlockInstrs . (:)
+
+emitReg :: Name -> FunInstruction -> Gen Operand
+emitReg reg (WithRetType instr rt) = do
+    emit' (reg := instr)
+    pure (LocalReference rt reg)
 
 emitAnon :: FunInstruction -> Gen Operand
-emitAnon (WithRetType instr rt) = do
-    reg <- newAnonRegister
-    modifying currentBlockInstrs ((reg := instr) :)
-    pure (LocalReference rt reg)
+emitAnon instr = newAnonRegister >>= flip emitReg instr
 
 commitToNewBlock :: Terminator -> Name -> Gen ()
 commitToNewBlock t l = do
@@ -211,6 +234,16 @@ condbr c t f = CondBr c t f []
 
 br :: Name -> Terminator
 br = flip Br []
+
+store :: Operand -> Operand -> Instruction
+store srcVal destPtr = Store
+    { volatile = False
+    , address = destPtr
+    , value = srcVal
+    , maybeAtomicity = Nothing
+    , alignment = 0
+    , metadata = []
+    }
 
 phi :: [(Operand, Name)] -> FunInstruction
 phi = \case
