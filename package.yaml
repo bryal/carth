@@ -33,6 +33,7 @@ dependencies:
 - llvm-hs-pretty
 - filepath
 - bytestring
+- utf8-string
 
 library:
   source-dirs: src

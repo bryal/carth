@@ -5,12 +5,15 @@ module Codegen where
 
 import LLVM.AST
 import LLVM.AST.Typed
+import LLVM.AST.Type
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Linkage as LLLink
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
+import qualified LLVM.AST.AddrSpace as LLAddr
+import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
@@ -23,7 +26,8 @@ import Data.Map.Strict (Map)
 import Data.Functor
 import Control.Applicative
 import Data.Maybe
-import Control.Lens (makeLenses, modifying, (<<+=), use, uses, assign)
+import Control.Lens
+    (makeLenses, modifying, view, scribe, (<<+=), use, uses, assign)
 
 import Misc
 import qualified Annot as An
@@ -45,7 +49,19 @@ makeLenses ''St
 
 type Gen' = StateT St (Reader Env)
 
-type Gen = WriterT [BasicBlock] Gen'
+-- | The output of generating a function
+data Out = Out
+    { _outBlocks :: [BasicBlock]
+    , _outStrings :: [(Name, String)]}
+makeLenses ''Out
+
+instance Semigroup Out where
+    Out bs1 ss1 <> Out bs2 ss2 = Out (bs1 <> bs2) (ss1 <> ss2)
+
+instance Monoid Out where
+    mempty = Out [] []
+
+type Gen = WriterT Out Gen'
 
 callConv :: LLCallConv.CallingConvention
 callConv = LLCallConv.C
@@ -53,7 +69,7 @@ callConv = LLCallConv.C
 runGen' :: Gen' a -> a
 runGen' g = runReader (evalStateT g initSt) Map.empty
 
-semiRunGen :: Gen a -> Gen' [BasicBlock]
+semiRunGen :: Gen a -> Gen' Out
 semiRunGen = execWriterT
 
 initSt :: St
@@ -67,54 +83,84 @@ genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> Module
 genModule moduleFilePath main defs = defaultModule
     { moduleName = fromString ((takeBaseName moduleFilePath))
     , moduleSourceFileName = fromString moduleFilePath
-    , moduleDefinitions = runGen' (genMain main) : runGen' (genGlobDefs defs)
+    , moduleDefinitions =
+        TypeDefinition (Name "str") (Just (ptr i8))
+        : runGen' (genMain main)
+        : runGen' (genGlobDefs defs)
     }
 
 genMain :: Mono.MExpr -> Gen' Definition
-genMain main = semiRunGen (genExpr main) <&> \blocks -> GlobalDefinition
+genMain main = semiRunGen (genExpr main) <&> \out -> GlobalDefinition
     (functionDefaults
         { LLGlob.name = "main"
         , LLGlob.parameters = ([], False)
         , LLGlob.returnType = VoidType
-        , LLGlob.basicBlocks = blocks
+        , LLGlob.basicBlocks = view outBlocks out
         }
     )
 
 genGlobDefs :: Mono.Defs -> Gen' [Definition]
 genGlobDefs (Mono.Defs defs) =
-    let defs' = Map.toList defs in withGlobDefSigs defs' (mapM genGlobDef defs')
+    let defs' = Map.toList defs
+    in withGlobDefSigs defs' (fmap join (mapM genGlobDef defs'))
 
-genGlobDef :: (Mono.TypedVar, Mono.MExpr) -> Gen' Definition
+genGlobDef :: (Mono.TypedVar, Mono.MExpr) -> Gen' [Definition]
 genGlobDef (Mono.TypedVar n t, e) = case (t, e) of
     (Mono.TFun _ rt, An.Fun p body) ->
-        fmap GlobalDefinition (genFunDef (mkName n) p rt body)
+        fmap (map GlobalDefinition) (genFunDef (mkName n) p rt body)
     (t, _) -> ice $ "genDef of non-function " ++ show t
 
 genFunDef
-    :: Name -> (String, Mono.Type) -> Mono.Type -> Mono.MExpr -> Gen' Global
+    :: Name -> (String, Mono.Type) -> Mono.Type -> Mono.MExpr -> Gen' [Global]
 genFunDef name (p, pt) rt body = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    basicBlocks <- semiRunGen (genExpr body)
-    pure $ Function
-        { LLGlob.linkage = LLLink.External
-        , LLGlob.visibility = LLVis.Default
-        , LLGlob.dllStorageClass = Nothing
-        , LLGlob.callingConvention = callConv
-        , LLGlob.returnAttributes = []
-        , LLGlob.returnType = toLlvmType rt
-        , LLGlob.name = name
-        , LLGlob.parameters = ([toLlvmParameter p pt], False)
-        , LLGlob.functionAttributes = []
-        , LLGlob.section = Nothing
-        , LLGlob.comdat = Nothing
-        , LLGlob.alignment = 0
-        , LLGlob.garbageCollectorName = Nothing
-        , LLGlob.prefix = Nothing
-        , LLGlob.basicBlocks = basicBlocks
-        , LLGlob.personalityFunction = Nothing
-        , LLGlob.metadata = []
-        }
+    Out basicBlocks globStrings <- semiRunGen (genExpr body)
+    let f = simpleFunc name [toLlvmParameter p pt] (toLlvmType rt) basicBlocks
+    let ss = map globStrVar globStrings
+    pure (f : ss)
+
+simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
+simpleFunc n ps rt bs = Function
+    { LLGlob.linkage = LLLink.External
+    , LLGlob.visibility = LLVis.Default
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.callingConvention = callConv
+    , LLGlob.returnAttributes = []
+    , LLGlob.returnType = rt
+    , LLGlob.name = n
+    , LLGlob.parameters = (ps, False)
+    , LLGlob.functionAttributes = []
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.garbageCollectorName = Nothing
+    , LLGlob.prefix = Nothing
+    , LLGlob.basicBlocks = bs
+    , LLGlob.personalityFunction = Nothing
+    , LLGlob.metadata = []
+    }
+
+globStrVar :: (Name, String) -> Global
+globStrVar (name, str) =
+    let bytes = UTF8.String.encode str
+    in
+        GlobalVariable
+            { LLGlob.name = name
+            , LLGlob.linkage = LLLink.External
+            , LLGlob.visibility = LLVis.Default
+            , LLGlob.dllStorageClass = Nothing
+            , LLGlob.threadLocalMode = Nothing
+            , LLGlob.addrSpace = LLAddr.AddrSpace 0
+            , LLGlob.unnamedAddr = Nothing
+            , LLGlob.isConstant = True
+            , LLGlob.type' = ArrayType (fromIntegral (length bytes)) i8
+            , LLGlob.initializer = Just (LLConst.Array i8 (map (litI8) bytes))
+            , LLGlob.section = Nothing
+            , LLGlob.comdat = Nothing
+            , LLGlob.alignment = 0
+            , LLGlob.metadata = []
+            }
 
 toLlvmParameter :: String -> Mono.Type -> LLGlob.Parameter
 toLlvmParameter p pt = LLGlob.Parameter (toLlvmType pt) (mkName p) []
@@ -127,21 +173,21 @@ withGlobDefSigs = local . Map.union . Map.fromList . map
 
 genExpr :: Mono.MExpr -> Gen Operand
 genExpr = \case
-    An.Lit c -> pure (ConstantOperand (toLlvmConstant c))
+    An.Lit c -> fmap ConstantOperand (genConst c)
     An.Var x t -> lookupVar (Mono.TypedVar x t)
     An.App f e -> emitAnon =<< liftA2 call (genExpr f) (genExpr e)
     An.If p c a -> genIf p c a
-    An.Fun _ _ -> undefined
+    An.Fun p b -> genLambda p b
     An.Let ds b -> genLet ds b
 
 toLlvmType :: Mono.Type -> Type
 toLlvmType = \case
     Mono.TConst "Unit" -> StructureType {isPacked = False, elementTypes = []}
-    Mono.TConst "Int" -> IntegerType 64
-    Mono.TConst "Double" -> FloatingPointType DoubleFP
-    Mono.TConst "Char" -> IntegerType 32
-    Mono.TConst "Str" -> undefined
-    Mono.TConst "Bool" -> IntegerType 1
+    Mono.TConst "Int" -> i64
+    Mono.TConst "Double" -> double
+    Mono.TConst "Char" -> i32
+    Mono.TConst "Str" -> NamedTypeReference (Name "str")
+    Mono.TConst "Bool" -> i1
     Mono.TConst c -> ice $ "toLlvmType of undefined type " ++ c
     Mono.TFun a r -> FunctionType
         { resultType = toLlvmType r
@@ -149,14 +195,17 @@ toLlvmType = \case
         , isVarArg = False
         }
 
-toLlvmConstant :: An.Const -> LLConst.Constant
-toLlvmConstant = \case
-    An.Unit -> litStruct []
-    An.Int n -> litI64 n
-    An.Double x -> litDouble x
-    An.Char c -> litI32 (Data.Char.ord c)
-    An.Str _ -> undefined
-    An.Bool b -> litBool b
+genConst :: An.Const -> Gen LLConst.Constant
+genConst = \case
+    An.Unit -> pure $ litStruct []
+    An.Int n -> pure $ litI64 n
+    An.Double x -> pure $ litDouble x
+    An.Char c -> pure $ litI32 (Data.Char.ord c)
+    An.Str s -> do
+        var <- newName "strlit"
+        scribe outStrings [(var, s)]
+        pure $ LLConst.GlobalReference (NamedTypeReference (Name "str")) var
+    An.Bool b -> pure $ litBool b
 
 lookupVar :: Mono.TypedVar -> Gen Operand
 lookupVar x =
@@ -195,6 +244,14 @@ genDef (n, t, e) = genExpr e >>= genVar n t
 genVar :: Name -> Type -> Operand -> Gen ()
 genVar var t val = emitReg var (alloca t) >>= emit . store val
 
+-- | A lambda is a pair of a captured environment and a function.
+--   The first parameter of the function is an environment of captures
+--   and the second parameter is the lambda parameter.
+--   Inside of the function, first all the captured variables are extracted from
+--   the environment, then the body of the function is run.
+genLambda :: (String, Mono.Type) -> Mono.MExpr -> Gen Operand
+genLambda (p, pt) b = undefined p pt b
+
 emit :: Instruction -> Gen ()
 emit instr = emit' (Do instr)
 
@@ -213,7 +270,7 @@ commitToNewBlock :: Terminator -> Name -> Gen ()
 commitToNewBlock t l = do
     n <- use currentBlockLabel
     is <- uses currentBlockInstrs reverse
-    tell [BasicBlock n is (Do t)]
+    scribe outBlocks [BasicBlock n is (Do t)]
     assign currentBlockLabel l
     assign currentBlockInstrs []
 
@@ -272,6 +329,9 @@ litI64 = LLConst.Int 64 . toInteger
 
 litI32 :: Int -> LLConst.Constant
 litI32 = LLConst.Int 32 . toInteger
+
+litI8 :: Integral n => n -> LLConst.Constant
+litI8 = LLConst.Int 32 . toInteger
 
 litBool :: Bool -> LLConst.Constant
 litBool = LLConst.Int 1 . bool 1 0
