@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
+           , MultiParamTypeClasses #-}
 
 module Ast
     ( Id(..)
@@ -8,15 +9,20 @@ module Ast
     , Def
     , Program(..)
     , reserveds
+    , FreeVars(..)
     )
 where
 
 import Control.Monad
 import Data.String
-import NonEmpty
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Modifiers
+import qualified Data.Set as Set
+import Data.Set (Set)
+
+import Misc
+import NonEmpty
 
 newtype Id =
     Id String
@@ -165,13 +171,38 @@ arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
 
 reserveds :: [String]
 reserveds =
-    [ "define"
-    , "unit"
-    , "true"
-    , "false"
-    , "fun-match"
-    , "match"
-    , "if"
-    , "fun"
-    , "let"
-    ]
+    ["define", "unit", "true", "false", "fun-match", "match", "if", "fun", "let"]
+
+instance FreeVars Def Id where
+    freeVars (name, body) = Set.delete name (freeVars body)
+    boundVars (name, _) = Set.singleton name
+
+instance FreeVars Expr Id where
+    freeVars = fvExpr
+
+instance FreeVars Pat Id where
+    freeVars = const Set.empty
+    boundVars = bvPat
+
+fvExpr :: Expr -> Set Id
+fvExpr = \case
+    Lit _ -> Set.empty
+    Var x -> Set.singleton x
+    App f a -> Set.unions (map freeVars [f, a])
+    If p c a -> Set.unions (map freeVars [p, c, a])
+    Fun p b -> Set.delete p (freeVars b)
+    Let bs e ->
+        Set.union (Set.difference (freeVars e) (boundVars bs)) (freeVars bs)
+    Match e cs ->
+        Set.union (freeVars e) (Set.difference (fvClauses cs) (bvClauses cs))
+    FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
+    Constructor _ -> Set.empty
+  where
+    fvClauses = foldl (\acc c -> Set.union acc (freeVars (snd c))) Set.empty
+    bvClauses = Set.unions . map (freeVars . fst) . nonEmptyToList
+
+bvPat :: Pat -> Set Id
+bvPat = \case
+    PConstructor _ -> Set.empty
+    PConstruction _ ps -> Set.unions (map freeVars (nonEmptyToList ps))
+    PVar var -> Set.singleton var

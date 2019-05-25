@@ -14,10 +14,6 @@ module Check
     )
 where
 
-import Annot hiding (Type)
-import qualified Annot
-import qualified Ast
-import Ast (Const(..), Def, Id(..))
 import Control.Lens ((<<+=), assign, makeLenses, over, use, view)
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -30,7 +26,13 @@ import Data.Map.Strict (Map)
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
+
+import Misc
 import NonEmpty
+import qualified Annot
+import Annot hiding (Type)
+import qualified Ast
+import Ast (Const(..), Def, Id(..))
 
 -- Type annotated AST
 type TVar = String
@@ -132,8 +134,8 @@ inferDefs defs = do
 -- types for all the definitions / the single definition before
 -- generalizing.
 orderDefs :: [Def] -> [SCC Def]
-orderDefs defs = stronglyConnComp graph
-    where graph = map (\def@(name, _) -> (def, name, fvDef def)) defs
+orderDefs = stronglyConnComp . graph
+    where graph = map (\d@(n, _) -> (d, n, Set.toList (freeVars d)))
 
 inferDefsComponents :: [SCC Def] -> Infer Defs
 inferDefsComponents = \case
@@ -157,7 +159,7 @@ inferDefsComponents = \case
 infer :: Ast.Expr -> Infer (Type, CExpr)
 infer = \case
     Ast.Lit l -> pure (litType l, Lit l)
-    Ast.Var x@(Id x') -> fmap (\t -> (t, Var x' t)) (lookupEnv x)
+    Ast.Var x@(Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
     Ast.App f a -> do
         (tf, f') <- infer f
         (ta, a') <- infer a
@@ -209,7 +211,7 @@ substDef s = bimap id (substExpr s)
 substExpr :: Subst -> CExpr -> CExpr
 substExpr s = \case
     Lit c -> Lit c
-    Var x t -> Var x (subst s t)
+    Var (TypedVar x t) -> Var (TypedVar x (subst s t))
     App f a -> App (substExpr s f) (substExpr s a)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Fun (p, tp) b -> Fun (p, subst s tp) (substExpr s b)
@@ -288,35 +290,3 @@ ftvEnv env = Set.unions (map (ftvScheme . snd) (Map.toList env))
 
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
-
--- Free variables
---------------------------------------------------------------------------------
-fvDef :: Def -> [Id]
-fvDef (name, body) = Set.toList (Set.delete name (fv body))
-
-fv :: Ast.Expr -> Set Id
-fv = \case
-    Ast.Lit _ -> nil
-    Ast.Var x -> Set.singleton x
-    Ast.App f a -> Set.unions (map fv [f, a])
-    Ast.If p c a -> Set.unions (map fv [p, c, a])
-    Ast.Fun p b -> Set.delete p (fv b)
-    Ast.Let bs e ->
-        let
-            fvE = fv e
-            fvBs =
-                foldl (\acc b -> Set.union acc (fv b)) Set.empty (fmap snd bs)
-            bvBs = Set.fromList (map fst (nonEmptyToList bs))
-        in Set.difference (Set.union fvE fvBs) bvBs
-    Ast.Match e cs ->
-        Set.union (fv e) (Set.difference (fvClauses cs) (bvClauses cs))
-    Ast.FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
-    Ast.Constructor _ -> nil
-  where
-    fvClauses = foldl (\acc c -> Set.union acc (fv (snd c))) Set.empty
-    bvClauses = Set.unions . map (patVars . fst) . nonEmptyToList
-    patVars = \case
-        Ast.PConstructor _ -> nil
-        Ast.PConstruction _ ps -> Set.unions (map patVars (nonEmptyToList ps))
-        Ast.PVar var -> Set.singleton var
-    nil = Set.empty

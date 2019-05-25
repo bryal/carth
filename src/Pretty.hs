@@ -181,7 +181,7 @@ instance (Pretty t, Pretty ds) => Pretty (Annot.Expr t ds) where
     pretty' d =
         \case
             Annot.Lit l -> pretty l
-            Annot.Var v t -> pretty (TypeAnnot v t)
+            Annot.Var (Annot.TypedVar v t) -> pretty (TypeAnnot v t)
             Annot.App f x ->
                 concat
                     [ "("

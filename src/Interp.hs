@@ -19,7 +19,7 @@ data Val
     = VConst Const
     | VFun (Val -> IO Val)
 
-type Env = Map TypedVar Val
+type Env = Map MTypedVar Val
 
 type Eval = ReaderT Env IO
 
@@ -29,7 +29,7 @@ interpret p = runEval (evalProgram p)
 runEval :: Eval a -> IO a
 runEval m = runReaderT m builtinValues
 
-builtinValues :: Map TypedVar Val
+builtinValues :: Map MTypedVar Val
 builtinValues = Map.fromList
     [ ( TypedVar "printInt" (TFun typeInt typeUnit)
       , VFun (\v -> print (unwrapInt v) $> VConst Unit)
@@ -47,7 +47,7 @@ evalProgram (Program main defs) = do
     f <- evalLet defs main
     fmap unwrapUnit (unwrapFun' f (VConst Unit))
 
-evalDefs :: Defs -> Eval (Map TypedVar Val)
+evalDefs :: Defs -> Eval (Map MTypedVar Val)
 evalDefs (Defs defs) = do
     let (defNames, defBodies) = unzip (Map.toList defs)
     defVals <- mapM eval defBodies
@@ -56,7 +56,7 @@ evalDefs (Defs defs) = do
 eval :: MExpr -> Eval Val
 eval = \case
     Lit c -> pure (VConst c)
-    Var x t -> lookupEnv (x, t)
+    Var (TypedVar x t) -> lookupEnv (x, t)
     App ef ea -> do
         f <- fmap unwrapFun' (eval ef)
         a <- eval ea
@@ -80,10 +80,10 @@ lookupEnv (x, t) = fmap
     (fromMaybe (ice ("Unbound variable: " ++ x ++ " of type " ++ show t)))
     (asks (Map.lookup (TypedVar x t)))
 
-withLocals :: Map TypedVar Val -> Eval a -> Eval a
+withLocals :: Map MTypedVar Val -> Eval a -> Eval a
 withLocals defs = local (Map.union defs)
 
-withLocal :: TypedVar -> Val -> Eval a -> Eval a
+withLocal :: MTypedVar -> Val -> Eval a -> Eval a
 withLocal var val = local (Map.insert var val)
 
 unwrapFun' :: Val -> (Val -> Eval Val)

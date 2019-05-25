@@ -23,6 +23,7 @@ import qualified Data.Char
 import Data.Bool
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
 import Data.Functor
 import Control.Applicative
 import Data.Maybe
@@ -38,7 +39,7 @@ import qualified Mono
 -- only produce side effects.
 data FunInstruction = WithRetType Instruction Type
 
-type Env = Map Mono.TypedVar Operand
+type Env = Map Mono.MTypedVar Operand
 
 data St = St
     { _currentBlockLabel :: Name
@@ -104,11 +105,11 @@ genGlobDefs (Mono.Defs defs) =
     let defs' = Map.toList defs
     in withGlobDefSigs defs' (fmap join (mapM genGlobDef defs'))
 
-genGlobDef :: (Mono.TypedVar, Mono.MExpr) -> Gen' [Definition]
+genGlobDef :: (Mono.MTypedVar, Mono.MExpr) -> Gen' [Definition]
 genGlobDef (Mono.TypedVar n t, e) = case (t, e) of
     (Mono.TFun _ rt, An.Fun p body) ->
         fmap (map GlobalDefinition) (genFunDef (mkName n) p rt body)
-    (t, _) -> ice $ "genDef of non-function " ++ show t
+    _ -> undefined
 
 genFunDef
     :: Name -> (String, Mono.Type) -> Mono.Type -> Mono.MExpr -> Gen' [Global]
@@ -166,7 +167,7 @@ toLlvmParameter :: String -> Mono.Type -> LLGlob.Parameter
 toLlvmParameter p pt = LLGlob.Parameter (toLlvmType pt) (mkName p) []
 
 withGlobDefSigs
-    :: MonadReader Env m => [(Mono.TypedVar, Mono.MExpr)] -> m a -> m a
+    :: MonadReader Env m => [(Mono.MTypedVar, Mono.MExpr)] -> m a -> m a
 withGlobDefSigs = local . Map.union . Map.fromList . map
     (\(v@(Mono.TypedVar n t), _) -> (v, globRefOp (toLlvmType t) (mkName n)))
     where globRefOp t n = ConstantOperand (LLConst.GlobalReference t n)
@@ -174,7 +175,7 @@ withGlobDefSigs = local . Map.union . Map.fromList . map
 genExpr :: Mono.MExpr -> Gen Operand
 genExpr = \case
     An.Lit c -> fmap ConstantOperand (genConst c)
-    An.Var x t -> lookupVar (Mono.TypedVar x t)
+    An.Var (An.TypedVar x t) -> lookupVar (An.TypedVar x t)
     An.App f e -> emitAnon =<< liftA2 call (genExpr f) (genExpr e)
     An.If p c a -> genIf p c a
     An.Fun p b -> genLambda p b
@@ -207,7 +208,7 @@ genConst = \case
         pure $ LLConst.GlobalReference (NamedTypeReference (Name "str")) var
     An.Bool b -> pure $ litBool b
 
-lookupVar :: Mono.TypedVar -> Gen Operand
+lookupVar :: Mono.MTypedVar -> Gen Operand
 lookupVar x =
     asks (fromMaybe (ice $ "Undefined variable " ++ show x) . Map.lookup x)
 
@@ -234,7 +235,7 @@ genLet (Mono.Defs ds) b = do
     let ts' = map toLlvmType ts
     withDefSigs (zip vs ns') (mapM genDef (zip3 ns' ts' es) *> genExpr b)
 
-withDefSigs :: [(Mono.TypedVar, Name)] -> Gen a -> Gen a
+withDefSigs :: [(Mono.MTypedVar, Name)] -> Gen a -> Gen a
 withDefSigs = local . Map.union . Map.fromList . map
     (\(v@(Mono.TypedVar _ t), n') -> (v, LocalReference (toLlvmType t) n'))
 
@@ -250,7 +251,10 @@ genVar var t val = emitReg var (alloca t) >>= emit . store val
 --   Inside of the function, first all the captured variables are extracted from
 --   the environment, then the body of the function is run.
 genLambda :: (String, Mono.Type) -> Mono.MExpr -> Gen Operand
-genLambda (p, pt) b = undefined p pt b
+genLambda (p, pt) b = do
+    let fvs = Set.delete (An.TypedVar p pt) (freeVars b)
+    captures <- undefined fvs
+    undefined p pt b captures
 
 emit :: Instruction -> Gen ()
 emit instr = emit' (Do instr)

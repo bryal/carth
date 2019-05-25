@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
+
 module NonEmpty
     ( NonEmpty(..)
     , intersperse1
@@ -14,6 +16,8 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty)
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
+
+import Misc
 
 instance Arbitrary a => Arbitrary (NonEmpty a) where
     arbitrary =
@@ -34,3 +38,7 @@ map1 = NonEmpty.map
 
 nonEmptyToList :: NonEmpty a -> [a]
 nonEmptyToList = NonEmpty.toList
+
+instance FreeVars a v => FreeVars (NonEmpty a) v where
+    freeVars = freeVars . nonEmptyToList
+    boundVars = boundVars . nonEmptyToList

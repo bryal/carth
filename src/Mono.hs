@@ -1,4 +1,5 @@
-{-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections #-}
+{-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections
+           , TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses #-}
 
 -- | Monomorphization
 module Mono
@@ -8,13 +9,11 @@ module Mono
     , TypedVar(..)
     , MProgram
     , MExpr
+    , MTypedVar
     )
 where
 
-import Annot hiding (Type)
-import qualified Annot
-import Check (CExpr, CProgram, Scheme(..), unify'')
-import qualified Check
+import qualified Data.Set as Set
 import Control.Applicative (liftA2, liftA3)
 import Control.Lens (makeLenses, over, views)
 import Control.Monad.Except
@@ -25,6 +24,10 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 
 import Misc
+import qualified Annot
+import Annot hiding (Type)
+import qualified Check
+import Check (CExpr, CProgram, Scheme(..), unify'')
 
 data Type
     = TConst String
@@ -36,13 +39,11 @@ instance Annot.Type Type where
     tConst = TConst
     tFun = TFun
 
-data TypedVar = TypedVar String Type
-  deriving (Show, Eq, Ord)
-
+type MTypedVar = TypedVar Type
 type MExpr = Expr Type Defs
 
 newtype Defs =
-    Defs (Map TypedVar MExpr)
+    Defs (Map MTypedVar MExpr)
 
 type MProgram = Program Type Defs
 
@@ -68,10 +69,10 @@ initEnv = Env {_defs = Map.empty, _tvBinds = Map.empty}
 mono :: CExpr -> Mono MExpr
 mono = \case
     Lit c -> pure (Lit c)
-    Var x t -> do
+    Var (TypedVar x t) -> do
         t' <- monotype t
         addInst x t'
-        pure (Var x t')
+        pure (Var (TypedVar x t'))
     App f a -> liftA2 App (mono f) (mono a)
     If p c a -> liftA3 If (mono p) (mono c) (mono a)
     Fun (p, tp) b -> do
@@ -129,3 +130,7 @@ lookup' = Map.findWithDefault
 
 lookups :: Ord k => [k] -> Map k v -> [(k, v)]
 lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
+
+instance FreeVars Defs MTypedVar where
+    freeVars (Defs ds) = Set.unions (map freeVars (Map.elems ds))
+    boundVars (Defs ds) = Set.fromList (Map.keys ds)
