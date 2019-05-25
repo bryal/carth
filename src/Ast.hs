@@ -192,14 +192,10 @@ fvExpr = \case
     If p c a -> Set.unions (map freeVars [p, c, a])
     Fun p b -> Set.delete p (freeVars b)
     Let bs e ->
-        Set.union (Set.difference (freeVars e) (boundVars bs)) (freeVars bs)
-    Match e cs ->
-        Set.union (freeVars e) (Set.difference (fvClauses cs) (bvClauses cs))
-    FunMatch cs -> Set.difference (fvClauses cs) (bvClauses cs)
-    Constructor _ -> Set.empty
-  where
-    fvClauses = foldl (\acc c -> Set.union acc (freeVars (snd c))) Set.empty
-    bvClauses = Set.unions . map (freeVars . fst) . nonEmptyToList
+        Set.difference (Set.union (freeVars e) (freeVars bs)) (boundVars bs)
+    Match _ _ -> undefined
+    FunMatch _ -> undefined
+    Constructor _ -> undefined
 
 bvPat :: Pat -> Set Id
 bvPat = \case

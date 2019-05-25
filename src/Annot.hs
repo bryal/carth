@@ -72,4 +72,4 @@ fvExpr = \case
     If p c a -> Set.unions (map freeVars [p, c, a])
     Fun (p, pt) b -> Set.delete (TypedVar p pt) (freeVars b)
     Let ds e ->
-        Set.union (Set.difference (freeVars e) (boundVars ds)) (freeVars ds)
+        Set.difference (Set.union (freeVars e) (freeVars ds)) (boundVars ds)
