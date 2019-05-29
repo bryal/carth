@@ -92,7 +92,6 @@ genModule moduleFilePath main defs = defaultModule
     { moduleName = fromString ((takeBaseName moduleFilePath))
     , moduleSourceFileName = fromString moduleFilePath
     , moduleDefinitions =
-        TypeDefinition (Name "str") (Just (LLType.ptr i8))
         : runGen' (genMain main)
         : runGen' (genGlobDefs defs)
     }
@@ -234,7 +233,7 @@ toLlvmType = \case
     Mono.TConst "Int" -> i64
     Mono.TConst "Double" -> double
     Mono.TConst "Char" -> i32
-    Mono.TConst "Str" -> NamedTypeReference (Name "str")
+    Mono.TConst "Str" -> LLType.ptr i8
     Mono.TConst "Bool" -> i1
     Mono.TConst c -> ice $ "toLlvmType of undefined type " ++ c
     Mono.TFun a r -> LLType.ptr $ typeClosureFun (toLlvmType a) (toLlvmType r)
@@ -248,7 +247,7 @@ genConst = \case
     An.Str s -> do
         var <- newName "strlit"
         scribe outStrings [(var, s)]
-        pure $ LLConst.GlobalReference (NamedTypeReference (Name "str")) var
+        pure $ LLConst.GlobalReference (LLType.ptr i8) var
     An.Bool b -> pure $ litBool b
 
 lookupVar :: Mono.MTypedVar -> Gen Operand
