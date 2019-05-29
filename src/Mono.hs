@@ -75,10 +75,11 @@ mono = \case
         pure (Var (TypedVar x t'))
     App f a -> liftA2 App (mono f) (mono a)
     If p c a -> liftA3 If (mono p) (mono c) (mono a)
-    Fun (p, tp) b -> do
+    Fun (p, tp) (b, bt) -> do
         tp' <- monotype tp
         b' <- mono b
-        pure (Fun (p, tp') b')
+        bt' <- monotype bt
+        pure (Fun (p, tp') (b', bt'))
     Let ds b -> fmap (uncurry Let) (monoLet ds b)
 
 monoLet :: Check.Defs -> CExpr -> Mono (Defs, MExpr)

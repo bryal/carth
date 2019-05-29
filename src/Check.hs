@@ -176,7 +176,7 @@ infer = \case
     Ast.Fun (Id p) b -> do
         tp <- fresh
         (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
-        pure (TFun tp tb, Fun (p, tp) b')
+        pure (TFun tp tb, Fun (p, tp) (b', tb))
     Ast.Let defs b -> do
         Defs annotDefs <- inferDefs (nonEmptyToList defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
@@ -214,7 +214,7 @@ substExpr s = \case
     Var (TypedVar x t) -> Var (TypedVar x (subst s t))
     App f a -> App (substExpr s f) (substExpr s a)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
-    Fun (p, tp) b -> Fun (p, subst s tp) (substExpr s b)
+    Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
     Let (Defs defs) body ->
         Let (Defs (fmap (substDef s) defs)) (substExpr s body)
 

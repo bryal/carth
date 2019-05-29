@@ -50,7 +50,7 @@ data Expr t ds
          (Expr t ds)
          (Expr t ds)
     | Fun (String, t)
-          (Expr t ds)
+          (Expr t ds, t)
     | Let ds
           (Expr t ds)
     deriving (Show, Eq)
@@ -70,6 +70,6 @@ fvExpr = \case
     Var v -> Set.singleton v
     App f a -> Set.unions (map freeVars [f, a])
     If p c a -> Set.unions (map freeVars [p, c, a])
-    Fun (p, pt) b -> Set.delete (TypedVar p pt) (freeVars b)
+    Fun (p, pt) (b, _) -> Set.delete (TypedVar p pt) (freeVars b)
     Let ds e ->
         Set.difference (Set.union (freeVars e) (freeVars ds)) (boundVars ds)

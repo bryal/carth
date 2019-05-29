@@ -62,7 +62,7 @@ eval = \case
         a <- eval ea
         f a
     If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
-    Fun (p, pt) b -> do
+    Fun (p, pt) (b, _) -> do
         env <- ask
         let
             f v =

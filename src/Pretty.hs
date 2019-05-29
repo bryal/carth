@@ -203,7 +203,7 @@ instance (Pretty t, Pretty ds) => Pretty (Annot.Expr t ds) where
                     , pretty' (d + 2) alt
                     , ")"
                     ]
-            Annot.Fun (param, tp) body ->
+            Annot.Fun (param, tp) (body, _) ->
                 concat
                     [ "(fun [(: "
                     , param
