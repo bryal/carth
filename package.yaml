@@ -35,6 +35,7 @@ dependencies:
 - bytestring
 - utf8-string
 - composition-extra
+- prettyprinter
 
 library:
   source-dirs: src

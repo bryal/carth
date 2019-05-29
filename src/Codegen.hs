@@ -14,7 +14,9 @@ import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
+import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Codec.Binary.UTF8.String as UTF8.String
+import LLVM.Pretty ()
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
@@ -529,17 +531,20 @@ typeUnit = StructureType {isPacked = False, elementTypes = []}
 getFunRet :: Type -> Type
 getFunRet = \case
     FunctionType rt _ _ -> rt
-    t -> ice $ "Tried to get return type of non-function type " ++ show t
+    t -> ice $ "Tried to get return type of non-function type " ++ pretty t
 
 getPointee :: Type -> Type
 getPointee = \case
     LLType.PointerType t _ -> t
-    t -> ice $ "Tried to get pointee of non-function type " ++ show t
+    t -> ice $ "Tried to get pointee of non-function type " ++ pretty t
 
 getMembers :: Type -> [Type]
 getMembers = \case
     StructureType _ members -> members
-    t -> ice $ "Tried to get member types of non-struct type " ++ show t
+    t -> ice $ "Tried to get member types of non-struct type " ++ pretty t
 
 getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl (\t i -> getMembers t !! (fromIntegral i))
+
+pretty :: Prettyprint.Pretty a => a -> String
+pretty = show . Prettyprint.pretty
