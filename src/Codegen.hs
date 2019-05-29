@@ -235,7 +235,10 @@ toLlvmType = \case
     Mono.TConst "Str" -> LLType.ptr i8
     Mono.TConst "Bool" -> i1
     Mono.TConst c -> ice $ "toLlvmType of undefined type " ++ c
-    Mono.TFun a r -> LLType.ptr $ typeClosureFun (toLlvmType a) (toLlvmType r)
+    Mono.TFun a r -> typeStruct
+        [ LLType.ptr typeUnit
+        , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
+        ]
 
 genConst :: An.Const -> Gen LLConst.Constant
 genConst = \case
