@@ -89,10 +89,8 @@ runInfer m = runExcept $ do
     pure (substProgram s p)
 
 builtinSchemes :: Map String Scheme
-builtinSchemes = Map.fromList
-    [ ("printInt", Forall Set.empty (TFun typeInt typeUnit))
-    , ("+", Forall Set.empty (TFun typeInt (TFun typeInt typeInt)))
-    ]
+builtinSchemes =
+    Map.fromList [("printInt", Forall Set.empty (TFun typeInt typeUnit))]
 
 initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}

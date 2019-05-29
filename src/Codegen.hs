@@ -70,7 +70,7 @@ callConv :: LLCallConv.CallingConvention
 callConv = LLCallConv.C
 
 runGen' :: Gen' a -> a
-runGen' g = runReader (evalStateT g initSt) Map.empty -- TODO: Builtins like `printInt`, `+`
+runGen' g = runReader (evalStateT g initSt) Map.empty
 
 semiExecRetGen :: Gen Operand -> Gen' (Type, Out)
 semiExecRetGen gx = runWriterT $ do
@@ -92,8 +92,18 @@ genModule moduleFilePath main (Mono.Defs defs) =
         defaultModule
             { moduleName = fromString ((takeBaseName moduleFilePath))
             , moduleSourceFileName = fromString moduleFilePath
-            , moduleDefinitions = runGen' (genGlobDefs defs')
+            , moduleDefinitions = genBuiltins ++ runGen' (genGlobDefs defs')
             }
+
+genBuiltins :: [Definition]
+genBuiltins = map
+    (GlobalDefinition . ($ []))
+    [ simpleFunc
+        (mkName "malloc")
+        [parameter (mkName "size") i64]
+        (LLType.ptr typeUnit)
+    , simpleFunc (mkName "printInt") [parameter (mkName "n") i64] typeUnit
+    ]
 
 genGlobDefs :: [(Mono.MTypedVar, Mono.MExpr)] -> Gen' [Definition]
 genGlobDefs defs = withGlobDefSigs defs (fmap join (mapM genGlobDef defs))
@@ -243,11 +253,16 @@ lookupVar x =
 
 genApp :: Mono.MExpr -> Mono.MExpr -> Gen Operand
 genApp fe ae = do
-    closure <- genExpr fe
     a <- genExpr ae
-    captures <- emitReg' "captures" (extractvalue closure [0])
-    f <- emitReg' "function" (extractvalue closure [1])
-    emitAnon $ call f [captures, a]
+    case fe of
+        An.Var (An.TypedVar "printInt" _) ->
+            emitAnon (callExtern "printInt" typeUnit [a])
+        _ -> do
+            closure <- genExpr fe
+            a <- genExpr ae
+            captures <- emitReg' "captures" (extractvalue closure [0])
+            f <- emitReg' "function" (extractvalue closure [1])
+            emitAnon $ call f [captures, a]
 
 genIf :: Mono.MExpr -> Mono.MExpr -> Mono.MExpr -> Gen Operand
 genIf pred conseq alt = do
