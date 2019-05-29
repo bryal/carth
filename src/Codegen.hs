@@ -492,7 +492,7 @@ call f as = WithRetType
         , metadata = []
         }
     )
-    (getFunRet (typeOf f))
+    (getFunRet (getPointee (typeOf f)))
 
 alloca :: Type -> FunInstruction
 alloca t = WithRetType (Alloca t Nothing 0 []) t
