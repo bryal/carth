@@ -202,8 +202,12 @@ parameter p pt = LLGlob.Parameter pt p []
 withGlobDefSigs
     :: MonadReader Env m => [(Mono.MTypedVar, Mono.MExpr)] -> m a -> m a
 withGlobDefSigs = local . Map.union . Map.fromList . map
-    (\(v@(Mono.TypedVar n t), _) -> (v, globRefOp (toLlvmType t) (mkName n)))
-    where globRefOp t n = ConstantOperand (LLConst.GlobalReference t n)
+    (\(v@(Mono.TypedVar n t), _) ->
+        ( v
+        , ConstantOperand
+            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mkName n))
+        )
+    )
 
 genExtractCaptures :: Operand -> [Mono.MTypedVar] -> Gen a -> Gen a
 genExtractCaptures capturesPtrGeneric fvs ga = do
