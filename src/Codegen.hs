@@ -25,12 +25,10 @@ import Data.Bool
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
-import Data.Functor
 import Data.Maybe
 import Data.Word
 import Data.Foldable
-import Control.Lens
-    (makeLenses, modifying, view, scribe, (<<+=), use, uses, assign)
+import Control.Lens (makeLenses, modifying, scribe, (<<+=), use, uses, assign)
 
 import Misc
 import qualified Annot as An
@@ -88,28 +86,17 @@ initSt = St
     }
 
 genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> Module
-genModule moduleFilePath main defs = defaultModule
-    { moduleName = fromString ((takeBaseName moduleFilePath))
-    , moduleSourceFileName = fromString moduleFilePath
-    , moduleDefinitions =
-        : runGen' (genMain main)
-        : runGen' (genGlobDefs defs)
-    }
+genModule moduleFilePath main (Mono.Defs defs) =
+    let defs' = (Mono.TypedVar "main" An.mainType, main) : Map.toList defs
+    in
+        defaultModule
+            { moduleName = fromString ((takeBaseName moduleFilePath))
+            , moduleSourceFileName = fromString moduleFilePath
+            , moduleDefinitions = runGen' (genGlobDefs defs')
+            }
 
-genMain :: Mono.MExpr -> Gen' Definition
-genMain main = semiExecRetGen (genExpr main) <&> \(rt, out) -> GlobalDefinition
-    (functionDefaults
-        { LLGlob.name = "main"
-        , LLGlob.parameters = ([], False)
-        , LLGlob.returnType = rt
-        , LLGlob.basicBlocks = view outBlocks out
-        }
-    )
-
-genGlobDefs :: Mono.Defs -> Gen' [Definition]
-genGlobDefs (Mono.Defs defs) =
-    let defs' = Map.toList defs
-    in withGlobDefSigs defs' (fmap join (mapM genGlobDef defs'))
+genGlobDefs :: [(Mono.MTypedVar, Mono.MExpr)] -> Gen' [Definition]
+genGlobDefs defs = withGlobDefSigs defs (fmap join (mapM genGlobDef defs))
 
 genGlobDef :: (Mono.MTypedVar, Mono.MExpr) -> Gen' [Definition]
 genGlobDef (Mono.TypedVar n _, e) = case e of
