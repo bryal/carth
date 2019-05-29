@@ -8,6 +8,9 @@ import Data.Set (Set)
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)
 
+nyi :: String -> a
+nyi = error . ("Not yet implemented: " ++)
+
 class Ord v => FreeVars a v where
     freeVars :: a -> Set v
     boundVars :: a -> Set v

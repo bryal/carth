@@ -44,6 +44,7 @@ type MExpr = Expr Type Defs
 
 newtype Defs =
     Defs (Map MTypedVar MExpr)
+  deriving Show
 
 type MProgram = Program Type Defs
 

@@ -116,7 +116,7 @@ genGlobDef :: (Mono.MTypedVar, Mono.MExpr) -> Gen' [Definition]
 genGlobDef (Mono.TypedVar n _, e) = case e of
     An.Fun p (body, _) ->
         fmap (map GlobalDefinition) (genFunDef ((mkName n), [], p, body))
-    _ -> undefined
+    _ -> nyi $ "Global non-function defs: " ++ show e
 
 genFunDef
     :: (Name, [Mono.MTypedVar], (String, Mono.Type), Mono.MExpr) -> Gen' [Global]
