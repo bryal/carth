@@ -345,7 +345,7 @@ genLambda p@(px, pt) (b, bt) = do
     captures <- genBoxGeneric =<< genStruct =<< sequence (map lookupVar fvs)
     fname <- newName "lambda_func"
     let ft = typeClosureFun (toLlvmType pt) (toLlvmType bt)
-    let f = ConstantOperand (LLConst.GlobalReference ft fname)
+    let f = ConstantOperand (LLConst.GlobalReference (LLType.ptr ft) fname)
     scribe outFuncs [(fname, fvs, p, b)]
     genStruct [captures, f]
 
@@ -434,7 +434,7 @@ callExtern f rt as = WithRetType
         , callingConvention = callConv
         , returnAttributes = []
         , function = Right $ ConstantOperand $ LLConst.GlobalReference
-            (FunctionType rt (map typeOf as) False)
+            (LLType.ptr (FunctionType rt (map typeOf as) False))
             (mkName f)
         , arguments = map (, []) as
         , functionAttributes = []
