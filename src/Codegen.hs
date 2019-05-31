@@ -17,6 +17,8 @@ import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import LLVM.Pretty ()
+import qualified Pretty as MyPretty
+import Pretty (pretty)
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
@@ -553,5 +555,11 @@ getMembers = \case
 getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl (\t i -> getMembers t !! (fromIntegral i))
 
-pretty :: Prettyprint.Pretty a => a -> String
-pretty = show . Prettyprint.pretty
+instance MyPretty.Pretty Type where
+    pretty' _ = show . Prettyprint.pretty
+
+instance MyPretty.Pretty Name where
+    pretty' _ = show . Prettyprint.pretty
+
+instance MyPretty.Pretty Module where
+    pretty' _ = show . Prettyprint.pretty
