@@ -140,7 +140,7 @@ genFunDef (name, fvs, (p, pt), body) = do
     let ss = map globStrVar globStrings
     ls <- concat <$> mapM genFunDef lambdaFuncs
 
-    fName <- newName' (show name ++ "_func")
+    fName <- newName' (pretty name ++ "_func")
     let fParams = [parameter capturesName capturesType, parameter p' pt']
     let f = simpleFunc fName fParams rt basicBlocks
 
