@@ -1,10 +1,112 @@
-* Carth
+#+TITLE: The Carth programming language
 
-** TODO Translate kvasir todo
-** NEXT Consider using lib for pretty printing
-   https://hackage.haskell.org/package/pretty-1.1.1.1
-** INACTIVE Hoogle equivalent
-   https://wiki.haskell.org/Hoogle
-** INACTIVE Web playground
-   Like play.rustlang.org
-** INACTIVE Language server protocol
+Features and other stuff to do/implement in/around Carth.
+
+*IMPORTANT*: When done implementing a TODO, make sure to document the
+changes in the [[REFERENCE.org][REFERENCE]] if applicable! Also, mark the TODO as *DONE*
+with a short note of what was done and how it went, unless the TODO
+was trivial and unimportant, in which case the section can just be
+removed. Please also link to the commit that does the thing if
+relevant.
+
+* NEXT Package system
+
+* TODO Module system
+
+* TODO Algebraic datatypes
+
+* NEXT Typeclasses
+
+* INACTIVE Linear types
+  Linear types would allow predictable performance and behaviour of
+  e.g. IO tasks. Force a single manual file-close or
+  buffer-flush. Force a single free for malloc.  Affine types would
+  allow better performance.  E.g. pure, in-place modification of
+  array.  If noone else points to it, value can be consumed and
+  modified rather than cloned. Something like: ~fn push(mut v:
+  Vec<i32>, x: i32) -> Vec<i32> { v.push(x); v }~ Implemented as maybe
+  a wrapper, or an interface?  Maybe like in haskell with lolly
+  operator?  [[http://docs.idris-lang.org/en/latest/reference/uniqueness-types.html][Check out idris Uniqueness Types]]
+
+* NEXT Higher kinded types
+
+* Garbage collector
+  Until we get linear types, and probably even then, we'll need some
+  form of GC.
+
+  There are many problems with refcounting: Generated llvm ir/asm gets
+  polluted; While performance is more predictable, it's typically
+  worse overall; Cycle breaking would either require using weak refs
+  where appropriate, which would in turn require user input or an
+  advanced implementation, or a periodic cycle breaker, which would be
+  costly performance wise. So tracing GC is probably a good idea.
+
+** TODO Boehms GC
+   Simplest way to get rudimentary, but decently performant, GC.
+
+** INACTIVE DIY Garbage collector
+   A tracing GC would be quite separate from the rest of the
+   program. The only pollution would be calls to the allocator (not
+   much different from the current sitch w malloc) and
+   (de)registrations of local variables in Let forms (a total of two
+   function calls per heap allocated variable).
+
+   Implementing a tracing GC would also be a fun challenge, and I'm
+   sure it could be fun to try different algorithms etc.
+
+*** How it would work
+    Basically, instead of calling =malloc=, the alloc function of the
+    GC is called. This function keeps track of either the number of
+    calls, the time, or the current sum of allocated space, and
+    periodically performs a mark-and-sweep, walking through the object
+    graph and marking objects not directly or indirectly referenced by
+    a "root" node for sweeping.
+
+    Root nodes are global variables and all local variables visible in
+    the current scope. Global variables can be registered in the main
+    wrapper, while local variables could be registered right after
+    they've been created (in a Let, Match, ...). They would then be
+    unregistered right before the function returns (or in the case of
+    tail calls, right before the tail call). Registering could happen
+    directly in the GC alloc routine.
+
+* INACTIVE Effect system
+
+* INACTIVE Macros?
+
+* INACTIVE Property system
+  I'm thinking of a system where you annotate functions in a source
+  file with pre- and postconditions, which can then be checked in
+  different modes depending on how much time you've got etc.
+
+  - Proof-mode. Exchaustive checking of conditions. All possible
+     inputs are generated, and the system checks that the precondition
+     always implies the postcondition.
+  - Test-mode. Statistical, random testing. Generate enough inputs
+    such that the precondition is fulfilled for a statistically
+    significant subset of the complete set of possible inputs.
+  - Debug-mode. Functions are not tested ahead of time, instead
+     assertions are inserted and checked at runtime.
+  - Release-mode. Conditions are completely ignored.
+
+* NEXT Consider using lib for pretty printing
+  https://hackage.haskell.org/package/pretty-1.1.1.1
+
+* INACTIVE Hoogle equivalent
+  https://wiki.haskell.org/Hoogle
+
+* INACTIVE Web playground
+  Like play.rustlang.org
+
+* INACTIVE Language server protocol
+  [[https://github.com/Microsoft/language-server-protocol]]
+  [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
+
+* NEXT Reference
+  Rust has a [[https://doc.rust-lang.org/reference/][good reference]]. Look at that for inspiration.
+
+** INACTIVE Document syntax
+
+** INACTIVE Document type system
+
+** INACTIVE Document memory model
