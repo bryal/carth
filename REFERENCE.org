@@ -1,0 +1,44 @@
+#+TITLE: The Carth Reference
+
+This document is the primary reference for the Carth programming
+language. It is updated on a best-effort basis. It should be valid and
+complete, but it may not be.
+
+* TODO Introduction
+
+** TODO How to use this document
+
+** TODO Contributing
+
+** TODO Influences
+
+** TODO Glossary
+
+* TODO Lexical structure
+
+* TODO Macros
+
+* TODO Packages, modules, and source files
+
+* TODO Items
+
+** TODO Global variable definitions
+
+** TODO Type definitions
+
+
+* TODO Expressions
+
+* TODO Patterns
+
+* TODO Type system
+
+* TODO Memory model
+
+* TODO Linkage
+
+* TODO Unsafety
+
+* TODO Compile time evaluation
+
+* TODO Runtime
