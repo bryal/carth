@@ -30,9 +30,9 @@ import Data.Bool
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
-import Data.Maybe
 import Data.Word
 import Data.Foldable
+import Control.Applicative
 import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
 
@@ -102,13 +102,16 @@ initSt = St
 
 codegen :: FilePath -> Mono.MProgram -> Module
 codegen moduleFilePath (An.Program main (Mono.Defs defs)) =
-    let defs' = (Mono.TypedVar "main" An.mainType, main) : Map.toList defs
-    in
-        defaultModule
-            { moduleName = fromString ((takeBaseName moduleFilePath))
-            , moduleSourceFileName = fromString moduleFilePath
-            , moduleDefinitions = genBuiltins ++ runGen' (genGlobDefs defs')
-            }
+    let
+        defs' = (Mono.TypedVar "main" An.mainType, main) : Map.toList defs
+        genGlobDefs = withGlobDefSigs
+            defs'
+            (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
+    in defaultModule
+        { moduleName = fromString ((takeBaseName moduleFilePath))
+        , moduleSourceFileName = fromString moduleFilePath
+        , moduleDefinitions = genBuiltins ++ runGen' genGlobDefs
+        }
 
 genBuiltins :: [Definition]
 genBuiltins = map
@@ -120,8 +123,15 @@ genBuiltins = map
     , simpleFunc (mkName "printInt") [parameter (mkName "n") i64] typeUnit
     ]
 
-genGlobDefs :: [(Mono.MTypedVar, Mono.MExpr)] -> Gen' [Definition]
-genGlobDefs defs = withGlobDefSigs defs (fmap join (mapM genGlobDef defs))
+genOuterMain :: Gen' Definition
+genOuterMain = do
+    assign currentBlockLabel (mkName "entry")
+    assign currentBlockInstrs []
+    (_, Out basicBlocks _ _) <- semiExecRetGen $ do
+        f <- lookupVar (Mono.TypedVar "main" An.mainType)
+        app f (ConstantOperand litUnit)
+        pure (ConstantOperand (litI32 0))
+    pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
 
 genGlobDef :: (Mono.MTypedVar, Mono.MExpr) -> Gen' [Definition]
 genGlobDef (v, e) = case e of
@@ -274,7 +284,7 @@ toLlvmType = \case
 
 genConst :: An.Const -> Gen LLConst.Constant
 genConst = \case
-    An.Unit -> pure $ litStruct []
+    An.Unit -> pure litUnit
     An.Int n -> pure $ litI64 n
     An.Double x -> pure $ litDouble x
     An.Char c -> pure $ litI32 (Data.Char.ord c)
@@ -301,10 +311,13 @@ genApp fe ae = do
             emitAnon (callExtern "printInt" typeUnit [a])
         _ -> do
             closure <- genExpr fe
-            a <- genExpr ae
-            captures <- emitReg' "captures" (extractvalue closure [0])
-            f <- emitReg' "function" (extractvalue closure [1])
-            emitAnon $ call f [captures, a]
+            app closure a
+
+app :: Operand -> Operand -> Gen Operand
+app closure arg = do
+    captures <- emitReg' "captures" (extractvalue closure [0])
+    f <- emitReg' "function" (extractvalue closure [1])
+    emitAnon $ call f [captures, arg]
 
 genIf :: Mono.MExpr -> Mono.MExpr -> Mono.MExpr -> Gen Operand
 genIf pred conseq alt = do
@@ -552,6 +565,9 @@ litDouble = LLConst.Float . LLFloat.Double
 
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False
+
+litUnit :: LLConst.Constant
+litUnit = litStruct []
 
 typeClosureFun :: Type -> Type -> Type
 typeClosureFun pt rt = FunctionType
