@@ -236,15 +236,17 @@ withGlobDefSigs = locally globalEnv . Map.union . Map.fromList . map
     )
 
 genExtractCaptures :: Operand -> [Mono.MTypedVar] -> Gen a -> Gen a
-genExtractCaptures capturesPtrGeneric fvs ga = do
-    let capturesType = typeCaptures fvs
-    capturesPtr <- emitAnon
-        (bitcast capturesPtrGeneric (LLType.ptr capturesType))
-    captures <- emitAnon (load capturesPtr)
-    captureVals <- mapM
-        (\(Mono.TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
-        (zip fvs [0 ..])
-    withVars (zip fvs captureVals) ga
+genExtractCaptures capturesPtrGeneric fvs ga = if null fvs
+    then ga
+    else do
+        let capturesType = typeCaptures fvs
+        capturesPtr <- emitAnon
+            (bitcast capturesPtrGeneric (LLType.ptr capturesType))
+        captures <- emitAnon (load capturesPtr)
+        captureVals <- mapM
+            (\(Mono.TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
+            (zip fvs [0 ..])
+        withVars (zip fvs captureVals) ga
 
 genExpr :: Mono.MExpr -> Gen Operand
 genExpr = \case
