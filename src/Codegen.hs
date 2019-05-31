@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, TemplateHaskell, TupleSections
   , FlexibleContexts #-}
 
-module Codegen where
+module Codegen (codegen) where
 
 import LLVM.AST
 import LLVM.AST.Typed
@@ -89,8 +89,9 @@ initSt = St
     , _registerCount = 0
     }
 
-genModule :: FilePath -> Mono.MExpr -> Mono.Defs -> Module
-genModule moduleFilePath main (Mono.Defs defs) =
+
+codegen :: FilePath -> Mono.MProgram -> Module
+codegen moduleFilePath (An.Program main (Mono.Defs defs)) =
     let defs' = (Mono.TypedVar "main" An.mainType, main) : Map.toList defs
     in
         defaultModule
