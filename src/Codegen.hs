@@ -411,9 +411,6 @@ newName = lift . newName'
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
 
-newCounted :: (Word -> a) -> Gen a
-newCounted f = fmap f (registerCount <<+= 1)
-
 -- TODO: Shouldn't need a return type parameter. Should look at global list of hidden
 -- builtins or something.
 callExtern :: String -> Type -> [Operand] -> FunInstruction
