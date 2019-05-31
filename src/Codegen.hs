@@ -3,6 +3,7 @@
 
 module Codegen (codegen) where
 
+import LLVM.Prelude (ShortByteString)
 import LLVM.AST
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
@@ -123,14 +124,32 @@ genGlobDefs :: [(Mono.MTypedVar, Mono.MExpr)] -> Gen' [Definition]
 genGlobDefs defs = withGlobDefSigs defs (fmap join (mapM genGlobDef defs))
 
 genGlobDef :: (Mono.MTypedVar, Mono.MExpr) -> Gen' [Definition]
-genGlobDef (Mono.TypedVar n _, e) = case e of
+genGlobDef (v, e) = case e of
     An.Fun p (body, _) ->
-        fmap (map GlobalDefinition) (genFunDef ((mkName n), [], p, body))
+        fmap (map GlobalDefinition) (genClosureWrappedFunDef v p body)
     _ -> nyi $ "Global non-function defs: " ++ show e
+
+genClosureWrappedFunDef
+    :: Mono.MTypedVar -> (String, Mono.Type) -> Mono.MExpr -> Gen' [Global]
+genClosureWrappedFunDef var p body = do
+    let name = mangleName var
+    fName <- newName'' (unName name `mappend` fromString "_func")
+    (f, gs) <- genFunDef' (fName, [], p, body)
+    let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
+    let capturesType = LLType.ptr typeUnit
+    let captures = LLConst.Null capturesType
+    let closure = litStruct [captures, fRef]
+    let closureDef = simpleGlobVar name (typeOf closure) closure
+    pure (closureDef : f : gs)
 
 genFunDef
     :: (Name, [Mono.MTypedVar], (String, Mono.Type), Mono.MExpr) -> Gen' [Global]
-genFunDef (name, fvs, (p, pt), body) = do
+genFunDef = fmap (uncurry (:)) . genFunDef'
+
+genFunDef'
+    :: (Name, [Mono.MTypedVar], (String, Mono.Type), Mono.MExpr)
+    -> Gen' (Global, [Global])
+genFunDef' (name, fvs, (p, pt), body) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
 
@@ -149,16 +168,11 @@ genFunDef (name, fvs, (p, pt), body) = do
     let ss = map globStrVar globStrings
     ls <- concat <$> mapM genFunDef lambdaFuncs
 
-    fName <- newName' (pretty name ++ "_func")
+
     let fParams = [parameter capturesName capturesType, parameter p' pt']
-    let f = simpleFunc fName fParams rt basicBlocks
+    let f = simpleFunc name fParams rt basicBlocks
 
-    let captures = LLConst.Null capturesType
-    let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
-    let closure = litStruct [captures, fRef]
-    let closureDef = simpleGlobVar name (typeOf closure) closure
-
-    pure (closureDef : f : ss ++ ls)
+    pure (f, ss ++ ls)
 
 simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
 simpleFunc n ps rt bs = Function
@@ -217,7 +231,7 @@ withGlobDefSigs = locally globalEnv . Map.union . Map.fromList . map
     (\(v@(Mono.TypedVar _ t), _) ->
         ( v
         , ConstantOperand
-            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mkName n))
+            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mangleName v))
         )
     )
 
@@ -425,6 +439,10 @@ newName = lift . newName'
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
 
+newName'' :: ShortByteString -> Gen' Name
+newName'' s =
+    fmap (Name . (mappend s) . fromString . show) (registerCount <<+= 1)
+
 -- TODO: Shouldn't need a return type parameter. Should look at global list of hidden
 -- builtins or something.
 callExtern :: String -> Type -> [Operand] -> FunInstruction
@@ -566,6 +584,19 @@ getMembers = \case
 
 getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl (\t i -> getMembers t !! (fromIntegral i))
+
+mangleName :: Mono.MTypedVar -> Name
+mangleName (Mono.TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
+
+mangleType :: Mono.Type -> String
+mangleType = \case
+    Mono.TConst c -> c
+    Mono.TFun p r -> mangleType p ++ "->" ++ mangleType r
+
+unName :: Name -> ShortByteString
+unName = \case
+    Name s -> s
+    UnName n -> fromString (show n)
 
 instance MyPretty.Pretty Type where
     pretty' _ = show . Prettyprint.pretty
