@@ -2,6 +2,27 @@
 
 Rewrite of [[https://github.com/bryal/kvasir][kvasir]] in Haskell.
 
+Purely functional programming with lisp-syntax. Less infix, more parens!
+
+** Features
+
+- Scheme-inspired syntax and feel
+- Static, Hindley-Milner typechecking à la ML
+- Currying
+- Compiled with LLVM-based backend
+
+** Roadmap
+
+This is a high-level overview of what is planned for the language, and
+some of the points are just tentative. See [[TODO.org]] for more extensive
+list of planned features and more detailed descriptions.
+
+- Algebraic datatypes
+- Typeclasses
+- Higher kinded types
+- Effect system
+- Linear types
+
 ** License
 
    AGPLv3
