@@ -26,7 +26,7 @@ main = do
 
 interpretFile :: FilePath -> IO ()
 interpretFile f =
-    readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret'
+    readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret
 
 compileFile :: FilePath -> IO ()
 compileFile f =
@@ -40,20 +40,16 @@ compileFile f =
 parse' :: FilePath -> String -> IO Ast.Program
 parse' f src = case parse f src of
     Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
-    Right p -> putStrLn ("Parse result:\n" ++ pretty p ++ "\n") $> p
+    Right p -> writeFile "out.parsed" (pretty p) $> p
 
 typecheck' :: Ast.Program -> IO Check.CProgram
 typecheck' p = case typecheck p of
     Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
-    Right p -> putStrLn ("Typecheck result:\n" ++ pretty p ++ "\n") $> p
+    Right p -> writeFile "out.checked" (pretty p) $> p
 
 monomorphize' :: Check.CProgram -> IO Mono.MProgram
 monomorphize' p =
-    let p' = monomorphize p
-    in putStrLn ("Monomorphization result:\n" ++ pretty p' ++ "\n") $> p'
-
-interpret' :: Mono.MProgram -> IO ()
-interpret' p = putStrLn "Interpretation result:" >> interpret p
+    let p' = monomorphize p in writeFile "out.mono" (pretty p') $> p'
 
 codegen' :: FilePath -> Mono.MProgram -> IO LLVM.AST.Module
 codegen' f p =
