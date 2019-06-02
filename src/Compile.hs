@@ -30,8 +30,6 @@ compile cfg mod =
 
 compileModule :: CompileConfig -> Module -> IO ()
 compileModule cfg m = withHostTargetMachinePIC $ \t -> do
-compileModule :: Module -> IO ()
-compileModule m = withHostTargetMachinePIC $ \t -> do
     let binfile = fromMaybe "out" (outfile cfg)
         llfile = replaceExtension binfile "ll"
         bcfile = replaceExtension binfile "bc"
