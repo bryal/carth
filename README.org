@@ -5,25 +5,36 @@ Rewrite of [[https://github.com/bryal/kvasir][kvasir]] in Haskell.
 Purely functional programming with lisp-syntax. Less infix, more parens!
 
 ** Features
+   - Scheme-inspired syntax and feel
+   - Static, Hindley-Milner typechecking à la ML
+   - Currying
+   - Compiled with LLVM-based backend
 
-- Scheme-inspired syntax and feel
-- Static, Hindley-Milner typechecking à la ML
-- Currying
-- Compiled with LLVM-based backend
+** Examples
+   Not much is working yet, but here's an example of something simple
+   that compiles and runs today. Note that impure functions like
+   ~printInt~ only temporarily exist for development purposes.
 
-** TODO Examples
+   #+BEGIN_SRC scheme
+   (define (main _)
+     (seq (printInt (id 1337))
+          (seq (printInt 42)
+               (printInt 69))))
+   (define (id x) x)
+   (define (seq _ b) b)
+   #+END_SRC
 
 ** Roadmap
 
-This is a high-level overview of what is planned for the language, and
-some of the points are just tentative. See [[./TODO.org][TODO.org]] for more extensive
-list of planned features and more detailed descriptions.
+   This is a high-level overview of what is planned for the language, and
+   some of the points are just tentative. See [[./TODO.org][TODO.org]] for more extensive
+   list of planned features and more detailed descriptions.
 
-- Algebraic datatypes
-- Typeclasses
-- Higher kinded types
-- Effect system
-- Linear types
+   - Algebraic datatypes
+   - Typeclasses
+   - Higher kinded types
+   - Effect system
+   - Linear types
 
 ** Building
    This project is written in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build
@@ -33,25 +44,25 @@ list of planned features and more detailed descriptions.
 
 ** Running
    #+BEGIN_EXAMPLE bash
-# General help
-carth help
-carth -h
-carth --help
+   # General help
+   carth help
+   carth -h
+   carth --help
 
-# Help for a specific subcommand
-carth help interpret
-carth help c
+   # Help for a specific subcommand
+   carth help interpret
+   carth help c
 
-# Interpret a file
-carth i examples/test.carth
+   # Interpret a file
+   carth i examples/test.carth
 
-# Compile and run a program with default output filename
-carth c examples/test.carth
-./out
+   # Compile and run a program with default output filename
+   carth c examples/test.carth
+   ./out
 
-# Compile a program with a specific output filename
-carth c -o examples/test.bin examples/test.carth
-./examples/test.bin
+   # Compile a program with a specific output filename
+   carth c -o examples/test.bin examples/test.carth
+   ./examples/test.bin
    #+END_EXAMPLE
 
 ** License
