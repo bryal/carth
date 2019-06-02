@@ -3,7 +3,7 @@
 Features and other stuff to do/implement in/around Carth.
 
 *IMPORTANT*: When done implementing a TODO, make sure to document the
-changes in the [[REFERENCE.org][REFERENCE]] if applicable! Also, mark the TODO as *DONE*
+changes in the [[./REFERENCE.org][REFERENCE]] if applicable! Also, mark the TODO as *DONE*
 with a short note of what was done and how it went, unless the TODO
 was trivial and unimportant, in which case the section can just be
 removed. Please also link to the commit that does the thing if
