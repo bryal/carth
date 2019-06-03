@@ -26,8 +26,23 @@ complete, but it may not be.
 
 ** TODO Type definitions
 
-
 * TODO Expressions
+
+** Type ascriptions
+   Type ascriptions are primarily used to:
+   - increase readability when the type of an expression is not obvious;
+   - assert at compile-time that an expression is of or can specialize to the given type;
+   - or specialize the type of a generic expression, restricting its usage.
+
+*** Syntax
+    #+BEGIN_SRC bnf
+    type ascription = "(", ":", expression, type, ")" ;
+    #+END_SRC
+
+*** Example
+    #+BEGIN_SRC scheme
+    (: x Int)
+    #+END_SRC
 
 * TODO Patterns
 
