@@ -1,4 +1,5 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
+  , TypeSynonymInstances, FlexibleInstances #-}
 
 module Check
     ( typecheck
@@ -24,6 +25,7 @@ import Data.Map.Strict (Map)
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.List
 
 import Misc
 import NonEmpty
@@ -282,3 +284,42 @@ ftvEnv env = Set.unions (map (ftvScheme . snd) (Map.toList env))
 
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
+
+instance Pretty CProgram where
+    pretty' = prettyProg
+
+instance Pretty Defs where
+    pretty' = prettyDefs
+
+instance Pretty Scheme where
+    pretty' _ = prettyScheme
+
+prettyScheme :: Scheme -> String
+prettyScheme (Forall ps b) = concat
+    ["forall ", intercalate " " (map pretty (Set.toList ps)), ". ", pretty b]
+
+prettyDefs :: Int -> Defs -> String
+prettyDefs d (Defs binds) = intercalate
+    ("\n" ++ replicate (d + 6) ' ')
+    (map (prettyBinding (d + 6)) (Map.toList binds))
+  where
+    prettyBinding d (name, (scm, body)) =
+        prettyBracketPair d (name, body) ++ " ; " ++ pretty scm
+
+prettyProg :: Int -> CProgram -> String
+prettyProg d (Annot.Program main (Check.Defs defs)) =
+    let
+        allDefs = ("main", (Check.Forall Set.empty Ast.mainType, main))
+            : Map.toList defs
+        prettyDef (name, (scm, val)) = concat
+            [ replicate d ' '
+            , "(define "
+            , name
+            , " ; "
+            , pretty scm
+            , "\n"
+            , replicate (d + 2) ' '
+            , pretty' (d + 2) val
+            , ")"
+            ]
+    in unlines (map prettyDef allDefs)

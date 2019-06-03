@@ -2,19 +2,20 @@
 
 module Main where
 
+import Data.Functor
+import System.Exit
+import qualified LLVM.AST
+
+import Misc
 import qualified Ast
 import Check
 import Config
-import Data.Functor
 import Interp
 import Codegen
 import Compile
 import Mono (monomorphize)
 import qualified Mono
 import Parse
-import Pretty
-import System.Exit
-import qualified LLVM.AST
 
 main :: IO ()
 main = do

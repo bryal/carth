@@ -44,3 +44,48 @@ fvExpr = \case
     Fun (p, pt) (b, _) -> Set.delete (TypedVar p pt) (freeVars b)
     Let ds e ->
         Set.difference (Set.union (freeVars e) (freeVars ds)) (boundVars ds)
+
+instance (Pretty t, Pretty ds) => Pretty (Annot.Expr t ds) where
+    pretty' = prettyExpr
+
+prettyExpr :: (Pretty t, Pretty ds) => Int -> Annot.Expr t ds -> String
+prettyExpr d = \case
+    Annot.Lit l -> pretty l
+    Annot.Var (Annot.TypedVar v t) -> "(: " ++ v ++ " " ++ pretty t ++ ")"
+    Annot.App f x -> concat
+        [ "("
+        , pretty' (d + 1) f
+        , "\n"
+        , replicate (d + 1) ' '
+        , pretty' (d + 1) x
+        , ")"
+        ]
+    Annot.If pred cons alt -> concat
+        [ "(if "
+        , pretty' (d + 4) pred
+        , "\n"
+        , replicate (d + 4) ' '
+        , pretty' (d + 4) cons
+        , "\n"
+        , replicate (d + 2) ' '
+        , pretty' (d + 2) alt
+        , ")"
+        ]
+    Annot.Fun (param, tp) (body, _) -> concat
+        [ "(fun [(: "
+        , param
+        , " "
+        , pretty tp
+        , ")]"
+        , "\n"
+        , replicate (d + 2) ' '
+        , pretty' (d + 2) body
+        , ")"
+        ]
+    Annot.Let binds body -> concat
+        [ "(let ["
+        , pretty' d binds
+        , "]\n"
+        , replicate (d + 2) ' ' ++ pretty' (d + 2) body
+        , ")"
+        ]

@@ -38,8 +38,6 @@ import Misc
 import Ast (TConst(..))
 import qualified Annot as An
 import qualified Mono
-import qualified Pretty as MyPretty
-import Pretty (pretty)
 
 -- | An instruction that returns a value. The name refers to the fact that a
 -- mathematical function always returns a value, but an imperative procedure may
@@ -617,11 +615,11 @@ unName = \case
     Name s -> s
     UnName n -> fromString (show n)
 
-instance MyPretty.Pretty Type where
+instance Pretty Type where
     pretty' _ = show . Prettyprint.pretty
 
-instance MyPretty.Pretty Name where
+instance Pretty Name where
     pretty' _ = show . Prettyprint.pretty
 
-instance MyPretty.Pretty Module where
+instance Pretty Module where
     pretty' _ = show . Prettyprint.pretty

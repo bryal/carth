@@ -23,6 +23,7 @@ import Control.Monad.State
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import Data.List
 
 import Misc
 import qualified Ast
@@ -137,3 +138,47 @@ lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
 instance FreeVars Defs MTypedVar where
     freeVars (Defs ds) = Set.unions (map freeVars (Map.elems ds))
     boundVars (Defs ds) = Set.fromList (Map.keys ds)
+
+instance Pretty MProgram where
+    pretty' = prettyProg
+
+instance Pretty Defs where
+    pretty' = prettyDefs
+
+instance Pretty Type where
+    pretty' _ = prettyType
+
+prettyType :: Type -> String
+prettyType = \case
+    TConst c -> pretty c
+    TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
+
+prettyDefs :: Int -> Defs -> String
+prettyDefs d (Defs binds) = intercalate
+    ("\n" ++ replicate (d + 6) ' ')
+    (map (prettyBinding (d + 6)) (Map.toList binds))
+  where
+    prettyBinding d ((TypedVar name t), body) = concat
+        [ "(#instance' "
+        , pretty t
+        , "\n"
+        , prettyBracketPair (d + 1) (name, body)
+        , ")"
+        ]
+
+prettyProg :: Int -> MProgram -> String
+prettyProg d (Annot.Program main (Mono.Defs defs)) =
+    let
+        allDefs = (TypedVar "main" Mono.mainType, main) : Map.toList defs
+        prettyDef ((TypedVar name t), val) = concat
+            [ replicate d ' '
+            , "(define "
+            , name
+            , " #instance "
+            , pretty t
+            , "\n"
+            , replicate (d + 2) ' '
+            , pretty' (d + 2) val
+            , ")"
+            ]
+    in unlines (map prettyDef allDefs)

@@ -24,6 +24,7 @@ import Test.QuickCheck.Gen
 import Test.QuickCheck.Modifiers
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.List
 
 import Misc
 import NonEmpty
@@ -243,3 +244,140 @@ bvPat = \case
     PConstructor _ -> Set.empty
     PConstruction _ ps -> Set.unions (map freeVars (nonEmptyToList ps))
     PVar var -> Set.singleton var
+
+instance Pretty Program where
+    pretty' = prettyProg
+
+instance Pretty Expr where
+    pretty' = prettyExpr
+
+instance Pretty Id where
+    pretty' _ (Id s) = s
+
+instance Pretty Pat where
+    pretty' _ = prettyPat
+
+instance Pretty Const where
+    pretty' _ = prettyConst
+
+instance Pretty Type where
+    pretty' _ = prettyType
+
+instance Pretty TConst where
+    pretty' _ = prettyTConst
+
+instance Pretty TVar where
+    pretty' _ = prettyTVar
+
+prettyProg :: Int -> Program -> String
+prettyProg d (Program main defs) =
+    let
+        allDefs = (Id "main", main) : defs
+        prettyDef (Id name, val) = concat
+            [ replicate d ' '
+            , "(define "
+            , name
+            , "\n"
+            , replicate (d + 2) ' '
+            , pretty' (d + 2) val
+            , ")"
+            ]
+    in unlines (map prettyDef allDefs)
+
+prettyExpr :: Int -> Expr -> String
+prettyExpr d = \case
+    Lit l -> pretty l
+    Var (Id v) -> v
+    App f x -> concat
+        [ "("
+        , pretty' (d + 1) f
+        , "\n"
+        , replicate (d + 1) ' '
+        , pretty' (d + 1) x
+        , ")"
+        ]
+    If pred cons alt -> concat
+        [ "(if "
+        , pretty' (d + 4) pred
+        , "\n"
+        , replicate (d + 4) ' '
+        , pretty' (d + 4) cons
+        , "\n"
+        , replicate (d + 2) ' '
+        , pretty' (d + 2) alt
+        , ")"
+        ]
+    Fun (Id param) body -> concat
+        [ "(fun ["
+        , param
+        , "]\n"
+        , replicate (d + 2) ' '
+        , pretty' (d + 2) body
+        , ")"
+        ]
+    Let binds body -> concat
+        [ "(let ["
+        , intercalate1
+            ("\n" ++ replicate (d + 6) ' ')
+            (map1 (prettyBracketPair (d + 6)) binds)
+        , "]\n"
+        , replicate (d + 2) ' ' ++ pretty' (d + 2) body
+        , ")"
+        ]
+    TypeAscr e t ->
+        concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
+    Match e cs -> concat
+        [ "(match "
+        , pretty' (d + 7) e
+        , "\n"
+        , replicate (d + 2) ' '
+        , intercalate1
+            ("\n" ++ replicate (d + 2) ' ')
+            (map1 (prettyBracketPair (d + 2)) cs)
+        , ")"
+        ]
+    FunMatch cs -> concat
+        [ "(fun-match\n"
+        , replicate (d + 2) ' '
+        , intercalate1
+            ("\n" ++ replicate (d + 2) ' ')
+            (map1 (prettyBracketPair (d + 2)) cs)
+        , ")"
+        ]
+    Constructor c -> c
+
+prettyPat :: Pat -> String
+prettyPat = \case
+    PConstructor c -> c
+    PConstruction c ps -> concat
+        ["(", c, " ", intercalate " " (nonEmptyToList (map1 pretty ps)), ")"]
+    PVar (Id v) -> v
+
+prettyConst :: Const -> String
+prettyConst = \case
+    Unit -> "unit"
+    Int n -> show n
+    Double x -> show x
+    Char c -> showChar' c
+    Str s -> '"' : (s >>= showChar'') ++ "\""
+    Bool b -> if b then "true" else "false"
+
+prettyType :: Type -> String
+prettyType = \case
+    Ast.TVar tv -> pretty tv
+    Ast.TConst c -> pretty c
+    Ast.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
+
+prettyTConst :: TConst -> String
+prettyTConst = \case
+    TUnit -> "Unit"
+    TInt -> "Int"
+    TDouble -> "Double"
+    TChar -> "Char"
+    TStr -> "Str"
+    TBool -> "Bool"
+
+prettyTVar :: TVar -> String
+prettyTVar = \case
+    TVExplicit v -> v
+    TVImplicit n -> "#" ++ show n
