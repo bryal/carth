@@ -6,7 +6,7 @@ image: fpco/stack-build:latest
 before_script:
   - apt-add-repository "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-8 main"
   - apt update -y
-  - apt install llvm-8
+  - apt install -y llvm-8
 
 # https://docs.gitlab.com/ee/ci/yaml/#stages
 # jobs of the same stage are executed in parallel
