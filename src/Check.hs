@@ -29,7 +29,7 @@ import Misc
 import NonEmpty
 import Annot
 import qualified Ast
-import Ast (TVar, TConst(..), Type(..), Const(..), Def, Id(..))
+import Ast (TVar(..), TConst(..), Type(..), Const(..), Def, Id(..))
 
 data Scheme = Forall
     { _scmParams :: (Set TVar)
@@ -79,7 +79,7 @@ initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
 
 fresh :: Infer Type
-fresh = fmap (TVar . ("#" ++) . show) (tvCount <<+= 1)
+fresh = fmap (TVar . TVImplicit) (tvCount <<+= 1)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = withLocals' . Map.fromList
@@ -231,7 +231,14 @@ unify'' = curry $ \case
     (TConst a, TConst b) | a == b -> pure Map.empty
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
-        throwError (concat ["Infinite type: ", a, ", ", show t])
+        throwError (concat ["Infinite type: ", show a, ", ", show t])
+    -- Consider explicit (user given) type variables dominant of implicit ones.
+    -- In the end-result type signature we want the user's names to be preserved
+    -- as far as possible.
+    (a@(TVar (TVExplicit _)), b@(TVar (TVImplicit _))) -> unify'' b a
+    -- If encountering two explicits, prefer the "lower" one. E.g. "a" between
+    -- "a" and "b".
+    (a@(TVar (TVExplicit sa)), b@(TVar (TVExplicit sb))) | sa > sb -> unify'' b a
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unify'' (TVar a) t
     (TFun t1 t2, TFun t1' t2') -> do

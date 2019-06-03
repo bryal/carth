@@ -116,7 +116,7 @@ addInst x t1 = do
 
 monotype :: Ast.Type -> Mono Type
 monotype = \case
-    Ast.TVar v -> views tvBinds (lookup' (ice (v ++ " not in tvBinds")) v)
+    Ast.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
     Ast.TConst c -> pure (TConst c)
     Ast.TFun a b -> liftA2 TFun (monotype a) (monotype b)
 

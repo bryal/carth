@@ -3,6 +3,6 @@
        (seq (printInt 42)
             (printInt 69))))
 
-(define (id x) x)
+(define id (: (fun x x) (Fun a a)))
 
 (define (seq _ b) (: b Unit))

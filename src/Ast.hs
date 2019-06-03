@@ -2,7 +2,7 @@
            , MultiParamTypeClasses #-}
 
 module Ast
-    ( TVar
+    ( TVar(..)
     , TConst(..)
     , Type(..)
     , Id(..)
@@ -28,7 +28,10 @@ import Data.Set (Set)
 import Misc
 import NonEmpty
 
-type TVar = String
+data TVar
+    = TVExplicit String
+    | TVImplicit Int
+    deriving (Show, Eq, Ord)
 
 data TConst
     = TUnit

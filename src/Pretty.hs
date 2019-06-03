@@ -250,7 +250,15 @@ instance Pretty Mono.Defs where
 
 instance Pretty Check.Scheme where
     pretty' _ (Check.Forall ps b) =
-        concat ["forall ", intercalate " " (Set.toList ps), ". ", pretty b]
+        concat [ "forall "
+               , intercalate " " (map pretty (Set.toList ps))
+               , ". "
+               , pretty b ]
+
+instance Pretty Ast.TVar where
+    pretty' _ = \case
+        TVExplicit v -> v
+        TVImplicit n -> "#" ++ show n
 
 instance Pretty Ast.TConst where
     pretty' _ = \case
@@ -264,7 +272,7 @@ instance Pretty Ast.TConst where
 instance Pretty Ast.Type where
     pretty' _ =
         \case
-            Ast.TVar tv -> tv
+            Ast.TVar tv -> pretty tv
             Ast.TConst c -> pretty c
             Ast.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
 

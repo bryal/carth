@@ -9,6 +9,12 @@ was trivial and unimportant, in which case the section can just be
 removed. Please also link to the commit that does the thing if
 relevant.
 
+* Minor
+  Various lesser todos
+
+** TODO Use `pretty` in Check errors
+   Would probably require separation of Pretty class and instances.
+
 * NEXT Package system
 
 * TODO Module system

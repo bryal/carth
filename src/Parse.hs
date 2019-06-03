@@ -35,13 +35,13 @@ def = parens (reserved "define" *> (varDef <|> funDef))
 
 varDef :: Parser (Id, Expr)
 varDef = do
-    name <- ident
+    name <- small'
     body <- expr
     pure (name, body)
 
 funDef :: Parser (Id, Expr)
 funDef = do
-    (name, params) <- parens (liftM2 (,) ident (many1 ident))
+    (name, params) <- parens (liftM2 (,) small' (many1 small'))
     body <- expr
     pure (name, foldr Fun body params)
 
@@ -74,10 +74,10 @@ bool = do
     pure (Lit (Bool b))
 
 var :: Parser Expr
-var = fmap Var ident
+var = fmap Var small'
 
 eConstructor :: Parser Expr
-eConstructor = fmap Constructor constructor
+eConstructor = fmap Constructor big
 
 pexpr :: Parser Expr
 pexpr = parens (choice [funMatch, match, if', fun, let', typeAscr, app])
@@ -101,9 +101,9 @@ case' = parens (liftM2 (,) pat expr)
 pat :: Parser Pat
 pat = patTor <|> patTion <|> patVar
   where
-    patTor = fmap PConstructor constructor
-    patTion = parens (liftM2 PConstruction constructor (many1' pat))
-    patVar = fmap PVar ident
+    patTor = fmap PConstructor big
+    patTion = parens (liftM2 PConstruction big (many1' pat))
+    patVar = fmap PVar small'
 
 app :: Parser Expr
 app = do
@@ -122,7 +122,7 @@ if' = do
 fun :: Parser Expr
 fun = do
     try (reserved "fun")
-    params <- choice [parens (many1 ident), fmap (\x -> [x]) ident]
+    params <- choice [parens (many1 small'), fmap (\x -> [x]) small']
     body <- expr
     pure (foldr Fun body params)
 
@@ -132,13 +132,13 @@ let' = do
     bindings <- parens (many1' binding)
     body <- expr
     pure (Let bindings body)
-    where binding = parens (liftM2 (,) ident expr)
+    where binding = parens (liftM2 (,) small' expr)
 
 typeAscr :: Parser Expr
 typeAscr = try (reserved ":") *> liftA2 TypeAscr expr type'
 
 type' :: Parser Type
-type' = choice [fmap TConst tconst, ptype]
+type' = choice [fmap TConst tconst, fmap TVar tvar, ptype]
 
 ptype :: Parser Type
 ptype = parens tfun
@@ -165,26 +165,34 @@ tconst = try $ do
         "Bool" -> pure TBool
         _ -> fail $ "Undefined type constant " ++ s
 
+tvar :: Parser TVar
+tvar = fmap TVExplicit small
+
 -- Note that () and [] can be used interchangeably, as long as the
 -- opening and closing bracket matches.
 parens :: Parser a -> Parser a
 parens p = choice (map (($ p) . ($ lexer)) [Token.parens, Token.brackets])
 
-constructor :: Parser String
-constructor = try $ do
+big :: Parser String
+big = try $ do
     s <- Token.identifier lexer
     let c = head s
     if (isUpper c || [c] == ":")
         then pure s
-        else fail "Constructor must start with an uppercase letter or colon."
+        else fail "Big identifier must start with an uppercase letter or colon."
 
-ident :: Parser Id
-ident = try $ do
+small' :: Parser Id
+small' = fmap Id small
+
+small :: Parser String
+small = try $ do
     s <- Token.identifier lexer
     let c = head s
     if (isUpper c || [c] == ":")
-        then fail "Identifier must not start with an uppercase letter or colon."
-        else pure (Id s)
+        then
+            fail
+                "Small identifier must not start with an uppercase letter or colon."
+        else pure s
 
 reserved :: String -> Parser ()
 reserved = Token.reserved lexer
