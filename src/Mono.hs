@@ -30,7 +30,7 @@ import qualified Ast
 import Ast (TVar, TConst(..))
 import Annot
 import qualified Check
-import Check (CExpr, CProgram, Scheme(..), unify'')
+import Check (CExpr, CProgram, Scheme(..))
 
 data Type
     = TConst TConst
@@ -110,21 +110,21 @@ addInst x t1 = do
             (Forall _ t2, body) <- views
                 defs
                 (lookup' (ice (x ++ " not in defs")) x)
-            let s = either ice id (runExcept (unify'' (unmonotype t1) t2))
-            s' <- mapM monotype s
-            body' <- local (over tvBinds (Map.union s')) (mono body)
+            body' <- local (over tvBinds (Map.union (bindTvs t2 t1))) (mono body)
             insertInst x t1 body'
+
+bindTvs :: Ast.Type -> Type -> Map TVar Type
+bindTvs = curry $ \case
+    (Ast.TVar v, t) -> Map.singleton v t
+    (Ast.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
+    (Ast.TConst a, TConst b) | a == b -> Map.empty
+    (a, b) -> ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: Ast.Type -> Mono Type
 monotype = \case
     Ast.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
     Ast.TConst c -> pure (TConst c)
     Ast.TFun a b -> liftA2 TFun (monotype a) (monotype b)
-
-unmonotype :: Type -> Ast.Type
-unmonotype = \case
-    TConst c -> Ast.TConst c
-    TFun a b -> Ast.TFun (unmonotype a) (unmonotype b)
 
 insertInst :: String -> Type -> MExpr -> Mono ()
 insertInst x t b = modify (Map.adjust (Map.insert t b) x)
