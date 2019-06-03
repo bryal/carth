@@ -12,9 +12,6 @@ relevant.
 * Minor
   Various lesser todos
 
-** TODO Use `pretty` in Check errors
-   Would probably require separation of Pretty class and instances.
-
 * NEXT Package system
 
 * TODO Module system
