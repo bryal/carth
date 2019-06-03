@@ -122,7 +122,7 @@ if' = do
 fun :: Parser Expr
 fun = do
     try (reserved "fun")
-    params <- parens (many1 ident)
+    params <- choice [parens (many1 ident), fmap (\x -> [x]) ident]
     body <- expr
     pure (foldr Fun body params)
 
