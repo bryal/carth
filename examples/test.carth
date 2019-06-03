@@ -5,4 +5,4 @@
 
 (define (id x) x)
 
-(define (seq _ b) b)
+(define (seq _ b) (: b Unit))

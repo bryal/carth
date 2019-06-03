@@ -2,16 +2,18 @@
 
 module Parse (parse) where
 
-import Ast
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
 import Data.Functor.Identity
 import Data.Maybe
-import NonEmpty
+import Control.Applicative (liftA2)
 import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
 import qualified Text.Parsec.Token as Token
+
+import Ast
+import NonEmpty
 
 type Parser = Parsec String ()
 
@@ -78,7 +80,7 @@ eConstructor :: Parser Expr
 eConstructor = fmap Constructor constructor
 
 pexpr :: Parser Expr
-pexpr = parens (choice [funMatch, match, if', fun, let', app])
+pexpr = parens (choice [funMatch, match, if', fun, let', typeAscr, app])
 
 funMatch :: Parser Expr
 funMatch = try (reserved "fun-match") *> fmap FunMatch cases
@@ -131,6 +133,37 @@ let' = do
     body <- expr
     pure (Let bindings body)
     where binding = parens (liftM2 (,) ident expr)
+
+typeAscr :: Parser Expr
+typeAscr = try (reserved ":") *> liftA2 TypeAscr expr type'
+
+type' :: Parser Type
+type' = choice [fmap TConst tconst, ptype]
+
+ptype :: Parser Type
+ptype = parens tfun
+
+tfun :: Parser Type
+tfun = do
+    try (reserved "Fun")
+    t <- type'
+    ts <- many1 type'
+    pure (foldr1 TFun (t : ts))
+
+tconst :: Parser TConst
+tconst = try $ do
+    s <- Token.identifier lexer
+    let c = head s
+    when (not (isUpper c))
+        $ fail "Type-name must start with an uppercase letter."
+    case s of
+        "Unit" -> pure TUnit
+        "Int" -> pure TInt
+        "Double" -> pure TDouble
+        "Char" -> pure TChar
+        "Str" -> pure TStr
+        "Bool" -> pure TBool
+        _ -> fail $ "Undefined type constant " ++ s
 
 -- Note that () and [] can be used interchangeably, as long as the
 -- opening and closing bracket matches.

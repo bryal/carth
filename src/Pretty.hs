@@ -39,73 +39,74 @@ instance Pretty Program where
         in unlines (map prettyDef allDefs)
 
 instance Pretty Expr where
-    pretty' d =
-        \case
-            Lit l -> pretty l
-            Var (Id v) -> v
-            App f x ->
-                concat
-                    [ "("
-                    , pretty' (d + 1) f
-                    , "\n"
-                    , replicate (d + 1) ' '
-                    , pretty' (d + 1) x
-                    , ")"
-                    ]
-            If pred cons alt ->
-                concat
-                    [ "(if "
-                    , pretty' (d + 4) pred
-                    , "\n"
-                    , replicate (d + 4) ' '
-                    , pretty' (d + 4) cons
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , pretty' (d + 2) alt
-                    , ")"
-                    ]
-            Fun (Id param) body ->
-                concat
-                    [ "(fun ["
-                    , param
-                    , "]"
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , pretty' (d + 2) body
-                    , ")"
-                    ]
-            Let binds body ->
-                concat
-                    [ "(let ["
-                    , intercalate1
-                          ("\n" ++ replicate (d + 6) ' ')
-                          (map1 (prettyBracketPair (d + 6)) binds)
-                    , "]\n"
-                    , replicate (d + 2) ' ' ++ pretty' (d + 2) body
-                    , ")"
-                    ]
-            Match e cs ->
-                concat
-                    [ "(match "
-                    , pretty' (d + 7) e
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , intercalate1
-                          ("\n" ++ replicate (d + 2) ' ')
-                          (map1 (prettyBracketPair (d + 2)) cs)
-                    , ")"
-                    ]
-            FunMatch cs ->
-                concat
-                    [ "(fun-match"
-                    , "\n"
-                    , replicate (d + 2) ' '
-                    , intercalate1
-                          ("\n" ++ replicate (d + 2) ' ')
-                          (map1 (prettyBracketPair (d + 2)) cs)
-                    , ")"
-                    ]
-            Constructor c -> c
+    pretty' d = \case
+        Lit l -> pretty l
+        Var (Id v) -> v
+        App f x ->
+            concat
+                [ "("
+                , pretty' (d + 1) f
+                , "\n"
+                , replicate (d + 1) ' '
+                , pretty' (d + 1) x
+                , ")"
+                ]
+        If pred cons alt ->
+            concat
+                [ "(if "
+                , pretty' (d + 4) pred
+                , "\n"
+                , replicate (d + 4) ' '
+                , pretty' (d + 4) cons
+                , "\n"
+                , replicate (d + 2) ' '
+                , pretty' (d + 2) alt
+                , ")"
+                ]
+        Fun (Id param) body ->
+            concat
+                [ "(fun ["
+                , param
+                , "]"
+                , "\n"
+                , replicate (d + 2) ' '
+                , pretty' (d + 2) body
+                , ")"
+                ]
+        Let binds body ->
+            concat
+                [ "(let ["
+                , intercalate1
+                      ("\n" ++ replicate (d + 6) ' ')
+                      (map1 (prettyBracketPair (d + 6)) binds)
+                , "]\n"
+                , replicate (d + 2) ' ' ++ pretty' (d + 2) body
+                , ")"
+                ]
+        TypeAscr e t ->
+            concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
+        Match e cs ->
+            concat
+                [ "(match "
+                , pretty' (d + 7) e
+                , "\n"
+                , replicate (d + 2) ' '
+                , intercalate1
+                      ("\n" ++ replicate (d + 2) ' ')
+                      (map1 (prettyBracketPair (d + 2)) cs)
+                , ")"
+                ]
+        FunMatch cs ->
+            concat
+                [ "(fun-match"
+                , "\n"
+                , replicate (d + 2) ' '
+                , intercalate1
+                      ("\n" ++ replicate (d + 2) ' ')
+                      (map1 (prettyBracketPair (d + 2)) cs)
+                , ")"
+                ]
+        Constructor c -> c
 
 instance Pretty Id where
     pretty' _ (Id s) = s

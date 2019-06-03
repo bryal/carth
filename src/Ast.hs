@@ -84,6 +84,7 @@ data Expr
           Expr
     | Let (NonEmpty Def)
           Expr
+    | TypeAscr Expr Type
     | Match Expr
             (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
@@ -196,7 +197,18 @@ arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
 
 reserveds :: [String]
 reserveds =
-    ["define", "unit", "true", "false", "fun-match", "match", "if", "fun", "let"]
+    [ ":"
+    , "Fun"
+    , "define"
+    , "unit"
+    , "true"
+    , "false"
+    , "fun-match"
+    , "match"
+    , "if"
+    , "fun"
+    , "let"
+    ]
 
 instance FreeVars Def Id where
     freeVars (name, body) = Set.delete name (freeVars body)
@@ -218,6 +230,7 @@ fvExpr = \case
     Fun p b -> Set.delete p (freeVars b)
     Let bs e ->
         Set.difference (Set.union (freeVars e) (freeVars bs)) (boundVars bs)
+    TypeAscr e _ -> freeVars e
     Match _ _ -> undefined
     FunMatch _ -> undefined
     Constructor _ -> undefined

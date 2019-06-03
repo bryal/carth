@@ -162,6 +162,10 @@ infer = \case
         Defs annotDefs <- inferDefs (nonEmptyToList defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
         withLocals' defsScms (infer b)
+    Ast.TypeAscr x t -> do
+        (tx, x') <- infer x
+        unify t tx
+        pure (t, x')
     Ast.Match _ _ -> undefined
     Ast.FunMatch _ -> undefined
     Ast.Constructor _ -> undefined
