@@ -2,7 +2,10 @@
            , MultiParamTypeClasses #-}
 
 module Ast
-    ( Id(..)
+    ( TVar
+    , TConst(..)
+    , Type(..)
+    , Id(..)
     , Const(..)
     , Pat(..)
     , Expr(..)
@@ -10,6 +13,7 @@ module Ast
     , Program(..)
     , reserveds
     , FreeVars(..)
+    , mainType
     )
 where
 
@@ -23,6 +27,27 @@ import Data.Set (Set)
 
 import Misc
 import NonEmpty
+
+type TVar = String
+
+data TConst
+    = TUnit
+    | TInt
+    | TDouble
+    | TChar
+    | TStr
+    | TBool
+    deriving (Show, Eq, Ord)
+
+data Type
+    = TVar TVar
+    | TConst TConst
+    | TFun Type
+           Type
+    deriving (Show, Eq)
+
+mainType :: Type
+mainType = TFun (TConst TUnit) (TConst TUnit)
 
 newtype Id =
     Id String

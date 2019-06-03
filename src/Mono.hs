@@ -10,6 +10,7 @@ module Mono
     , MProgram
     , MExpr
     , MTypedVar
+    , mainType
     )
 where
 
@@ -24,20 +25,20 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 
 import Misc
-import qualified Annot
-import Annot hiding (Type)
+import qualified Ast
+import Ast (TVar, TConst(..))
+import Annot
 import qualified Check
 import Check (CExpr, CProgram, Scheme(..), unify'')
 
 data Type
-    = TConst String
+    = TConst TConst
     | TFun Type
            Type
     deriving (Show, Eq, Ord)
 
-instance Annot.Type Type where
-    tConst = TConst
-    tFun = TFun
+mainType :: Type
+mainType = TFun (TConst TUnit) (TConst TUnit)
 
 type MTypedVar = TypedVar Type
 type MExpr = Expr Type Defs
@@ -50,7 +51,7 @@ type MProgram = Program Type Defs
 
 data Env = Env
     { _defs :: Map String (Scheme, CExpr)
-    , _tvBinds :: Map Check.TVar Type
+    , _tvBinds :: Map TVar Type
     }
 
 makeLenses ''Env
@@ -108,21 +109,21 @@ addInst x t1 = do
             (Forall _ t2, body) <- views
                 defs
                 (lookup' (ice (x ++ " not in defs")) x)
-            let s = either ice id (runExcept (unify'' (checktype t1) t2))
+            let s = either ice id (runExcept (unify'' (unmonotype t1) t2))
             s' <- mapM monotype s
             body' <- local (over tvBinds (Map.union s')) (mono body)
             insertInst x t1 body'
 
-monotype :: Check.Type -> Mono Type
+monotype :: Ast.Type -> Mono Type
 monotype = \case
-    Check.TVar v -> views tvBinds (lookup' (ice (v ++ " not in tvBinds")) v)
-    Check.TConst c -> pure (TConst c)
-    Check.TFun a b -> liftA2 TFun (monotype a) (monotype b)
+    Ast.TVar v -> views tvBinds (lookup' (ice (v ++ " not in tvBinds")) v)
+    Ast.TConst c -> pure (TConst c)
+    Ast.TFun a b -> liftA2 TFun (monotype a) (monotype b)
 
-checktype :: Type -> Check.Type
-checktype = \case
-    TConst c -> tConst c
-    TFun a b -> tFun (checktype a) (checktype b)
+unmonotype :: Type -> Ast.Type
+unmonotype = \case
+    TConst c -> Ast.TConst c
+    TFun a b -> Ast.TFun (unmonotype a) (unmonotype b)
 
 insertInst :: String -> Type -> MExpr -> Mono ()
 insertInst x t b = modify (Map.adjust (Map.insert t b) x)

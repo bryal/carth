@@ -8,8 +8,6 @@ module Check
     , scmBody
     , CExpr
     , CProgram
-    , TVar
-    , Type(..)
     , Defs(..)
     )
 where
@@ -29,24 +27,9 @@ import Data.Set (Set)
 
 import Misc
 import NonEmpty
-import qualified Annot
-import Annot hiding (Type)
+import Annot
 import qualified Ast
-import Ast (Const(..), Def, Id(..))
-
--- Type annotated AST
-type TVar = String
-
-data Type
-    = TVar TVar
-    | TConst String
-    | TFun Type
-           Type
-    deriving (Show, Eq)
-
-instance Annot.Type Type where
-    tConst = TConst
-    tFun = TFun
+import Ast (TVar, TConst(..), Type(..), Const(..), Def, Id(..))
 
 data Scheme = Forall
     { _scmParams :: (Set TVar)
@@ -89,8 +72,8 @@ runInfer m = runExcept $ do
     pure (substProgram s p)
 
 builtinSchemes :: Map String Scheme
-builtinSchemes =
-    Map.fromList [("printInt", Forall Set.empty (TFun typeInt typeUnit))]
+builtinSchemes = Map.fromList
+    [("printInt", Forall Set.empty (TFun (TConst TInt) (TConst TUnit)))]
 
 initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
@@ -115,7 +98,7 @@ inferProgram (Ast.Program main defs) = do
     Defs allDefs' <- inferDefs allDefs
     let (Forall _ mainT, main') = fromJust (Map.lookup "main" allDefs')
     let defs' = Map.delete "main" allDefs'
-    unify mainType mainT
+    unify Ast.mainType mainT
     pure (Program main' (Defs defs'))
 
 inferDefs :: [Def] -> Infer Defs
@@ -168,7 +151,7 @@ infer = \case
         (tp, p') <- infer p
         (tc, c') <- infer c
         (ta, a') <- infer a
-        unify typeBool tp
+        unify (TConst TBool) tp
         unify tc ta
         pure (tc, If p' c' a')
     Ast.Fun (Id p) b -> do
@@ -185,12 +168,12 @@ infer = \case
 
 litType :: Const -> Type
 litType = \case
-    Unit -> typeUnit
-    Int _ -> typeInt
-    Double _ -> typeDouble
-    Char _ -> typeChar
-    Str _ -> typeStr
-    Bool _ -> typeBool
+    Unit -> TConst TUnit
+    Int _ -> TConst TInt
+    Double _ -> TConst TDouble
+    Char _ -> TConst TChar
+    Str _ -> TConst TStr
+    Bool _ -> TConst TBool
 
 lookupEnv :: Id -> Infer Type
 lookupEnv (Id x) = asks (Map.lookup x) >>= \case

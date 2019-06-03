@@ -2,8 +2,8 @@
 
 module Interp (interpret) where
 
-import Annot hiding (Type)
-import Ast (Const(..))
+import Annot
+import Ast (TConst(..), Const(..))
 import Control.Applicative (liftA3)
 import Control.Monad.Reader
 import Data.Bool.HT
@@ -31,10 +31,10 @@ runEval m = runReaderT m builtinValues
 
 builtinValues :: Map MTypedVar Val
 builtinValues = Map.fromList
-    [ ( TypedVar "printInt" (TFun typeInt typeUnit)
+    [ ( TypedVar "printInt" (TFun (TConst TInt) (TConst TUnit))
       , VFun (\v -> print (unwrapInt v) $> VConst Unit)
       )
-    , ( TypedVar "+" (TFun typeInt (TFun typeInt typeInt))
+    , ( TypedVar "+" (TFun (TConst TInt) (TFun (TConst TInt) (TConst TInt)))
       , VFun (\a -> pure (VFun (\b -> pure (plus a b))))
       )
     ]

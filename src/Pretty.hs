@@ -142,9 +142,8 @@ instance Pretty String where
 
 instance Pretty Check.CProgram where
     pretty' d (Annot.Program main (Check.Defs defs)) =
-        let allDefs =
-                ("main", (Check.Forall Set.empty Annot.mainType, main)) :
-                Map.toList defs
+        let allDefs = ("main", (Check.Forall Set.empty Ast.mainType, main))
+                      : Map.toList defs
             prettyDef (name, (scm, val)) =
                 concat
                     [ replicate d ' '
@@ -161,7 +160,7 @@ instance Pretty Check.CProgram where
 
 instance Pretty Mono.MProgram where
     pretty' d (Annot.Program main (Mono.Defs defs)) =
-        let allDefs = (Mono.TypedVar "main" Annot.mainType, main)
+        let allDefs = (Mono.TypedVar "main" Mono.mainType, main)
                       : Map.toList defs
             prettyDef ((Mono.TypedVar name t), val) =
                 concat
@@ -252,17 +251,26 @@ instance Pretty Check.Scheme where
     pretty' _ (Check.Forall ps b) =
         concat ["forall ", intercalate " " (Set.toList ps), ". ", pretty b]
 
-instance Pretty Check.Type where
+instance Pretty Ast.TConst where
+    pretty' _ = \case
+        TUnit -> "Unit"
+        TInt -> "Int"
+        TDouble -> "Double"
+        TChar -> "Char"
+        TStr -> "Str"
+        TBool -> "Bool"
+
+instance Pretty Ast.Type where
     pretty' _ =
         \case
-            Check.TVar tv -> tv
-            Check.TConst c -> c
-            Check.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
+            Ast.TVar tv -> tv
+            Ast.TConst c -> pretty c
+            Ast.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
 
 instance Pretty Mono.Type where
     pretty' _ =
         \case
-            Mono.TConst c -> c
+            Mono.TConst c -> pretty c
             Mono.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
 
 data TypeAnnot t =

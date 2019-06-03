@@ -1,42 +1,13 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, MultiParamTypeClasses
            , FlexibleInstances, FlexibleContexts #-}
 
-module Annot
-    ( Program(..)
-    , Expr(..)
-    , Type(..)
-    , Const(..)
-    , TypedVar(..)
-    , typeUnit
-    , typeInt
-    , typeDouble
-    , typeStr
-    , typeBool
-    , typeChar
-    , mainType
-    )
-where
+module Annot (Program(..), Expr(..), Const(..), TypedVar(..)) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Misc
 import Ast (Const(..))
-
-class Type t where
-    tConst :: String -> t
-    tFun :: t -> t -> t
-
-typeUnit, typeInt, typeDouble, typeStr, typeBool, typeChar :: Type t => t
-typeUnit = tConst "Unit"
-typeInt = tConst "Int"
-typeDouble = tConst "Double"
-typeChar = tConst "Char"
-typeStr = tConst "Str"
-typeBool = tConst "Bool"
-
-mainType :: Type t => t
-mainType = tFun typeUnit typeUnit
 
 data TypedVar t = TypedVar String t
   deriving (Show, Eq, Ord)

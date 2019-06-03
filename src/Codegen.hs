@@ -18,8 +18,6 @@ import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import LLVM.Pretty ()
-import qualified Pretty as MyPretty
-import Pretty (pretty)
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
@@ -37,8 +35,11 @@ import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
 
 import Misc
+import Ast (TConst(..))
 import qualified Annot as An
 import qualified Mono
+import qualified Pretty as MyPretty
+import Pretty (pretty)
 
 -- | An instruction that returns a value. The name refers to the fact that a
 -- mathematical function always returns a value, but an imperative procedure may
@@ -103,7 +104,7 @@ initSt = St
 codegen :: FilePath -> Mono.MProgram -> Module
 codegen moduleFilePath (An.Program main (Mono.Defs defs)) =
     let
-        defs' = (Mono.TypedVar "main" An.mainType, main) : Map.toList defs
+        defs' = (Mono.TypedVar "main" Mono.mainType, main) : Map.toList defs
         genGlobDefs = withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
@@ -128,7 +129,7 @@ genOuterMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     (_, Out basicBlocks _ _) <- semiExecRetGen $ do
-        f <- lookupVar (Mono.TypedVar "main" An.mainType)
+        f <- lookupVar (Mono.TypedVar "main" Mono.mainType)
         app f (ConstantOperand litUnit)
         pure (ConstantOperand (litI32 0))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
@@ -270,13 +271,13 @@ genExpr = \case
 -- | Convert to the LLVM representation of a type in an expression-context.
 toLlvmType :: Mono.Type -> Type
 toLlvmType = \case
-    Mono.TConst "Unit" -> typeUnit
-    Mono.TConst "Int" -> i64
-    Mono.TConst "Double" -> double
-    Mono.TConst "Char" -> i32
-    Mono.TConst "Str" -> LLType.ptr i8
-    Mono.TConst "Bool" -> i1
-    Mono.TConst c -> ice $ "toLlvmType of undefined type " ++ c
+    Mono.TConst tc -> case tc of
+        TUnit -> typeUnit
+        TInt -> i64
+        TDouble -> double
+        TChar -> i32
+        TStr -> LLType.ptr i8
+        TBool -> i1
     Mono.TFun a r -> typeStruct
         [ LLType.ptr typeUnit
         , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
@@ -608,7 +609,7 @@ mangleName (Mono.TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
 
 mangleType :: Mono.Type -> String
 mangleType = \case
-    Mono.TConst c -> c
+    Mono.TConst c -> pretty c
     Mono.TFun p r -> mangleType p ++ "->" ++ mangleType r
 
 unName :: Name -> ShortByteString
