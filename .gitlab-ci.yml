@@ -4,8 +4,8 @@ image: fpco/stack-build:latest
 # You might also consider making a new Docker image based on stack-build
 # and pushing it to GitLab's registry to save on build time.
 before_script:
-  - apt update -y
   - apt-add-repository "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-8 main"
+  - apt update -y
   - apt install llvm-8
 
 # https://docs.gitlab.com/ee/ci/yaml/#stages
