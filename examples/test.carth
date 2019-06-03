@@ -5,4 +5,5 @@
 
 (define id (: (fun x x) (Fun a a)))
 
-(define (seq _ b) (: b Unit))
+(define seq (: (fun (_ b) (: b b))
+               (Fun  a b  b)))

@@ -234,13 +234,10 @@ unify'' = curry $ \case
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
         throwError (concat ["Infinite type: ", pretty a, ", ", pretty t])
-    -- Consider explicit (user given) type variables dominant of implicit ones.
-    -- In the end-result type signature we want the user's names to be preserved
-    -- as far as possible.
+    -- Do not allow "overide" of explicit (user given) type variables.
     (a@(TVar (TVExplicit _)), b@(TVar (TVImplicit _))) -> unify'' b a
-    -- If encountering two explicits, prefer the "lower" one. E.g. "a" between
-    -- "a" and "b".
-    (a@(TVar (TVExplicit sa)), b@(TVar (TVExplicit sb))) | sa > sb -> unify'' b a
+    (a@(TVar (TVExplicit _)), b) ->
+        throwError $ "Unification failed: " ++ pretty a ++ ", " ++ pretty b
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unify'' (TVar a) t
     (TFun t1 t2, TFun t1' t2') -> do
@@ -285,6 +282,8 @@ ftvEnv env = Set.unions (map (ftvScheme . snd) (Map.toList env))
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
 
+-- Pretty
+--------------------------------------------------------------------------------
 instance Pretty CProgram where
     pretty' = prettyProg
 
