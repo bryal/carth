@@ -25,7 +25,7 @@ main = do
 
 interpretFile :: FilePath -> IO ()
 interpretFile f =
-    readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret
+    readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret'
 
 compileFile :: FilePath -> CompileConfig -> IO ()
 compileFile f cfg =
@@ -34,21 +34,42 @@ compileFile f cfg =
         >>= typecheck'
         >>= monomorphize'
         >>= codegen' f
-        >>= compile cfg
+        >>= compile' cfg
 
 parse' :: FilePath -> String -> IO Ast.Program
-parse' f src = case parse f src of
-    Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
-    Right p -> writeFile "out.parsed" (pretty p) $> p
+parse' f src = do
+    putStrLn "Parsing..."
+    case parse f src of
+        Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
+        Right p -> writeFile "out.parsed" (pretty p) $> p
 
 typecheck' :: Ast.Program -> IO Check.CProgram
-typecheck' p = case typecheck p of
-    Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
-    Right p -> writeFile "out.checked" (pretty p) $> p
+typecheck' p = do
+    putStrLn "Typechecking..."
+    case typecheck p of
+        Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
+        Right p -> writeFile "out.checked" (pretty p) $> p
 
 monomorphize' :: Check.CProgram -> IO Mono.MProgram
-monomorphize' p =
-    let p' = monomorphize p in writeFile "out.mono" (pretty p') $> p'
+monomorphize' p = do
+    putStrLn "Monomorphizing..."
+    let p' = monomorphize p
+    writeFile "out.mono" (pretty p')
+    pure p'
 
 codegen' :: FilePath -> Mono.MProgram -> IO LLVM.AST.Module
-codegen' f p = let m = codegen f p in writeFile "out.dbgll" (pretty m) $> m
+codegen' f p = do
+    putStrLn "Codegen..."
+    let m = codegen f p
+    writeFile "out.dbgll" (pretty m)
+    pure m
+
+interpret' :: Mono.MProgram -> IO ()
+interpret' pgm = do
+    putStrLn "Interpreting..."
+    interpret' pgm
+
+compile' :: CompileConfig -> LLVM.AST.Module -> IO ()
+compile' cfg mod = do
+    putStrLn "Compiling..."
+    compile cfg mod
