@@ -184,7 +184,7 @@ litType = \case
 lookupEnv :: Id -> Infer Type
 lookupEnv (Id x) = asks (Map.lookup x) >>= \case
     Just scm -> instantiate scm
-    Nothing -> throwError ("Unbound variable: " ++ show x)
+    Nothing -> throwError ("Unbound variable: " ++ x)
 
 -- Substitution
 --------------------------------------------------------------------------------
@@ -233,7 +233,7 @@ unify'' = curry $ \case
     (TConst a, TConst b) | a == b -> pure Map.empty
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
-        throwError (concat ["Infinite type: ", show a, ", ", show t])
+        throwError (concat ["Infinite type: ", pretty a, ", ", pretty t])
     -- Consider explicit (user given) type variables dominant of implicit ones.
     -- In the end-result type signature we want the user's names to be preserved
     -- as far as possible.
@@ -247,8 +247,8 @@ unify'' = curry $ \case
         s1 <- unify'' t1 t1'
         s2 <- unify'' (subst s1 t2) (subst s1 t2')
         pure (composeSubsts s2 s1)
-    (t1, t2) ->
-        throwError (concat ["Unification failed: ", show t1, ", ", show t2])
+    (t1, t2) -> throwError
+        (concat ["Unification failed: ", pretty t1, ", ", pretty t2])
 
 occursIn :: TVar -> Type -> Bool
 occursIn a t = Set.member a (ftv t)
