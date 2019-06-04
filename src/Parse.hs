@@ -22,6 +22,7 @@ parse = Parsec.parse program
 
 program :: Parser Program
 program = do
+    spaces
     defs <- many1 def
     eof
     main <- maybe
