@@ -9,6 +9,7 @@ Purely functional programming with lisp-syntax. Less infix, more parens!
    - Static, Hindley-Milner typechecking à la ML
    - Currying
    - Compiled with LLVM-based backend
+   - [[file:REFERENCE.org::#Literate-Carth][Native support for literate programming in Org-mode]]
 
 ** Examples
    Not much is working yet, but here's an example of something simple

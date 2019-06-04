@@ -4,9 +4,11 @@ module Main where
 
 import Data.Functor
 import System.Exit
+import System.FilePath
 import qualified LLVM.AST
 
 import Misc
+import Literate
 import qualified Ast
 import Check
 import Config
@@ -38,8 +40,15 @@ compileFile f cfg =
 
 parse' :: FilePath -> String -> IO Ast.Program
 parse' f src = do
+    src' <- if takeExtension f == ".org"
+        then do
+            putStrLn "Untangling org..."
+            let s = untangleOrg src
+            writeFile "out.untangled" s
+            pure s
+        else pure src
     putStrLn "Parsing..."
-    case parse f src of
+    case parse f src' of
         Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
         Right p -> writeFile "out.parsed" (pretty p) $> p
 

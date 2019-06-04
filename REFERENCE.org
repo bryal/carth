@@ -57,3 +57,85 @@ complete, but it may not be.
 * TODO Compile time evaluation
 
 * TODO Runtime
+* TODO Literate Carth
+  :PROPERTIES:
+  :CUSTOM_ID: Literate-Carth
+  :END:
+  Carth has native support for literate programming with Org
+  mode. Either use Emacs with Babel in Org-mode for an interactive
+  session, or interpret/compile the file with ~carth~ just like a
+  normal ~.carth~ file!
+
+** Example
+   Consider a file ~cool.org~ with the following content:
+
+   #+BEGIN_SRC org
+
+   ,#+TITLE: Literate Programming Rules!
+
+   Literate programming is just really cool!
+
+   ~carth~ will assume ~tangle~ = ~yes~ by default, but setting it
+   explicitly won't hurt.
+
+   ,#+BEGIN_SRC carth :tangle yes
+   (define (main _)
+     (printInt (id 1337)))
+   ,#+END_SRC
+
+   ,* The ~id~ function
+     ~id~ is the identity function. It returns its argument unchanged.
+
+     ,#+BEGIN_SRC carth
+     (define (id x) x)
+     ,#+END_SRC
+
+   ,* How not to use ~id~
+     Here is an example of how not to use ~id~. Note that this won't
+     compile. We show this in a SRC block to get syntax highlighting etc,
+     but as ~tangle~ is ~no~, this source block will be ignored by carth.
+
+     ,#+BEGIN_SRC carth :tangle no
+     (printInt id)
+     ,#+END_SRC
+
+   #+END_SRC
+
+   When e.g. interpreting this file with ~carth i cool.org~, the Carth
+   source will untangled from the rest of the document. Line numbers
+   are preserved. The result of the untangling stage will be the
+   following:
+
+   #+BEGIN_SRC carth
+
+
+
+
+
+
+
+
+
+   (define (main _)
+     (printInt (id 1337)))
+
+
+
+
+
+
+   (define (id x) x)
+
+
+
+
+
+
+
+
+
+
+
+   #+END_SRC
+
+   And for completeness, the result of interpreting that will be ~1337~.
