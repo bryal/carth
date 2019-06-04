@@ -1,4 +1,5 @@
 #+TITLE: The Carth Reference
+#+INCLUDE: "./page.org"
 
 This document is the primary reference for the Carth programming
 language. It is updated on a best-effort basis. It should be valid and

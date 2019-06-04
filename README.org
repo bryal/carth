@@ -1,4 +1,5 @@
 #+TITLE: The Carth programming language
+#+INCLUDE: "./page.org"
 
 Rewrite of [[https://github.com/bryal/kvasir][kvasir]] in Haskell.
 

@@ -1,4 +1,5 @@
 #+TITLE: The Carth programming language
+#+INCLUDE: "./page.org"
 
 Features and other stuff to do/implement in/around Carth.
 
@@ -8,9 +9,6 @@ with a short note of what was done and how it went, unless the TODO
 was trivial and unimportant, in which case the section can just be
 removed. Please also link to the commit that does the thing if
 relevant.
-
-* Minor
-  Various lesser todos
 
 * NEXT Package system
 
@@ -113,3 +111,9 @@ relevant.
 ** INACTIVE Document type system
 
 ** INACTIVE Document memory model
+
+* NEXT Continuous deployment of webpage
+  at [[https://jo.zone/carth/]] or some other place.
+
+* INACTIVE HTML documentation generation
+  Like [[https://www.haskell.org/haddock/][haddock]] and [[https://www.haskell.org/haddock/][rustdoc]].
