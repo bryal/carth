@@ -67,7 +67,7 @@ codegen' f p = do
 interpret' :: Mono.MProgram -> IO ()
 interpret' pgm = do
     putStrLn "Interpreting..."
-    interpret' pgm
+    interpret pgm
 
 compile' :: CompileConfig -> LLVM.AST.Module -> IO ()
 compile' cfg mod = do
