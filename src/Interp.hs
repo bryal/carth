@@ -50,8 +50,9 @@ evalProgram (Program main defs) = do
 evalDefs :: Defs -> Eval (Map MTypedVar Val)
 evalDefs (Defs defs) = do
     let (defNames, defBodies) = unzip (Map.toList defs)
-    defVals <- mapM eval defBodies
-    pure (Map.fromList (zip defNames defVals))
+    mfix $ \ ~defs' -> do
+        defVals <- withLocals defs' (mapM eval defBodies)
+        pure (Map.fromList (zip defNames defVals))
 
 eval :: MExpr -> Eval Val
 eval = \case
