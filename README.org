@@ -1,9 +1,7 @@
 #+TITLE: The Carth programming language
 #+INCLUDE: "./page.org"
 
-Rewrite of [[https://github.com/bryal/kvasir][kvasir]] in Haskell.
-
-Purely functional programming with lisp-syntax. Less infix, more parens!
+Purely functional programming with lisp-syntax. Less infix, more parens! [[https://carth.jo.zone/][https://carth.jo.zone/]]
 
 * Features
   - Scheme-inspired syntax and feel
