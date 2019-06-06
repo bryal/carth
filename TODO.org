@@ -3,12 +3,21 @@
 
 Features and other stuff to do/implement in/around Carth.
 
-*IMPORTANT*: When done implementing a TODO, make sure to document the
-changes in the [[./REFERENCE.org][REFERENCE]] if applicable! Also, mark the TODO as *DONE*
-with a short note of what was done and how it went, unless the TODO
-was trivial and unimportant, in which case the section can just be
-removed. Please also link to the commit that does the thing if
-relevant.
+*IMPORTANT*: When done implementing a TODO, do one or a combination of
+the following three things, depending on complexity of the TODO and
+the fix etc:
+
+1. Delete the todo. Especially appropriate if the todo is a simple
+   bugfix or such. Also, link to the commit that fixes the bug or
+   whatever in the message of the commit that removes the todo.
+
+2. Document the changes in the [[https://gitlab.com/JoJoZ/carth-website/tree/master/pages/reference.org][reference]]. Should be done when any kind
+   of user-facing feature is implemented, or some other "major" change
+   has been done.
+
+3. Keep the todo, and mark it as *DONE* with a description of what was
+   done and how it went. This should only be done seldomly I
+   feel. Also, link to the commit that fixes the TODO would be nice.
 
 * NEXT Package system
 
