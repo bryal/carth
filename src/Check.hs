@@ -109,6 +109,7 @@ inferDefsComponents = \case
     (scc : sccs) -> do
         let (idents, rhss) = unzip (flattenSCC scc)
         let (mayscms, bodies) = unzip rhss
+        checkUserSchemes (catMaybes mayscms)
         let names = map (\(Id x) -> x) idents
         ts <- replicateM (length names) fresh
         let
@@ -127,6 +128,18 @@ inferDefsComponents = \case
         let annotDefs = Map.fromList (zip names (zip scms' bodies'))
         Defs annotRest <- withLocals (zip names scms') (inferDefsComponents sccs)
         pure (Defs (Map.union annotRest annotDefs))
+
+-- | Verify that user-provided type signature schemes are valid
+checkUserSchemes :: [Scheme] -> Infer ()
+checkUserSchemes scms = forM_ scms check
+  where
+    check s1@(Forall _ t) = generalize t >>= \s2 ->
+        when (not (s1 == s2))
+            $ throwError
+            $ "Invalid user type signature "
+            ++ pretty s1
+            ++ ", expected "
+            ++ pretty s2
 
 infer :: Ast.Expr -> Infer (Type, CExpr)
 infer = \case

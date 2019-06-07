@@ -160,14 +160,23 @@ typeAscr :: Parser Expr
 typeAscr = try (reserved ":") *> liftA2 TypeAscr expr type'
 
 scheme :: Parser Scheme
-scheme = parens (try (reserved "forall") *> liftA2 Forall tvars type')
-    where tvars = parens (fmap Set.fromList (many tvar))
+scheme = wrap nonptype <|> parens (universal <|> wrap ptype')
+  where
+    wrap = fmap (Forall Set.empty)
+    universal = try (reserved "forall") *> liftA2 Forall tvars type'
+    tvars = parens (fmap Set.fromList (many tvar))
 
 type' :: Parser Type
-type' = choice [fmap TConst tconst, fmap TVar tvar, ptype]
+type' = nonptype <|> ptype
+
+nonptype :: Parser Type
+nonptype = choice [fmap TConst tconst, fmap TVar tvar]
 
 ptype :: Parser Type
-ptype = parens tfun
+ptype = parens ptype'
+
+ptype' :: Parser Type
+ptype' = tfun
 
 tfun :: Parser Type
 tfun = do
