@@ -72,11 +72,11 @@ prettyExpr d = \case
         , ")"
         ]
     Annot.Fun (param, tp) (body, _) -> concat
-        [ "(fun [(: "
+        [ "(fun (: "
         , param
         , " "
         , pretty tp
-        , ")]"
+        , ")"
         , "\n"
         , replicate (d + 2) ' '
         , pretty' (d + 2) body
@@ -84,7 +84,7 @@ prettyExpr d = \case
         ]
     Annot.Let binds body -> concat
         [ "(let ["
-        , pretty' d binds
+        , pretty' (d + 6) binds
         , "]\n"
         , replicate (d + 2) ' ' ++ pretty' (d + 2) body
         , ")"

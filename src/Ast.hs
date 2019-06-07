@@ -309,14 +309,15 @@ prettyExpr d = \case
         , pretty' (d + 2) alt
         , ")"
         ]
-    Fun (Id param) body -> concat
-        [ "(fun ["
-        , param
-        , "]\n"
-        , replicate (d + 2) ' '
-        , pretty' (d + 2) body
-        , ")"
-        ]
+    Fun (Id param) body ->
+        concat
+            [ "(fun "
+            , param
+            , "\n"
+            , replicate (d + 2) ' '
+            , pretty' (d + 2) body
+            , ")"
+            ]
     Let binds body -> concat
         [ "(let ["
         , intercalate1
@@ -368,7 +369,7 @@ prettyType :: Type -> String
 prettyType = \case
     Ast.TVar tv -> pretty tv
     Ast.TConst c -> pretty c
-    Ast.TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
+    Ast.TFun a b -> concat ["(Fun ", pretty a, " ", pretty b, ")"]
 
 prettyTConst :: TConst -> String
 prettyTConst = \case

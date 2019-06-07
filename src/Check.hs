@@ -234,7 +234,7 @@ unify'' = curry $ \case
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
         throwError (concat ["Infinite type: ", pretty a, ", ", pretty t])
-    -- Do not allow "overide" of explicit (user given) type variables.
+    -- Do not allow "override" of explicit (user given) type variables.
     (a@(TVar (TVExplicit _)), b@(TVar (TVImplicit _))) -> unify'' b a
     (a@(TVar (TVExplicit _)), b) ->
         throwError $ "Unification failed: " ++ pretty a ++ ", " ++ pretty b
