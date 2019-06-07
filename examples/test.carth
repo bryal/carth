@@ -3,7 +3,12 @@
        (seq (printInt 42)
             (printInt 69))))
 
-(define id (: (fun x x) (Fun a a)))
+(define: id
+    (forall [a] (Fun a a))
+  (let [[: ida
+           (forall [a] (Fun a a))
+           (fun x x)]]
+    ida))
 
 (define seq (: (fun (_ b) (: b b))
                (Fun  a b  b)))

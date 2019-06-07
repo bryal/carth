@@ -1,17 +1,7 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
   , TypeSynonymInstances, FlexibleInstances #-}
 
-module Check
-    ( typecheck
-    , unify''
-    , Scheme(..)
-    , scmParams
-    , scmBody
-    , CExpr
-    , CProgram
-    , Defs(..)
-    )
-where
+module Check (typecheck, unify'', CExpr, CProgram, Defs(..)) where
 
 import Control.Lens ((<<+=), assign, makeLenses, over, use, view)
 import Control.Monad.Except
@@ -31,13 +21,7 @@ import Misc
 import NonEmpty
 import Annot
 import qualified Ast
-import Ast (TVar(..), TConst(..), Type(..), Const(..), Def, Id(..))
-
-data Scheme = Forall
-    { _scmParams :: (Set TVar)
-    , _scmBody :: Type
-    } deriving (Show, Eq)
-makeLenses ''Scheme
+import Ast hiding (Def, Expr(..), Program(..))
 
 newtype Defs =
     Defs (Map String (Scheme, CExpr))
@@ -57,7 +41,6 @@ data St = St
     { _tvCount :: Int
     , _substs :: Subst
     }
-
 makeLenses ''St
 
 -- TODO: Try handling substitution maps in the state or a monad of its own
@@ -103,7 +86,7 @@ inferProgram (Ast.Program main defs) = do
     unify Ast.mainType mainT
     pure (Program main' (Defs defs'))
 
-inferDefs :: [Def] -> Infer Defs
+inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
     let ordered = orderDefs defs
     inferDefsComponents ordered
@@ -116,27 +99,33 @@ inferDefs defs = do
 -- edge is a reference to another definition. For each SCC, we infer
 -- types for all the definitions / the single definition before
 -- generalizing.
-orderDefs :: [Def] -> [SCC Def]
+orderDefs :: [Ast.Def] -> [SCC Ast.Def]
 orderDefs = stronglyConnComp . graph
     where graph = map (\d@(n, _) -> (d, n, Set.toList (freeVars d)))
 
-inferDefsComponents :: [SCC Def] -> Infer Defs
+inferDefsComponents :: [SCC Ast.Def] -> Infer Defs
 inferDefsComponents = \case
     [] -> pure (Defs Map.empty)
     (scc : sccs) -> do
-        let (idents, bodies) = unzip (flattenSCC scc)
+        let (idents, rhss) = unzip (flattenSCC scc)
+        let (mayscms, bodies) = unzip rhss
         let names = map (\(Id x) -> x) idents
         ts <- replicateM (length names) fresh
+        let
+            scms = map
+                (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
+                (zip mayscms ts)
         bodies' <-
-            withLocals (zip names (map (Forall Set.empty) ts))
-            $ forM (zip bodies ts)
+            withLocals (zip names scms)
+            $ forM (zip bodies (map (view scmBody) scms))
             $ \(body, t1) -> do
                   (t2, body') <- infer body
                   unify t1 t2
                   pure body'
-        scms <- mapM generalize ts
-        let annotDefs = Map.fromList (zip names (zip scms bodies'))
-        Defs annotRest <- withLocals (zip names scms) (inferDefsComponents sccs)
+        generalizeds <- mapM generalize ts
+        let scms' = zipWith fromMaybe generalizeds mayscms
+        let annotDefs = Map.fromList (zip names (zip scms' bodies'))
+        Defs annotRest <- withLocals (zip names scms') (inferDefsComponents sccs)
         pure (Defs (Map.union annotRest annotDefs))
 
 infer :: Ast.Expr -> Infer (Type, CExpr)
@@ -163,7 +152,8 @@ infer = \case
     Ast.Let defs b -> do
         Defs annotDefs <- inferDefs (nonEmptyToList defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
-        withLocals' defsScms (infer b)
+        (bt, b') <- withLocals' defsScms (infer b)
+        pure (bt, Let (Defs annotDefs) b')
     Ast.TypeAscr x t -> do
         (tx, x') <- infer x
         unify t tx
@@ -290,31 +280,34 @@ instance Pretty CProgram where
 instance Pretty Defs where
     pretty' = prettyDefs
 
-instance Pretty Scheme where
-    pretty' _ = prettyScheme
-
-prettyScheme :: Scheme -> String
-prettyScheme (Forall ps b) = concat
-    ["forall ", intercalate " " (map pretty (Set.toList ps)), ". ", pretty b]
-
 prettyDefs :: Int -> Defs -> String
 prettyDefs d (Defs binds) = intercalate
-    ("\n" ++ replicate (d + 6) ' ')
-    (map (prettyBinding (d + 6)) (Map.toList binds))
+    ("\n" ++ replicate d ' ')
+    (map (prettyBinding d) (Map.toList binds))
   where
-    prettyBinding d (name, (scm, body)) =
-        prettyBracketPair d (name, body) ++ " ; " ++ pretty scm
+    prettyBinding d (name, (scm, body)) = concat
+        [ "[: "
+        , pretty' (d + 3) name
+        , "\n"
+        , replicate (d + 3) ' '
+        , pretty' (d + 3) scm
+        , "\n"
+        , replicate (d + 1) ' '
+        , pretty' (d + 1) body
+        , "]"
+        ]
 
 prettyProg :: Int -> CProgram -> String
-prettyProg d (Annot.Program main (Check.Defs defs)) =
+prettyProg d (Annot.Program main (Defs defs)) =
     let
-        allDefs = ("main", (Check.Forall Set.empty Ast.mainType, main))
-            : Map.toList defs
+        allDefs =
+            ("main", (Forall Set.empty Ast.mainType, main)) : Map.toList defs
         prettyDef (name, (scm, val)) = concat
             [ replicate d ' '
-            , "(define "
+            , "(define: "
             , name
-            , " ; "
+            , "\n"
+            , replicate (d + 4) ' '
             , pretty scm
             , "\n"
             , replicate (d + 2) ' '

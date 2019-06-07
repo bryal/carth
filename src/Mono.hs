@@ -27,10 +27,10 @@ import Data.List
 
 import Misc
 import qualified Ast
-import Ast (TVar, TConst(..))
+import Ast (TVar, TConst(..), Scheme(..))
 import Annot
 import qualified Check
-import Check (CExpr, CProgram, Scheme(..))
+import Check (CExpr, CProgram)
 
 data Type
     = TConst TConst
@@ -155,15 +155,18 @@ prettyType = \case
 
 prettyDefs :: Int -> Defs -> String
 prettyDefs d (Defs binds) = intercalate
-    ("\n" ++ replicate (d + 6) ' ')
-    (map (prettyBinding (d + 6)) (Map.toList binds))
+    ("\n" ++ replicate d ' ')
+    (map (prettyBinding d) (Map.toList binds))
   where
     prettyBinding d ((TypedVar name t), body) = concat
-        [ "(#instance' "
+        [ "["
+        , pretty name
+        , " #instance "
         , pretty t
         , "\n"
-        , prettyBracketPair (d + 1) (name, body)
-        , ")"
+        , replicate (d + 1) ' '
+        , pretty' (d + 1) body
+        , "]"
         ]
 
 prettyProg :: Int -> MProgram -> String

@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, LambdaCase #-}
+{-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections #-}
 
 module Parse (parse) where
 
@@ -11,6 +11,7 @@ import Control.Applicative (liftA2)
 import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
 import qualified Text.Parsec.Token as Token
+import qualified Data.Set as Set
 
 import Ast
 import NonEmpty
@@ -31,20 +32,34 @@ program = do
         (lookup (Id "main") defs)
     pure (Program main (filter ((/= (Id "main")) . fst) defs))
 
-def :: Parser (Id, Expr)
-def = parens (reserved "define" *> (varDef <|> funDef))
+def :: Parser (Id, (Maybe Scheme, Expr))
+def = parens (defUntyped <|> defTyped)
 
-varDef :: Parser (Id, Expr)
-varDef = do
-    name <- small'
-    body <- expr
-    pure (name, body)
+defUntyped :: Parser (Id, (Maybe Scheme, Expr))
+defUntyped = try (reserved "define") *> (varDef <|> funDef)
+  where
+    varDef = do
+        name <- small'
+        body <- expr
+        pure (name, (Nothing, body))
+    funDef = do
+        (name, params) <- parens (liftM2 (,) small' (many1 small'))
+        body <- expr
+        pure (name, (Nothing, foldr Fun body params))
 
-funDef :: Parser (Id, Expr)
-funDef = do
-    (name, params) <- parens (liftM2 (,) small' (many1 small'))
-    body <- expr
-    pure (name, foldr Fun body params)
+defTyped :: Parser (Id, (Maybe Scheme, Expr))
+defTyped = try (reserved "define:") *> (varDef <|> funDef)
+  where
+    varDef = do
+        name <- small'
+        scm <- scheme
+        body <- expr
+        pure (name, (Just scm, body))
+    funDef = do
+        (name, params) <- parens (liftM2 (,) small' (many1 small'))
+        scm <- scheme
+        body <- expr
+        pure (name, (Just scm, foldr Fun body params))
 
 expr :: Parser Expr
 expr = choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
@@ -133,10 +148,20 @@ let' = do
     bindings <- parens (many1' binding)
     body <- expr
     pure (Let bindings body)
-    where binding = parens (liftM2 (,) small' expr)
+
+binding :: Parser (Id, (Maybe Scheme, Expr))
+binding = parens (bindingTyped <|> bindingUntyped)
+  where
+    bindingTyped =
+        reserved ":" *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
+    bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
 
 typeAscr :: Parser Expr
 typeAscr = try (reserved ":") *> liftA2 TypeAscr expr type'
+
+scheme :: Parser Scheme
+scheme = parens (try (reserved "forall") *> liftA2 Forall tvars type')
+    where tvars = parens (fmap Set.fromList (many tvar))
 
 type' :: Parser Type
 type' = choice [fmap TConst tconst, fmap TVar tvar, ptype]

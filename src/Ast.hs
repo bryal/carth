@@ -1,10 +1,13 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
-           , MultiParamTypeClasses #-}
+           , MultiParamTypeClasses, TemplateHaskell #-}
 
 module Ast
     ( TVar(..)
     , TConst(..)
     , Type(..)
+    , Scheme(..)
+    , scmParams
+    , scmBody
     , Id(..)
     , Const(..)
     , Pat(..)
@@ -25,6 +28,7 @@ import Test.QuickCheck.Modifiers
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.List
+import Control.Lens (makeLenses)
 
 import Misc
 import NonEmpty
@@ -52,6 +56,12 @@ data Type
 
 mainType :: Type
 mainType = TFun (TConst TUnit) (TConst TUnit)
+
+data Scheme = Forall
+    { _scmParams :: (Set TVar)
+    , _scmBody :: Type
+    } deriving (Show, Eq)
+makeLenses ''Scheme
 
 newtype Id =
     Id String
@@ -95,10 +105,10 @@ data Expr
     | Constructor String
     deriving (Show, Eq)
 
-type Def = (Id, Expr)
+type Def = (Id, (Maybe Scheme, Expr))
 
 data Program =
-    Program Expr
+    Program (Maybe Scheme, Expr)
             [Def]
     deriving (Show, Eq)
 
@@ -127,6 +137,7 @@ instance Arbitrary Expr where
             , (5, applyArbitrary3 If)
             , (5, applyArbitrary2 Fun)
             , (5, applyArbitrary2 Let)
+            , (1, applyArbitrary2 TypeAscr)
             , (4, applyArbitrary2 Match)
             , (4, fmap FunMatch arbitrary)
             , (15, fmap Constructor arbitraryConstructor)
@@ -187,6 +198,21 @@ instance Arbitrary Id where
             then arbitrary
             else pure (Id id)
 
+instance Arbitrary Scheme where
+    arbitrary = applyArbitrary2 Forall
+
+instance Arbitrary Type where
+    arbitrary = frequency
+        [ (1, fmap TVar arbitrary)
+        , (4, fmap TConst arbitrary)
+        , (2, applyArbitrary2 TFun) ]
+
+instance Arbitrary TVar where
+    arbitrary = fmap (\(Id s) -> TVExplicit s) arbitrary
+
+instance Arbitrary TConst where
+    arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool ]
+
 arbitraryConstructor :: Gen String
 arbitraryConstructor = do
     c <- liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
@@ -206,6 +232,8 @@ reserveds =
     [ ":"
     , "Fun"
     , "define"
+    , "define:"
+    , "forall"
     , "unit"
     , "true"
     , "false"
@@ -217,7 +245,7 @@ reserveds =
     ]
 
 instance FreeVars Def Id where
-    freeVars (name, body) = Set.delete name (freeVars body)
+    freeVars (name, (_, body)) = Set.delete name (freeVars body)
     boundVars (name, _) = Set.singleton name
 
 instance FreeVars Expr Id where
@@ -262,6 +290,9 @@ instance Pretty Pat where
 instance Pretty Const where
     pretty' _ = prettyConst
 
+instance Pretty Scheme where
+    pretty' _ = prettyScheme
+
 instance Pretty Type where
     pretty' _ = prettyType
 
@@ -275,15 +306,28 @@ prettyProg :: Int -> Program -> String
 prettyProg d (Program main defs) =
     let
         allDefs = (Id "main", main) : defs
-        prettyDef (Id name, val) = concat
-            [ replicate d ' '
-            , "(define "
-            , name
-            , "\n"
-            , replicate (d + 2) ' '
-            , pretty' (d + 2) val
-            , ")"
-            ]
+        prettyDef = \case
+            (name, (Just scm, body)) -> concat
+                [ replicate d ' '
+                , "(define: "
+                , pretty name
+                , "\n"
+                , replicate (d + 4) ' '
+                , pretty' (d + 4) scm
+                , "\n"
+                , replicate (d + 2) ' '
+                , pretty' (d + 2) body
+                , ")"
+                ]
+            (name, (Nothing, body)) -> concat
+                [ replicate d ' '
+                , "(define "
+                , pretty name
+                , "\n"
+                , replicate (d + 2) ' '
+                , pretty' (d + 2) body
+                , ")"
+                ]
     in unlines (map prettyDef allDefs)
 
 prettyExpr :: Int -> Expr -> String
@@ -322,11 +366,32 @@ prettyExpr d = \case
         [ "(let ["
         , intercalate1
             ("\n" ++ replicate (d + 6) ' ')
-            (map1 (prettyBracketPair (d + 6)) binds)
+            (map1 (prettyDef (d + 6)) binds)
         , "]\n"
         , replicate (d + 2) ' ' ++ pretty' (d + 2) body
         , ")"
         ]
+      where
+        prettyDef d = \case
+            (name, (Just scm, body)) -> concat
+                [ "[: "
+                , pretty' (d + 3) name
+                , "\n"
+                , replicate (d + 3) ' '
+                , pretty' (d + 3) scm
+                , "\n"
+                , replicate (d + 1) ' '
+                , pretty' (d + 1) body
+                , "]"
+                ]
+            (name, (Nothing, body)) -> concat
+                [ "["
+                , pretty' (d + 1) name
+                , "\n"
+                , replicate (d + 1) ' '
+                , pretty' (d + 1) body
+                , "]"
+                ]
     TypeAscr e t ->
         concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
     Match e cs -> concat
@@ -364,6 +429,15 @@ prettyConst = \case
     Char c -> showChar' c
     Str s -> '"' : (s >>= showChar'') ++ "\""
     Bool b -> if b then "true" else "false"
+
+prettyScheme :: Scheme -> String
+prettyScheme (Forall ps t) = concat
+    [ "(forall ["
+    , intercalate " " (map pretty (Set.toList ps))
+    , "] "
+    , pretty t
+    , ")"
+    ]
 
 prettyType :: Type -> String
 prettyType = \case
