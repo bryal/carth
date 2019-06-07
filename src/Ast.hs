@@ -188,7 +188,9 @@ instance Arbitrary Id where
             else pure (Id id)
 
 arbitraryConstructor :: Gen String
-arbitraryConstructor = liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
+arbitraryConstructor = do
+    c <- liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
+    if elem c reserveds then arbitraryConstructor else pure c
 
 arbitraryRestIdent :: Gen String
 arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c

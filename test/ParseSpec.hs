@@ -16,5 +16,5 @@ spec = do
         $ it
               "Parsing a pretty printed program should return the original program"
         $ withMaxSuccess
-              5e4
+              4e5
               (\progAst -> parse "spec" (pretty progAst) == Right progAst)
