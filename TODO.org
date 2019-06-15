@@ -26,6 +26,29 @@ the fix etc:
 * TODO Algebraic datatypes
 
 * NEXT Typeclasses
+** Agda style classes w implicit args
+   In Haskell, you can only have a single instance of a specific
+   typeclass for a specific type. This doesn't always make
+   sense. Consider Semigroup for Int. Both + and * make sense, but we
+   can only have one unless we goof around with newtypes etc, and that
+   kinda sucks.
+
+   Consider an approach more like agda. That model is more lika basic
+   Hindley-Milner + dictionsry passing, except the "typeclass"
+   argument can be passed implicitly with the {} syntax! That seems
+   really cool.
+
+   I'm not sure how implicit arguments work though. Does the compiler
+   just look at all available bindings and pick the first/only
+   available variable of that type?
+
+   https://agda.readthedocs.io/en/v2.5.2/language/implicit-arguments.html
+
+   https://agda.readthedocs.io/en/v2.5.2/language/instance-arguments.html
+
+   Or just do it kind of Haskell style, but give the instances names
+   and allow multiple, overlapping instances, raisi g an error if the
+   instance is ambiguous somehow.
 
 * INACTIVE Linear types
   Linear types would allow predictable performance and behaviour of
@@ -39,6 +62,91 @@ the fix etc:
   operator?  [[http://docs.idris-lang.org/en/latest/reference/uniqueness-types.html][Check out idris Uniqueness Types]]
 
 * NEXT Higher kinded types
+
+* INACTIVE Type families / functional dependencies and multi-param classes / Dependent types
+  I'm on the fence here, but the consensus seems to be that type
+  families are better than fundeps. Also, it might be possible to
+  avoid needing to implement Multi-parameter typeclasses if type
+  families are available to compensate. Seems that would reduce
+  ambiguities and mental overhead a bit.
+
+  Neither type families or fundeps are necessary if we have dependent
+  types, but that would likely bring difficulties of it's own.
+
+  Type families in Haskell vs Dependent types in a pseudo-Haskell vs
+  Dependent types in Agda:
+
+** Type families, Haskell
+   #+BEGIN_SRC haskell
+   class Iter c where
+       type Item c
+       next :: c -> Maybe (Item c, c)
+
+   nextList :: [a] -> Maybe (a, [a])
+   nextList = \case
+       [] -> Nothing
+       a : as -> Just (a, as)
+
+   instance Iter [a] where
+       type Item [a] = a
+       next = nextList
+   #+END_SRC
+
+** Dependent types, pseudo-Haskell
+   #+BEGIN_SRC haskell
+   class Iter c where
+       item :: Type
+       next :: c -> Maybe (item, c)
+
+   nextList :: [a] -> Maybe (a, [a])
+   nextList = \case
+       [] -> Nothing
+       a : as -> Just (a, as)
+
+   instance Iter [a] where
+       item = a
+       next = nextList
+   #+END_SRC
+
+** Dependent types, Agda
+   #+BEGIN_SRC agda2
+   record Iter (C : Set) : Set1 where
+     field
+       item : Set
+       next : C -> Maybe (item × C)
+
+   nextList : {A : Set} -> List A -> Maybe (A × List A)
+   nextList [] = nothing
+   nextList (x ∷ xs) = just (x , xs)
+
+   listIter : {A : Set} -> Iter (List A)
+   listIter {a} = record
+     { item = a
+     ; next = nextList
+     }
+   #+END_SRC
+
+* NEXT Consider a Rust-like typesystem
+  I.e. affine/linear types, lifetimes, little/no GC by default.
+  Would allow writing real-time applications like games.
+
+  E.g. GHC seems to prefer throughput over latency, so very long
+  pauses are possible when you're working with a nontrial amount of
+  data. "You're actually doing pretty well to have a 51ms pause time
+  with over 200Mb of live data.".
+
+  Lifetimes could fit in with Higher Kinded Types quite
+  naturally. Instead of just having the kind ~*~ (aka. ~type~), you'd
+  have two kinds: ~type~ and ~lifetime~. You could then have a type
+  like ~Ref 'a Int~ where ~Ref~ is a type operator with kind ~lifetime
+  -> type -> type~.
+
+  Another option could be to add ways of controlling when GC happens
+  so you can reduce spikes of latency. Haskell has ~performGC :: IO
+  ()~ that does this. [[https://old.reddit.com/r/haskell/comments/6d891n/has_anyone_noticed_gc_pause_lag_in_haskell/di0vqb0/][Here is a gameboy]] who eliminates spikes at the
+  cost of overall performance by calling ~performGC~ every frame.
+
+  [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
 
 * Garbage collector
   Until we get linear types, and probably even then, we'll need some
