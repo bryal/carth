@@ -1,14 +1,15 @@
+(type (List a)
+  Empty
+  (List a (List a)))
+
 (define (main _)
   (seq (id (printInt (id 1337)))
        (seq (printInt 42)
             (printInt 69))))
 
-(define: id
+(define: (id x)
     (forall [a] (Fun a a))
-  (let [[: ida
-           (forall [a] (Fun a a))
-           (fun x x)]]
-    ida))
+  x)
 
 (define seq (: (fun (_ b) (: b b))
                (Fun  a b  b)))
