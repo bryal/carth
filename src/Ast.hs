@@ -275,32 +275,18 @@ bvPat = \case
     PConstruction _ ps -> Set.unions (map freeVars (nonEmptyToList ps))
     PVar var -> Set.singleton var
 
-instance Pretty Program where
-    pretty' = prettyProg
-
-instance Pretty Expr where
-    pretty' = prettyExpr
-
-instance Pretty Id where
-    pretty' _ (Id s) = s
-
-instance Pretty Pat where
-    pretty' _ = prettyPat
-
-instance Pretty Const where
-    pretty' _ = prettyConst
-
-instance Pretty Scheme where
-    pretty' _ = prettyScheme
-
-instance Pretty Type where
-    pretty' _ = prettyType
 
 instance Pretty TConst where
     pretty' _ = prettyTConst
 
-instance Pretty TVar where
-    pretty' _ = prettyTVar
+instance Pretty Program            where pretty' = prettyProg
+instance Pretty Expr               where pretty' = prettyExpr
+instance Pretty Id                 where pretty' _ (Id s) = s
+instance Pretty Pat                where pretty' _ = prettyPat
+instance Pretty Const              where pretty' _ = prettyConst
+instance Pretty Scheme             where pretty' _ = prettyScheme
+instance Pretty Type               where pretty' _ = prettyType
+instance Pretty TVar               where pretty' _ = prettyTVar
 
 prettyProg :: Int -> Program -> String
 prettyProg d (Program main defs) =

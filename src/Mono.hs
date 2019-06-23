@@ -139,14 +139,9 @@ instance FreeVars Defs MTypedVar where
     freeVars (Defs ds) = Set.unions (map freeVars (Map.elems ds))
     boundVars (Defs ds) = Set.fromList (Map.keys ds)
 
-instance Pretty MProgram where
-    pretty' = prettyProg
-
-instance Pretty Defs where
-    pretty' = prettyDefs
-
-instance Pretty Type where
-    pretty' _ = prettyType
+instance Pretty MProgram where pretty' = prettyProg
+instance Pretty Defs     where pretty' = prettyDefs
+instance Pretty Type     where pretty' _ = prettyType
 
 prettyType :: Type -> String
 prettyType = \case
