@@ -3,7 +3,7 @@
 
 module Ast
     ( TVar(..)
-    , TConst(..)
+    , TPrim(..)
     , Type(..)
     , Scheme(..)
     , scmParams
@@ -38,7 +38,7 @@ data TVar
     | TVImplicit Int
     deriving (Show, Eq, Ord)
 
-data TConst
+data TPrim
     = TUnit
     | TInt
     | TDouble
@@ -49,13 +49,10 @@ data TConst
 
 data Type
     = TVar TVar
-    | TConst TConst
+    | TPrim TPrim
     | TFun Type
            Type
     deriving (Show, Eq)
-
-mainType :: Type
-mainType = TFun (TConst TUnit) (TConst TUnit)
 
 data Scheme = Forall
     { _scmParams :: (Set TVar)
@@ -111,6 +108,9 @@ data Program =
     Program (Maybe Scheme, Expr)
             [Def]
     deriving (Show, Eq)
+
+mainType :: Type
+mainType = TFun (TPrim TUnit) (TPrim TUnit)
 
 instance IsString Id where
     fromString = Id
@@ -204,13 +204,13 @@ instance Arbitrary Scheme where
 instance Arbitrary Type where
     arbitrary = frequency
         [ (1, fmap TVar arbitrary)
-        , (4, fmap TConst arbitrary)
+        , (4, fmap TPrim arbitrary)
         , (2, applyArbitrary2 TFun) ]
 
 instance Arbitrary TVar where
     arbitrary = fmap (\(Id s) -> TVExplicit s) arbitrary
 
-instance Arbitrary TConst where
+instance Arbitrary TPrim where
     arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool ]
 
 arbitraryBig :: Gen String
@@ -275,10 +275,6 @@ bvPat = \case
     PConstruction _ ps -> Set.unions (map freeVars (nonEmptyToList ps))
     PVar var -> Set.singleton var
 
-
-instance Pretty TConst where
-    pretty' _ = prettyTConst
-
 instance Pretty Program            where pretty' = prettyProg
 instance Pretty Expr               where pretty' = prettyExpr
 instance Pretty Id                 where pretty' _ (Id s) = s
@@ -286,6 +282,7 @@ instance Pretty Pat                where pretty' _ = prettyPat
 instance Pretty Const              where pretty' _ = prettyConst
 instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType
+instance Pretty TPrim              where pretty' _ = prettyTPrim
 instance Pretty TVar               where pretty' _ = prettyTVar
 
 prettyProg :: Int -> Program -> String
@@ -428,11 +425,11 @@ prettyScheme (Forall ps t) = concat
 prettyType :: Type -> String
 prettyType = \case
     Ast.TVar tv -> pretty tv
-    Ast.TConst c -> pretty c
+    Ast.TPrim c -> pretty c
     Ast.TFun a b -> concat ["(Fun ", pretty a, " ", pretty b, ")"]
 
-prettyTConst :: TConst -> String
-prettyTConst = \case
+prettyTPrim :: TPrim -> String
+prettyTPrim = \case
     TUnit -> "Unit"
     TInt -> "Int"
     TDouble -> "Double"

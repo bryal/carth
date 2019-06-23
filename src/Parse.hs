@@ -170,7 +170,7 @@ type' :: Parser Type
 type' = nonptype <|> ptype
 
 nonptype :: Parser Type
-nonptype = choice [fmap TConst tconst, fmap TVar tvar]
+nonptype = choice [fmap TPrim tprim, fmap TVar tvar]
 
 ptype :: Parser Type
 ptype = parens ptype'
@@ -185,8 +185,8 @@ tfun = do
     ts <- many1 type'
     pure (foldr1 TFun (t : ts))
 
-tconst :: Parser TConst
-tconst = try $ do
+tprim :: Parser TPrim
+tprim = try $ do
     s <- Token.identifier lexer
     let c = head s
     when (not (isUpper c))

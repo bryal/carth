@@ -27,19 +27,19 @@ import Data.List
 
 import Misc
 import qualified Ast
-import Ast (TVar, TConst(..), Scheme(..))
+import Ast (TVar, TPrim(..), Scheme(..))
 import Annot
 import qualified Check
 import Check (CExpr, CProgram)
 
 data Type
-    = TConst TConst
+    = TPrim TPrim
     | TFun Type
            Type
     deriving (Show, Eq, Ord)
 
 mainType :: Type
-mainType = TFun (TConst TUnit) (TConst TUnit)
+mainType = TFun (TPrim TUnit) (TPrim TUnit)
 
 type MTypedVar = TypedVar Type
 type MExpr = Expr Type Defs
@@ -117,13 +117,13 @@ bindTvs :: Ast.Type -> Type -> Map TVar Type
 bindTvs = curry $ \case
     (Ast.TVar v, t) -> Map.singleton v t
     (Ast.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-    (Ast.TConst a, TConst b) | a == b -> Map.empty
+    (Ast.TPrim a, TPrim b) | a == b -> Map.empty
     (a, b) -> ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: Ast.Type -> Mono Type
 monotype = \case
     Ast.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
-    Ast.TConst c -> pure (TConst c)
+    Ast.TPrim c -> pure (TPrim c)
     Ast.TFun a b -> liftA2 TFun (monotype a) (monotype b)
 
 insertInst :: String -> Type -> MExpr -> Mono ()
@@ -145,7 +145,7 @@ instance Pretty Type     where pretty' _ = prettyType
 
 prettyType :: Type -> String
 prettyType = \case
-    TConst c -> pretty c
+    TPrim c -> pretty c
     TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
 
 prettyDefs :: Int -> Defs -> String

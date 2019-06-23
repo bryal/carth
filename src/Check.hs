@@ -58,7 +58,7 @@ runInfer m = runExcept $ do
 
 builtinSchemes :: Map String Scheme
 builtinSchemes = Map.fromList
-    [("printInt", Forall Set.empty (TFun (TConst TInt) (TConst TUnit)))]
+    [("printInt", Forall Set.empty (TFun (TPrim TInt) (TPrim TUnit)))]
 
 initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
@@ -155,7 +155,7 @@ infer = \case
         (tp, p') <- infer p
         (tc, c') <- infer c
         (ta, a') <- infer a
-        unify (TConst TBool) tp
+        unify (TPrim TBool) tp
         unify tc ta
         pure (tc, If p' c' a')
     Ast.Fun (Id p) b -> do
@@ -177,12 +177,12 @@ infer = \case
 
 litType :: Const -> Type
 litType = \case
-    Unit -> TConst TUnit
-    Int _ -> TConst TInt
-    Double _ -> TConst TDouble
-    Char _ -> TConst TChar
-    Str _ -> TConst TStr
-    Bool _ -> TConst TBool
+    Unit -> TPrim TUnit
+    Int _ -> TPrim TInt
+    Double _ -> TPrim TDouble
+    Char _ -> TPrim TChar
+    Str _ -> TPrim TStr
+    Bool _ -> TPrim TBool
 
 lookupEnv :: Id -> Infer Type
 lookupEnv (Id x) = asks (Map.lookup x) >>= \case
@@ -211,7 +211,7 @@ substExpr s = \case
 subst :: Subst -> Type -> Type
 subst s t = case t of
     TVar tv -> fromMaybe t (Map.lookup tv s)
-    TConst _ -> t
+    TPrim _ -> t
     TFun a b -> TFun (subst s a) (subst s b)
 
 substEnv :: Subst -> Env -> Env
@@ -233,7 +233,7 @@ unify' = lift . lift .* unify''
 
 unify'' :: Type -> Type -> Except TypeErr Subst
 unify'' = curry $ \case
-    (TConst a, TConst b) | a == b -> pure Map.empty
+    (TPrim a, TPrim b) | a == b -> pure Map.empty
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
         throwError (concat ["Infinite type: ", pretty a, ", ", pretty t])
@@ -276,7 +276,7 @@ generalize' env t = Set.difference (ftv t) (ftvEnv env)
 ftv :: Type -> Set TVar
 ftv = \case
     TVar tv -> Set.singleton tv
-    TConst _ -> Set.empty
+    TPrim _ -> Set.empty
     TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
 
 ftvEnv :: Env -> Set TVar

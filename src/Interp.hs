@@ -3,7 +3,7 @@
 module Interp (interpret) where
 
 import Annot
-import Ast (TConst(..), Const(..))
+import Ast (TPrim(..), Const(..))
 import Control.Applicative (liftA3)
 import Control.Monad.Reader
 import Data.Bool.HT
@@ -31,10 +31,10 @@ runEval m = runReaderT m builtinValues
 
 builtinValues :: Map MTypedVar Val
 builtinValues = Map.fromList
-    [ ( TypedVar "printInt" (TFun (TConst TInt) (TConst TUnit))
+    [ ( TypedVar "printInt" (TFun (TPrim TInt) (TPrim TUnit))
       , VFun (\v -> print (unwrapInt v) $> VConst Unit)
       )
-    , ( TypedVar "+" (TFun (TConst TInt) (TFun (TConst TInt) (TConst TInt)))
+    , ( TypedVar "+" (TFun (TPrim TInt) (TFun (TPrim TInt) (TPrim TInt)))
       , VFun (\a -> pure (VFun (\b -> pure (plus a b))))
       )
     ]

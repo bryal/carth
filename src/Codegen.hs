@@ -35,7 +35,7 @@ import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
 
 import Misc
-import Ast (TConst(..))
+import Ast (TPrim(..))
 import qualified Annot as An
 import qualified Mono
 
@@ -269,7 +269,7 @@ genExpr = \case
 -- | Convert to the LLVM representation of a type in an expression-context.
 toLlvmType :: Mono.Type -> Type
 toLlvmType = \case
-    Mono.TConst tc -> case tc of
+    Mono.TPrim tc -> case tc of
         TUnit -> typeUnit
         TInt -> i64
         TDouble -> double
@@ -607,8 +607,8 @@ mangleName (Mono.TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
 
 mangleType :: Mono.Type -> String
 mangleType = \case
-    Mono.TConst c -> pretty c
     Mono.TFun p r -> mangleType p ++ "->" ++ mangleType r
+    Mono.TPrim c -> pretty c
 
 unName :: Name -> ShortByteString
 unName = \case
