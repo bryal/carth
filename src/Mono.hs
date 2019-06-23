@@ -36,6 +36,7 @@ data Type
     = TPrim TPrim
     | TFun Type
            Type
+    | TConst String [Type]
     deriving (Show, Eq, Ord)
 
 mainType :: Type
@@ -125,6 +126,7 @@ monotype = \case
     Ast.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
     Ast.TPrim c -> pure (TPrim c)
     Ast.TFun a b -> liftA2 TFun (monotype a) (monotype b)
+    Ast.TConst c ts -> fmap (TConst c) (mapM monotype ts)
 
 insertInst :: String -> Type -> MExpr -> Mono ()
 insertInst x t b = modify (Map.adjust (Map.insert t b) x)
@@ -147,6 +149,8 @@ prettyType :: Type -> String
 prettyType = \case
     TPrim c -> pretty c
     TFun a b -> concat ["(-> ", pretty a, " ", pretty b, ")"]
+    TConst c ts ->
+        concat ["(", c, " ", intercalate " " (map prettyType ts), ")"]
 
 prettyDefs :: Int -> Defs -> String
 prettyDefs d (Defs binds) = intercalate

@@ -13,6 +13,8 @@ module Ast
     , Pat(..)
     , Expr(..)
     , Def
+    , TypeDefConstructor(..)
+    , TypeDef(..)
     , Program(..)
     , reserveds
     , FreeVars(..)
@@ -20,6 +22,7 @@ module Ast
     )
 where
 
+import Control.Applicative (liftA3, liftA2)
 import Control.Monad
 import Data.String
 import Test.QuickCheck.Arbitrary
@@ -54,6 +57,7 @@ data TPrim
 data Type
     = TVar TVar
     | TPrim TPrim
+    | TConst String [Type]
     | TFun Type
            Type
     deriving (Show, Eq)
@@ -101,9 +105,13 @@ data Expr
 
 type Def = (Id, (Maybe Scheme, Expr))
 
-data Program =
-    Program (Maybe Scheme, Expr)
-            [Def]
+data TypeDefConstructor = TypeDefConstructor String [Type]
+    deriving (Show, Eq)
+
+data TypeDef = TypeDef String [Id] [TypeDefConstructor]
+     deriving (Show, Eq)
+
+data Program = Program (Maybe Scheme, Expr) [Def] [TypeDef]
     deriving (Show, Eq)
 
 mainType :: Type
@@ -115,10 +123,19 @@ instance IsString Id where
 instance Arbitrary Program where
     arbitrary = do
         main <- arbitrary
-        defs <- choose (0, 4) >>= flip vectorOf arbitrary
-        pure (Program main defs)
-    shrink (Program main defs) =
-        [Program main' defs' | (main', defs') <- shrink (main, defs)]
+        defs <- vectorOf' (0, 4) arbitrary
+        tdefs <- vectorOf' (0, 4) arbitrary
+        pure (Program main defs tdefs)
+    shrink (Program main defs tdefs) =
+        [Program main' defs' tdefs' | (main', defs', tdefs') <- shrink (main, defs, tdefs)]
+
+instance Arbitrary TypeDef where
+    arbitrary = liftA3 TypeDef arbitraryBig (listOf arbitrary) arbitrary
+    shrink (TypeDef x tvs cs) = map (uncurry (TypeDef x)) (shrink (tvs, cs))
+
+instance Arbitrary TypeDefConstructor where
+    arbitrary = liftA2 TypeDefConstructor arbitraryBig arbitrary
+    shrink (TypeDefConstructor c ts) = map (TypeDefConstructor c) (shrink ts)
 
 instance Arbitrary Expr where
     arbitrary =
@@ -272,6 +289,8 @@ bvPat = \case
     PVar var -> Set.singleton var
 
 instance Pretty Program            where pretty' = prettyProg
+instance Pretty TypeDef            where pretty' = prettyTypeDef
+instance Pretty TypeDefConstructor where pretty' _ = prettyTypeDefConstr
 instance Pretty Expr               where pretty' = prettyExpr
 instance Pretty Id                 where pretty' _ (Id s) = s
 instance Pretty Pat                where pretty' _ = prettyPat
@@ -282,7 +301,7 @@ instance Pretty TPrim              where pretty' _ = prettyTPrim
 instance Pretty TVar               where pretty' _ = prettyTVar
 
 prettyProg :: Int -> Program -> String
-prettyProg d (Program main defs) =
+prettyProg d (Program main defs tdefs) =
     let
         allDefs = (Id "main", main) : defs
         prettyDef = \case
@@ -307,7 +326,22 @@ prettyProg d (Program main defs) =
                 , pretty' (d + 2) body
                 , ")"
                 ]
-    in unlines (map prettyDef allDefs)
+    in unlines (map prettyDef allDefs ++ map pretty tdefs)
+
+prettyTypeDef :: Int -> TypeDef -> String
+prettyTypeDef d (TypeDef name params constrs) = concat
+    [ "(type "
+    , if null params
+        then name
+        else "(" ++ name ++ precalate " " (map pretty params) ++ ")"
+    , precalate ("\n" ++ replicate (d + 2) ' ') (map pretty constrs)
+    , ")"
+    ]
+
+prettyTypeDefConstr :: TypeDefConstructor -> String
+prettyTypeDefConstr (TypeDefConstructor c ts) = case ts of
+    [] -> c
+    _ -> concat ["(", c, precalate " " (map pretty ts), ")"]
 
 prettyExpr :: Int -> Expr -> String
 prettyExpr d = \case
@@ -420,6 +454,9 @@ prettyType = \case
     Ast.TVar tv -> pretty tv
     Ast.TPrim c -> pretty c
     Ast.TFun a b -> concat ["(Fun ", pretty a, " ", pretty b, ")"]
+    Ast.TConst c ts -> case ts of
+        [] -> c
+        ts -> concat ["(", c, precalate " " (map pretty ts), ")"]
 
 prettyTPrim :: TPrim -> String
 prettyTPrim = \case

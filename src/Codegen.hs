@@ -30,6 +30,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Word
 import Data.Foldable
+import Data.List
 import Control.Applicative
 import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
@@ -280,6 +281,7 @@ toLlvmType = \case
         [ LLType.ptr typeUnit
         , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
         ]
+    t@(Mono.TConst _ _) -> typeNamed (mangleType t)
 
 genConst :: An.Const -> Gen LLConst.Constant
 genConst = \case
@@ -578,6 +580,9 @@ typeClosureFun pt rt = FunctionType
 typeCaptures :: [Mono.MTypedVar] -> Type
 typeCaptures = typeStruct . map (\(Mono.TypedVar _ t) -> toLlvmType t)
 
+typeNamed :: String -> Type
+typeNamed = NamedTypeReference . mkName
+
 typeStruct :: [Type] -> Type
 typeStruct ts = StructureType {isPacked = False, elementTypes = ts}
 
@@ -607,8 +612,10 @@ mangleName (Mono.TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
 
 mangleType :: Mono.Type -> String
 mangleType = \case
-    Mono.TFun p r -> mangleType p ++ "->" ++ mangleType r
     Mono.TPrim c -> pretty c
+    Mono.TFun p r -> mangleType (Mono.TConst "->" [p, r])
+    Mono.TConst c ts ->
+        concat ["(", c, ",", intercalate "," (map mangleType ts), ")"]
 
 unName :: Name -> ShortByteString
 unName = \case

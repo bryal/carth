@@ -3,7 +3,8 @@
 
 module Check (typecheck, unify'', CExpr, CProgram, Defs(..)) where
 
-import Control.Lens ((<<+=), assign, makeLenses, over, use, view)
+import Control.Lens
+    ((<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -32,7 +33,11 @@ type CProgram = Program Type Defs
 
 type TypeErr = String
 
-type Env = Map String Scheme
+data Env = Env
+    { _envDefs :: Map String Scheme
+    , _envTypeDefs :: Map String TypeDef
+    }
+makeLenses ''Env
 
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
@@ -52,9 +57,12 @@ typecheck = runInfer . inferProgram
 
 runInfer :: Infer CProgram -> Either TypeErr CProgram
 runInfer m = runExcept $ do
-    (p, st) <- runStateT (runReaderT m builtinSchemes) initSt
+    (p, st) <- runStateT (runReaderT m initEnv) initSt
     let s = view substs st
     pure (substProgram s p)
+
+initEnv :: Env
+initEnv = Env {_envDefs = builtinSchemes, _envTypeDefs = Map.empty}
 
 builtinSchemes :: Map String Scheme
 builtinSchemes = Map.fromList
@@ -66,24 +74,28 @@ initSt = St {_tvCount = 0, _substs = Map.empty}
 fresh :: Infer Type
 fresh = fmap (TVar . TVImplicit) (tvCount <<+= 1)
 
+withTypes :: [TypeDef] -> Infer a -> Infer a
+withTypes = locally envTypeDefs . Map.union . Map.fromList . map nameTypeDef
+    where nameTypeDef td@(TypeDef x _ _) = (x, td)
+
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = withLocals' . Map.fromList
 
 withLocals' :: Map String Scheme -> Infer a -> Infer a
-withLocals' = local . Map.union
+withLocals' = locally envDefs . Map.union
 
 withLocal :: (String, Scheme) -> Infer a -> Infer a
-withLocal b = local (uncurry Map.insert b)
+withLocal b = locally envDefs (uncurry Map.insert b)
 
 -- Inference
 --------------------------------------------------------------------------------
 inferProgram :: Ast.Program -> Infer CProgram
-inferProgram (Ast.Program main defs) = do
+inferProgram (Ast.Program main defs tdefs) = do
     let allDefs = ("main", main) : defs
-    Defs allDefs' <- inferDefs allDefs
+    Defs allDefs' <- withTypes tdefs (inferDefs allDefs)
     let (Forall _ mainT, main') = fromJust (Map.lookup "main" allDefs')
-    let defs' = Map.delete "main" allDefs'
     unify Ast.mainType mainT
+    let defs' = Map.delete "main" allDefs'
     pure (Program main' (Defs defs'))
 
 inferDefs :: [Ast.Def] -> Infer Defs
@@ -185,7 +197,7 @@ litType = \case
     Bool _ -> TPrim TBool
 
 lookupEnv :: Id -> Infer Type
-lookupEnv (Id x) = asks (Map.lookup x) >>= \case
+lookupEnv (Id x) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
     Nothing -> throwError ("Unbound variable: " ++ x)
 
@@ -213,9 +225,10 @@ subst s t = case t of
     TVar tv -> fromMaybe t (Map.lookup tv s)
     TPrim _ -> t
     TFun a b -> TFun (subst s a) (subst s b)
+    TConst c ts -> TConst c (map (subst s) ts)
 
 substEnv :: Subst -> Env -> Env
-substEnv s env = fmap (over scmBody (subst s)) env
+substEnv s = over (envDefs . mapped . scmBody) (subst s)
 
 composeSubsts :: Subst -> Subst -> Subst
 composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1
@@ -278,9 +291,10 @@ ftv = \case
     TVar tv -> Set.singleton tv
     TPrim _ -> Set.empty
     TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
+    TConst _ ts -> Set.unions (map ftv ts)
 
 ftvEnv :: Env -> Set TVar
-ftvEnv env = Set.unions (map (ftvScheme . snd) (Map.toList env))
+ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs
 
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs

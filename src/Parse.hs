@@ -25,16 +25,33 @@ parse = Parsec.parse program
 program :: Parser Program
 program = do
     spaces
-    defs <- many1 def
+    (defs, typedefs) <- toplevels
     eof
     main <- maybe
         (fail "main function not defined")
         pure
         (lookup (Id "main") defs)
-    pure (Program main (filter ((/= (Id "main")) . fst) defs))
+    pure (Program main (filter ((/= (Id "main")) . fst) defs) typedefs)
+
+toplevels :: Parser ([Def], [TypeDef])
+toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
+
+toplevel :: Parser (([Def], [TypeDef]) -> ([Def], [TypeDef]))
+toplevel =
+    parens $ choice [fmap (mapSnd . (:)) typedef, fmap (mapFst . (:)) def]
+
+typedef :: Parser TypeDef
+typedef = do
+    try (reserved "type")
+    let onlyName = fmap (, []) big
+    let nameAndMany1 = parens . liftA2 (,) big . many1
+    (name, params) <- onlyName <|> nameAndMany1 small'
+    constrs <- many
+        (fmap (uncurry TypeDefConstructor) (onlyName <|> nameAndMany1 type'))
+    pure (TypeDef name params constrs)
 
 def :: Parser (Id, (Maybe Scheme, Expr))
-def = parens (defUntyped <|> defTyped)
+def = defUntyped <|> defTyped
 
 defUntyped :: Parser (Id, (Maybe Scheme, Expr))
 defUntyped = try (reserved "define") *> (varDef <|> funDef)
@@ -171,13 +188,16 @@ type' :: Parser Type
 type' = nonptype <|> ptype
 
 nonptype :: Parser Type
-nonptype = choice [fmap TPrim tprim, fmap TVar tvar]
+nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (flip TConst []) big]
 
 ptype :: Parser Type
 ptype = parens ptype'
 
 ptype' :: Parser Type
-ptype' = tfun
+ptype' = tfun <|> tapp
+
+tapp :: Parser Type
+tapp = liftA2 TConst big (many1 type')
 
 tfun :: Parser Type
 tfun = do
