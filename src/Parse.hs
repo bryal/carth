@@ -13,6 +13,7 @@ import Text.Parsec hiding (parse)
 import qualified Text.Parsec.Token as Token
 import qualified Data.Set as Set
 
+import Misc
 import Ast
 import NonEmpty
 
@@ -201,7 +202,7 @@ tprim = try $ do
         _ -> fail $ "Undefined type constant " ++ s
 
 tvar :: Parser TVar
-tvar = fmap TVExplicit small
+tvar = fmap TVExplicit small'
 
 -- Note that () and [] can be used interchangeably, as long as the
 -- opening and closing bracket matches.

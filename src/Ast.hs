@@ -33,8 +33,12 @@ import Control.Lens (makeLenses)
 import Misc
 import NonEmpty
 
+newtype Id =
+    Id String
+    deriving (Show, Eq, Ord)
+
 data TVar
-    = TVExplicit String
+    = TVExplicit Id
     | TVImplicit Int
     deriving (Show, Eq, Ord)
 
@@ -59,13 +63,6 @@ data Scheme = Forall
     , _scmBody :: Type
     } deriving (Show, Eq)
 makeLenses ''Scheme
-
-newtype Id =
-    Id String
-    deriving (Eq, Ord)
-
-instance Show Id where
-    show (Id x) = x
 
 data Pat
     = PConstructor String
@@ -180,23 +177,8 @@ instance Arbitrary Pat where
             _ -> []
 
 instance Arbitrary Id where
-    arbitrary = do
-        let first =
-                frequency [(26, choose ('a', 'z')), (4, elements ['_', '?'])]
-        firsts <-
-            frequency
-                [ (10, fmap pure first)
-                , ( 1
-                  , liftM2
-                        (\a b -> a : [b])
-                        (elements ['-', '+'])
-                        (choose ('a', 'z')))
-                ]
-        rest <- arbitraryRestIdent
-        let id = firsts ++ rest
-        if elem id reserveds
-            then arbitrary
-            else pure (Id id)
+    arbitrary = fmap Id arbitrarySmall
+    shrink = shrinkNothing
 
 instance Arbitrary Scheme where
     arbitrary = applyArbitrary2 Forall
@@ -208,7 +190,7 @@ instance Arbitrary Type where
         , (2, applyArbitrary2 TFun) ]
 
 instance Arbitrary TVar where
-    arbitrary = fmap (\(Id s) -> TVExplicit s) arbitrary
+    arbitrary = fmap TVExplicit arbitrary
 
 instance Arbitrary TPrim where
     arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool ]
@@ -218,14 +200,28 @@ arbitraryBig = do
     c <- liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
     if elem c reserveds then arbitraryBig else pure c
 
+arbitrarySmall :: Gen String
+arbitrarySmall = do
+    let first = frequency [(26, choose ('a', 'z')), (4, elements ['_', '?'])]
+    firsts <- frequency
+        [ (10, fmap pure first)
+        , (1, liftM2 (\a b -> a : [b]) (elements ['-', '+']) (choose ('a', 'z')))
+        ]
+    rest <- arbitraryRestIdent
+    let id = firsts ++ rest
+    if elem id reserveds then arbitrarySmall else pure id
+
 arbitraryRestIdent :: Gen String
-arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
+arbitraryRestIdent = vectorOf' (0, 8) c
   where
     c = frequency
         [ (26, choose ('a', 'z'))
         , (26, choose ('A', 'Z'))
         , (4, elements ['_', '-', '+', '?'])
         ]
+
+vectorOf' :: (Int, Int) -> Gen a -> Gen [a]
+vectorOf' r ga = flip vectorOf ga =<< choose r
 
 reserveds :: [String]
 reserveds =
@@ -380,17 +376,14 @@ prettyExpr d = \case
     Match e cs -> concat
         [ "(match "
         , pretty' (d + 7) e
-        , "\n"
-        , replicate (d + 2) ' '
-        , intercalate1
+        , precalate1
             ("\n" ++ replicate (d + 2) ' ')
             (map1 (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
     FunMatch cs -> concat
-        [ "(fun-match\n"
-        , replicate (d + 2) ' '
-        , intercalate1
+        [ "(fun-match"
+        , precalate1
             ("\n" ++ replicate (d + 2) ' ')
             (map1 (prettyBracketPair (d + 2)) cs)
         , ")"
@@ -400,8 +393,8 @@ prettyExpr d = \case
 prettyPat :: Pat -> String
 prettyPat = \case
     PConstructor c -> c
-    PConstruction c ps -> concat
-        ["(", c, " ", intercalate " " (nonEmptyToList (map1 pretty ps)), ")"]
+    PConstruction c ps ->
+        concat ["(", c, precalate " " (nonEmptyToList (map1 pretty ps)), ")"]
     PVar (Id v) -> v
 
 prettyConst :: Const -> String
@@ -439,5 +432,5 @@ prettyTPrim = \case
 
 prettyTVar :: TVar -> String
 prettyTVar = \case
-    TVExplicit v -> v
+    TVExplicit (Id v) -> v
     TVImplicit n -> "#" ++ show n

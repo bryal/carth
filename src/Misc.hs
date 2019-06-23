@@ -4,12 +4,24 @@ module Misc where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.List (intercalate)
 
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)
 
 nyi :: String -> a
 nyi = error . ("Not yet implemented: " ++)
+
+mapFst :: (a1 -> a2) -> (a1, b) -> (a2, b)
+mapFst f (a, b) = (f a, b)
+
+mapSnd :: (b1 -> b2) -> (a, b1) -> (a, b2)
+mapSnd f (a, b) = (a, f b)
+
+-- | Like `intercalate`, but concatenate a list with a prefix before each
+--   element, instead of an separator between each pair of elements.
+precalate :: [a] -> [[a]] -> [a]
+precalate prefix xs = prefix ++ intercalate prefix xs
 
 class Ord v => FreeVars a v where
     freeVars :: a -> Set v

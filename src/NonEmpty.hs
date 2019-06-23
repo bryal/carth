@@ -4,6 +4,7 @@ module NonEmpty
     ( NonEmpty(..)
     , intersperse1
     , intercalate1
+    , precalate1
     , map1
     , nonEmptyToList
     , nonEmpty
@@ -32,6 +33,9 @@ intersperse1 = NonEmpty.intersperse
 
 intercalate1 :: [a] -> NonEmpty [a] -> [a]
 intercalate1 = concat .* intersperse1
+
+precalate1 :: [a] -> NonEmpty [a] -> [a]
+precalate1 prefix = (prefix ++) . intercalate1 prefix
 
 map1 :: (a -> b) -> NonEmpty a -> NonEmpty b
 map1 = NonEmpty.map
