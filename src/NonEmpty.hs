@@ -11,22 +11,11 @@ module NonEmpty
     )
 where
 
-import Control.Monad
 import Data.Composition
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty)
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Gen
 
 import Misc
-
-instance Arbitrary a => Arbitrary (NonEmpty a) where
-    arbitrary =
-        liftM2
-            (\a as -> a :| as)
-            arbitrary
-            (choose (0, 4) >>= flip vectorOf arbitrary)
-    shrink (x :| xs) = [x' :| xs' | (x', xs') <- shrink (x, xs)]
 
 intersperse1 :: a -> NonEmpty a -> NonEmpty a
 intersperse1 = NonEmpty.intersperse

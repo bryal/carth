@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections #-}
 
-module Parse (parse) where
+module Parse (parse, reserveds) where
 
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
@@ -271,6 +271,23 @@ langDef = Token.LanguageDef
     , Token.reservedNames = reserveds
     , Token.caseSensitive = True
     }
+
+reserveds :: [String]
+reserveds =
+    [ ":"
+    , "Fun"
+    , "define"
+    , "define:"
+    , "forall"
+    , "unit"
+    , "true"
+    , "false"
+    , "fun-match"
+    , "match"
+    , "if"
+    , "fun"
+    , "let"
+    ]
 
 symbol :: Parsec String () Char
 symbol = satisfy

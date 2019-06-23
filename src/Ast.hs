@@ -16,18 +16,12 @@ module Ast
     , TypeDefConstructor(..)
     , TypeDef(..)
     , Program(..)
-    , reserveds
     , FreeVars(..)
     , mainType
     )
 where
 
-import Control.Applicative (liftA3, liftA2)
-import Control.Monad
 import Data.String
-import Test.QuickCheck.Arbitrary
-import Test.QuickCheck.Gen
-import Test.QuickCheck.Modifiers
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.List
@@ -120,150 +114,11 @@ mainType = TFun (TPrim TUnit) (TPrim TUnit)
 instance IsString Id where
     fromString = Id
 
-instance Arbitrary Program where
-    arbitrary = do
-        main <- arbitrary
-        defs <- vectorOf' (0, 4) arbitrary
-        tdefs <- vectorOf' (0, 4) arbitrary
-        pure (Program main defs tdefs)
-    shrink (Program main defs tdefs) =
-        [Program main' defs' tdefs' | (main', defs', tdefs') <- shrink (main, defs, tdefs)]
-
-instance Arbitrary TypeDef where
-    arbitrary = liftA3 TypeDef arbitraryBig (listOf arbitrary) arbitrary
-    shrink (TypeDef x tvs cs) = map (uncurry (TypeDef x)) (shrink (tvs, cs))
-
-instance Arbitrary TypeDefConstructor where
-    arbitrary = liftA2 TypeDefConstructor arbitraryBig arbitrary
-    shrink (TypeDefConstructor c ts) = map (TypeDefConstructor c) (shrink ts)
-
-instance Arbitrary Expr where
-    arbitrary =
-        frequency
-            [ (5, pure (Lit Unit))
-            , (15, fmap (Lit . Int) arbitrary)
-            , (15, fmap (Lit . Double) arbitrary)
-            , (8, fmap (Lit . Str . getPrintableString) arbitrary)
-            , (5, fmap (Lit . Bool) arbitrary)
-            , (5, fmap (Lit . Char) arbitraryChar)
-            , (30, fmap Var arbitrary)
-            , (8, applyArbitrary2 App)
-            , (5, applyArbitrary3 If)
-            , (5, applyArbitrary2 Fun)
-            , (5, applyArbitrary2 Let)
-            , (1, applyArbitrary2 TypeAscr)
-            , (4, applyArbitrary2 Match)
-            , (4, fmap FunMatch arbitrary)
-            , (15, fmap Constructor arbitraryBig)
-            ]
-      where
-        arbitraryChar =
-            oneof
-                [ choose ('a', 'z')
-                , choose ('A', 'Z')
-                , choose ('0', '9')
-                , elements ['+', '-', '?', '(', ']', '#']
-                , elements ['\n', '\t', '\0', '\a']
-                ]
-    shrink =
-        \case
-            App f x ->
-                [Lit Unit, f, x] ++ [App f' x' | (f', x') <- shrink (f, x)]
-            If p c a ->
-                [Lit Unit, p, c, a] ++
-                [If p' c' a' | (p', c', a') <- shrink (p, c, a)]
-            Fun p b -> [Lit Unit, b] ++ [Fun p' b' | (p', b') <- shrink (p, b)]
-            Let bs x ->
-                [Lit Unit, x] ++ [Let bs' x' | (bs', x') <- shrink (bs, x)]
-            Match e cs ->
-                [Lit Unit, e] ++ [Match e' cs' | (e', cs') <- shrink (e, cs)]
-            FunMatch cs -> Lit Unit : map FunMatch (shrink cs)
-            _ -> []
-
-instance Arbitrary Pat where
-    arbitrary =
-        frequency
-            [ (3, fmap PConstructor arbitraryBig)
-            , (1, liftM2 PConstruction arbitraryBig arbitrary)
-            , (3, fmap PVar arbitrary)
-            ]
-    shrink =
-        \case
-            PConstruction c ps ->
-                PConstructor c : map (PConstruction c) (shrink ps)
-            _ -> []
-
-instance Arbitrary Id where
-    arbitrary = fmap Id arbitrarySmall
-    shrink = shrinkNothing
-
-instance Arbitrary Scheme where
-    arbitrary = applyArbitrary2 Forall
-
-instance Arbitrary Type where
-    arbitrary = frequency
-        [ (1, fmap TVar arbitrary)
-        , (4, fmap TPrim arbitrary)
-        , (2, applyArbitrary2 TFun) ]
-
-instance Arbitrary TVar where
-    arbitrary = fmap TVExplicit arbitrary
-
-instance Arbitrary TPrim where
-    arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool ]
-
-arbitraryBig :: Gen String
-arbitraryBig = do
-    c <- liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
-    if elem c reserveds then arbitraryBig else pure c
-
-arbitrarySmall :: Gen String
-arbitrarySmall = do
-    let first = frequency [(26, choose ('a', 'z')), (4, elements ['_', '?'])]
-    firsts <- frequency
-        [ (10, fmap pure first)
-        , (1, liftM2 (\a b -> a : [b]) (elements ['-', '+']) (choose ('a', 'z')))
-        ]
-    rest <- arbitraryRestIdent
-    let id = firsts ++ rest
-    if elem id reserveds then arbitrarySmall else pure id
-
-arbitraryRestIdent :: Gen String
-arbitraryRestIdent = vectorOf' (0, 8) c
-  where
-    c = frequency
-        [ (26, choose ('a', 'z'))
-        , (26, choose ('A', 'Z'))
-        , (4, elements ['_', '-', '+', '?'])
-        ]
-
-vectorOf' :: (Int, Int) -> Gen a -> Gen [a]
-vectorOf' r ga = flip vectorOf ga =<< choose r
-
-reserveds :: [String]
-reserveds =
-    [ ":"
-    , "Fun"
-    , "define"
-    , "define:"
-    , "forall"
-    , "unit"
-    , "true"
-    , "false"
-    , "fun-match"
-    , "match"
-    , "if"
-    , "fun"
-    , "let"
-    ]
-
 instance FreeVars Def Id where
     freeVars (name, (_, body)) = Set.delete name (freeVars body)
     boundVars (name, _) = Set.singleton name
-
 instance FreeVars Expr Id where
     freeVars = fvExpr
-
 instance FreeVars Pat Id where
     freeVars = const Set.empty
     boundVars = bvPat

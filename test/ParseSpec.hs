@@ -9,6 +9,7 @@ import Test.QuickCheck
 import Misc
 import Ast
 import Parse
+import Arbitrary
 
 spec :: Spec
 spec = do
@@ -16,5 +17,5 @@ spec = do
         $ it
               "Parsing a pretty printed program should return the original program"
         $ withMaxSuccess
-              4e5
+              1e4
               (\progAst -> parse "spec" (pretty progAst) == Right progAst)
