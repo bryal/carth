@@ -140,7 +140,7 @@ instance Arbitrary Expr where
             , (1, applyArbitrary2 TypeAscr)
             , (4, applyArbitrary2 Match)
             , (4, fmap FunMatch arbitrary)
-            , (15, fmap Constructor arbitraryConstructor)
+            , (15, fmap Constructor arbitraryBig)
             ]
       where
         arbitraryChar =
@@ -169,8 +169,8 @@ instance Arbitrary Expr where
 instance Arbitrary Pat where
     arbitrary =
         frequency
-            [ (3, fmap PConstructor arbitraryConstructor)
-            , (1, liftM2 PConstruction arbitraryConstructor arbitrary)
+            [ (3, fmap PConstructor arbitraryBig)
+            , (1, liftM2 PConstruction arbitraryBig arbitrary)
             , (3, fmap PVar arbitrary)
             ]
     shrink =
@@ -213,10 +213,10 @@ instance Arbitrary TVar where
 instance Arbitrary TConst where
     arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool ]
 
-arbitraryConstructor :: Gen String
-arbitraryConstructor = do
+arbitraryBig :: Gen String
+arbitraryBig = do
     c <- liftM2 (:) (choose ('A', 'Z')) arbitraryRestIdent
-    if elem c reserveds then arbitraryConstructor else pure c
+    if elem c reserveds then arbitraryBig else pure c
 
 arbitraryRestIdent :: Gen String
 arbitraryRestIdent = choose (0, 8) >>= flip vectorOf c
