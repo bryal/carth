@@ -49,6 +49,39 @@ the fix etc:
    and allow multiple, overlapping instances, raisi g an error if the
    instance is ambiguous somehow.
 
+   Problem with instances as implicit arguments:
+   https://youtu.be/2EdQFCP5mZ8?t=1259.  We'd have to know exactly
+   which instances exist for the same type, and from where they're
+   imported and what scoping they'll have. That sucks. Another
+   horrible thing: imagine creating a sorted list with one instance, and doing
+   a sorted lookup with another (accidentally or not), you could an incorrect
+   result with no error from the compiler!
+
+   Maybe an alternative could be to have both ~primary~ and
+   ~secondary~ instances, where the primary instances may not overlap
+   or be orphaned, like Rust, but may be passed implicitly, while
+   secondary instances may overlap and be orphaned, but must be
+   "overriden"/passed explicitly.
+
+   But that may also not work. For the following code,
+
+   #+BEGIN_SRC haskell
+   foo :: Foo a => a -> a
+   foo = bar
+
+   bar :: Foo a => a -> a
+   bar = ...
+   #+END_SRC
+
+   consider that we call ~foo~ with an explicit secondary
+   instance. What instance will ~bar~ be given? If we must pass
+   secondary instances explicitly, it seems ~bar~ would get the
+   primary instance, and ~foo~ and ~bar~ would be called with
+   different instances. BAD!
+
+   Probably last update for this section: [[https://old.reddit.com/r/haskell/comments/765ogm/multiple_type_class_instances_for_the_same_type/][this thread]] has convinced me
+   that Haskell-/Rust-style typeclasses is the best idea.
+
 * INACTIVE Linear types
   Linear types would allow predictable performance and behaviour of
   e.g. IO tasks. Force a single manual file-close or
