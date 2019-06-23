@@ -1,12 +1,4 @@
-image: fpco/stack-build:latest
-
-# If you have dependencies that aren't included in the Dockerfile.
-# You might also consider making a new Docker image based on stack-build
-# and pushing it to GitLab's registry to save on build time.
-before_script:
-  - apt-add-repository "deb http://apt.llvm.org/xenial/ llvm-toolchain-xenial-8 main"
-  - apt update -y
-  - apt install -y llvm-8
+image: jojoz/stack-build-llvm:latest
 
 # https://docs.gitlab.com/ee/ci/yaml/#stages
 # jobs of the same stage are executed in parallel
