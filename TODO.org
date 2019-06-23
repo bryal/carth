@@ -1,5 +1,4 @@
 #+TITLE: The Carth programming language
-#+INCLUDE: "./page.org"
 
 Features and other stuff to do/implement in/around Carth.
 

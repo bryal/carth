@@ -1,5 +1,4 @@
 #+TITLE: The Carth programming language
-#+INCLUDE: "./page.org"
 
 Purely functional programming with lisp-syntax. Less infix, more parens! [[https://carth.jo.zone/][https://carth.jo.zone/]]
 
