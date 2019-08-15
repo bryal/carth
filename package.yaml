@@ -21,7 +21,7 @@ description:         Please see the README on GitLab at <https://gitlab.com/JoJo
 
 dependencies:
 - base
-- parsec == 3.1.13.0
+- parsec
 - either
 - QuickCheck
 - containers
