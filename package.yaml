@@ -4,8 +4,8 @@ git:                 https://gitlab.com/JoJoZ/carth
 homepage:            https://carth.jo.zone
 license:             AGPL-3
 author:              "Johan Johansson"
-maintainer:          "96.bryal@gmail.com"
-copyright:           "2018 Johan Johansson"
+maintainer:          "jo@jo.zone"
+copyright:           "2019 Johan Johansson"
 
 extra-source-files:
 - README.org
