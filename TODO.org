@@ -262,7 +262,12 @@ the fix etc:
 ** INACTIVE Document memory model
 
 * NEXT Continuous deployment of webpage
-  at [[https://jo.zone/carth/]] or some other place.
+  at [[https://carth.jo.zone/]] or some other place.
 
 * INACTIVE HTML documentation generation
   Like [[https://www.haskell.org/haddock/][haddock]] and [[https://www.haskell.org/haddock/][rustdoc]].
+
+* NEXT Documentation checker
+  Like a typechecker-pass but for generated documentation. Verify that
+  all links are alive, that examples compile and produce the expected
+  output, etc.
