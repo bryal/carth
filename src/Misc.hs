@@ -1,6 +1,21 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase #-}
 
-module Misc where
+module Misc
+    ( ice
+    , nyi
+    , mapFst
+    , mapSnd
+    , precalate
+    , FreeVars(..)
+    , BoundVars(..)
+    , prettyPrint
+    , pretty
+    , Pretty(..)
+    , prettyBracketPair
+    , showChar''
+    , showChar'
+    )
+where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
