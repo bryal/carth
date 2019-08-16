@@ -17,7 +17,6 @@ where
 import qualified Data.Set as Set
 import Control.Applicative (liftA2, liftA3)
 import Control.Lens (makeLenses, over, views)
-import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Map.Strict (Map)

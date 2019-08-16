@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Main where
+module Main (main) where
 
 import Data.Functor
 import System.Exit
