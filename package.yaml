@@ -53,7 +53,8 @@ library:
   - -Wno-implicit-prelude
   - -Wno-name-shadowing
   - -Wno-orphans
-  - -Wno-missed-specializations
+  - -Wno-missed-specialisations
+  - -Wno-all-missed-specialisations
 
 executables:
   carth:
@@ -74,7 +75,8 @@ executables:
     - -Wno-implicit-prelude
     - -Wno-name-shadowing
     - -Wno-orphans
-    - -Wno-missed-specializations
+    - -Wno-missed-specialisations
+    - -Wno-all-missed-specialisations
     dependencies:
     - carth
 
