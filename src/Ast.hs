@@ -140,7 +140,7 @@ fvExpr = \case
 bvPat :: Pat -> Set Id
 bvPat = \case
     PConstructor _ -> Set.empty
-    PConstruction _ ps -> Set.unions (map freeVars (nonEmptyToList ps))
+    PConstruction _ ps -> Set.unions (map bvPat (toList1 ps))
     PVar var -> Set.singleton var
 
 instance Pretty Program            where pretty' = prettyProg
@@ -283,7 +283,7 @@ prettyPat :: Pat -> String
 prettyPat = \case
     PConstructor c -> c
     PConstruction c ps ->
-        concat ["(", c, precalate " " (nonEmptyToList (map1 pretty ps)), ")"]
+        concat ["(", c, precalate " " (toList1 (map1 pretty ps)), ")"]
     PVar (Id v) -> v
 
 prettyConst :: Const -> String

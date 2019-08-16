@@ -6,7 +6,8 @@ module NonEmpty
     , intercalate1
     , precalate1
     , map1
-    , nonEmptyToList
+    , toList1
+    , fromList1
     , nonEmpty
     )
 where
@@ -29,9 +30,12 @@ precalate1 prefix = (prefix ++) . intercalate1 prefix
 map1 :: (a -> b) -> NonEmpty a -> NonEmpty b
 map1 = NonEmpty.map
 
-nonEmptyToList :: NonEmpty a -> [a]
-nonEmptyToList = NonEmpty.toList
+toList1 :: NonEmpty a -> [a]
+toList1 = NonEmpty.toList
+
+fromList1 :: [a] -> NonEmpty a
+fromList1 = NonEmpty.fromList
 
 instance FreeVars a v => FreeVars (NonEmpty a) v where
-    freeVars = freeVars . nonEmptyToList
-    boundVars = boundVars . nonEmptyToList
+    freeVars = freeVars . toList1
+    boundVars = boundVars . toList1
