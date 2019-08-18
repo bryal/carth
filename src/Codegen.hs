@@ -129,7 +129,7 @@ genOuterMain = do
     assign currentBlockInstrs []
     (_, Out basicBlocks _ _) <- semiExecRetGen $ do
         f <- lookupVar (Mono.TypedVar "main" Mono.mainType)
-        app f (ConstantOperand litUnit)
+        _ <- app f (ConstantOperand litUnit)
         pure (ConstantOperand (litI32 0))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
 

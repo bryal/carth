@@ -7,7 +7,6 @@ module Misc
     , mapSnd
     , precalate
     , FreeVars(..)
-    , BoundVars(..)
     , prettyPrint
     , pretty
     , Pretty(..)
