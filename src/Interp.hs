@@ -2,8 +2,6 @@
 
 module Interp (interpret) where
 
-import Annot
-import Ast (TPrim(..), Const(..))
 import Control.Applicative (liftA3)
 import Control.Monad.Reader
 import Data.Bool.HT
@@ -11,25 +9,25 @@ import Data.Functor
 import Data.Map.Lazy (Map)
 import qualified Data.Map.Lazy as Map
 import Data.Maybe
-import Mono
 
 import Misc
+import MonoAst
 
 data Val
     = VConst Const
     | VFun (Val -> IO Val)
 
-type Env = Map MTypedVar Val
+type Env = Map TypedVar Val
 
 type Eval = ReaderT Env IO
 
-interpret :: MProgram -> IO ()
+interpret :: Program -> IO ()
 interpret p = runEval (evalProgram p)
 
 runEval :: Eval a -> IO a
 runEval m = runReaderT m builtinValues
 
-builtinValues :: Map MTypedVar Val
+builtinValues :: Map TypedVar Val
 builtinValues = Map.fromList
     [ ( TypedVar "printInt" (TFun (TPrim TInt) (TPrim TUnit))
       , VFun (\v -> print (unwrapInt v) $> VConst Unit)
@@ -42,19 +40,19 @@ builtinValues = Map.fromList
 plus :: Val -> Val -> Val
 plus a b = VConst (Int (unwrapInt a + unwrapInt b))
 
-evalProgram :: MProgram -> Eval ()
+evalProgram :: Program -> Eval ()
 evalProgram (Program main defs) = do
     f <- evalLet defs main
     fmap unwrapUnit (unwrapFun' f (VConst Unit))
 
-evalDefs :: Defs -> Eval (Map MTypedVar Val)
+evalDefs :: Defs -> Eval (Map TypedVar Val)
 evalDefs (Defs defs) = do
     let (defNames, defBodies) = unzip (Map.toList defs)
     mfix $ \ ~defs' -> do
         defVals <- withLocals defs' (mapM eval defBodies)
         pure (Map.fromList (zip defNames defVals))
 
-eval :: MExpr -> Eval Val
+eval :: Expr -> Eval Val
 eval = \case
     Lit c -> pure (VConst c)
     Var (TypedVar x t) -> lookupEnv (x, t)
@@ -63,7 +61,7 @@ eval = \case
         a <- eval ea
         f a
     If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
-    Fun (p, pt) (b, _) -> do
+    Fun (TypedVar p pt) (b, _) -> do
         env <- ask
         let
             f v =
@@ -71,7 +69,7 @@ eval = \case
         pure (VFun f)
     Let defs body -> evalLet defs body
 
-evalLet :: Defs -> MExpr -> Eval Val
+evalLet :: Defs -> Expr -> Eval Val
 evalLet defs body = do
     defs' <- evalDefs defs
     withLocals defs' (eval body)
@@ -81,10 +79,10 @@ lookupEnv (x, t) = fmap
     (fromMaybe (ice ("Unbound variable: " ++ x ++ " of type " ++ show t)))
     (asks (Map.lookup (TypedVar x t)))
 
-withLocals :: Map MTypedVar Val -> Eval a -> Eval a
+withLocals :: Map TypedVar Val -> Eval a -> Eval a
 withLocals defs = local (Map.union defs)
 
-withLocal :: MTypedVar -> Val -> Eval a -> Eval a
+withLocal :: TypedVar -> Val -> Eval a -> Eval a
 withLocal var val = local (Map.insert var val)
 
 unwrapFun' :: Val -> (Val -> Eval Val)

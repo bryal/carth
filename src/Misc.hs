@@ -16,7 +16,6 @@ module Misc
     )
 where
 
-import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.List (intercalate)
 
@@ -37,14 +36,8 @@ mapSnd f (a, b) = (a, f b)
 precalate :: [a] -> [[a]] -> [a]
 precalate prefix xs = prefix ++ intercalate prefix xs
 
-class Ord v => FreeVars a v where
-    freeVars :: a -> Set v
-    boundVars :: a -> Set v
-    boundVars = const Set.empty
-
-instance FreeVars a v => FreeVars [a] v where
-    freeVars = Set.unions . map freeVars
-    boundVars = Set.unions . map boundVars
+class Ord b => FreeVars a b where
+    freeVars :: a -> Set b
 
 -- Pretty printing
 prettyPrint :: Pretty a => a -> IO ()

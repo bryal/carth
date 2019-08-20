@@ -16,8 +16,6 @@ import Data.Composition
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.List.NonEmpty (NonEmpty(..), nonEmpty)
 
-import Misc
-
 intersperse1 :: a -> NonEmpty a -> NonEmpty a
 intersperse1 = NonEmpty.intersperse
 
@@ -35,7 +33,3 @@ toList1 = NonEmpty.toList
 
 fromList1 :: [a] -> NonEmpty a
 fromList1 = NonEmpty.fromList
-
-instance FreeVars a v => FreeVars (NonEmpty a) v where
-    freeVars = freeVars . toList1
-    boundVars = boundVars . toList1

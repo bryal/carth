@@ -16,7 +16,6 @@ module Ast
     , TypeDefConstructor(..)
     , TypeDef(..)
     , Program(..)
-    , FreeVars(..)
     , mainType
     )
 where
@@ -25,6 +24,7 @@ import Data.String
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.List
+import Data.Foldable
 import Control.Lens (makeLenses)
 
 import Misc
@@ -54,7 +54,7 @@ data Type
     | TConst String [Type]
     | TFun Type
            Type
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 data Scheme = Forall
     { _scmParams :: (Set TVar)
@@ -116,12 +116,9 @@ instance IsString Id where
 
 instance FreeVars Def Id where
     freeVars (name, (_, body)) = Set.delete name (freeVars body)
-    boundVars (name, _) = Set.singleton name
+
 instance FreeVars Expr Id where
     freeVars = fvExpr
-instance FreeVars Pat Id where
-    freeVars = const Set.empty
-    boundVars = bvPat
 
 fvExpr :: Expr -> Set Id
 fvExpr = \case
@@ -130,170 +127,18 @@ fvExpr = \case
     App f a -> Set.unions (map freeVars [f, a])
     If p c a -> Set.unions (map freeVars [p, c, a])
     Fun p b -> Set.delete p (freeVars b)
-    Let bs e ->
-        Set.difference (Set.union (freeVars e) (freeVars bs)) (boundVars bs)
+    Let bs e -> Set.difference
+        (Set.union (freeVars e) (Set.unions (map1 (fvExpr . snd . snd) bs)))
+        (Set.fromList (toList (map1 fst bs)))
     TypeAscr e _ -> freeVars e
     Match _ _ -> undefined
     FunMatch _ -> undefined
     Constructor _ -> undefined
 
-bvPat :: Pat -> Set Id
-bvPat = \case
-    PConstructor _ -> Set.empty
-    PConstruction _ ps -> Set.unions (map bvPat (toList1 ps))
-    PVar var -> Set.singleton var
-
-instance Pretty Program            where pretty' = prettyProg
-instance Pretty TypeDef            where pretty' = prettyTypeDef
-instance Pretty TypeDefConstructor where pretty' _ = prettyTypeDefConstr
-instance Pretty Expr               where pretty' = prettyExpr
-instance Pretty Id                 where pretty' _ (Id s) = s
-instance Pretty Pat                where pretty' _ = prettyPat
-instance Pretty Const              where pretty' _ = prettyConst
 instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType
 instance Pretty TPrim              where pretty' _ = prettyTPrim
 instance Pretty TVar               where pretty' _ = prettyTVar
-
-prettyProg :: Int -> Program -> String
-prettyProg d (Program main defs tdefs) =
-    let
-        allDefs = (Id "main", main) : defs
-        prettyDef = \case
-            (name, (Just scm, body)) -> concat
-                [ replicate d ' '
-                , "(define: "
-                , pretty name
-                , "\n"
-                , replicate (d + 4) ' '
-                , pretty' (d + 4) scm
-                , "\n"
-                , replicate (d + 2) ' '
-                , pretty' (d + 2) body
-                , ")"
-                ]
-            (name, (Nothing, body)) -> concat
-                [ replicate d ' '
-                , "(define "
-                , pretty name
-                , "\n"
-                , replicate (d + 2) ' '
-                , pretty' (d + 2) body
-                , ")"
-                ]
-    in unlines (map prettyDef allDefs ++ map pretty tdefs)
-
-prettyTypeDef :: Int -> TypeDef -> String
-prettyTypeDef d (TypeDef name params constrs) = concat
-    [ "(type "
-    , if null params
-        then name
-        else "(" ++ name ++ precalate " " (map pretty params) ++ ")"
-    , precalate ("\n" ++ replicate (d + 2) ' ') (map pretty constrs)
-    , ")"
-    ]
-
-prettyTypeDefConstr :: TypeDefConstructor -> String
-prettyTypeDefConstr (TypeDefConstructor c ts) = case ts of
-    [] -> c
-    _ -> concat ["(", c, precalate " " (map pretty ts), ")"]
-
-prettyExpr :: Int -> Expr -> String
-prettyExpr d = \case
-    Lit l -> pretty l
-    Var (Id v) -> v
-    App f x -> concat
-        [ "("
-        , pretty' (d + 1) f
-        , "\n"
-        , replicate (d + 1) ' '
-        , pretty' (d + 1) x
-        , ")"
-        ]
-    If pred cons alt -> concat
-        [ "(if "
-        , pretty' (d + 4) pred
-        , "\n"
-        , replicate (d + 4) ' '
-        , pretty' (d + 4) cons
-        , "\n"
-        , replicate (d + 2) ' '
-        , pretty' (d + 2) alt
-        , ")"
-        ]
-    Fun (Id param) body ->
-        concat
-            [ "(fun "
-            , param
-            , "\n"
-            , replicate (d + 2) ' '
-            , pretty' (d + 2) body
-            , ")"
-            ]
-    Let binds body -> concat
-        [ "(let ["
-        , intercalate1
-            ("\n" ++ replicate (d + 6) ' ')
-            (map1 (prettyDef (d + 6)) binds)
-        , "]\n"
-        , replicate (d + 2) ' ' ++ pretty' (d + 2) body
-        , ")"
-        ]
-      where
-        prettyDef d = \case
-            (name, (Just scm, body)) -> concat
-                [ "[: "
-                , pretty' (d + 3) name
-                , "\n"
-                , replicate (d + 3) ' '
-                , pretty' (d + 3) scm
-                , "\n"
-                , replicate (d + 1) ' '
-                , pretty' (d + 1) body
-                , "]"
-                ]
-            (name, (Nothing, body)) -> concat
-                [ "["
-                , pretty' (d + 1) name
-                , "\n"
-                , replicate (d + 1) ' '
-                , pretty' (d + 1) body
-                , "]"
-                ]
-    TypeAscr e t ->
-        concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
-    Match e cs -> concat
-        [ "(match "
-        , pretty' (d + 7) e
-        , precalate1
-            ("\n" ++ replicate (d + 2) ' ')
-            (map1 (prettyBracketPair (d + 2)) cs)
-        , ")"
-        ]
-    FunMatch cs -> concat
-        [ "(fun-match"
-        , precalate1
-            ("\n" ++ replicate (d + 2) ' ')
-            (map1 (prettyBracketPair (d + 2)) cs)
-        , ")"
-        ]
-    Constructor c -> c
-
-prettyPat :: Pat -> String
-prettyPat = \case
-    PConstructor c -> c
-    PConstruction c ps ->
-        concat ["(", c, precalate " " (toList1 (map1 pretty ps)), ")"]
-    PVar (Id v) -> v
-
-prettyConst :: Const -> String
-prettyConst = \case
-    Unit -> "unit"
-    Int n -> show n
-    Double x -> show x
-    Char c -> showChar' c
-    Str s -> '"' : (s >>= showChar'') ++ "\""
-    Bool b -> if b then "true" else "false"
 
 prettyScheme :: Scheme -> String
 prettyScheme (Forall ps t) = concat

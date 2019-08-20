@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
   , TypeSynonymInstances, FlexibleInstances #-}
 
-module Check (typecheck, unify'', CExpr, CProgram, Defs(..)) where
+module Check (typecheck, unify'') where
 
 import Control.Lens
     ((<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
@@ -16,26 +16,17 @@ import Data.Map.Strict (Map)
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Data.List
 
 import Misc
 import NonEmpty
-import Annot
 import qualified Ast
-import Ast hiding (Def, Expr(..), Program(..))
-
-newtype Defs =
-    Defs (Map String (Scheme, CExpr))
-
-type CExpr = Expr Type Defs
-
-type CProgram = Program Type Defs
+import AnnotAst
 
 type TypeErr = String
 
 data Env = Env
     { _envDefs :: Map String Scheme
-    , _envTypeDefs :: Map String TypeDef
+    , _envTypeDefs :: Map String Ast.TypeDef
     }
 makeLenses ''Env
 
@@ -52,10 +43,10 @@ makeLenses ''St
 -- | Type checker monad
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
-typecheck :: Ast.Program -> Either TypeErr CProgram
+typecheck :: Ast.Program -> Either TypeErr Program
 typecheck = runInfer . inferProgram
 
-runInfer :: Infer CProgram -> Either TypeErr CProgram
+runInfer :: Infer Program -> Either TypeErr Program
 runInfer m = runExcept $ do
     (p, st) <- runStateT (runReaderT m initEnv) initSt
     let s = view substs st
@@ -74,9 +65,9 @@ initSt = St {_tvCount = 0, _substs = Map.empty}
 fresh :: Infer Type
 fresh = fmap (TVar . TVImplicit) (tvCount <<+= 1)
 
-withTypes :: [TypeDef] -> Infer a -> Infer a
+withTypes :: [Ast.TypeDef] -> Infer a -> Infer a
 withTypes = locally envTypeDefs . Map.union . Map.fromList . map nameTypeDef
-    where nameTypeDef td@(TypeDef x _ _) = (x, td)
+    where nameTypeDef td@(Ast.TypeDef x _ _) = (x, td)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = withLocals' . Map.fromList
@@ -89,7 +80,7 @@ withLocal b = locally envDefs (uncurry Map.insert b)
 
 -- Inference
 --------------------------------------------------------------------------------
-inferProgram :: Ast.Program -> Infer CProgram
+inferProgram :: Ast.Program -> Infer Program
 inferProgram (Ast.Program main defs tdefs) = do
     let allDefs = ("main", main) : defs
     Defs allDefs' <- withTypes tdefs (inferDefs allDefs)
@@ -122,7 +113,7 @@ inferDefsComponents = \case
         let (idents, rhss) = unzip (flattenSCC scc)
         let (mayscms, bodies) = unzip rhss
         checkUserSchemes (catMaybes mayscms)
-        let names = map (\(Id x) -> x) idents
+        let names = map (\(Ast.Id x) -> x) idents
         ts <- replicateM (length names) fresh
         let
             scms = map
@@ -153,10 +144,10 @@ checkUserSchemes scms = forM_ scms check
             ++ ", expected "
             ++ pretty s2
 
-infer :: Ast.Expr -> Infer (Type, CExpr)
+infer :: Ast.Expr -> Infer (Type, Expr)
 infer = \case
     Ast.Lit l -> pure (litType l, Lit l)
-    Ast.Var x@(Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
+    Ast.Var x@(Ast.Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
     Ast.App f a -> do
         (tf, f') <- infer f
         (ta, a') <- infer a
@@ -170,7 +161,7 @@ infer = \case
         unify (TPrim TBool) tp
         unify tc ta
         pure (tc, If p' c' a')
-    Ast.Fun (Id p) b -> do
+    Ast.Fun (Ast.Id p) b -> do
         tp <- fresh
         (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
         pure (TFun tp tb, Fun (p, tp) (b', tb))
@@ -196,21 +187,21 @@ litType = \case
     Str _ -> TPrim TStr
     Bool _ -> TPrim TBool
 
-lookupEnv :: Id -> Infer Type
-lookupEnv (Id x) = views envDefs (Map.lookup x) >>= \case
+lookupEnv :: Ast.Id -> Infer Type
+lookupEnv (Ast.Id x) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
     Nothing -> throwError ("Unbound variable: " ++ x)
 
 -- Substitution
 --------------------------------------------------------------------------------
-substProgram :: Subst -> CProgram -> CProgram
+substProgram :: Subst -> Program -> Program
 substProgram s (Program main (Defs defs)) =
     Program (substExpr s main) (Defs (fmap (substDef s) defs))
 
-substDef :: Subst -> (Scheme, CExpr) -> (Scheme, CExpr)
+substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = bimap id (substExpr s)
 
-substExpr :: Subst -> CExpr -> CExpr
+substExpr :: Subst -> Expr -> Expr
 substExpr s = \case
     Lit c -> Lit c
     Var (TypedVar x t) -> Var (TypedVar x (subst s t))
@@ -298,47 +289,3 @@ ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs
 
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
-
--- Pretty
---------------------------------------------------------------------------------
-instance Pretty CProgram where
-    pretty' = prettyProg
-
-instance Pretty Defs where
-    pretty' = prettyDefs
-
-prettyDefs :: Int -> Defs -> String
-prettyDefs d (Defs binds) = intercalate
-    ("\n" ++ replicate d ' ')
-    (map (prettyBinding d) (Map.toList binds))
-  where
-    prettyBinding d (name, (scm, body)) = concat
-        [ "[: "
-        , pretty' (d + 3) name
-        , "\n"
-        , replicate (d + 3) ' '
-        , pretty' (d + 3) scm
-        , "\n"
-        , replicate (d + 1) ' '
-        , pretty' (d + 1) body
-        , "]"
-        ]
-
-prettyProg :: Int -> CProgram -> String
-prettyProg d (Annot.Program main (Defs defs)) =
-    let
-        allDefs =
-            ("main", (Forall Set.empty Ast.mainType, main)) : Map.toList defs
-        prettyDef (name, (scm, val)) = concat
-            [ replicate d ' '
-            , "(define: "
-            , name
-            , "\n"
-            , replicate (d + 4) ' '
-            , pretty scm
-            , "\n"
-            , replicate (d + 2) ' '
-            , pretty' (d + 2) val
-            , ")"
-            ]
-    in unlines (map prettyDef allDefs)

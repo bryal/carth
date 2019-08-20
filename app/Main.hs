@@ -10,13 +10,14 @@ import qualified LLVM.AST
 import Misc
 import Literate
 import qualified Ast
+import qualified AnnotAst
+import qualified MonoAst
 import Check
 import Config
 import Interp
 import Codegen
 import Compile
-import Mono (monomorphize)
-import qualified Mono
+import Mono
 import Parse
 
 main :: IO ()
@@ -50,30 +51,30 @@ parse' f src = do
     putStrLn "Parsing..."
     case parse f src' of
         Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
-        Right p -> writeFile "out.parsed" (pretty p) $> p
+        Right p -> writeFile "out.parsed" (show p) $> p
 
-typecheck' :: Ast.Program -> IO Check.CProgram
+typecheck' :: Ast.Program -> IO AnnotAst.Program
 typecheck' p = do
     putStrLn "Typechecking..."
     case typecheck p of
         Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
-        Right p -> writeFile "out.checked" (pretty p) $> p
+        Right p -> writeFile "out.checked" (show p) $> p
 
-monomorphize' :: Check.CProgram -> IO Mono.MProgram
+monomorphize' :: AnnotAst.Program -> IO MonoAst.Program
 monomorphize' p = do
     putStrLn "Monomorphizing..."
     let p' = monomorphize p
-    writeFile "out.mono" (pretty p')
+    writeFile "out.mono" (show p')
     pure p'
 
-codegen' :: FilePath -> Mono.MProgram -> IO LLVM.AST.Module
+codegen' :: FilePath -> MonoAst.Program -> IO LLVM.AST.Module
 codegen' f p = do
     putStrLn "Codegen..."
     let m = codegen f p
     writeFile "out.dbgll" (pretty m)
     pure m
 
-interpret' :: Mono.MProgram -> IO ()
+interpret' :: MonoAst.Program -> IO ()
 interpret' pgm = do
     putStrLn "Interpreting..."
     interpret pgm

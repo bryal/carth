@@ -36,9 +36,8 @@ import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
 
 import Misc
-import Ast (TPrim(..))
-import qualified Annot as An
-import qualified Mono
+import qualified MonoAst
+import MonoAst hiding (Type, Const)
 
 -- | An instruction that returns a value. The name refers to the fact that a
 -- mathematical function always returns a value, but an imperative procedure may
@@ -47,8 +46,8 @@ data FunInstruction = WithRetType Instruction Type
 
 -- TODO: Either treat globals and locals separately - Globals behing pointers, locals not - or treat them the same - stack alloc space for locals.
 data Env = Env
-    { _localEnv :: Map Mono.MTypedVar Operand
-    , _globalEnv :: Map Mono.MTypedVar Operand
+    { _localEnv :: Map TypedVar Operand
+    , _globalEnv :: Map TypedVar Operand
     }
 makeLenses ''Env
 
@@ -65,7 +64,7 @@ type Gen' = StateT St (Reader Env)
 data Out = Out
     { _outBlocks :: [BasicBlock]
     , _outStrings :: [(Name, String)]
-    , _outFuncs :: [(Name, [Mono.MTypedVar], (String, Mono.Type), Mono.MExpr)]}
+    , _outFuncs :: [(Name, [TypedVar], TypedVar, Expr)]}
 makeLenses ''Out
 
 instance Semigroup Out where
@@ -100,10 +99,10 @@ initSt = St
     }
 
 
-codegen :: FilePath -> Mono.MProgram -> Module
-codegen moduleFilePath (An.Program main (Mono.Defs defs)) =
+codegen :: FilePath -> Program -> Module
+codegen moduleFilePath (Program main (Defs defs)) =
     let
-        defs' = (Mono.TypedVar "main" Mono.mainType, main) : Map.toList defs
+        defs' = (TypedVar "main" mainType, main) : Map.toList defs
         genGlobDefs = withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
@@ -128,19 +127,18 @@ genOuterMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     (_, Out basicBlocks _ _) <- semiExecRetGen $ do
-        f <- lookupVar (Mono.TypedVar "main" Mono.mainType)
+        f <- lookupVar (TypedVar "main" mainType)
         _ <- app f (ConstantOperand litUnit)
         pure (ConstantOperand (litI32 0))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
 
-genGlobDef :: (Mono.MTypedVar, Mono.MExpr) -> Gen' [Definition]
+genGlobDef :: (TypedVar, Expr) -> Gen' [Definition]
 genGlobDef (v, e) = case e of
-    An.Fun p (body, _) ->
+    Fun p (body, _) ->
         fmap (map GlobalDefinition) (genClosureWrappedFunDef v p body)
     _ -> nyi $ "Global non-function defs: " ++ show e
 
-genClosureWrappedFunDef
-    :: Mono.MTypedVar -> (String, Mono.Type) -> Mono.MExpr -> Gen' [Global]
+genClosureWrappedFunDef :: TypedVar -> TypedVar -> Expr -> Gen' [Global]
 genClosureWrappedFunDef var p body = do
     let name = mangleName var
     fName <- newName'' (unName name `mappend` fromString "_func")
@@ -152,14 +150,11 @@ genClosureWrappedFunDef var p body = do
     let closureDef = simpleGlobVar name (typeOf closure) closure
     pure (closureDef : f : gs)
 
-genFunDef
-    :: (Name, [Mono.MTypedVar], (String, Mono.Type), Mono.MExpr) -> Gen' [Global]
+genFunDef :: (Name, [TypedVar], TypedVar, Expr) -> Gen' [Global]
 genFunDef = fmap (uncurry (:)) . genFunDef'
 
-genFunDef'
-    :: (Name, [Mono.MTypedVar], (String, Mono.Type), Mono.MExpr)
-    -> Gen' (Global, [Global])
-genFunDef' (name, fvs, (p, pt), body) = do
+genFunDef' :: (Name, [TypedVar], TypedVar, Expr) -> Gen' (Global, [Global])
+genFunDef' (name, fvs, (TypedVar p pt), body) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
 
@@ -167,7 +162,7 @@ genFunDef' (name, fvs, (p, pt), body) = do
     let capturesType = LLType.ptr typeUnit
     let capturesRef = LocalReference capturesType capturesName
 
-    let ptv = Mono.TypedVar p pt
+    let ptv = TypedVar p pt
     let pt' = toLlvmType pt
     p' <- newName' p
     let pRef = LocalReference pt' p'
@@ -235,17 +230,16 @@ simpleGlobVar name t init = GlobalVariable
 parameter :: Name -> Type -> LLGlob.Parameter
 parameter p pt = LLGlob.Parameter pt p []
 
-withGlobDefSigs
-    :: MonadReader Env m => [(Mono.MTypedVar, Mono.MExpr)] -> m a -> m a
+withGlobDefSigs :: MonadReader Env m => [(TypedVar, Expr)] -> m a -> m a
 withGlobDefSigs = locally globalEnv . Map.union . Map.fromList . map
-    (\(v@(Mono.TypedVar _ t), _) ->
+    (\(v@(TypedVar _ t), _) ->
         ( v
         , ConstantOperand
             (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mangleName v))
         )
     )
 
-genExtractCaptures :: Operand -> [Mono.MTypedVar] -> Gen a -> Gen a
+genExtractCaptures :: Operand -> [TypedVar] -> Gen a -> Gen a
 genExtractCaptures capturesPtrGeneric fvs ga = if null fvs
     then ga
     else do
@@ -254,48 +248,48 @@ genExtractCaptures capturesPtrGeneric fvs ga = if null fvs
             (bitcast capturesPtrGeneric (LLType.ptr capturesType))
         captures <- emitAnon (load capturesPtr)
         captureVals <- mapM
-            (\(Mono.TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
+            (\(TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
             (zip fvs [0 ..])
         withVars (zip fvs captureVals) ga
 
-genExpr :: Mono.MExpr -> Gen Operand
+genExpr :: Expr -> Gen Operand
 genExpr = \case
-    An.Lit c -> fmap ConstantOperand (genConst c)
-    An.Var (An.TypedVar x t) -> lookupVar (An.TypedVar x t)
-    An.App f e -> genApp f e
-    An.If p c a -> genIf p c a
-    An.Fun p b -> genLambda p b
-    An.Let ds b -> genLet ds b
+    Lit c -> fmap ConstantOperand (genConst c)
+    Var (TypedVar x t) -> lookupVar (TypedVar x t)
+    App f e -> genApp f e
+    If p c a -> genIf p c a
+    Fun p b -> genLambda p b
+    Let ds b -> genLet ds b
 
 -- | Convert to the LLVM representation of a type in an expression-context.
-toLlvmType :: Mono.Type -> Type
+toLlvmType :: MonoAst.Type -> Type
 toLlvmType = \case
-    Mono.TPrim tc -> case tc of
+    TPrim tc -> case tc of
         TUnit -> typeUnit
         TInt -> i64
         TDouble -> double
         TChar -> i32
         TStr -> LLType.ptr i8
         TBool -> i1
-    Mono.TFun a r -> typeStruct
+    TFun a r -> typeStruct
         [ LLType.ptr typeUnit
         , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
         ]
-    t@(Mono.TConst _ _) -> typeNamed (mangleType t)
+    t@(TConst _ _) -> typeNamed (mangleType t)
 
-genConst :: An.Const -> Gen LLConst.Constant
+genConst :: MonoAst.Const -> Gen LLConst.Constant
 genConst = \case
-    An.Unit -> pure litUnit
-    An.Int n -> pure $ litI64 n
-    An.Double x -> pure $ litDouble x
-    An.Char c -> pure $ litI32 (Data.Char.ord c)
-    An.Str s -> do
+    Unit -> pure litUnit
+    Int n -> pure $ litI64 n
+    Double x -> pure $ litDouble x
+    Char c -> pure $ litI32 (Data.Char.ord c)
+    Str s -> do
         var <- newName "strlit"
         scribe outStrings [(var, s)]
         pure $ LLConst.GlobalReference (LLType.ptr i8) var
-    An.Bool b -> pure $ litBool b
+    Bool b -> pure $ litBool b
 
-lookupVar :: Mono.MTypedVar -> Gen Operand
+lookupVar :: TypedVar -> Gen Operand
 lookupVar x = do
     mayLocal <- views localEnv (Map.lookup x)
     mayGlobPtr <- views globalEnv (Map.lookup x)
@@ -304,11 +298,11 @@ lookupVar x = do
         (Nothing, Just globPtr) -> emitAnon $ load globPtr
         (Nothing, Nothing) -> ice $ "Undefined variable " ++ show x
 
-genApp :: Mono.MExpr -> Mono.MExpr -> Gen Operand
+genApp :: Expr -> Expr -> Gen Operand
 genApp fe ae = do
     a <- genExpr ae
     case fe of
-        An.Var (An.TypedVar "printInt" _) ->
+        Var (TypedVar "printInt" _) ->
             emitAnon (callExtern "printInt" typeUnit [a])
         _ -> do
             closure <- genExpr fe
@@ -320,7 +314,7 @@ app closure arg = do
     f <- emitReg' "function" (extractvalue closure [1])
     emitAnon $ call f [captures, arg]
 
-genIf :: Mono.MExpr -> Mono.MExpr -> Mono.MExpr -> Gen Operand
+genIf :: Expr -> Expr -> Expr -> Gen Operand
 genIf pred conseq alt = do
     conseqL <- newName "consequent"
     altL <- newName "alternative"
@@ -335,17 +329,17 @@ genIf pred conseq alt = do
     commitToNewBlock (br nextL) nextL
     emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)])
 
-genLet :: Mono.Defs -> Mono.MExpr -> Gen Operand
-genLet (Mono.Defs ds) b = do
+genLet :: Defs -> Expr -> Gen Operand
+genLet (Defs ds) b = do
     let (vs, es) = unzip (Map.toList ds)
-    let (ns, ts) = unzip (map (\(Mono.TypedVar n t) -> (n, t)) vs)
+    let (ns, ts) = unzip (map (\(TypedVar n t) -> (n, t)) vs)
     ns' <- mapM newName ns
     let ts' = map toLlvmType ts
     withDefSigs (zip vs ns') (mapM genDef (zip3 ns' ts' es) *> genExpr b)
 
-withDefSigs :: [(Mono.MTypedVar, Name)] -> Gen a -> Gen a
+withDefSigs :: [(TypedVar, Name)] -> Gen a -> Gen a
 withDefSigs = locally localEnv . Map.union . Map.fromList . map
-    (\(v@(Mono.TypedVar _ t), n') -> (v, LocalReference (toLlvmType t) n'))
+    (\(v@(TypedVar _ t), n') -> (v, LocalReference (toLlvmType t) n'))
 
 -- TODO: Change global defs to a new type that can be generated by llvm.  As it
 --       is now, global non-function variables can't be straight-forwardly
@@ -353,7 +347,7 @@ withDefSigs = locally localEnv . Map.union . Map.fromList . map
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genDef :: (Name, Type, Mono.MExpr) -> Gen ()
+genDef :: (Name, Type, Expr) -> Gen ()
 genDef (n, t, e) = genExpr e >>= genVar n t
 
 genVar :: Name -> Type -> Operand -> Gen ()
@@ -369,9 +363,9 @@ genVar var t val = emitReg var (alloca t) >>= emit . store val
 --
 --   Inside of the function, first all the captured variables are extracted from
 --   the environment, then the body of the function is run.
-genLambda :: (String, Mono.Type) -> (Mono.MExpr, Mono.Type) -> Gen Operand
-genLambda p@(px, pt) (b, bt) = do
-    let fvs = Set.toList (Set.delete (Mono.TypedVar px pt) (freeVars b))
+genLambda :: TypedVar -> (Expr, MonoAst.Type) -> Gen Operand
+genLambda p@(TypedVar px pt) (b, bt) = do
+    let fvs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
     captures <- genBoxGeneric =<< genStruct =<< sequence (map lookupVar fvs)
     fname <- newName "lambda_func"
     let ft = typeClosureFun (toLlvmType pt) (toLlvmType bt)
@@ -410,10 +404,10 @@ genSizeOf t = do
 genMalloc :: Operand -> Gen Operand
 genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
 
-withVars :: [(Mono.MTypedVar, Operand)] -> Gen a -> Gen a
+withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
 withVars = flip (foldr (uncurry withVar))
 
-withVar :: Mono.MTypedVar -> Operand -> Gen a -> Gen a
+withVar :: TypedVar -> Operand -> Gen a -> Gen a
 withVar x v = locally localEnv (Map.insert x v)
 
 emit :: Instruction -> Gen ()
@@ -577,8 +571,8 @@ typeClosureFun pt rt = FunctionType
     , isVarArg = False
     }
 
-typeCaptures :: [Mono.MTypedVar] -> Type
-typeCaptures = typeStruct . map (\(Mono.TypedVar _ t) -> toLlvmType t)
+typeCaptures :: [TypedVar] -> Type
+typeCaptures = typeStruct . map (\(TypedVar _ t) -> toLlvmType t)
 
 typeNamed :: String -> Type
 typeNamed = NamedTypeReference . mkName
@@ -607,14 +601,14 @@ getMembers = \case
 getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl (\t i -> getMembers t !! (fromIntegral i))
 
-mangleName :: Mono.MTypedVar -> Name
-mangleName (Mono.TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
+mangleName :: TypedVar -> Name
+mangleName (TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
 
-mangleType :: Mono.Type -> String
+mangleType :: MonoAst.Type -> String
 mangleType = \case
-    Mono.TPrim c -> pretty c
-    Mono.TFun p r -> mangleType (Mono.TConst "->" [p, r])
-    Mono.TConst c ts ->
+    TPrim c -> pretty c
+    TFun p r -> mangleType (TConst "->" [p, r])
+    TConst c ts ->
         concat ["(", c, ",", intercalate "," (map mangleType ts), ")"]
 
 unName :: Name -> ShortByteString
