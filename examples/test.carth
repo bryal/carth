@@ -1,15 +1,23 @@
 (type (List a)
-  Empty
+  Nil
   (List a (List a)))
 
+(type (Maybe a)
+  None
+  (Some a))
+
 (define (main _)
-  (seq (id (printInt (id 1337)))
-       (seq (printInt 42)
-            (printInt 69))))
+  (let [[xs (List 42 (List 69 Nil))]]
+    (printInt (head (tail xs)))))
 
-(define: (id x)
-    (forall [a] (Fun a a))
-  x)
+(define: (head xs)
+    (forall [a] (Fun (List a) (Maybe a)))
+  (match xs
+    [Nil None]
+    [(List x _) (Some x)]))
 
-(define seq (: (fun (_ b) (: b b))
-               (Fun  a b  b)))
+(define: tail
+    (forall [a] (Fun (List a) (Maybe (List a))))
+  (fun-match
+    [Nil None]
+    [(List _ xs) (Some xs)]))
