@@ -1,4 +1,4 @@
-image: jojoz/stack-build-llvm:latest
+image: jojoz/stack-build-llvm:lts-14.1
 
 # https://docs.gitlab.com/ee/ci/yaml/#stages
 # jobs of the same stage are executed in parallel
