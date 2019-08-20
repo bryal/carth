@@ -18,11 +18,16 @@ the fix etc:
    done and how it went. This should only be done seldomly I
    feel. Also, link to the commit that fixes the TODO would be nice.
 
-* NEXT Package system
+* INACTIVE Package system
 
-* TODO Module system
+* NEXT Module system
+  Postfix syntax for module paths? A bit like web-domains -
+  "sub.main.top". E.g. "vector.collections.std".  Most relevant
+  information floats to the left. Maybe a good idea, maybe
+  not. Consider it.
 
 * TODO Algebraic datatypes
+  Construction, pattern matching, the whole shebang.
 
 * NEXT Typeclasses
 ** Agda style classes w implicit args
@@ -267,7 +272,7 @@ the fix etc:
 * INACTIVE HTML documentation generation
   Like [[https://www.haskell.org/haddock/][haddock]] and [[https://www.haskell.org/haddock/][rustdoc]].
 
-* NEXT Documentation checker
+* INACTIVE Documentation checker
   Like a typechecker-pass but for generated documentation. Verify that
   all links are alive, that examples compile and produce the expected
   output, etc.
