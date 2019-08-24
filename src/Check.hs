@@ -27,6 +27,7 @@ type TypeErr = String
 
 data Env = Env
     { _envDefs :: Map String Scheme
+    -- | Maps the name of an algebraic datatype to its definition
     , _envTypeDefs :: Map String Ast.TypeDef
     }
 makeLenses ''Env
@@ -40,7 +41,6 @@ data St = St
     }
 makeLenses ''St
 
--- TODO: Try handling substitution maps in the state or a monad of its own
 -- | Type checker monad
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 

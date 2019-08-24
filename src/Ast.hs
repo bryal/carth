@@ -13,7 +13,7 @@ module Ast
     , Pat(..)
     , Expr(..)
     , Def
-    , TypeDefConstructor(..)
+    , ConstructorDefs(..)
     , TypeDef(..)
     , Program(..)
     , mainType
@@ -23,6 +23,7 @@ where
 import Data.String
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Map (Map)
 import Data.List
 import Control.Lens (makeLenses)
 
@@ -102,11 +103,11 @@ data Expr
 
 type Def = (Id, (Maybe Scheme, Expr))
 
-data TypeDefConstructor = TypeDefConstructor String [Type]
+newtype ConstructorDefs = ConstructorDefs (Map String [Type])
     deriving (Show, Eq)
 
-data TypeDef = TypeDef String [Id] [TypeDefConstructor]
-     deriving (Show, Eq)
+data TypeDef = TypeDef String [Id] ConstructorDefs
+    deriving (Show, Eq)
 
 data Program = Program (Maybe Scheme, Expr) [Def] [TypeDef]
     deriving (Show, Eq)

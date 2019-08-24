@@ -12,6 +12,7 @@ import qualified Text.Parsec as Parsec
 import Text.Parsec hiding (parse)
 import qualified Text.Parsec.Token as Token
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 
 import Misc
 import Ast
@@ -46,9 +47,8 @@ typedef = do
     let onlyName = fmap (, []) big
     let nameAndMany1 = parens . liftA2 (,) big . many1
     (name, params) <- onlyName <|> nameAndMany1 small'
-    constrs <- many
-        (fmap (uncurry TypeDefConstructor) (onlyName <|> nameAndMany1 type'))
-    pure (TypeDef name params constrs)
+    constrs <- many (onlyName <|> nameAndMany1 type')
+    pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
 
 def :: Parser (Id, (Maybe Scheme, Expr))
 def = defUntyped <|> defTyped
