@@ -1,10 +1,10 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
-  , TypeSynonymInstances, FlexibleInstances #-}
+  , TypeSynonymInstances, FlexibleInstances, RankNTypes #-}
 
 module Check (typecheck, unify'') where
 
 import Control.Lens
-    ((<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
+    (Lens', (<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -29,6 +29,8 @@ data Env = Env
     { _envDefs :: Map String Scheme
     -- | Maps the name of an algebraic datatype to its definition
     , _envTypeDefs :: Map String Ast.TypeDef
+    -- | Maps a constructor to the definition of the type it constructs
+    , _envConstructors :: Map String Ast.TypeDef
     }
 makeLenses ''Env
 
@@ -54,7 +56,11 @@ runInfer m = runExcept $ do
     pure (substProgram s p)
 
 initEnv :: Env
-initEnv = Env {_envDefs = builtinSchemes, _envTypeDefs = Map.empty}
+initEnv = Env
+    { _envDefs = builtinSchemes
+    , _envTypeDefs = Map.empty
+    , _envConstructors = Map.empty
+    }
 
 builtinSchemes :: Map String Scheme
 builtinSchemes = Map.fromList
@@ -67,8 +73,16 @@ fresh :: Infer Type
 fresh = fmap (TVar . TVImplicit) (tvCount <<+= 1)
 
 withTypes :: [Ast.TypeDef] -> Infer a -> Infer a
-withTypes = locally envTypeDefs . Map.union . Map.fromList . map nameTypeDef
-    where nameTypeDef td@(Ast.TypeDef x _ _) = (x, td)
+withTypes tds =
+    let
+        tds' = Map.fromList (map (\td@(Ast.TypeDef x _ _) -> (x, td)) tds)
+        tdsCs = Map.fromList (concatMap extractCtors tds)
+        extractCtors td@(Ast.TypeDef _ _ (Ast.ConstructorDefs cs)) =
+            map (, td) (Map.keys cs)
+    in augment envTypeDefs tds' . augment envConstructors tdsCs
+
+augment :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
+augment l = locally l . Map.union
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = withLocals' . Map.fromList
