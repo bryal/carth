@@ -7,6 +7,7 @@ module MonoAst
     ( TPrim(..)
     , Type(..)
     , TypedVar(..)
+    , Pat(..)
     , Const(..)
     , Expr(..)
     , Defs(..)
@@ -17,6 +18,7 @@ where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
 import Data.Set (Set)
 
 import FreeVars
@@ -32,6 +34,12 @@ data Type
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
+data Pat
+    = PConstructor String
+    | PConstruction String [Pat]
+    | PVar TypedVar
+    deriving (Show, Eq)
+
 data Expr
     = Lit Const
     | Var TypedVar
@@ -44,6 +52,7 @@ data Expr
           (Expr, Type)
     | Let Defs
           Expr
+    | Match Expr [(Pat, Expr)]
     deriving (Show)
 
 newtype Defs = Defs (Map TypedVar Expr)
@@ -66,3 +75,13 @@ fvExpr = \case
     If p c a -> fvIf p c a
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
+    Match e cs -> fvMatch e cs
+
+instance Pattern Pat TypedVar where
+    patternBoundVars = bvPat
+
+bvPat :: Pat -> Set TypedVar
+bvPat = \case
+    PConstructor _ -> Set.empty
+    PConstruction _ ps -> Set.unions (map bvPat ps)
+    PVar x -> Set.singleton x

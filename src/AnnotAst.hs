@@ -11,6 +11,7 @@ module AnnotAst
     , scmParams
     , scmBody
     , TypedVar(..)
+    , Pat(..)
     , Const(..)
     , Expr(..)
     , Defs(..)
@@ -26,6 +27,12 @@ import Ast
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
+data Pat
+    = PConstructor String
+    | PConstruction String [Pat]
+    | PVar TypedVar
+    deriving (Show, Eq)
+
 data Expr
     = Lit Const
     | Var TypedVar
@@ -36,6 +43,7 @@ data Expr
     | Fun (String, Type)
           (Expr, Type)
     | Let Defs Expr
+    | Match Expr [(Pat, Expr)]
     deriving (Show)
 
 newtype Defs = Defs (Map String (Scheme, Expr))

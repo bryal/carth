@@ -68,6 +68,7 @@ eval = \case
                 runEval (withLocals env (withLocal (TypedVar p pt) v (eval b)))
         pure (VFun f)
     Let defs body -> evalLet defs body
+    Match _ _ -> nyi "eval Match"
 
 evalLet :: Defs -> Expr -> Eval Val
 evalLet defs body = do

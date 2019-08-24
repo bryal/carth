@@ -130,9 +130,18 @@ fvExpr = \case
     Let bs e ->
         fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
     TypeAscr e _ -> freeVars e
-    Match _ _ -> undefined
-    FunMatch _ -> undefined
-    Constructor _ -> undefined
+    Match e cs -> fvMatch e (fromList1 cs)
+    FunMatch _ -> nyi "fvExpr FunMatch"
+    Constructor _ -> nyi "fvExpr Constructor"
+
+instance Pattern Pat Id where
+    patternBoundVars = bvPat
+
+bvPat :: Pat -> Set Id
+bvPat = \case
+    PConstructor _ -> Set.empty
+    PConstruction _ ps -> Set.unions (map1 bvPat ps)
+    PVar x -> Set.singleton x
 
 instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType

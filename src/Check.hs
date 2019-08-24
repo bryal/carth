@@ -175,9 +175,9 @@ infer = \case
         (tx, x') <- infer x
         unify t tx
         pure (t, x')
-    Ast.Match _ _ -> undefined
-    Ast.FunMatch _ -> undefined
-    Ast.Constructor _ -> undefined
+    Ast.Match _ _ -> nyi "infer Match"
+    Ast.FunMatch _ -> nyi "infer FunMatch"
+    Ast.Constructor _ -> nyi "infer Constructor"
 
 litType :: Const -> Type
 litType = \case
@@ -211,6 +211,7 @@ substExpr s = \case
     Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
     Let (Defs defs) body ->
         Let (Defs (fmap (substDef s) defs)) (substExpr s body)
+    Match e cs -> Match (substExpr s e) (map (mapSnd (substExpr s)) cs)
 
 subst :: Subst -> Type -> Type
 subst s t = case t of
