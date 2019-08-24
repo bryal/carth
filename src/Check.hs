@@ -71,7 +71,13 @@ initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
 
 fresh :: Infer Type
-fresh = fmap (TVar . TVImplicit) (tvCount <<+= 1)
+fresh = fmap (TVar . TVImplicit) fresh'
+
+freshVar :: Infer String
+freshVar = fmap show fresh'
+
+fresh' :: Infer Int
+fresh' = tvCount <<+= 1
 
 withTypes :: [Ast.TypeDef] -> Infer a -> Infer a
 withTypes tds =
@@ -192,15 +198,27 @@ infer = \case
         pure (t, x')
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
-        (tpats, tbodies, cases') <- fmap
-            unzip3
-            (mapM inferCase (fromList1 cases))
-        forM_ tpats (unify tmatchee)
-        tbody <- fresh
-        forM_ tbodies (unify tbody)
+        (tpat, tbody, cases') <- inferCases cases
+        unify tmatchee tpat
         pure (tbody, Match matchee' cases')
-    Ast.FunMatch _ -> nyi "infer FunMatch"
+    Ast.FunMatch cases -> do
+        (tpat, tbody, cases') <- inferCases cases
+        let t = TFun tpat tbody
+        x <- freshVar
+        let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) cases', tbody)
+        pure (t, e)
     Ast.Constructor _ -> nyi "infer Constructor"
+
+-- | All the patterns must be of the same types, and all the bodies must be of
+--   the same type.
+inferCases :: NonEmpty (Ast.Pat, Ast.Expr) -> Infer (Type, Type, [(Pat, Expr)])
+inferCases cases = do
+    (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase (fromList1 cases))
+    tpat <- fresh
+    forM_ tpats (unify tpat)
+    tbody <- fresh
+    forM_ tbodies (unify tbody)
+    pure (tpat, tbody, cases')
 
 inferCase :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
 inferCase (p, b) =
