@@ -190,20 +190,20 @@ infer = \case
         (tx, x') <- infer x
         unify t tx
         pure (t, x')
-    Ast.Match matchee clauses -> do
+    Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
-        (tpats, tbodies, clauses') <- fmap
+        (tpats, tbodies, cases') <- fmap
             unzip3
-            (mapM inferClause (fromList1 clauses))
+            (mapM inferCase (fromList1 cases))
         forM_ tpats (unify tmatchee)
         tbody <- fresh
         forM_ tbodies (unify tbody)
-        pure (tbody, Match matchee' clauses')
+        pure (tbody, Match matchee' cases')
     Ast.FunMatch _ -> nyi "infer FunMatch"
     Ast.Constructor _ -> nyi "infer Constructor"
 
-inferClause :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
-inferClause (p, b) =
+inferCase :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
+inferCase (p, b) =
     liftA2 (\(tp, p') (tb, b') -> (tp, tb, (p', b'))) (inferPat p) (infer b)
 
 inferPat :: Ast.Pat -> Infer (Type, Pat)
