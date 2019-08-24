@@ -126,8 +126,8 @@ instance FreeVars Expr Id where
 
 fvExpr :: Expr -> Set Id
 fvExpr = \case
-    Lit c -> fvLit c
-    Var x -> fvVar x
+    Lit _ -> Set.empty
+    Var x -> Set.singleton x
     App f a -> fvApp f a
     If p c a -> fvIf p c a
     Fun p b -> fvFun p b
@@ -135,8 +135,8 @@ fvExpr = \case
         fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
     TypeAscr e _ -> freeVars e
     Match e cs -> fvMatch e (fromList1 cs)
-    FunMatch _ -> nyi "fvExpr FunMatch"
-    Constructor _ -> nyi "fvExpr Constructor"
+    FunMatch cs -> fvCases (fromList1 cs)
+    Constructor _ -> Set.empty
 
 instance Pattern Pat Id where
     patternBoundVars = bvPat

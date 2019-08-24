@@ -3,13 +3,12 @@
 module FreeVars
     ( FreeVars(..)
     , Pattern(..)
-    , fvLit
-    , fvVar
     , fvApp
     , fvIf
     , fvFun
     , fvLet
     , fvMatch
+    , fvCases
     )
 where
 
@@ -22,12 +21,6 @@ class Ord b => FreeVars a b where
 
 class Ord b => Pattern a b where
     patternBoundVars :: a -> Set b
-
-fvLit :: a -> Set b
-fvLit = const Set.empty
-
-fvVar :: a -> Set a
-fvVar = Set.singleton
 
 fvApp :: FreeVars e t => e -> e -> Set t
 fvApp f a = Set.unions (map freeVars [f, a])
@@ -44,8 +37,8 @@ fvLet (bVs, bBs) b = Set.difference
     (Set.fromList (toList bVs))
 
 fvMatch :: (Pattern p t, FreeVars e t) => e -> [(p, e)] -> Set t
-fvMatch e cs = Set.union
-    (freeVars e)
-    (Set.unions
-        (map (\(p, e) -> Set.difference (freeVars e) (patternBoundVars p)) cs)
-    )
+fvMatch e cs = Set.union (freeVars e) (fvCases cs)
+
+fvCases :: (Pattern p t, FreeVars e t) => [(p, e)] -> Set t
+fvCases = Set.unions
+    . map (\(p, e) -> Set.difference (freeVars e) (patternBoundVars p))
