@@ -8,6 +8,7 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Applicative (liftA2)
 import Data.Bifunctor
 import Data.Composition
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
@@ -189,9 +190,64 @@ infer = \case
         (tx, x') <- infer x
         unify t tx
         pure (t, x')
-    Ast.Match _ _ -> nyi "infer Match"
+    Ast.Match matchee clauses -> do
+        (tmatchee, matchee') <- infer matchee
+        (tpats, tbodies, clauses') <- fmap
+            unzip3
+            (mapM inferClause (fromList1 clauses))
+        forM_ tpats (unify tmatchee)
+        tbody <- fresh
+        forM_ tbodies (unify tbody)
+        pure (tbody, Match matchee' clauses')
     Ast.FunMatch _ -> nyi "infer FunMatch"
     Ast.Constructor _ -> nyi "infer Constructor"
+
+inferClause :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
+inferClause (p, b) =
+    liftA2 (\(tp, p') (tb, b') -> (tp, tb, (p', b'))) (inferPat p) (infer b)
+
+inferPat :: Ast.Pat -> Infer (Type, Pat)
+inferPat = \case
+    Ast.PConstructor c -> inferPatUnappliedConstructor c
+    Ast.PConstruction c ps -> inferPatConstruction c (fromList1 ps)
+    Ast.PVar (Ast.Id x) -> fmap (\tv -> (tv, PVar (TypedVar x tv))) fresh
+
+inferPatUnappliedConstructor :: String -> Infer (Type, Pat)
+inferPatUnappliedConstructor c = inferPatConstruction c []
+
+inferPatConstruction :: String -> [Ast.Pat] -> Infer (Type, Pat)
+inferPatConstruction c cArgs = do
+    ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
+    let arity = length cParams
+    let nArgs = length cArgs
+    unless (arity == nArgs)
+        $ throwError
+        $ ("Arity mismatch for constructor `" ++ c ++ "` in pattern. ")
+        ++ ("Expected " ++ show arity ++ ", found " ++ show nArgs)
+    (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
+    (cArgTs, cArgs') <- fmap unzip (mapM inferPat cArgs)
+    forM_ (zip cParams' cArgTs) (uncurry unify)
+    pure (t, PConstruction c cArgs')
+
+instantiateConstructorOfTypeDef
+    :: ([Type], (String, [Ast.Id])) -> Infer ([Type], Type)
+instantiateConstructorOfTypeDef (cParams, (tName, tParams)) = do
+    tVars <- mapM (const fresh) tParams
+    let tParams' = map TVExplicit tParams
+    let cParams' = map (subst (Map.fromList (zip tParams' tVars))) cParams
+    let t = TConst tName tVars
+    pure (cParams', t)
+
+lookupEnvConstructor :: String -> Infer ([Type], (String, [Ast.Id]))
+lookupEnvConstructor cx = views envConstructors (Map.lookup cx) >>= \case
+    Just (Ast.TypeDef tx tps cs) -> case lookupConstructorParamTypes cx cs of
+        Just cps -> pure (cps, (tx, tps))
+        Nothing ->
+            ice $ "lookup failed for ctor `" ++ cx ++ "` in type `" ++ tx ++ "`"
+    Nothing -> throwError $ "Undefined constructor: " ++ cx
+
+lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
+lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = Map.lookup cx cs
 
 litType :: Const -> Type
 litType = \case
