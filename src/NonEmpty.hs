@@ -28,8 +28,8 @@ precalate1 prefix = (prefix ++) . intercalate1 prefix
 map1 :: (a -> b) -> NonEmpty a -> NonEmpty b
 map1 = NonEmpty.map
 
-toList1 :: NonEmpty a -> [a]
-toList1 = NonEmpty.toList
+toList1 :: [a] -> NonEmpty a
+toList1 = NonEmpty.fromList
 
-fromList1 :: [a] -> NonEmpty a
-fromList1 = NonEmpty.fromList
+fromList1 :: NonEmpty a -> [a]
+fromList1 = NonEmpty.toList

@@ -18,6 +18,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Misc
+import FreeVars
 import NonEmpty
 import qualified Ast
 import AnnotAst
@@ -166,7 +167,7 @@ infer = \case
         (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
         pure (TFun tp tb, Fun (p, tp) (b', tb))
     Ast.Let defs b -> do
-        Defs annotDefs <- inferDefs (toList1 defs)
+        Defs annotDefs <- inferDefs (fromList1 defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
         (bt, b') <- withLocals' defsScms (infer b)
         pure (bt, Let (Defs annotDefs) b')

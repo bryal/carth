@@ -17,10 +17,9 @@ where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
-import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Misc
+import FreeVars
 import Ast (Const(..), TPrim(..))
 
 data Type
@@ -61,11 +60,9 @@ instance FreeVars Expr TypedVar where
 
 fvExpr :: Expr -> Set TypedVar
 fvExpr = \case
-    Lit _ -> Set.empty
-    Var x -> Set.singleton x
-    App f a -> Set.unions (map freeVars [f, a])
-    If p c a -> Set.unions (map freeVars [p, c, a])
-    Fun p (b, _) -> Set.delete p (freeVars b)
-    Let (Defs bs) e -> Set.difference
-        (Set.union (freeVars e) (Set.unions (map fvExpr (Map.elems bs))))
-        (Map.keysSet bs)
+    Lit c -> fvLit c
+    Var x -> fvVar x
+    App f a -> fvApp f a
+    If p c a -> fvIf p c a
+    Fun p (b, _) -> fvFun p b
+    Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e

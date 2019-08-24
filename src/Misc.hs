@@ -6,7 +6,6 @@ module Misc
     , mapFst
     , mapSnd
     , precalate
-    , FreeVars(..)
     , prettyPrint
     , pretty
     , Pretty(..)
@@ -16,7 +15,6 @@ module Misc
     )
 where
 
-import Data.Set (Set)
 import Data.List (intercalate)
 
 ice :: String -> a
@@ -35,9 +33,6 @@ mapSnd f (a, b) = (a, f b)
 --   element, instead of an separator between each pair of elements.
 precalate :: [a] -> [[a]] -> [a]
 precalate prefix xs = prefix ++ intercalate prefix xs
-
-class Ord b => FreeVars a b where
-    freeVars :: a -> Set b
 
 -- Pretty printing
 prettyPrint :: Pretty a => a -> IO ()

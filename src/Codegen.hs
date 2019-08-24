@@ -36,6 +36,7 @@ import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
 
 import Misc
+import FreeVars
 import qualified MonoAst
 import MonoAst hiding (Type, Const)
 

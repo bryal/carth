@@ -24,10 +24,10 @@ import Data.String
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.List
-import Data.Foldable
 import Control.Lens (makeLenses)
 
 import Misc
+import FreeVars
 import NonEmpty
 
 newtype Id =
@@ -122,14 +122,13 @@ instance FreeVars Expr Id where
 
 fvExpr :: Expr -> Set Id
 fvExpr = \case
-    Lit _ -> Set.empty
-    Var x -> Set.singleton x
-    App f a -> Set.unions (map freeVars [f, a])
-    If p c a -> Set.unions (map freeVars [p, c, a])
-    Fun p b -> Set.delete p (freeVars b)
-    Let bs e -> Set.difference
-        (Set.union (freeVars e) (Set.unions (map1 (fvExpr . snd . snd) bs)))
-        (Set.fromList (toList (map1 fst bs)))
+    Lit c -> fvLit c
+    Var x -> fvVar x
+    App f a -> fvApp f a
+    If p c a -> fvIf p c a
+    Fun p b -> fvFun p b
+    Let bs e ->
+        fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
     TypeAscr e _ -> freeVars e
     Match _ _ -> undefined
     FunMatch _ -> undefined
