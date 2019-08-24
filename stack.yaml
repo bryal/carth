@@ -9,8 +9,7 @@ packages:
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 extra-deps:
-- github: llvm-hs/llvm-hs-pretty
-  commit: 852ea9fd3bedf84b203db0a2cb870c00acd92add
+- llvm-hs-pretty-0.6.2.0@sha256:4c600122965e8dff586bdca0044ec2b1896f2875c2da5ad89bbab9799c9697cd,1670
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
