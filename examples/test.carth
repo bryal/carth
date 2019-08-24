@@ -18,6 +18,7 @@
 
 (define: tail
     (forall [a] (Fun (List a) (Maybe (List a))))
-  (fun-match
-    [Nil None]
-    [(List _ xs) (Some xs)]))
+  (fun (ys)
+    (match ys
+      [Nil None]
+      [(List _ xs) (Some xs)])))
