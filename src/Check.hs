@@ -211,7 +211,13 @@ substExpr s = \case
     Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
     Let (Defs defs) body ->
         Let (Defs (fmap (substDef s) defs)) (substExpr s body)
-    Match e cs -> Match (substExpr s e) (map (mapSnd (substExpr s)) cs)
+    Match e cs ->
+        Match (substExpr s e) (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
+
+substPat :: Subst -> Pat -> Pat
+substPat s = \case
+    PConstruction c ps -> PConstruction c (map (substPat s) ps)
+    PVar (TypedVar x t) -> PVar (TypedVar x (subst s t))
 
 subst :: Subst -> Type -> Type
 subst s t = case t of

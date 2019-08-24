@@ -63,6 +63,9 @@ data Scheme = Forall
 makeLenses ''Scheme
 
 data Pat
+    -- TODO: Should we really be discriminating between unapplied constructors
+    --       and constructions with >0 arguments at this level? Consider
+    --       `PConstructor "Foo"` and `PConstruction "Foo" []`.
     = PConstructor String
     | PConstruction String
                     (NonEmpty Pat)
