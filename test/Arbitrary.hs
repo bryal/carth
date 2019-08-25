@@ -4,6 +4,7 @@ module Arbitrary where
 
 import Control.Applicative (liftA3, liftA2)
 import Control.Monad
+import qualified Data.Map as Map
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Modifiers
@@ -18,9 +19,9 @@ instance Arbitrary Program where
 instance Arbitrary TypeDef where
     arbitrary = arbitraryTypeDef
     shrink = shrinkTypeDef
-instance Arbitrary TypeDefConstructor where
-    arbitrary = liftA2 TypeDefConstructor arbitraryBig arbitrary
-    shrink (TypeDefConstructor c ts) = map (TypeDefConstructor c) (shrink ts)
+instance Arbitrary ConstructorDefs where
+    arbitrary = arbitraryConstructorDefs
+    shrink (ConstructorDefs cs) = map ConstructorDefs (shrink cs)
 instance Arbitrary Expr where
     arbitrary = arbitraryExpr
     shrink = shrinkExpr
@@ -53,7 +54,15 @@ arbitraryProgram = do
 
 arbitraryTypeDef :: Gen TypeDef
 arbitraryTypeDef =
-    liftA3 TypeDef arbitraryBig (vectorOf' (0, 3) arbitrary) arbitrary
+    liftA3 TypeDef arbitraryBig (vectorOf' (0, 4) arbitrary) arbitrary
+
+arbitraryConstructorDefs :: Gen ConstructorDefs
+arbitraryConstructorDefs = fmap
+    (ConstructorDefs . Map.fromList)
+    (choose (0, 5) >>= flip vectorOf arbitraryConstructorDef)
+
+arbitraryConstructorDef :: Gen (String, [Type])
+arbitraryConstructorDef = liftA2 (,) arbitraryBig (vectorOf' (0, 5) arbitrary)
 
 arbitraryExpr :: Gen Expr
 arbitraryExpr = frequency

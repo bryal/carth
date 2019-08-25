@@ -23,6 +23,7 @@ where
 import Data.String
 import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List
 import Control.Lens (makeLenses)
@@ -147,18 +148,123 @@ bvPat = \case
     PConstruction _ ps -> Set.unions (map1 bvPat ps)
     PVar x -> Set.singleton x
 
+instance Pretty Program            where pretty' = prettyProg
+instance Pretty ConstructorDefs    where pretty' = prettyConstructorDefs
+instance Pretty TypeDef            where pretty' = prettyTypeDef
+instance Pretty Expr               where pretty' = prettyExpr
+instance Pretty Id                 where pretty' _ (Id s) = s
+instance Pretty Pat                where pretty' _ = prettyPat
+instance Pretty Const              where pretty' _ = prettyConst
 instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType
 instance Pretty TPrim              where pretty' _ = prettyTPrim
 instance Pretty TVar               where pretty' _ = prettyTVar
 
+prettyProg :: Int -> Program -> String
+prettyProg d (Program main defs tdefs) =
+    let
+        allDefs = (Id "main", main) : defs
+        prettyDef = \case
+            (name, (Just scm, body)) -> concat
+                [ indent d ++ "(define: " ++ pretty name ++ "\n"
+                , indent (d + 4) ++ pretty' (d + 4) scm ++ "\n"
+                , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
+                ]
+            (name, (Nothing, body)) -> concat
+                [ indent d ++ "(define " ++ pretty name ++ "\n"
+                , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
+                ]
+    in unlines (map prettyDef allDefs ++ map pretty tdefs)
+
+prettyTypeDef :: Int -> TypeDef -> String
+prettyTypeDef d (TypeDef name params constrs) = concat
+    [ "(type "
+    , if null params
+        then name
+        else "(" ++ name ++ precalate " " (map pretty params) ++ ")"
+    , indent (d + 2) ++ pretty' (d + 2) constrs
+    , ")"
+    ]
+
+prettyConstructorDefs :: Int -> ConstructorDefs -> String
+prettyConstructorDefs d (ConstructorDefs cs) = intercalate
+    ("\n" ++ indent d)
+    (map prettyConstrDef (Map.toList cs))
+  where
+    prettyConstrDef = \case
+        (c, []) -> c
+        (c, ts) -> concat ["(", c, precalate " " (map pretty ts), ")"]
+
+prettyExpr :: Int -> Expr -> String
+prettyExpr d = \case
+    Lit l -> pretty l
+    Var (Id v) -> v
+    App f x -> concat
+        [ "(" ++ pretty' (d + 1) f ++ "\n"
+        , indent (d + 1) ++ pretty' (d + 1) x ++ ")"
+        ]
+    If pred cons alt -> concat
+        [ "(if " ++ pretty' (d + 4) pred ++ "\n"
+        , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
+        , indent (d + 2) ++ pretty' (d + 2) alt ++ ")"
+        ]
+    Fun (Id param) body ->
+        concat ["(fun ", param, "\n", indent (d + 2), pretty' (d + 2) body, ")"]
+    Let binds body -> concat
+        [ "(let ["
+        , intercalate1 ("\n" ++ indent (d + 6)) (map1 (prettyDef (d + 6)) binds)
+        , "]\n"
+        , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
+        ]
+      where
+        prettyDef d = \case
+            (name, (Just scm, body)) -> concat
+                [ "[: " ++ pretty' (d + 3) name ++ "\n"
+                , indent (d + 3) ++ pretty' (d + 3) scm ++ "\n"
+                , indent (d + 1) ++ pretty' (d + 1) body ++ "]"
+                ]
+            (name, (Nothing, body)) -> concat
+                [ "[" ++ pretty' (d + 1) name ++ "\n"
+                , indent (d + 1) ++ pretty' (d + 1) body ++ "]"
+                ]
+    TypeAscr e t ->
+        concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
+    Match e cs -> concat
+        [ "(match " ++ pretty' (d + 7) e
+        , precalate1
+            ("\n" ++ indent (d + 2))
+            (map1 (prettyBracketPair (d + 2)) cs)
+        , ")"
+        ]
+    FunMatch cs -> concat
+        [ "(fun-match"
+        , precalate1
+            ("\n" ++ indent (d + 2))
+            (map1 (prettyBracketPair (d + 2)) cs)
+        , ")"
+        ]
+    Constructor c -> c
+
+prettyPat :: Pat -> String
+prettyPat = \case
+    PConstructor c -> c
+    PConstruction c ps ->
+        concat ["(", c, precalate " " (fromList1 (map1 pretty ps)), ")"]
+    PVar (Id v) -> v
+
+prettyConst :: Const -> String
+prettyConst = \case
+    Unit -> "unit"
+    Int n -> show n
+    Double x -> show x
+    Char c -> showChar' c
+    Str s -> '"' : (s >>= showChar'') ++ "\""
+    Bool b -> if b then "true" else "false"
+
 prettyScheme :: Scheme -> String
 prettyScheme (Forall ps t) = concat
-    [ "(forall ["
-    , intercalate " " (map pretty (Set.toList ps))
-    , "] "
-    , pretty t
-    , ")"
+    [ "(forall [" ++ intercalate " " (map pretty (Set.toList ps)) ++ "] "
+    , pretty t ++ ")"
     ]
 
 prettyType :: Type -> String
@@ -183,3 +289,6 @@ prettyTVar :: TVar -> String
 prettyTVar = \case
     TVExplicit (Id v) -> v
     TVImplicit n -> "#" ++ show n
+
+indent :: Int -> String
+indent = flip replicate ' '
