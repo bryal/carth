@@ -52,6 +52,7 @@ mono = \case
         pure (Fun (TypedVar p tp') (b', bt'))
     AnnotAst.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     AnnotAst.Match _ _ -> nyi "mono Match"
+    AnnotAst.Constructor _ -> nyi "mono Constructor"
 
 monoLet :: AnnotAst.Defs -> AnnotAst.Expr -> Mono (Defs, Expr)
 monoLet (AnnotAst.Defs ds) body = do

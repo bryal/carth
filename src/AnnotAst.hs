@@ -43,6 +43,7 @@ data Expr
           (Expr, Type)
     | Let Defs Expr
     | Match Expr [(Pat, Expr)]
+    | Constructor String
     deriving (Show)
 
 newtype Defs = Defs (Map String (Scheme, Expr))

@@ -207,7 +207,7 @@ infer = \case
         x <- freshVar
         let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) cases', tbody)
         pure (t, e)
-    Ast.Constructor _ -> nyi "infer Constructor"
+    Ast.Constructor c -> inferExprConstructor c
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
@@ -246,6 +246,12 @@ inferPatConstruction c cArgs = do
     (cArgTs, cArgs') <- fmap unzip (mapM inferPat cArgs)
     forM_ (zip cParams' cArgTs) (uncurry unify)
     pure (t, PConstruction c cArgs')
+
+inferExprConstructor :: String -> Infer (Type, Expr)
+inferExprConstructor c = do
+    ctorOfTypeDef <- lookupEnvConstructor c
+    (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
+    pure (foldr TFun t cParams', Constructor c)
 
 instantiateConstructorOfTypeDef
     :: ([Type], (String, [Ast.Id])) -> Infer ([Type], Type)
@@ -301,6 +307,7 @@ substExpr s = \case
         Let (Defs (fmap (substDef s) defs)) (substExpr s body)
     Match e cs ->
         Match (substExpr s e) (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
+    Constructor c -> Constructor c
 
 substPat :: Subst -> Pat -> Pat
 substPat s = \case
