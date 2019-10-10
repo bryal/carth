@@ -16,6 +16,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Either.Combinators
 import Data.Void
+import Data.Composition
 
 import Misc
 import Ast
@@ -58,72 +59,72 @@ typedef = do
     constrs <- many (onlyName <|> nameAndMany1 type')
     pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
 
-def :: Parser (Id, (Maybe Scheme, Expr))
+def :: Parser Def
 def = defUntyped <|> defTyped
 
-defUntyped :: Parser (Id, (Maybe Scheme, Expr))
-defUntyped = reserved "define" *> (varDef <|> funDef)
-  where
-    varDef = do
-        name <- small'
-        body <- expr
-        pure (name, (Nothing, body))
-    funDef = do
-        (name, params) <- parens (liftM2 (,) small' (many1 small'))
-        body <- expr
-        pure (name, (Nothing, foldr Fun body params))
+defUntyped :: Parser Def
+defUntyped = reserved "define" *> def' (pure Nothing)
 
-defTyped :: Parser (Id, (Maybe Scheme, Expr))
-defTyped = reserved "define:" *> (varDef <|> funDef)
+defTyped :: Parser Def
+defTyped = reserved "define:" *> def' (fmap Just scheme)
+
+def'
+    :: Parser (Maybe (WithPos Scheme))
+    -> Parser (Id, (Maybe (WithPos Scheme), Expr))
+def' schemeParser = varDef <|> funDef
   where
     varDef = do
         name <- small'
-        scm <- scheme
+        scm <- schemeParser
         body <- expr
-        pure (name, (Just scm, body))
+        pure (name, (scm, body))
     funDef = do
-        (name, params) <- parens (liftM2 (,) small' (many1 small'))
-        scm <- scheme
+        (name, params) <- parens (liftM2 (,) small' (many1 (withPos small')))
+        scm <- schemeParser
         body <- expr
-        pure (name, (Just scm, foldr Fun body params))
+        let
+            fun =
+                foldr (\(WithPos pos p) b -> WithPos pos (Fun p b)) body params
+        pure (name, (scm, fun))
 
 expr :: Parser Expr
-expr = choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
+expr =
+    withPos $ choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
 
-unit :: Parser Expr
+unit :: Parser Expr'
 unit = reserved "unit" $> Lit Unit
 
-num :: Parser Expr
+num :: Parser Expr'
 num = lexeme $ fmap
     (Lit . either Double Int . floatingOrInteger)
     (Lexer.signed nop Lexer.scientific)
 
-charLit :: Parser Expr
+charLit :: Parser Expr'
 charLit = lexeme
     $ fmap (Lit . Char) (between (char '\'') (char '\'') Lexer.charLiteral)
 
-str :: Parser Expr
+str :: Parser Expr'
 str = lexeme
     $ fmap (Lit . Str) (char '"' >> manyTill Lexer.charLiteral (char '"'))
 
-bool :: Parser Expr
+bool :: Parser Expr'
 bool = do
     b <- (reserved "true" $> True) <|> (reserved "false" $> False)
     pure (Lit (Bool b))
 
-var :: Parser Expr
+var :: Parser Expr'
 var = fmap Var small'
 
-eConstructor :: Parser Expr
+eConstructor :: Parser Expr'
 eConstructor = fmap Constructor big
 
-pexpr :: Parser Expr
+pexpr :: Parser Expr'
 pexpr = parens (choice [funMatch, match, if', fun, let', typeAscr, app])
 
-funMatch :: Parser Expr
+funMatch :: Parser Expr'
 funMatch = reserved "fun-match" *> fmap FunMatch cases
 
-match :: Parser Expr
+match :: Parser Expr'
 match = do
     reserved "match"
     e <- expr
@@ -143,13 +144,13 @@ pat = patTor <|> patTion <|> patVar
     patTion = parens (liftM2 PConstruction big (many1' pat))
     patVar = fmap PVar small'
 
-app :: Parser Expr
+app :: Parser Expr'
 app = do
     rator <- expr
     rands <- many1 expr
-    pure (foldl App rator rands)
+    pure (unpos (foldl (WithPos (getPos rator) .* App) rator rands))
 
-if' :: Parser Expr
+if' :: Parser Expr'
 if' = do
     reserved "if"
     pred <- expr
@@ -157,32 +158,35 @@ if' = do
     alt <- expr
     pure (If pred conseq alt)
 
-fun :: Parser Expr
+fun :: Parser Expr'
 fun = do
     reserved "fun"
-    params <- choice [parens (many1 small'), fmap (\x -> [x]) small']
+    params <- choice
+        [parens (many1 (withPos small')), fmap (\x -> [x]) (withPos small')]
     body <- expr
-    pure (foldr Fun body params)
+    pure $ unpos
+        (foldr (\(WithPos pos p) b -> WithPos pos (Fun p b)) body params)
 
-let' :: Parser Expr
+
+let' :: Parser Expr'
 let' = do
     reserved "let"
     bindings <- parens (many1' binding)
     body <- expr
     pure (Let bindings body)
 
-binding :: Parser (Id, (Maybe Scheme, Expr))
+binding :: Parser Def
 binding = parens (bindingTyped <|> bindingUntyped)
   where
     bindingTyped =
         reserved ":" *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
     bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
 
-typeAscr :: Parser Expr
+typeAscr :: Parser Expr'
 typeAscr = reserved ":" *> liftA2 TypeAscr expr type'
 
-scheme :: Parser Scheme
-scheme = wrap nonptype <|> parens (universal <|> wrap ptype')
+scheme :: Parser (WithPos Scheme)
+scheme = withPos $ wrap nonptype <|> parens (universal <|> wrap ptype')
   where
     wrap = fmap (Forall Set.empty)
     universal = reserved "forall" *> liftA2 Forall tvars type'
@@ -317,3 +321,6 @@ many1 p = liftA2 (:) p (many p)
 
 nop :: Parser ()
 nop = pure ()
+
+withPos :: Parser a -> Parser (WithPos a)
+withPos = liftA2 WithPos getSourcePos

@@ -1,0 +1,6 @@
+(define (main _)
+  (printInt (id 123)))
+
+(define: (id x)
+    (forall [a b c] (Fun a a))
+  x)

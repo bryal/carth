@@ -11,7 +11,12 @@ module Ast
     , Id(..)
     , Const(..)
     , Pat(..)
-    , Expr(..)
+    , Expr'(..)
+    , Expr
+    , WithPos(..)
+    , unpos
+    , getPos
+    , onPosd
     , Def
     , ConstructorDefs(..)
     , TypeDef(..)
@@ -27,10 +32,16 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List
 import Control.Lens (makeLenses)
+import Text.Megaparsec.Pos (SourcePos)
 
 import Misc
 import FreeVars
 import NonEmpty
+
+data WithPos a = WithPos SourcePos a
+
+instance Show a => Show (WithPos a) where show (WithPos _ a) = show a
+instance Eq a => Eq (WithPos a) where (WithPos _ a) == (WithPos _ b) = a == b
 
 newtype Id =
     Id String
@@ -83,7 +94,7 @@ data Const
     | Bool Bool
     deriving (Show, Eq)
 
-data Expr
+data Expr'
     = Lit Const
     | Var Id
     | App Expr
@@ -102,7 +113,9 @@ data Expr
     | Constructor String
     deriving (Show, Eq)
 
-type Def = (Id, (Maybe Scheme, Expr))
+type Expr = WithPos Expr'
+
+type Def = (Id, (Maybe (WithPos Scheme), Expr))
 
 newtype ConstructorDefs = ConstructorDefs (Map String [Type])
     deriving (Show, Eq)
@@ -110,7 +123,7 @@ newtype ConstructorDefs = ConstructorDefs (Map String [Type])
 data TypeDef = TypeDef String [Id] ConstructorDefs
     deriving (Show, Eq)
 
-data Program = Program (Maybe Scheme, Expr) [Def] [TypeDef]
+data Program = Program (Maybe (WithPos Scheme), Expr) [Def] [TypeDef]
     deriving (Show, Eq)
 
 mainType :: Type
@@ -126,7 +139,7 @@ instance FreeVars Expr Id where
     freeVars = fvExpr
 
 fvExpr :: Expr -> Set Id
-fvExpr = \case
+fvExpr = onPosd $ \case
     Lit _ -> Set.empty
     Var x -> Set.singleton x
     App f a -> fvApp f a
@@ -151,7 +164,7 @@ bvPat = \case
 instance Pretty Program            where pretty' = prettyProg
 instance Pretty ConstructorDefs    where pretty' = prettyConstructorDefs
 instance Pretty TypeDef            where pretty' = prettyTypeDef
-instance Pretty Expr               where pretty' = prettyExpr
+instance Pretty Expr'              where pretty' = prettyExpr'
 instance Pretty Id                 where pretty' _ (Id s) = s
 instance Pretty Pat                where pretty' _ = prettyPat
 instance Pretty Const              where pretty' _ = prettyConst
@@ -159,6 +172,7 @@ instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType
 instance Pretty TPrim              where pretty' _ = prettyTPrim
 instance Pretty TVar               where pretty' _ = prettyTVar
+instance Pretty a => Pretty (WithPos a) where pretty' d = pretty' d . unpos
 
 prettyProg :: Int -> Program -> String
 prettyProg d (Program main defs tdefs) =
@@ -195,8 +209,8 @@ prettyConstructorDefs d (ConstructorDefs cs) = intercalate
         (c, []) -> c
         (c, ts) -> concat ["(", c, precalate " " (map pretty ts), ")"]
 
-prettyExpr :: Int -> Expr -> String
-prettyExpr d = \case
+prettyExpr' :: Int -> Expr' -> String
+prettyExpr' d = \case
     Lit l -> pretty l
     Var (Id v) -> v
     App f x -> concat
@@ -289,3 +303,12 @@ prettyTVar :: TVar -> String
 prettyTVar = \case
     TVExplicit (Id v) -> v
     TVImplicit n -> "#" ++ show n
+
+onPosd :: (a -> b) -> WithPos a -> b
+onPosd f = f . unpos
+
+getPos :: WithPos a -> SourcePos
+getPos (WithPos p _) = p
+
+unpos :: WithPos a -> a
+unpos (WithPos _ a) = a

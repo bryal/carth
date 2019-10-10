@@ -18,10 +18,13 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
 
+import Text.Megaparsec.Pos (sourcePosPretty)
+
 import Misc
 import FreeVars
 import NonEmpty
 import qualified Ast
+import Ast (WithPos(..), unpos)
 import AnnotAst
 
 type TypeErr = String
@@ -141,12 +144,13 @@ inferDefsComponents = \case
         let (idents, rhss) = unzip (flattenSCC scc)
         let (mayscms, bodies) = unzip rhss
         checkUserSchemes (catMaybes mayscms)
+        let mayscms' = map (fmap unpos) mayscms
         let names = map (\(Ast.Id x) -> x) idents
         ts <- replicateM (length names) fresh
         let
             scms = map
                 (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
-                (zip mayscms ts)
+                (zip mayscms' ts)
         bodies' <-
             withLocals (zip names scms)
             $ forM (zip bodies (map (view scmBody) scms))
@@ -155,7 +159,7 @@ inferDefsComponents = \case
                   unify t1 t2
                   pure body'
         generalizeds <- mapM generalize ts
-        let scms' = zipWith fromMaybe generalizeds mayscms
+        let scms' = zipWith fromMaybe generalizeds mayscms'
         let annotDefs = Map.fromList (zip names (zip scms' bodies'))
         Defs annotRest <- withLocals
             (zip names scms')
@@ -163,19 +167,21 @@ inferDefsComponents = \case
         pure (Defs (Map.union annotRest annotDefs))
 
 -- | Verify that user-provided type signature schemes are valid
-checkUserSchemes :: [Scheme] -> Infer ()
+checkUserSchemes :: [WithPos Scheme] -> Infer ()
 checkUserSchemes scms = forM_ scms check
   where
-    check s1@(Forall _ t) = generalize t >>= \s2 ->
-        when (not (s1 == s2))
+    check (WithPos p s1@(Forall _ t)) = generalize t >>= \s2 ->
+        when (s1 /= s2)
             $ throwError
-            $ "Invalid user type signature "
+            $ "Invalid user type signature at pos `"
+            ++ sourcePosPretty p
+            ++ "`, "
             ++ pretty s1
             ++ ", expected "
             ++ pretty s2
 
 infer :: Ast.Expr -> Infer (Type, Expr)
-infer = \case
+infer = Ast.onPosd $ \case
     Ast.Lit l -> pure (litType l, Lit l)
     Ast.Var x@(Ast.Id x') ->
         fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
