@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
   , TypeSynonymInstances, FlexibleInstances, RankNTypes #-}
 
-module Check (typecheck, unify'') where
+module Check (typecheck) where
 
 import Control.Lens
     (Lens', (<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
@@ -369,6 +369,9 @@ unify' = lift . lift .* unify''
 unify'' :: Type -> Type -> Except TypeErr Subst
 unify'' = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty
+    (TConst c0 ts0, TConst c1 ts1) | c0 == c1 -> if length ts0 /= length ts1
+        then ice "lengths of TConst params differ in unify"
+        else unifys ts0 ts1
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
         throwError (concat ["Infinite type: ", pretty a, ", ", pretty t])
@@ -378,12 +381,15 @@ unify'' = curry $ \case
         throwError $ "Unification failed: " ++ pretty a ++ ", " ++ pretty b
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unify'' (TVar a) t
-    (TFun t1 t2, TFun t1' t2') -> do
-        s1 <- unify'' t1 t1'
-        s2 <- unify'' (subst s1 t2) (subst s1 t2')
-        pure (composeSubsts s2 s1)
-    (t1, t2) -> throwError
-        (concat ["Unification failed: ", pretty t1, ", ", pretty t2])
+    (TFun t1 t2, TFun u1 u2) -> unifys [t1, t2] [u1, u2]
+    (t1, t2) ->
+        throwError (concat ["Unification failed: ", pretty t1, ", ", pretty t2])
+
+unifys :: [Type] -> [Type] -> Except TypeErr Subst
+unifys ts us = foldM
+    (\s (t, u) -> fmap (flip composeSubsts s) (unify'' (subst s t) (subst s u)))
+    Map.empty
+    (zip ts us)
 
 occursIn :: TVar -> Type -> Bool
 occursIn a t = Set.member a (ftv t)
