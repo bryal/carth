@@ -483,7 +483,8 @@ ret :: Operand -> Terminator
 ret = flip Ret [] . Just
 
 ptrtoint :: Operand -> Type -> FunInstruction
-ptrtoint p t = WithRetType (PtrToInt {operand0 = p, type' = t, metadata = []}) t
+ptrtoint p t =
+    WithRetType (PtrToInt {operand0 = p, type' = t, metadata = []}) t
 
 bitcast :: Operand -> Type -> FunInstruction
 bitcast x t = WithRetType (BitCast x t []) t

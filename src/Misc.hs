@@ -10,6 +10,7 @@ module Misc
     , pretty
     , Pretty(..)
     , prettyBracketPair
+    , indent
     , showChar''
     , showChar'
     )
@@ -50,7 +51,10 @@ instance Pretty String where
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) = concat
-    ["[", pretty' (d + 1) a, "\n", replicate (d + 1) ' ', pretty' (d + 1) b, "]"]
+    ["[", pretty' (d + 1) a, "\n", indent (d + 1), pretty' (d + 1) b, "]"]
+
+indent :: Int -> String
+indent = flip replicate ' '
 
 showChar'' :: Char -> String
 showChar'' = \case

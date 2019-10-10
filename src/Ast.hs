@@ -289,6 +289,3 @@ prettyTVar :: TVar -> String
 prettyTVar = \case
     TVExplicit (Id v) -> v
     TVImplicit n -> "#" ++ show n
-
-indent :: Int -> String
-indent = flip replicate ' '

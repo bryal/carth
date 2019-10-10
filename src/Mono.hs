@@ -79,7 +79,9 @@ addInst x t1 = do
             (Forall _ t2, body) <- views
                 defs
                 (lookup' (ice (x ++ " not in defs")) x)
-            body' <- local (over tvBinds (Map.union (bindTvs t2 t1))) (mono body)
+            body' <- local
+                (over tvBinds (Map.union (bindTvs t2 t1)))
+                (mono body)
             insertInst x t1 body'
 
 bindTvs :: AnnotAst.Type -> Type -> Map TVar Type

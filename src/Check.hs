@@ -52,8 +52,8 @@ typecheck :: Ast.Program -> Either TypeErr Program
 typecheck = runInfer . inferProgram
 
 runInfer :: Infer Program -> Either TypeErr Program
-runInfer m = flip mapRight (runInfer' m) $ \(p, st) ->
-                 substProgram (view substs st) p
+runInfer m =
+    mapRight (\(p, st) -> substProgram (view substs st) p) (runInfer' m)
 
 runInfer' :: Infer a -> Either TypeErr (a, St)
 runInfer' = runExcept . flip runStateT initSt . flip runReaderT initEnv
@@ -93,7 +93,8 @@ withTypes tds =
             map (, td) (Map.keys cs)
     in augment envTypeDefs tds' . augment envConstructors tdsCs
 
-augment :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
+augment
+    :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
 augment l = locally l . Map.union
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
@@ -156,7 +157,9 @@ inferDefsComponents = \case
         generalizeds <- mapM generalize ts
         let scms' = zipWith fromMaybe generalizeds mayscms
         let annotDefs = Map.fromList (zip names (zip scms' bodies'))
-        Defs annotRest <- withLocals (zip names scms') (inferDefsComponents sccs)
+        Defs annotRest <- withLocals
+            (zip names scms')
+            (inferDefsComponents sccs)
         pure (Defs (Map.union annotRest annotDefs))
 
 -- | Verify that user-provided type signature schemes are valid
@@ -174,7 +177,8 @@ checkUserSchemes scms = forM_ scms check
 infer :: Ast.Expr -> Infer (Type, Expr)
 infer = \case
     Ast.Lit l -> pure (litType l, Lit l)
-    Ast.Var x@(Ast.Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
+    Ast.Var x@(Ast.Id x') ->
+        fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
     Ast.App f a -> do
         (tf, f') <- infer f
         (ta, a') <- infer a
@@ -328,8 +332,9 @@ substExpr s = \case
     Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
     Let (Defs defs) body ->
         Let (Defs (fmap (substDef s) defs)) (substExpr s body)
-    Match e cs ->
-        Match (substExpr s e) (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
+    Match e cs -> Match
+        (substExpr s e)
+        (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
     Constructor c -> Constructor c
 
 substPat :: Subst -> Pat -> Pat
