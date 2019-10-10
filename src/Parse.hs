@@ -5,27 +5,35 @@ module Parse (parse, reserveds) where
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
-import Data.Functor.Identity
 import Data.Maybe
 import Control.Applicative (liftA2)
-import qualified Text.Parsec as Parsec
-import Text.Parsec hiding (parse)
-import qualified Text.Parsec.Token as Token
+import qualified Text.Megaparsec as Parsec
+import Text.Megaparsec hiding (parse, match)
+import Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as Lexer
+import Data.Scientific (floatingOrInteger)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Data.Either.Combinators
+import Data.Void
 
 import Misc
 import Ast
 import NonEmpty
 
-type Parser = Parsec String ()
+type Parser = Parsec Void String
 
-parse :: SourceName -> String -> Either ParseError Program
-parse = Parsec.parse program
+type SourceName = String
+
+parse :: SourceName -> String -> Either String Program
+parse = parse' program
+
+parse' :: Parser a -> SourceName -> String -> Either String a
+parse' p name src = mapLeft errorBundlePretty (Parsec.parse p name src)
 
 program :: Parser Program
 program = do
-    spaces
+    space
     (defs, typedefs) <- toplevels
     eof
     main <- maybe
@@ -43,7 +51,7 @@ toplevel =
 
 typedef :: Parser TypeDef
 typedef = do
-    try (reserved "type")
+    _ <- reserved "type"
     let onlyName = fmap (, []) big
     let nameAndMany1 = parens . liftA2 (,) big . many1
     (name, params) <- onlyName <|> nameAndMany1 small'
@@ -54,7 +62,7 @@ def :: Parser (Id, (Maybe Scheme, Expr))
 def = defUntyped <|> defTyped
 
 defUntyped :: Parser (Id, (Maybe Scheme, Expr))
-defUntyped = try (reserved "define") *> (varDef <|> funDef)
+defUntyped = reserved "define" *> (varDef <|> funDef)
   where
     varDef = do
         name <- small'
@@ -66,7 +74,7 @@ defUntyped = try (reserved "define") *> (varDef <|> funDef)
         pure (name, (Nothing, foldr Fun body params))
 
 defTyped :: Parser (Id, (Maybe Scheme, Expr))
-defTyped = try (reserved "define:") *> (varDef <|> funDef)
+defTyped = reserved "define:" *> (varDef <|> funDef)
   where
     varDef = do
         name <- small'
@@ -83,29 +91,24 @@ expr :: Parser Expr
 expr = choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
 
 unit :: Parser Expr
-unit = try (reserved "unit") $> Lit Unit
+unit = reserved "unit" $> Lit Unit
 
 num :: Parser Expr
-num = do
-    neg <- option False (char '-' $> True)
-    -- TODO: Seems to accept "10f" as "10" and "f", but should fail that.
-    a <- Token.naturalOrFloat lexer
-    let
-        e = either
-            (\n -> Int (fromInteger (if neg then -n else n)))
-            (\x -> Double (if neg then -x else x))
-            a
-    pure (Lit e)
+num = lexeme $ fmap
+    (Lit . either Double Int . floatingOrInteger)
+    (Lexer.signed nop Lexer.scientific)
 
 charLit :: Parser Expr
-charLit = fmap (Lit . Char) (Token.charLiteral lexer)
+charLit = lexeme
+    $ fmap (Lit . Char) (between (char '\'') (char '\'') Lexer.charLiteral)
 
 str :: Parser Expr
-str = fmap (Lit . Str) (Token.stringLiteral lexer)
+str = lexeme
+    $ fmap (Lit . Str) (char '"' >> manyTill Lexer.charLiteral (char '"'))
 
 bool :: Parser Expr
 bool = do
-    b <- try ((reserved "true" $> True) <|> (reserved "false" $> False))
+    b <- (reserved "true" $> True) <|> (reserved "false" $> False)
     pure (Lit (Bool b))
 
 var :: Parser Expr
@@ -118,11 +121,11 @@ pexpr :: Parser Expr
 pexpr = parens (choice [funMatch, match, if', fun, let', typeAscr, app])
 
 funMatch :: Parser Expr
-funMatch = try (reserved "fun-match") *> fmap FunMatch cases
+funMatch = reserved "fun-match" *> fmap FunMatch cases
 
 match :: Parser Expr
 match = do
-    try (reserved "match")
+    reserved "match"
     e <- expr
     cs <- cases
     pure (Match e cs)
@@ -148,7 +151,7 @@ app = do
 
 if' :: Parser Expr
 if' = do
-    try (reserved "if")
+    reserved "if"
     pred <- expr
     conseq <- expr
     alt <- expr
@@ -156,14 +159,14 @@ if' = do
 
 fun :: Parser Expr
 fun = do
-    try (reserved "fun")
+    reserved "fun"
     params <- choice [parens (many1 small'), fmap (\x -> [x]) small']
     body <- expr
     pure (foldr Fun body params)
 
 let' :: Parser Expr
 let' = do
-    try (reserved "let")
+    reserved "let"
     bindings <- parens (many1' binding)
     body <- expr
     pure (Let bindings body)
@@ -176,13 +179,13 @@ binding = parens (bindingTyped <|> bindingUntyped)
     bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
 
 typeAscr :: Parser Expr
-typeAscr = try (reserved ":") *> liftA2 TypeAscr expr type'
+typeAscr = reserved ":" *> liftA2 TypeAscr expr type'
 
 scheme :: Parser Scheme
 scheme = wrap nonptype <|> parens (universal <|> wrap ptype')
   where
     wrap = fmap (Forall Set.empty)
-    universal = try (reserved "forall") *> liftA2 Forall tvars type'
+    universal = reserved "forall" *> liftA2 Forall tvars type'
     tvars = parens (fmap Set.fromList (many tvar))
 
 type' :: Parser Type
@@ -202,17 +205,14 @@ tapp = liftA2 TConst big (many1 type')
 
 tfun :: Parser Type
 tfun = do
-    try (reserved "Fun")
+    reserved "Fun"
     t <- type'
     ts <- many1 type'
     pure (foldr1 TFun (t : ts))
 
 tprim :: Parser TPrim
 tprim = try $ do
-    s <- Token.identifier lexer
-    let c = head s
-    when (not (isUpper c))
-        $ fail "Type-name must start with an uppercase letter."
+    s <- big
     case s of
         "Unit" -> pure TUnit
         "Int" -> pure TInt
@@ -228,11 +228,13 @@ tvar = fmap TVExplicit small'
 -- Note that () and [] can be used interchangeably, as long as the
 -- opening and closing bracket matches.
 parens :: Parser a -> Parser a
-parens p = choice (map (($ p) . ($ lexer)) [Token.parens, Token.brackets])
+parens p = choice
+    (map (($ p) . uncurry between . both symbol) [("(", ")"), ("[", "]")])
+
 
 big :: Parser String
 big = try $ do
-    s <- Token.identifier lexer
+    s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")
         then pure s
@@ -243,7 +245,7 @@ small' = fmap Id small
 
 small :: Parser String
 small = try $ do
-    s <- Token.identifier lexer
+    s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")
         then
@@ -251,27 +253,34 @@ small = try $ do
                 "Small identifier must not start with an uppercase letter or colon."
         else pure s
 
+identifier :: Parser String
+identifier = do
+    name <- ident
+    if elem name reserveds
+        then unexpected (Label (toList1 ("reserved word " ++ show name)))
+        else pure name
+
+ident :: Parser String
+ident = lexeme $ label "identifier" $ liftA2 (:) identStart (many identLetter)
+
+identStart :: Parser Char
+identStart =
+    choice [letterChar, otherChar, try (oneOf "-+" <* notFollowedBy digitChar)]
+
+identLetter :: Parser Char
+identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
+
 reserved :: String -> Parser ()
-reserved = Token.reserved lexer
+reserved x = do
+    if not (elem x reserveds)
+        then ice ("`" ++ x ++ "` is not a reserved word")
+        else label ("reserved word " ++ x) (try (mfilter (== x) ident)) $> ()
 
-lexer :: Token.GenTokenParser String () Identity
-lexer = Token.makeTokenParser langDef
+lexeme :: Parser a -> Parser a
+lexeme = Lexer.lexeme space
 
-langDef :: Token.LanguageDef ()
-langDef = Token.LanguageDef
-    { Token.commentStart = ";{"
-    , Token.commentEnd = ";}"
-    , Token.commentLine = ";"
-    , Token.nestedComments = True
-    , Token.opStart = parserZero
-    , Token.opLetter = parserZero
-    , Token.reservedOpNames = []
-    , Token.identStart = choice
-        [letter, symbol, try (oneOf "-+" <* notFollowedBy digit)]
-    , Token.identLetter = letter <|> symbol <|> oneOf "-+" <|> digit
-    , Token.reservedNames = reserveds
-    , Token.caseSensitive = True
-    }
+symbol :: String -> Parser String
+symbol = Lexer.symbol space
 
 reserveds :: [String]
 reserveds =
@@ -288,10 +297,11 @@ reserveds =
     , "if"
     , "fun"
     , "let"
+    , "type"
     ]
 
-symbol :: Parsec String () Char
-symbol = satisfy
+otherChar :: Parser Char
+otherChar = satisfy
     (\c -> and
         [ any ($ c) [isMark, isPunctuation, isSymbol]
         , not (elem c "()[]{}")
@@ -299,5 +309,11 @@ symbol = satisfy
         ]
     )
 
-many1' :: Stream s m t => ParsecT s u m a -> ParsecT s u m (NonEmpty a)
+many1' :: Parser a -> Parser (NonEmpty a)
 many1' = fmap (fromJust . nonEmpty) . many1
+
+many1 :: Parser a -> Parser [a]
+many1 p = liftA2 (:) p (many p)
+
+nop :: Parser ()
+nop = pure ()

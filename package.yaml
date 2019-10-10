@@ -21,7 +21,7 @@ description:         Please see the README on GitLab at <https://gitlab.com/JoJo
 
 dependencies:
 - base
-- parsec
+- megaparsec
 - either
 - QuickCheck
 - containers
@@ -38,6 +38,7 @@ dependencies:
 - composition-extra
 - prettyprinter
 - process
+- scientific
 
 library:
   source-dirs: src

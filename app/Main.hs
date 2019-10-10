@@ -50,7 +50,7 @@ parse' f src = do
         else pure src
     putStrLn "Parsing..."
     case parse f src' of
-        Left e -> putStrLn ("Parse error:\n" ++ show e) >> exitFailure
+        Left e -> putStrLn ("Parse error:\n" ++ e) >> exitFailure
         Right p -> writeFile "out.parsed" (pretty p) $> p
 
 typecheck' :: Ast.Program -> IO AnnotAst.Program

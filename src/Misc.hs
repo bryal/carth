@@ -13,6 +13,7 @@ module Misc
     , indent
     , showChar''
     , showChar'
+    , both
     )
 where
 
@@ -72,3 +73,6 @@ showChar'' = \case
 
 showChar' :: Char -> String
 showChar' c = "'" ++ showChar'' c ++ "'"
+
+both :: (a -> b) -> (a, a) -> (b, b)
+both f (a0, a1) = (f a0, f a1)
