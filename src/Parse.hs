@@ -88,6 +88,7 @@ unit = try (reserved "unit") $> Lit Unit
 num :: Parser Expr
 num = do
     neg <- option False (char '-' $> True)
+    -- TODO: Seems to accept "10f" as "10" and "f", but should fail that.
     a <- Token.naturalOrFloat lexer
     let
         e = either
