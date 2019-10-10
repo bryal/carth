@@ -11,7 +11,6 @@ import qualified Text.Megaparsec as Parsec
 import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
-import Data.Scientific (floatingOrInteger)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Either.Combinators
@@ -95,9 +94,15 @@ unit :: Parser Expr'
 unit = reserved "unit" $> Lit Unit
 
 num :: Parser Expr'
-num = lexeme $ fmap
-    (Lit . either Double Int . floatingOrInteger)
-    (Lexer.signed nop Lexer.scientific)
+num = lexeme $ do
+    neg <- option False (char '-' $> True)
+    a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
+    let
+        e = either
+            (\n -> Int (if neg then -n else n))
+            (\x -> Double (if neg then -x else x))
+            a
+    pure (Lit e)
 
 charLit :: Parser Expr'
 charLit = lexeme
@@ -318,9 +323,6 @@ many1' = fmap (fromJust . nonEmpty) . many1
 
 many1 :: Parser a -> Parser [a]
 many1 p = liftA2 (:) p (many p)
-
-nop :: Parser ()
-nop = pure ()
 
 withPos :: Parser a -> Parser (WithPos a)
 withPos = liftA2 WithPos getSourcePos
