@@ -2,7 +2,6 @@
 
 module ParseSpec where
 
-import Text.Parsec hiding (parse)
 import Test.Hspec
 import Test.QuickCheck
 

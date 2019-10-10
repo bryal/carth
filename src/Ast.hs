@@ -32,7 +32,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List
 import Control.Lens (makeLenses)
-import Text.Megaparsec.Pos (SourcePos)
+import Text.Megaparsec.Pos
 
 import Misc
 import FreeVars
@@ -40,7 +40,8 @@ import NonEmpty
 
 data WithPos a = WithPos SourcePos a
 
-instance Show a => Show (WithPos a) where show (WithPos _ a) = show a
+instance Show a => Show (WithPos a) where
+    showsPrec p (WithPos _ a) = showsPrec p a
 instance Eq a => Eq (WithPos a) where (WithPos _ a) == (WithPos _ b) = a == b
 
 newtype Id =

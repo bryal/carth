@@ -93,3 +93,4 @@ tests:
     - carth
     - hspec
     - hspec-discover
+    - megaparsec

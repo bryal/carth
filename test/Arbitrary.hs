@@ -8,6 +8,7 @@ import qualified Data.Map as Map
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Modifiers
+import Text.Megaparsec.Pos
 
 import Parse
 import Ast
@@ -22,9 +23,12 @@ instance Arbitrary TypeDef where
 instance Arbitrary ConstructorDefs where
     arbitrary = arbitraryConstructorDefs
     shrink (ConstructorDefs cs) = map ConstructorDefs (shrink cs)
-instance Arbitrary Expr where
-    arbitrary = arbitraryExpr
-    shrink = shrinkExpr
+instance Arbitrary Expr' where
+    arbitrary = arbitraryExpr'
+    shrink = shrinkExpr'
+instance Arbitrary a => Arbitrary (WithPos a) where
+    arbitrary = fmap (WithPos dummyPos) arbitrary
+    shrink x = fmap (WithPos (getPos x)) (shrink (unpos x))
 instance Arbitrary Const where
     arbitrary = arbitraryConst
 instance Arbitrary Pat where
@@ -45,6 +49,9 @@ instance Arbitrary a => Arbitrary (NonEmpty a) where
     arbitrary = arbitraryNonEmpty
     shrink (x :| xs) = [x' :| xs' | (x', xs') <- shrink (x, xs)]
 
+dummyPos :: SourcePos
+dummyPos = initialPos "DUMMY"
+
 arbitraryProgram :: Gen Program
 arbitraryProgram = do
     main <- arbitrary
@@ -64,8 +71,8 @@ arbitraryConstructorDefs = fmap
 arbitraryConstructorDef :: Gen (String, [Type])
 arbitraryConstructorDef = liftA2 (,) arbitraryBig (vectorOf' (0, 5) arbitrary)
 
-arbitraryExpr :: Gen Expr
-arbitraryExpr = frequency
+arbitraryExpr' :: Gen Expr'
+arbitraryExpr' = frequency
     [ (5, fmap Lit arbitrary)
     , (5, fmap Var arbitrary)
     , (2, applyArbitrary2 App)
@@ -127,7 +134,9 @@ arbitrarySmall = do
     let first = frequency [(26, choose ('a', 'z')), (4, elements ['_', '?'])]
     firsts <- frequency
         [ (10, fmap pure first)
-        , (1, liftM2 (\a b -> a : [b]) (elements ['-', '+']) (choose ('a', 'z')))
+        , ( 1
+          , liftM2 (\a b -> a : [b]) (elements ['-', '+']) (choose ('a', 'z'))
+          )
         ]
     rest <- arbitraryRestIdent
     let id = firsts ++ rest
@@ -154,15 +163,19 @@ shrinkProgram (Program main defs tdefs) =
 shrinkTypeDef :: TypeDef -> [TypeDef]
 shrinkTypeDef (TypeDef x tvs cs) = map (uncurry (TypeDef x)) (shrink (tvs, cs))
 
-shrinkExpr :: Expr -> [Expr]
-shrinkExpr = \case
-    App f x -> [Lit Unit, f, x] ++ [ App f' x' | (f', x') <- shrink (f, x) ]
+shrinkExpr' :: Expr' -> [Expr']
+shrinkExpr' = \case
+    App f x ->
+        [Lit Unit, unpos f, unpos x]
+            ++ [ App f' x' | (f', x') <- shrink (f, x) ]
     If p c a ->
-        [Lit Unit, p, c, a] ++ [ If p' c' a' | (p', c', a') <- shrink (p, c, a) ]
-    Fun p b -> [Lit Unit, b] ++ [ Fun p' b' | (p', b') <- shrink (p, b) ]
-    Let bs x -> [Lit Unit, x] ++ [ Let bs' x' | (bs', x') <- shrink (bs, x) ]
+        [Lit Unit, unpos p, unpos c, unpos a]
+            ++ [ If p' c' a' | (p', c', a') <- shrink (p, c, a) ]
+    Fun p b -> [Lit Unit, unpos b] ++ [ Fun p' b' | (p', b') <- shrink (p, b) ]
+    Let bs x ->
+        [Lit Unit, unpos x] ++ [ Let bs' x' | (bs', x') <- shrink (bs, x) ]
     Match e cs ->
-        [Lit Unit, e] ++ [ Match e' cs' | (e', cs') <- shrink (e, cs) ]
+        [Lit Unit, unpos e] ++ [ Match e' cs' | (e', cs') <- shrink (e, cs) ]
     FunMatch cs -> Lit Unit : map FunMatch (shrink cs)
     _ -> []
 
