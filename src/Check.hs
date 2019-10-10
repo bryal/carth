@@ -8,7 +8,6 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Control.Applicative (liftA2)
 import Data.Either.Combinators
 import Data.Bifunctor
 import Data.Composition
@@ -74,13 +73,16 @@ initSt :: St
 initSt = St {_tvCount = 0, _substs = Map.empty}
 
 fresh :: Infer Type
-fresh = fmap (TVar . TVImplicit) fresh'
+fresh = fmap TVar fresh'
+
+fresh' :: Infer TVar
+fresh' = fmap TVImplicit fresh''
 
 freshVar :: Infer String
-freshVar = fmap show fresh'
+freshVar = fmap show fresh''
 
-fresh' :: Infer Int
-fresh' = tvCount <<+= 1
+fresh'' :: Infer Int
+fresh'' = tvCount <<+= 1
 
 withTypes :: [Ast.TypeDef] -> Infer a -> Infer a
 withTypes tds =
@@ -223,20 +225,31 @@ inferCases cases = do
     forM_ tbodies (unify tbody)
     pure (tpat, tbody, cases')
 
+-- TODO: Have vars of pattern in env when inferring body
 inferCase :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
-inferCase (p, b) =
-    liftA2 (\(tp, p') (tb, b') -> (tp, tb, (p', b'))) (inferPat p) (infer b)
+inferCase (p, b) = do
+    (tp, p', pvs) <- inferPat p
+    (tb, b') <- withLocals' pvs (infer b)
+    pure (tp, tb, (p', b'))
 
-inferPat :: Ast.Pat -> Infer (Type, Pat)
+inferPat :: Ast.Pat -> Infer (Type, Pat, Map String Scheme)
 inferPat = \case
     Ast.PConstructor c -> inferPatUnappliedConstructor c
     Ast.PConstruction c ps -> inferPatConstruction c (fromList1 ps)
-    Ast.PVar (Ast.Id x) -> fmap (\tv -> (tv, PVar (TypedVar x tv))) fresh
+    Ast.PVar (Ast.Id x) -> do
+        tv <- fresh'
+        let tv' = TVar tv
+        pure
+            ( tv'
+            , PVar (TypedVar x tv')
+            , Map.singleton x (Forall (Set.singleton tv) tv')
+            )
 
-inferPatUnappliedConstructor :: String -> Infer (Type, Pat)
+inferPatUnappliedConstructor :: String -> Infer (Type, Pat, Map String Scheme)
 inferPatUnappliedConstructor c = inferPatConstruction c []
 
-inferPatConstruction :: String -> [Ast.Pat] -> Infer (Type, Pat)
+inferPatConstruction
+    :: String -> [Ast.Pat] -> Infer (Type, Pat, Map String Scheme)
 inferPatConstruction c cArgs = do
     ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
     let arity = length cParams
@@ -246,9 +259,16 @@ inferPatConstruction c cArgs = do
         $ ("Arity mismatch for constructor `" ++ c ++ "` in pattern. ")
         ++ ("Expected " ++ show arity ++ ", found " ++ show nArgs)
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
-    (cArgTs, cArgs') <- fmap unzip (mapM inferPat cArgs)
+    (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
+    cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip cParams' cArgTs) (uncurry unify)
-    pure (t, PConstruction c cArgs')
+    pure (t, PConstruction c cArgs', cArgsVars')
+
+nonconflictingPatVarDefs :: [Map String a] -> Infer (Map String a)
+nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
+    case listToMaybe (Map.keys (Map.intersection acc ks)) of
+        Just k -> throwError $ "Conflicting definitions for `" ++ k ++ "`"
+        Nothing -> pure (Map.union acc ks)
 
 inferExprConstructor :: String -> Infer (Type, Expr)
 inferExprConstructor c = do
