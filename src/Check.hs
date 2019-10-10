@@ -9,6 +9,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Applicative (liftA2)
+import Data.Either.Combinators
 import Data.Bifunctor
 import Data.Composition
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
@@ -42,6 +43,7 @@ data St = St
     { _tvCount :: Int
     , _substs :: Subst
     }
+    deriving (Show)
 makeLenses ''St
 
 -- | Type checker monad
@@ -51,10 +53,11 @@ typecheck :: Ast.Program -> Either TypeErr Program
 typecheck = runInfer . inferProgram
 
 runInfer :: Infer Program -> Either TypeErr Program
-runInfer m = runExcept $ do
-    (p, st) <- runStateT (runReaderT m initEnv) initSt
-    let s = view substs st
-    pure (substProgram s p)
+runInfer m = flip mapRight (runInfer' m) $ \(p, st) ->
+                 substProgram (view substs st) p
+
+runInfer' :: Infer a -> Either TypeErr (a, St)
+runInfer' = runExcept . flip runStateT initSt . flip runReaderT initEnv
 
 initEnv :: Env
 initEnv = Env
