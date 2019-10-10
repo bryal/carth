@@ -13,10 +13,6 @@ module Ast
     , Pat(..)
     , Expr'(..)
     , Expr
-    , WithPos(..)
-    , unpos
-    , getPos
-    , onPosd
     , Def
     , ConstructorDefs(..)
     , TypeDef(..)
@@ -32,17 +28,11 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List
 import Control.Lens (makeLenses)
-import Text.Megaparsec.Pos
 
 import Misc
+import SrcPos
 import FreeVars
 import NonEmpty
-
-data WithPos a = WithPos SourcePos a
-
-instance Show a => Show (WithPos a) where
-    showsPrec p (WithPos _ a) = showsPrec p a
-instance Eq a => Eq (WithPos a) where (WithPos _ a) == (WithPos _ b) = a == b
 
 newtype Id =
     Id String
@@ -173,7 +163,6 @@ instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType
 instance Pretty TPrim              where pretty' _ = prettyTPrim
 instance Pretty TVar               where pretty' _ = prettyTVar
-instance Pretty a => Pretty (WithPos a) where pretty' d = pretty' d . unpos
 
 prettyProg :: Int -> Program -> String
 prettyProg d (Program main defs tdefs) =
@@ -304,12 +293,3 @@ prettyTVar :: TVar -> String
 prettyTVar = \case
     TVExplicit (Id v) -> v
     TVImplicit n -> "#" ++ show n
-
-onPosd :: (a -> b) -> WithPos a -> b
-onPosd f = f . unpos
-
-getPos :: WithPos a -> SourcePos
-getPos (WithPos p _) = p
-
-unpos :: WithPos a -> a
-unpos (WithPos _ a) = a

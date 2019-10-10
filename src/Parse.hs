@@ -18,6 +18,7 @@ import Data.Void
 import Data.Composition
 
 import Misc
+import SrcPos
 import Ast
 import NonEmpty
 

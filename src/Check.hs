@@ -18,13 +18,11 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
 
-import Text.Megaparsec.Pos (sourcePosPretty)
-
 import Misc
+import SrcPos
 import FreeVars
 import NonEmpty
 import qualified Ast
-import Ast (WithPos(..), unpos)
 import AnnotAst
 
 type TypeErr = String
@@ -181,7 +179,7 @@ checkUserSchemes scms = forM_ scms check
             ++ pretty s2
 
 infer :: Ast.Expr -> Infer (Type, Expr)
-infer = Ast.onPosd $ \case
+infer = onPosd $ \case
     Ast.Lit l -> pure (litType l, Lit l)
     Ast.Var x@(Ast.Id x') ->
         fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)

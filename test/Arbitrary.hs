@@ -8,8 +8,8 @@ import qualified Data.Map as Map
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
 import Test.QuickCheck.Modifiers
-import Text.Megaparsec.Pos
 
+import SrcPos
 import Parse
 import Ast
 import NonEmpty
@@ -48,9 +48,6 @@ instance Arbitrary TPrim where
 instance Arbitrary a => Arbitrary (NonEmpty a) where
     arbitrary = arbitraryNonEmpty
     shrink (x :| xs) = [x' :| xs' | (x', xs') <- shrink (x, xs)]
-
-dummyPos :: SourcePos
-dummyPos = initialPos "DUMMY"
 
 arbitraryProgram :: Gen Program
 arbitraryProgram = do
