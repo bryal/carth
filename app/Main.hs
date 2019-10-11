@@ -57,7 +57,7 @@ typecheck' :: Ast.Program -> IO AnnotAst.Program
 typecheck' p = do
     putStrLn "Typechecking..."
     case typecheck p of
-        Left e -> putStrLn ("Typecheck error:\n" ++ e) >> exitFailure
+        Left e -> putStrLn ("Typecheck error:\n" ++ pretty e) >> exitFailure
         Right p -> writeFile "out.checked" (show p) $> p
 
 monomorphize' :: AnnotAst.Program -> IO MonoAst.Program

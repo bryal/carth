@@ -1,5 +1,5 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
-  , TypeSynonymInstances, FlexibleInstances, RankNTypes #-}
+  , TypeSynonymInstances, FlexibleInstances, RankNTypes, FlexibleContexts #-}
 
 module Check (typecheck) where
 
@@ -25,7 +25,12 @@ import NonEmpty
 import qualified Ast
 import AnnotAst
 
-type TypeErr = String
+data TypeErr = OtherErr String | PosErr SourcePos String
+
+instance Pretty TypeErr where
+    pretty' _ = \case
+        OtherErr msg -> msg
+        PosErr p msg -> msg ++ "\n    at position " ++ sourcePosPretty p
 
 data Env = Env
     { _envDefs :: Map String Scheme
@@ -170,10 +175,8 @@ checkUserSchemes scms = forM_ scms check
   where
     check (WithPos p s1@(Forall _ t)) = generalize t >>= \s2 ->
         when (s1 /= s2)
-            $ throwError
-            $ "Invalid user type signature at pos `"
-            ++ sourcePosPretty p
-            ++ "`, "
+            $ posErr p
+            $ "Invalid user type signature "
             ++ pretty s1
             ++ ", expected "
             ++ pretty s2
@@ -263,7 +266,7 @@ inferPatConstruction c cArgs = do
     let arity = length cParams
     let nArgs = length cArgs
     unless (arity == nArgs)
-        $ throwError
+        $ otherErr
         $ ("Arity mismatch for constructor `" ++ c ++ "` in pattern. ")
         ++ ("Expected " ++ show arity ++ ", found " ++ show nArgs)
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
@@ -275,7 +278,7 @@ inferPatConstruction c cArgs = do
 nonconflictingPatVarDefs :: [Map String a] -> Infer (Map String a)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
-        Just k -> throwError $ "Conflicting definitions for `" ++ k ++ "`"
+        Just k -> otherErr $ "Conflicting definitions for `" ++ k ++ "`"
         Nothing -> pure (Map.union acc ks)
 
 inferExprConstructor :: String -> Infer (Type, Expr)
@@ -299,7 +302,7 @@ lookupEnvConstructor cx = views envConstructors (Map.lookup cx) >>= \case
         Just cps -> pure (cps, (tx, tps))
         Nothing ->
             ice $ "lookup failed for ctor `" ++ cx ++ "` in type `" ++ tx ++ "`"
-    Nothing -> throwError $ "Undefined constructor: " ++ cx
+    Nothing -> otherErr $ "Undefined constructor: " ++ cx
 
 lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
 lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = Map.lookup cx cs
@@ -316,7 +319,7 @@ litType = \case
 lookupEnv :: Ast.Id -> Infer Type
 lookupEnv (Ast.Id x) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
-    Nothing -> throwError ("Unbound variable: " ++ x)
+    Nothing -> otherErr ("Unbound variable: " ++ x)
 
 -- Substitution
 --------------------------------------------------------------------------------
@@ -378,16 +381,16 @@ unify'' = curry $ \case
         else unifys ts0 ts1
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t ->
-        throwError (concat ["Infinite type: ", pretty a, ", ", pretty t])
+        otherErr (concat ["Infinite type: ", pretty a, ", ", pretty t])
     -- Do not allow "override" of explicit (user given) type variables.
     (a@(TVar (TVExplicit _)), b@(TVar (TVImplicit _))) -> unify'' b a
     (a@(TVar (TVExplicit _)), b) ->
-        throwError $ "Unification failed: " ++ pretty a ++ ", " ++ pretty b
+        otherErr $ "Unification failed: " ++ pretty a ++ ", " ++ pretty b
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unify'' (TVar a) t
     (TFun t1 t2, TFun u1 u2) -> unifys [t1, t2] [u1, u2]
     (t1, t2) ->
-        throwError (concat ["Unification failed: ", pretty t1, ", ", pretty t2])
+        otherErr (concat ["Unification failed: ", pretty t1, ", ", pretty t2])
 
 unifys :: [Type] -> [Type] -> Except TypeErr Subst
 unifys ts us = foldM
@@ -430,3 +433,9 @@ ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs
 
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
+
+otherErr :: MonadError TypeErr m => String -> m a
+otherErr = throwError . OtherErr
+
+posErr :: MonadError TypeErr m => SourcePos -> String -> m a
+posErr = throwError .* PosErr
