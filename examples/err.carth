@@ -11,9 +11,12 @@
 ;;     [(Integ foo bar) foo]))
 
 ;; Conflicting definitions of variables in pattern
-(define conflicting-defs-in-pat
-  (match (IntPair 1 2)
-    [(IntPair a a) a]))
+;; (define conflicting-defs-in-pat
+;;   (match (IntPair 1 2)
+;;     [(IntPair a a) a]))
+
+;; Undefined constructor
+(define undef-ctor UndefCtor)
 
 ;; Helpers
 (type Integ (Integ Int))

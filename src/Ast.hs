@@ -72,8 +72,8 @@ data Pat'
     -- TODO: Should we really be discriminating between unapplied constructors
     --       and constructions with >0 arguments at this level? Consider
     --       `PConstructor "Foo"` and `PConstruction "Foo" []`.
-    = PConstructor String
-    | PConstruction String
+    = PConstructor Id
+    | PConstruction Id
                     (NonEmpty Pat)
     | PVar Id
     deriving (Show, Eq)
@@ -105,7 +105,7 @@ data Expr'
     | Match Expr
             (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
-    | Constructor String
+    | Constructor Id
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
@@ -265,13 +265,13 @@ prettyExpr' d = \case
             (map1 (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
-    Constructor c -> c
+    Constructor c -> pretty c
 
 prettyPat' :: Pat' -> String
 prettyPat' = \case
-    PConstructor c -> c
+    PConstructor c -> idstr c
     PConstruction c ps ->
-        concat ["(", c, precalate " " (fromList1 (map1 pretty ps)), ")"]
+        concat ["(", idstr c, precalate " " (fromList1 (map1 pretty ps)), ")"]
     PVar v -> idstr v
 
 prettyConst :: Const -> String

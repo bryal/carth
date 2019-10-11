@@ -124,7 +124,7 @@ var :: Parser Expr'
 var = fmap Var small'
 
 eConstructor :: Parser Expr'
-eConstructor = fmap Constructor big
+eConstructor = fmap Constructor big'
 
 pexpr :: Parser Expr'
 pexpr = parens (choice [funMatch, match, if', fun, let', typeAscr, app])
@@ -148,8 +148,8 @@ case' = parens (liftM2 (,) pat expr)
 pat :: Parser Pat
 pat = withPos $ patTor <|> patTion <|> patVar
   where
-    patTor = fmap PConstructor big
-    patTion = parens (liftM2 PConstruction big (many1' pat))
+    patTor = fmap PConstructor big'
+    patTion = parens (liftM2 PConstruction big' (many1' pat))
     patVar = fmap PVar small'
 
 app :: Parser Expr'
@@ -243,6 +243,8 @@ parens :: Parser a -> Parser a
 parens p = choice
     (map (($ p) . uncurry between . both symbol) [("(", ")"), ("[", "]")])
 
+big' :: Parser Id
+big' = withPos big
 
 big :: Parser String
 big = try $ do

@@ -247,7 +247,7 @@ inferCase (p, b) = do
 
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map Id Scheme)
 inferPat (WithPos pos pat) = case pat of
-    Ast.PConstructor c -> inferPatUnappliedConstructor pos c
+    Ast.PConstructor c -> inferPatUnappliedConstructor c
     Ast.PConstruction c ps -> inferPatConstruction pos c (fromList1 ps)
     Ast.PVar x -> do
         tv <- fresh'
@@ -258,25 +258,24 @@ inferPat (WithPos pos pat) = case pat of
             , Map.singleton x (Forall (Set.singleton tv) tv')
             )
 
-inferPatUnappliedConstructor
-    :: SourcePos -> String -> Infer (Type, Pat, Map Id Scheme)
-inferPatUnappliedConstructor pos c = inferPatConstruction pos c []
+inferPatUnappliedConstructor :: Id -> Infer (Type, Pat, Map Id Scheme)
+inferPatUnappliedConstructor c = inferPatConstruction (getPos c) c []
 
 inferPatConstruction
-    :: SourcePos -> String -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
+    :: SourcePos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
 inferPatConstruction pos c cArgs = do
     ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
     unless (arity == nArgs)
         $ posErr pos
-        $ ("Arity mismatch for constructor `" ++ c ++ "` in pattern. ")
+        $ ("Arity mismatch for constructor `" ++ pretty c ++ "` in pattern. ")
         ++ ("Expected " ++ show arity ++ ", found " ++ show nArgs)
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
     (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip cParams' cArgTs) (uncurry unify)
-    pure (t, PConstruction c cArgs', cArgsVars')
+    pure (t, PConstruction (idstr c) cArgs', cArgsVars')
 
 nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
@@ -288,11 +287,11 @@ nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
                 ++ "` in pattern"
         Nothing -> pure (Map.union acc ks)
 
-inferExprConstructor :: String -> Infer (Type, Expr)
+inferExprConstructor :: Id -> Infer (Type, Expr)
 inferExprConstructor c = do
     ctorOfTypeDef <- lookupEnvConstructor c
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
-    pure (foldr TFun t cParams', Constructor c)
+    pure (foldr TFun t cParams', Constructor (idstr c))
 
 instantiateConstructorOfTypeDef
     :: ([Type], (String, [Id])) -> Infer ([Type], Type)
@@ -303,13 +302,20 @@ instantiateConstructorOfTypeDef (cParams, (tName, tParams)) = do
     let t = TConst tName tVars
     pure (cParams', t)
 
-lookupEnvConstructor :: String -> Infer ([Type], (String, [Id]))
-lookupEnvConstructor cx = views envConstructors (Map.lookup cx) >>= \case
-    Just (Ast.TypeDef tx tps cs) -> case lookupConstructorParamTypes cx cs of
-        Just cps -> pure (cps, (tx, tps))
-        Nothing ->
-            ice $ "lookup failed for ctor `" ++ cx ++ "` in type `" ++ tx ++ "`"
-    Nothing -> otherErr $ "Undefined constructor: " ++ cx
+lookupEnvConstructor :: Id -> Infer ([Type], (String, [Id]))
+lookupEnvConstructor (WithPos pos cx) =
+    views envConstructors (Map.lookup cx) >>= \case
+        Just (Ast.TypeDef tx tps cs) ->
+            case lookupConstructorParamTypes cx cs of
+                Just cps -> pure (cps, (tx, tps))
+                Nothing ->
+                    ice
+                        $ "lookup failed for ctor `"
+                        ++ cx
+                        ++ "` in type `"
+                        ++ tx
+                        ++ "`"
+        Nothing -> posErr pos $ "Undefined constructor: " ++ cx
 
 lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
 lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = Map.lookup cx cs
