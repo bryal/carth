@@ -53,7 +53,7 @@ typedef = do
     let onlyName = fmap (, []) big
     let nameAndMany1 = parens . liftA2 (,) big . many1
     (name, params) <- onlyName <|> nameAndMany1 small'
-    constrs <- many (onlyName <|> nameAndMany1 type')
+    constrs <- many (onlyName <|> nameAndMany1 type_)
     pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
 
 def :: Parser Def
@@ -186,17 +186,17 @@ binding = parens (bindingTyped <|> bindingUntyped)
     bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
 
 typeAscr :: Parser Expr'
-typeAscr = reserved ":" *> liftA2 TypeAscr expr type'
+typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
 
 scheme :: Parser (WithPos Scheme)
 scheme = withPos $ wrap nonptype <|> parens (universal <|> wrap ptype')
   where
     wrap = fmap (Forall Set.empty)
-    universal = reserved "forall" *> liftA2 Forall tvars type'
+    universal = reserved "forall" *> liftA2 Forall tvars type_
     tvars = parens (fmap Set.fromList (many tvar))
 
-type' :: Parser Type
-type' = nonptype <|> ptype
+type_ :: Parser Type
+type_ = nonptype <|> ptype
 
 nonptype :: Parser Type
 nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (flip TConst []) big]
@@ -208,13 +208,13 @@ ptype' :: Parser Type
 ptype' = tfun <|> tapp
 
 tapp :: Parser Type
-tapp = liftA2 TConst big (many1 type')
+tapp = liftA2 TConst big (many1 type_)
 
 tfun :: Parser Type
 tfun = do
     reserved "Fun"
-    t <- type'
-    ts <- many1 type'
+    t <- type_
+    ts <- many1 type_
     pure (foldr1 TFun (t : ts))
 
 tprim :: Parser TPrim

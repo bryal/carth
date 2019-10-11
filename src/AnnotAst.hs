@@ -8,8 +8,6 @@ module AnnotAst
     , TPrim(..)
     , Type(..)
     , Scheme(..)
-    , scmParams
-    , scmBody
     , TypedVar(..)
     , Pat(..)
     , Const(..)
@@ -21,8 +19,7 @@ where
 
 import Data.Map.Strict (Map)
 
-import Ast
-    (TVar(..), TPrim(..), Type(..), Scheme(..), scmParams, scmBody, Const(..))
+import Ast (TVar(..), TPrim(..), Type(..), Scheme(..), Const(..))
 
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)

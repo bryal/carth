@@ -23,7 +23,7 @@ import SrcPos
 import FreeVars
 import NonEmpty
 import qualified Ast
-import Ast (Id, idstr)
+import Ast (Id, idstr, scmBody)
 import AnnotAst
 
 data TypeErr = OtherErr String | PosErr SourcePos String

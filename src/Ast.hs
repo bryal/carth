@@ -57,8 +57,9 @@ data Type
     = TVar TVar
     | TPrim TPrim
     | TConst String [Type]
-    | TFun Type
-           Type
+    -- TODO: Not curried yet! Handle that in the parser instead, so that AST
+    -- matches closer to what's actually parsed. That will improve error msgs
+    | TFun Type Type
     deriving (Show, Eq, Ord)
 
 data Scheme = Forall
@@ -96,8 +97,9 @@ data Expr'
     | If Expr
          Expr
          Expr
-    | Fun Id
-          Expr
+    -- TODO: Not curried yet! Handle that in the parser instead, so that AST
+    -- matches closer to what's actually parsed. That will improve error msgs
+    | Fun Id Expr
     | Let (NonEmpty Def)
           Expr
     | TypeAscr Expr Type
@@ -149,25 +151,25 @@ bvPat = onPosd $ \case
     PConstruction _ ps -> Set.unions (map1 bvPat ps)
     PVar x -> Set.singleton x
 
-instance Pretty Program            where
+instance Pretty Program where
     pretty' = prettyProg
-instance Pretty ConstructorDefs    where
+instance Pretty ConstructorDefs where
     pretty' = prettyConstructorDefs
-instance Pretty TypeDef            where
+instance Pretty TypeDef where
     pretty' = prettyTypeDef
-instance Pretty Expr'              where
+instance Pretty Expr' where
     pretty' = prettyExpr'
-instance Pretty Pat'               where
+instance Pretty Pat' where
     pretty' _ = prettyPat'
-instance Pretty Const              where
+instance Pretty Const where
     pretty' _ = prettyConst
-instance Pretty Scheme             where
+instance Pretty Scheme where
     pretty' _ = prettyScheme
-instance Pretty Type               where
+instance Pretty Type where
     pretty' _ = prettyType
-instance Pretty TPrim              where
+instance Pretty TPrim where
     pretty' _ = prettyTPrim
-instance Pretty TVar               where
+instance Pretty TVar where
     pretty' _ = prettyTVar
 
 prettyProg :: Int -> Program -> String
