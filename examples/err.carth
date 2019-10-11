@@ -1,6 +1,11 @@
-(define (main _)
-  (printInt (id 123)))
+(define (main _) (printInt 1))
 
-(define: (id x)
+(define: (invalid-user-type-signature x)
     (forall [a b c] (Fun a a))
   x)
+
+(type Integ (Integ Int))
+
+(define arity-mismatch-for-constructor
+  (match (Integ 1)
+    [(Integ foo bar) foo]))

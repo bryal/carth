@@ -10,7 +10,8 @@ module Ast
     , scmBody
     , Id(..)
     , Const(..)
-    , Pat(..)
+    , Pat' (..)
+    , Pat
     , Expr'(..)
     , Expr
     , Def
@@ -66,7 +67,7 @@ data Scheme = Forall
     } deriving (Show, Eq)
 makeLenses ''Scheme
 
-data Pat
+data Pat'
     -- TODO: Should we really be discriminating between unapplied constructors
     --       and constructions with >0 arguments at this level? Consider
     --       `PConstructor "Foo"` and `PConstruction "Foo" []`.
@@ -75,6 +76,8 @@ data Pat
                     (NonEmpty Pat)
     | PVar Id
     deriving (Show, Eq)
+
+type Pat = WithPos Pat'
 
 data Const
     = Unit
@@ -147,7 +150,7 @@ instance Pattern Pat Id where
     patternBoundVars = bvPat
 
 bvPat :: Pat -> Set Id
-bvPat = \case
+bvPat = onPosd $ \case
     PConstructor _ -> Set.empty
     PConstruction _ ps -> Set.unions (map1 bvPat ps)
     PVar x -> Set.singleton x
@@ -157,7 +160,7 @@ instance Pretty ConstructorDefs    where pretty' = prettyConstructorDefs
 instance Pretty TypeDef            where pretty' = prettyTypeDef
 instance Pretty Expr'              where pretty' = prettyExpr'
 instance Pretty Id                 where pretty' _ (Id s) = s
-instance Pretty Pat                where pretty' _ = prettyPat
+instance Pretty Pat'               where pretty' _ = prettyPat'
 instance Pretty Const              where pretty' _ = prettyConst
 instance Pretty Scheme             where pretty' _ = prettyScheme
 instance Pretty Type               where pretty' _ = prettyType
@@ -249,8 +252,8 @@ prettyExpr' d = \case
         ]
     Constructor c -> c
 
-prettyPat :: Pat -> String
-prettyPat = \case
+prettyPat' :: Pat' -> String
+prettyPat' = \case
     PConstructor c -> c
     PConstruction c ps ->
         concat ["(", c, precalate " " (fromList1 (map1 pretty ps)), ")"]

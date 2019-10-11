@@ -244,9 +244,9 @@ inferCase (p, b) = do
     pure (tp, tb, (p', b'))
 
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map String Scheme)
-inferPat = \case
-    Ast.PConstructor c -> inferPatUnappliedConstructor c
-    Ast.PConstruction c ps -> inferPatConstruction c (fromList1 ps)
+inferPat (WithPos pos pat) = case pat of
+    Ast.PConstructor c -> inferPatUnappliedConstructor pos c
+    Ast.PConstruction c ps -> inferPatConstruction pos c (fromList1 ps)
     Ast.PVar (Ast.Id x) -> do
         tv <- fresh'
         let tv' = TVar tv
@@ -256,17 +256,18 @@ inferPat = \case
             , Map.singleton x (Forall (Set.singleton tv) tv')
             )
 
-inferPatUnappliedConstructor :: String -> Infer (Type, Pat, Map String Scheme)
-inferPatUnappliedConstructor c = inferPatConstruction c []
+inferPatUnappliedConstructor
+    :: SourcePos -> String -> Infer (Type, Pat, Map String Scheme)
+inferPatUnappliedConstructor pos c = inferPatConstruction pos c []
 
 inferPatConstruction
-    :: String -> [Ast.Pat] -> Infer (Type, Pat, Map String Scheme)
-inferPatConstruction c cArgs = do
+    :: SourcePos -> String -> [Ast.Pat] -> Infer (Type, Pat, Map String Scheme)
+inferPatConstruction pos c cArgs = do
     ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
     unless (arity == nArgs)
-        $ otherErr
+        $ posErr pos
         $ ("Arity mismatch for constructor `" ++ c ++ "` in pattern. ")
         ++ ("Expected " ++ show arity ++ ", found " ++ show nArgs)
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef

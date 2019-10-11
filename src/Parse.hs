@@ -144,7 +144,7 @@ case' :: Parser (Pat, Expr)
 case' = parens (liftM2 (,) pat expr)
 
 pat :: Parser Pat
-pat = patTor <|> patTion <|> patVar
+pat = withPos $ patTor <|> patTion <|> patVar
   where
     patTor = fmap PConstructor big
     patTion = parens (liftM2 PConstruction big (many1' pat))
