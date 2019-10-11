@@ -117,13 +117,14 @@ withLocal b = locally envDefs (uncurry Map.insert b)
 --------------------------------------------------------------------------------
 inferProgram :: Ast.Program -> Infer Program
 inferProgram (Ast.Program defs tdefs) = do
-    Defs defs' <- withTypes tdefs (inferDefs defs)
-    (Forall _ mainT, main) <- maybe
+    (_, (WithPos mainPos _)) <- maybe
         (otherErr "main not defined")
         pure
-        (Map.lookup "main" defs')
+        (lookup "main" (map (first unpos) defs))
+    Defs defs' <- withTypes tdefs (inferDefs defs)
+    let (Forall _ mainT, main) = fromJust (Map.lookup "main" defs')
     let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
-    unify expectedMainType mainT
+    unify (Expected expectedMainType) (Found mainPos mainT)
     let defs'' = Map.delete "main" defs'
     pure (Program main (Defs defs''))
 
@@ -160,10 +161,10 @@ inferDefsComponents = \case
                 (zip mayscms' ts)
         bodies' <-
             withLocals (zip names scms)
-            $ forM (zip bodies (map (view scmBody) scms))
-            $ \(body, t1) -> do
+            $ forM (zip bodies scms)
+            $ \(body, Forall _ t1) -> do
                   (t2, body') <- infer body
-                  unify t1 t2
+                  unify (Expected t1) (Found (getPos body) t2)
                   pure body'
         generalizeds <- mapM generalize ts
         let scms' = zipWith fromMaybe generalizeds mayscms'
@@ -186,21 +187,23 @@ checkUserSchemes scms = forM_ scms check
             ++ pretty s2
 
 infer :: Ast.Expr -> Infer (Type, Expr)
-infer = onPosd $ \case
+infer (WithPos pos expr) = case expr of
     Ast.Lit l -> pure (litType l, Lit l)
     Ast.Var x -> fmap (\t -> (t, Var (TypedVar (idstr x) t))) (lookupEnv x)
     Ast.App f a -> do
-        (tf, f') <- infer f
-        (ta, a') <- infer a
+        ta <- fresh
         tr <- fresh
-        unify tf (TFun ta tr)
+        (tf', f') <- infer f
+        unify (Expected (TFun ta tr)) (Found (getPos f) tf')
+        (ta', a') <- infer a
+        unify (Expected ta) (Found pos ta')
         pure (tr, App f' a')
     Ast.If p c a -> do
         (tp, p') <- infer p
         (tc, c') <- infer c
         (ta, a') <- infer a
-        unify (TPrim TBool) tp
-        unify tc ta
+        unify (Expected (TPrim TBool)) (Found (getPos p) tp)
+        unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
     Ast.Fun p b -> do
         tp <- fresh
@@ -213,15 +216,15 @@ infer = onPosd $ \case
         pure (bt, Let (Defs annotDefs) b')
     Ast.TypeAscr x t -> do
         (tx, x') <- infer x
-        unify t tx
+        unify (Expected t) (Found (getPos x) tx)
         pure (t, x')
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
-        (tpat, tbody, cases') <- inferCases cases
-        unify tmatchee tpat
+        (tbody, cases') <- inferCases (Expected tmatchee) cases
         pure (tbody, Match matchee' cases')
     Ast.FunMatch cases -> do
-        (tpat, tbody, cases') <- inferCases cases
+        tpat <- fresh
+        (tbody, cases') <- inferCases (Expected tpat) cases
         let t = TFun tpat tbody
         x <- freshVar
         let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) cases', tbody)
@@ -230,21 +233,23 @@ infer = onPosd $ \case
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
-inferCases :: NonEmpty (Ast.Pat, Ast.Expr) -> Infer (Type, Type, [(Pat, Expr)])
-inferCases cases = do
+inferCases
+    :: ExpectedType -- Type of matchee. Expected type of pattern.
+    -> NonEmpty (Ast.Pat, Ast.Expr)
+    -> Infer (Type, [(Pat, Expr)])
+inferCases tmatchee cases = do
     (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase (fromList1 cases))
-    tpat <- fresh
-    forM_ tpats (unify tpat)
+    forM_ tpats (unify tmatchee)
     tbody <- fresh
-    forM_ tbodies (unify tbody)
-    pure (tpat, tbody, cases')
+    forM_ tbodies (unify (Expected tbody))
+    pure (tbody, cases')
 
-inferCase :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
+inferCase :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
     let pvs' = Map.mapKeys Ast.idstr pvs
     (tb, b') <- withLocals' pvs' (infer b)
-    pure (tp, tb, (p', b'))
+    pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map Id Scheme)
 inferPat (WithPos pos pat) = case pat of
@@ -275,7 +280,8 @@ inferPatConstruction pos c cArgs = do
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
     (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
-    forM_ (zip cParams' cArgTs) (uncurry unify)
+    forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
+        unify (Expected cParamT) (Found (getPos cArg) cArgT)
     pure (t, PConstruction (idstr c) cArgs', cArgsVars')
 
 nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
@@ -378,35 +384,53 @@ composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1
 
 -- Unification
 --------------------------------------------------------------------------------
-unify :: Type -> Type -> Infer ()
-unify t1 t2 = do
+newtype ExpectedType = Expected Type
+data FoundType = Found SourcePos Type
+
+unify :: ExpectedType -> FoundType -> Infer ()
+unify (Expected t1) (Found pos t2) = do
     s1 <- use substs
-    s2 <- unify' (subst s1 t1) (subst s1 t2)
+    s2 <- unify' (Expected (subst s1 t1)) (Found pos (subst s1 t2))
     assign substs (composeSubsts s2 s1)
 
-unify' :: Type -> Type -> Infer Subst
-unify' = lift . lift .* unify''
+unify' :: ExpectedType -> FoundType -> Infer Subst
+unify' (Expected t1) (Found pos t2) = lift $ lift $ withExcept
+    (\case
+        InfiniteType'' a t ->
+            PosErr pos (concat ["Infinite type: ", pretty a, ", ", pretty t])
+        UnificationFailed'' t'1 t'2 ->
+            PosErr pos
+                $ "Couldn't match type `"
+                ++ pretty t'2
+                ++ "` with `"
+                ++ pretty t'1
+                ++ "`. Expected type: "
+                ++ pretty t1
+                ++ ". Found type: "
+                ++ pretty t2
+                ++ "."
+    )
+    (unify'' t1 t2)
 
-unify'' :: Type -> Type -> Except TypeErr Subst
+data UnifyErr'' = InfiniteType'' TVar Type | UnificationFailed'' Type Type
+
+unify'' :: Type -> Type -> Except UnifyErr'' Subst
 unify'' = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty
     (TConst c0 ts0, TConst c1 ts1) | c0 == c1 -> if length ts0 /= length ts1
         then ice "lengths of TConst params differ in unify"
         else unifys ts0 ts1
     (TVar a, TVar b) | a == b -> pure Map.empty
-    (TVar a, t) | occursIn a t ->
-        otherErr (concat ["Infinite type: ", pretty a, ", ", pretty t])
+    (TVar a, t) | occursIn a t -> throwError (InfiniteType'' a t)
     -- Do not allow "override" of explicit (user given) type variables.
     (a@(TVar (TVExplicit _)), b@(TVar (TVImplicit _))) -> unify'' b a
-    (a@(TVar (TVExplicit _)), b) ->
-        otherErr $ "Unification failed: " ++ pretty a ++ ", " ++ pretty b
+    (a@(TVar (TVExplicit _)), b) -> throwError (UnificationFailed'' a b)
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unify'' (TVar a) t
     (TFun t1 t2, TFun u1 u2) -> unifys [t1, t2] [u1, u2]
-    (t1, t2) ->
-        otherErr (concat ["Unification failed: ", pretty t1, ", ", pretty t2])
+    (t1, t2) -> throwError (UnificationFailed'' t1 t2)
 
-unifys :: [Type] -> [Type] -> Except TypeErr Subst
+unifys :: [Type] -> [Type] -> Except UnifyErr'' Subst
 unifys ts us = foldM
     (\s (t, u) -> fmap (flip composeSubsts s) (unify'' (subst s t) (subst s u)))
     Map.empty

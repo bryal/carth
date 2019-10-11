@@ -1,5 +1,5 @@
 ;; Main not defined
-;; (define (main _) (printInt 1))
+(define (main _) (printInt 1))
 
 ;; Invalid user type signature
 ;; (define: (invalid-user-type-signature x)
@@ -22,6 +22,13 @@
 ;; Undefined variable
 ;; (define undef-var this-var-is-undefined)
 
+;; Infinite type
+;; (define infinite-type (Wrap infinite-type))
+
+;; Type mismatch
+(define type-mismatch (Integ "foo"))
+
 ;; Helpers
+(type (Wrap a) (Wrap a))
 (type Integ (Integ Int))
 (type IntPair (IntPair Int Int))
