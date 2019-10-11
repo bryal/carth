@@ -26,7 +26,9 @@ nyi = error . ("Not yet implemented: " ++)
 -- | Like `intercalate`, but concatenate a list with a prefix before each
 --   element, instead of an separator between each pair of elements.
 precalate :: [a] -> [[a]] -> [a]
-precalate prefix xs = prefix ++ intercalate prefix xs
+precalate prefix = \case
+    [] -> []
+    xs -> prefix ++ intercalate prefix xs
 
 -- Pretty printing
 prettyPrint :: Pretty a => a -> IO ()
