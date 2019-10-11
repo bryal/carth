@@ -16,7 +16,10 @@
 ;;     [(IntPair a a) a]))
 
 ;; Undefined constructor
-(define undef-ctor UndefCtor)
+;; (define undef-ctor ThisCtorIsUndefined)
+
+;; Undefined variable
+(define undef-var this-var-is-undefined)
 
 ;; Helpers
 (type Integ (Integ Int))

@@ -186,7 +186,7 @@ checkUserSchemes scms = forM_ scms check
 infer :: Ast.Expr -> Infer (Type, Expr)
 infer = onPosd $ \case
     Ast.Lit l -> pure (litType l, Lit l)
-    Ast.Var (WithPos _ x) -> fmap (\t -> (t, Var (TypedVar x t))) (lookupEnv x)
+    Ast.Var x -> fmap (\t -> (t, Var (TypedVar (idstr x) t))) (lookupEnv x)
     Ast.App f a -> do
         (tf, f') <- infer f
         (ta, a') <- infer a
@@ -329,10 +329,10 @@ litType = \case
     Str _ -> TPrim TStr
     Bool _ -> TPrim TBool
 
-lookupEnv :: String -> Infer Type
-lookupEnv x = views envDefs (Map.lookup x) >>= \case
+lookupEnv :: Id -> Infer Type
+lookupEnv (WithPos pos x) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
-    Nothing -> otherErr ("Unbound variable: " ++ x)
+    Nothing -> posErr pos ("Unbound variable: " ++ x)
 
 -- Substitution
 --------------------------------------------------------------------------------
