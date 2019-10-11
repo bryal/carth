@@ -45,8 +45,10 @@ toplevels :: Parser ([Def], [TypeDef])
 toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
 
 toplevel :: Parser (([Def], [TypeDef]) -> ([Def], [TypeDef]))
-toplevel =
-    parens $ choice [fmap (second . (:)) typedef, fmap (first . (:)) def]
+toplevel = do
+    topPos <- getSourcePos
+    parens $ choice
+        [fmap (second . (:)) typedef, fmap (first . (:)) (def topPos)]
 
 typedef :: Parser TypeDef
 typedef = do
@@ -57,19 +59,20 @@ typedef = do
     constrs <- many (onlyName <|> nameAndMany1 type_)
     pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
 
-def :: Parser Def
-def = defUntyped <|> defTyped
+def :: SourcePos -> Parser Def
+def topPos = defUntyped topPos <|> defTyped topPos
 
-defUntyped :: Parser Def
-defUntyped = reserved "define" *> def' (pure Nothing)
+defUntyped :: SourcePos -> Parser Def
+defUntyped = (reserved "define" *>) . def' (pure Nothing)
 
-defTyped :: Parser Def
-defTyped = reserved "define:" *> def' (fmap Just scheme)
+defTyped :: SourcePos -> Parser Def
+defTyped = (reserved "define:" *>) . def' (fmap Just scheme)
 
 def'
     :: Parser (Maybe (WithPos Scheme))
+    -> SourcePos
     -> Parser (Id, (Maybe (WithPos Scheme), Expr))
-def' schemeParser = varDef <|> funDef
+def' schemeParser topPos = varDef <|> funDef
   where
     varDef = do
         name <- small'
@@ -77,12 +80,10 @@ def' schemeParser = varDef <|> funDef
         body <- expr
         pure (name, (scm, body))
     funDef = do
-        (name, params) <- parens (liftM2 (,) small' (many1 (withPos small')))
+        (name, params) <- parens (liftM2 (,) small' (many1 small'))
         scm <- schemeParser
         body <- expr
-        let
-            fun =
-                foldr (\(WithPos pos p) b -> WithPos pos (Fun p b)) body params
+        let fun = foldr (WithPos topPos .* Fun) body params
         pure (name, (scm, fun))
 
 expr :: Parser Expr
