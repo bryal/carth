@@ -11,8 +11,7 @@ module Ast
     , Id
     , idstr
     , Const(..)
-    , Pat'(..)
-    , Pat
+    , Pat(..)
     , Expr'(..)
     , Expr
     , Def
@@ -69,17 +68,10 @@ data Scheme = Forall
     } deriving (Show, Eq)
 makeLenses ''Scheme
 
-data Pat'
-    -- TODO: Should we really be discriminating between unapplied constructors
-    --       and constructions with >0 arguments at this level? Consider
-    --       `PConstructor "Foo"` and `PConstruction "Foo" []`.
-    = PConstructor Id
-    | PConstruction Id
-                    (NonEmpty Pat)
+data Pat
+    = PConstruction SourcePos Id [Pat]
     | PVar Id
     deriving (Show, Eq)
-
-type Pat = WithPos Pat'
 
 data Const
     = Unit
@@ -147,10 +139,14 @@ instance Pattern Pat Id where
     patternBoundVars = bvPat
 
 bvPat :: Pat -> Set Id
-bvPat = onPosd $ \case
-    PConstructor _ -> Set.empty
-    PConstruction _ ps -> Set.unions (map1 bvPat ps)
+bvPat = \case
+    PConstruction _ _ ps -> Set.unions (map bvPat ps)
     PVar x -> Set.singleton x
+
+instance HasPos Pat where
+    getPos = \case
+        PConstruction p _ _ -> p
+        PVar v -> getPos v
 
 instance Pretty Program where
     pretty' = prettyProg
@@ -160,8 +156,8 @@ instance Pretty TypeDef where
     pretty' = prettyTypeDef
 instance Pretty Expr' where
     pretty' = prettyExpr'
-instance Pretty Pat' where
-    pretty' _ = prettyPat'
+instance Pretty Pat where
+    pretty' _ = prettyPat
 instance Pretty Const where
     pretty' _ = prettyConst
 instance Pretty Scheme where
@@ -262,11 +258,9 @@ prettyExpr' d = \case
         ]
     Constructor c -> pretty c
 
-prettyPat' :: Pat' -> String
-prettyPat' = \case
-    PConstructor c -> idstr c
-    PConstruction c ps ->
-        concat ["(", idstr c, " ", spcPretty (fromList1 ps), ")"]
+prettyPat :: Pat -> String
+prettyPat = \case
+    PConstruction _ c ps -> concat ["(", idstr c, " ", spcPretty ps, ")"]
     PVar v -> idstr v
 
 prettyConst :: Const -> String

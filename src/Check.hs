@@ -252,9 +252,8 @@ inferCase (p, b) = do
     pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map Id Scheme)
-inferPat (WithPos pos pat) = case pat of
-    Ast.PConstructor c -> inferPatUnappliedConstructor c
-    Ast.PConstruction c ps -> inferPatConstruction pos c (fromList1 ps)
+inferPat = \case
+    Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
     Ast.PVar x -> do
         tv <- fresh'
         let tv' = TVar tv
@@ -263,9 +262,6 @@ inferPat (WithPos pos pat) = case pat of
             , PVar (TypedVar (idstr x) tv')
             , Map.singleton x (Forall (Set.singleton tv) tv')
             )
-
-inferPatUnappliedConstructor :: Id -> Infer (Type, Pat, Map Id Scheme)
-inferPatUnappliedConstructor c = inferPatConstruction (getPos c) c []
 
 inferPatConstruction
     :: SourcePos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)

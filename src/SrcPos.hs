@@ -1,8 +1,8 @@
 module SrcPos
     ( SourcePos(..)
     , WithPos(..)
+    , HasPos(..)
     , onPosd
-    , getPos
     , unpos
     , dummyPos
     , sourcePosPretty
@@ -24,11 +24,14 @@ instance Ord a => Ord (WithPos a) where
 instance Pretty a => Pretty (WithPos a) where
     pretty' d = pretty' d . unpos
 
+class HasPos a where
+    getPos :: a -> SourcePos
+
+instance HasPos (WithPos a) where
+    getPos (WithPos p _) = p
+
 onPosd :: (a -> b) -> WithPos a -> b
 onPosd f = f . unpos
-
-getPos :: WithPos a -> SourcePos
-getPos (WithPos p _) = p
 
 unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
