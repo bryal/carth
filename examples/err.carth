@@ -1,11 +1,20 @@
 (define (main _) (printInt 1))
 
-(define: (invalid-user-type-signature x)
-    (forall [a b c] (Fun a a))
-  x)
+;; Invalid user type signature
+;; (define: (invalid-user-type-signature x)
+;;     (forall [a b c] (Fun a a))
+;;   x)
 
+;; Arity mismatch for constructor
+;; (define arity-mismatch-for-constructor
+;;   (match (Integ 1)
+;;     [(Integ foo bar) foo]))
+
+;; Conflicting definitions of variables in pattern
+(define conflicting-defs-in-pat
+  (match (IntPair 1 2)
+    [(IntPair a a) a]))
+
+;; Helpers
 (type Integ (Integ Int))
-
-(define arity-mismatch-for-constructor
-  (match (Integ 1)
-    [(Integ foo bar) foo]))
+(type IntPair (IntPair Int Int))

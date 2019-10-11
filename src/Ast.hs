@@ -8,9 +8,10 @@ module Ast
     , Scheme(..)
     , scmParams
     , scmBody
-    , Id(..)
+    , Id
+    , idstr
     , Const(..)
-    , Pat' (..)
+    , Pat'(..)
     , Pat
     , Expr'(..)
     , Expr
@@ -22,7 +23,6 @@ module Ast
     )
 where
 
-import Data.String
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Map as Map
@@ -35,9 +35,10 @@ import SrcPos
 import FreeVars
 import NonEmpty
 
-newtype Id =
-    Id String
-    deriving (Show, Eq, Ord)
+type Id = WithPos String
+
+idstr :: Id -> String
+idstr = unpos
 
 data TVar
     = TVExplicit Id
@@ -117,14 +118,12 @@ newtype ConstructorDefs = ConstructorDefs (Map String [Type])
 data TypeDef = TypeDef String [Id] ConstructorDefs
     deriving (Show, Eq)
 
+-- TODO: Don't handle main separately here
 data Program = Program (Maybe (WithPos Scheme), Expr) [Def] [TypeDef]
     deriving (Show, Eq)
 
 mainType :: Type
 mainType = TFun (TPrim TUnit) (TPrim TUnit)
-
-instance IsString Id where
-    fromString = Id
 
 instance FreeVars Def Id where
     freeVars (name, (_, body)) = Set.delete name (freeVars body)
@@ -155,22 +154,31 @@ bvPat = onPosd $ \case
     PConstruction _ ps -> Set.unions (map1 bvPat ps)
     PVar x -> Set.singleton x
 
-instance Pretty Program            where pretty' = prettyProg
-instance Pretty ConstructorDefs    where pretty' = prettyConstructorDefs
-instance Pretty TypeDef            where pretty' = prettyTypeDef
-instance Pretty Expr'              where pretty' = prettyExpr'
-instance Pretty Id                 where pretty' _ (Id s) = s
-instance Pretty Pat'               where pretty' _ = prettyPat'
-instance Pretty Const              where pretty' _ = prettyConst
-instance Pretty Scheme             where pretty' _ = prettyScheme
-instance Pretty Type               where pretty' _ = prettyType
-instance Pretty TPrim              where pretty' _ = prettyTPrim
-instance Pretty TVar               where pretty' _ = prettyTVar
+instance Pretty Program            where
+    pretty' = prettyProg
+instance Pretty ConstructorDefs    where
+    pretty' = prettyConstructorDefs
+instance Pretty TypeDef            where
+    pretty' = prettyTypeDef
+instance Pretty Expr'              where
+    pretty' = prettyExpr'
+instance Pretty Pat'               where
+    pretty' _ = prettyPat'
+instance Pretty Const              where
+    pretty' _ = prettyConst
+instance Pretty Scheme             where
+    pretty' _ = prettyScheme
+instance Pretty Type               where
+    pretty' _ = prettyType
+instance Pretty TPrim              where
+    pretty' _ = prettyTPrim
+instance Pretty TVar               where
+    pretty' _ = prettyTVar
 
 prettyProg :: Int -> Program -> String
 prettyProg d (Program main defs tdefs) =
     let
-        allDefs = (Id "main", main) : defs
+        allDefs = (WithPos dummyPos "main", main) : defs
         prettyDef = \case
             (name, (Just scm, body)) -> concat
                 [ indent d ++ "(define: " ++ pretty name ++ "\n"
@@ -205,7 +213,7 @@ prettyConstructorDefs d (ConstructorDefs cs) = intercalate
 prettyExpr' :: Int -> Expr' -> String
 prettyExpr' d = \case
     Lit l -> pretty l
-    Var (Id v) -> v
+    Var v -> idstr v
     App f x -> concat
         [ "(" ++ pretty' (d + 1) f ++ "\n"
         , indent (d + 1) ++ pretty' (d + 1) x ++ ")"
@@ -215,8 +223,15 @@ prettyExpr' d = \case
         , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
         , indent (d + 2) ++ pretty' (d + 2) alt ++ ")"
         ]
-    Fun (Id param) body ->
-        concat ["(fun ", param, "\n", indent (d + 2), pretty' (d + 2) body, ")"]
+    Fun param body ->
+        concat
+            [ "(fun "
+            , idstr param
+            , "\n"
+            , indent (d + 2)
+            , pretty' (d + 2) body
+            , ")"
+            ]
     Let binds body -> concat
         [ "(let ["
         , intercalate1 ("\n" ++ indent (d + 6)) (map1 (prettyDef (d + 6)) binds)
@@ -257,7 +272,7 @@ prettyPat' = \case
     PConstructor c -> c
     PConstruction c ps ->
         concat ["(", c, precalate " " (fromList1 (map1 pretty ps)), ")"]
-    PVar (Id v) -> v
+    PVar v -> idstr v
 
 prettyConst :: Const -> String
 prettyConst = \case
@@ -294,5 +309,5 @@ prettyTPrim = \case
 
 prettyTVar :: TVar -> String
 prettyTVar = \case
-    TVExplicit (Id v) -> v
+    TVExplicit v -> idstr v
     TVImplicit n -> "#" ++ show n

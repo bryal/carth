@@ -23,6 +23,7 @@ import SrcPos
 import FreeVars
 import NonEmpty
 import qualified Ast
+import Ast (Id, idstr)
 import AnnotAst
 
 data TypeErr = OtherErr String | PosErr SourcePos String
@@ -30,7 +31,7 @@ data TypeErr = OtherErr String | PosErr SourcePos String
 instance Pretty TypeErr where
     pretty' _ = \case
         OtherErr msg -> msg
-        PosErr p msg -> msg ++ "\n    at position " ++ sourcePosPretty p
+        PosErr p msg -> sourcePosPretty p ++ ": Error: " ++ msg
 
 data Env = Env
     { _envDefs :: Map String Scheme
@@ -116,7 +117,8 @@ withLocal b = locally envDefs (uncurry Map.insert b)
 --------------------------------------------------------------------------------
 inferProgram :: Ast.Program -> Infer Program
 inferProgram (Ast.Program main defs tdefs) = do
-    let allDefs = ("main", main) : defs
+    -- TODO: Don't use main this way
+    let allDefs = (WithPos dummyPos "main", main) : defs
     Defs allDefs' <- withTypes tdefs (inferDefs allDefs)
     let (Forall _ mainT, main') = fromJust (Map.lookup "main" allDefs')
     unify Ast.mainType mainT
@@ -148,7 +150,7 @@ inferDefsComponents = \case
         let (mayscms, bodies) = unzip rhss
         checkUserSchemes (catMaybes mayscms)
         let mayscms' = map (fmap unpos) mayscms
-        let names = map (\(Ast.Id x) -> x) idents
+        let names = map idstr idents
         ts <- replicateM (length names) fresh
         let
             scms = map
@@ -184,8 +186,7 @@ checkUserSchemes scms = forM_ scms check
 infer :: Ast.Expr -> Infer (Type, Expr)
 infer = onPosd $ \case
     Ast.Lit l -> pure (litType l, Lit l)
-    Ast.Var x@(Ast.Id x') ->
-        fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
+    Ast.Var (WithPos _ x) -> fmap (\t -> (t, Var (TypedVar x t))) (lookupEnv x)
     Ast.App f a -> do
         (tf, f') <- infer f
         (ta, a') <- infer a
@@ -199,10 +200,10 @@ infer = onPosd $ \case
         unify (TPrim TBool) tp
         unify tc ta
         pure (tc, If p' c' a')
-    Ast.Fun (Ast.Id p) b -> do
+    Ast.Fun p b -> do
         tp <- fresh
-        (tb, b') <- withLocal (p, Forall Set.empty tp) (infer b)
-        pure (TFun tp tb, Fun (p, tp) (b', tb))
+        (tb, b') <- withLocal (idstr p, Forall Set.empty tp) (infer b)
+        pure (TFun tp tb, Fun (idstr p, tp) (b', tb))
     Ast.Let defs b -> do
         Defs annotDefs <- inferDefs (fromList1 defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
@@ -240,28 +241,29 @@ inferCases cases = do
 inferCase :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
-    (tb, b') <- withLocals' pvs (infer b)
+    let pvs' = Map.mapKeys Ast.idstr pvs
+    (tb, b') <- withLocals' pvs' (infer b)
     pure (tp, tb, (p', b'))
 
-inferPat :: Ast.Pat -> Infer (Type, Pat, Map String Scheme)
+inferPat :: Ast.Pat -> Infer (Type, Pat, Map Id Scheme)
 inferPat (WithPos pos pat) = case pat of
     Ast.PConstructor c -> inferPatUnappliedConstructor pos c
     Ast.PConstruction c ps -> inferPatConstruction pos c (fromList1 ps)
-    Ast.PVar (Ast.Id x) -> do
+    Ast.PVar x -> do
         tv <- fresh'
         let tv' = TVar tv
         pure
             ( tv'
-            , PVar (TypedVar x tv')
+            , PVar (TypedVar (idstr x) tv')
             , Map.singleton x (Forall (Set.singleton tv) tv')
             )
 
 inferPatUnappliedConstructor
-    :: SourcePos -> String -> Infer (Type, Pat, Map String Scheme)
+    :: SourcePos -> String -> Infer (Type, Pat, Map Id Scheme)
 inferPatUnappliedConstructor pos c = inferPatConstruction pos c []
 
 inferPatConstruction
-    :: SourcePos -> String -> [Ast.Pat] -> Infer (Type, Pat, Map String Scheme)
+    :: SourcePos -> String -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
 inferPatConstruction pos c cArgs = do
     ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
     let arity = length cParams
@@ -276,10 +278,14 @@ inferPatConstruction pos c cArgs = do
     forM_ (zip cParams' cArgTs) (uncurry unify)
     pure (t, PConstruction c cArgs', cArgsVars')
 
-nonconflictingPatVarDefs :: [Map String a] -> Infer (Map String a)
+nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
-        Just k -> otherErr $ "Conflicting definitions for `" ++ k ++ "`"
+        Just (WithPos pos k) ->
+            posErr pos
+                $ "Conflicting definitions for `"
+                ++ pretty k
+                ++ "` in pattern"
         Nothing -> pure (Map.union acc ks)
 
 inferExprConstructor :: String -> Infer (Type, Expr)
@@ -289,7 +295,7 @@ inferExprConstructor c = do
     pure (foldr TFun t cParams', Constructor c)
 
 instantiateConstructorOfTypeDef
-    :: ([Type], (String, [Ast.Id])) -> Infer ([Type], Type)
+    :: ([Type], (String, [Id])) -> Infer ([Type], Type)
 instantiateConstructorOfTypeDef (cParams, (tName, tParams)) = do
     tVars <- mapM (const fresh) tParams
     let tParams' = map TVExplicit tParams
@@ -297,7 +303,7 @@ instantiateConstructorOfTypeDef (cParams, (tName, tParams)) = do
     let t = TConst tName tVars
     pure (cParams', t)
 
-lookupEnvConstructor :: String -> Infer ([Type], (String, [Ast.Id]))
+lookupEnvConstructor :: String -> Infer ([Type], (String, [Id]))
 lookupEnvConstructor cx = views envConstructors (Map.lookup cx) >>= \case
     Just (Ast.TypeDef tx tps cs) -> case lookupConstructorParamTypes cx cs of
         Just cps -> pure (cps, (tx, tps))
@@ -317,8 +323,8 @@ litType = \case
     Str _ -> TPrim TStr
     Bool _ -> TPrim TBool
 
-lookupEnv :: Ast.Id -> Infer Type
-lookupEnv (Ast.Id x) = views envDefs (Map.lookup x) >>= \case
+lookupEnv :: String -> Infer Type
+lookupEnv x = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
     Nothing -> otherErr ("Unbound variable: " ++ x)
 

@@ -7,9 +7,10 @@ import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
 import Data.Maybe
 import Control.Applicative (liftA2)
-import qualified Text.Megaparsec as Parsec
+import qualified Text.Megaparsec as Megaparsec
 import Text.Megaparsec hiding (parse, match)
-import Text.Megaparsec.Char
+import Text.Megaparsec.Char hiding (space, space1)
+import qualified Text.Megaparsec.Char as Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
 import qualified Data.Set as Set
 import qualified Data.Map as Map
@@ -30,18 +31,19 @@ parse :: SourceName -> String -> Either String Program
 parse = parse' program
 
 parse' :: Parser a -> SourceName -> String -> Either String a
-parse' p name src = mapLeft errorBundlePretty (Parsec.parse p name src)
+parse' p name src = mapLeft errorBundlePretty (Megaparsec.parse p name src)
 
 program :: Parser Program
 program = do
     space
     (defs, typedefs) <- toplevels
     eof
+    -- TODO: Check this in Check instead
     main <- maybe
         (fail "main function not defined")
         pure
-        (lookup (Id "main") defs)
-    pure (Program main (filter ((/= (Id "main")) . fst) defs) typedefs)
+        (lookup (WithPos dummyPos "main") defs)
+    pure (Program main (filter ((/= "main") . idstr . fst) defs) typedefs)
 
 toplevels :: Parser ([Def], [TypeDef])
 toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
@@ -251,7 +253,7 @@ big = try $ do
         else fail "Big identifier must start with an uppercase letter or colon."
 
 small' :: Parser Id
-small' = fmap Id small
+small' = withPos small
 
 small :: Parser String
 small = try $ do
@@ -324,6 +326,10 @@ many1' = fmap (fromJust . nonEmpty) . many1
 
 many1 :: Parser a -> Parser [a]
 many1 p = liftA2 (:) p (many p)
+
+-- | Spaces, line comments, and block comments
+space :: Parser ()
+space = Lexer.space Char.space1 (Lexer.skipLineComment ";") empty
 
 withPos :: Parser a -> Parser (WithPos a)
 withPos = liftA2 WithPos getSourcePos
