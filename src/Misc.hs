@@ -3,8 +3,6 @@
 module Misc
     ( ice
     , nyi
-    , mapFst
-    , mapSnd
     , precalate
     , prettyPrint
     , pretty
@@ -24,12 +22,6 @@ ice = error . ("Internal Compiler Error: " ++)
 
 nyi :: String -> a
 nyi = error . ("Not yet implemented: " ++)
-
-mapFst :: (a1 -> a2) -> (a1, b) -> (a2, b)
-mapFst f (a, b) = (f a, b)
-
-mapSnd :: (b1 -> b2) -> (a, b1) -> (a, b2)
-mapSnd f (a, b) = (a, f b)
 
 -- | Like `intercalate`, but concatenate a list with a prefix before each
 --   element, instead of an separator between each pair of elements.

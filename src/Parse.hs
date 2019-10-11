@@ -5,6 +5,7 @@ module Parse (parse, reserveds) where
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
+import Data.Bifunctor
 import Data.Maybe
 import Control.Applicative (liftA2)
 import qualified Text.Megaparsec as Megaparsec
@@ -45,7 +46,7 @@ toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
 
 toplevel :: Parser (([Def], [TypeDef]) -> ([Def], [TypeDef]))
 toplevel =
-    parens $ choice [fmap (mapSnd . (:)) typedef, fmap (mapFst . (:)) def]
+    parens $ choice [fmap (second . (:)) typedef, fmap (first . (:)) def]
 
 typedef :: Parser TypeDef
 typedef = do
