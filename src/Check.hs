@@ -30,7 +30,7 @@ data TypeErr = OtherErr String | PosErr SourcePos String
 
 instance Pretty TypeErr where
     pretty' _ = \case
-        OtherErr msg -> msg
+        OtherErr msg -> "Error: " ++ msg
         PosErr p msg -> sourcePosPretty p ++ ": Error: " ++ msg
 
 data Env = Env
@@ -116,14 +116,16 @@ withLocal b = locally envDefs (uncurry Map.insert b)
 -- Inference
 --------------------------------------------------------------------------------
 inferProgram :: Ast.Program -> Infer Program
-inferProgram (Ast.Program main defs tdefs) = do
-    -- TODO: Don't use main this way
-    let allDefs = (WithPos dummyPos "main", main) : defs
-    Defs allDefs' <- withTypes tdefs (inferDefs allDefs)
-    let (Forall _ mainT, main') = fromJust (Map.lookup "main" allDefs')
-    unify Ast.mainType mainT
-    let defs' = Map.delete "main" allDefs'
-    pure (Program main' (Defs defs'))
+inferProgram (Ast.Program defs tdefs) = do
+    Defs defs' <- withTypes tdefs (inferDefs defs)
+    (Forall _ mainT, main) <- maybe
+        (otherErr "main not defined")
+        pure
+        (Map.lookup "main" defs')
+    let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
+    unify expectedMainType mainT
+    let defs'' = Map.delete "main" defs'
+    pure (Program main (Defs defs''))
 
 inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
@@ -237,7 +239,6 @@ inferCases cases = do
     forM_ tbodies (unify tbody)
     pure (tpat, tbody, cases')
 
--- TODO: Have vars of pattern in env when inferring body
 inferCase :: (Ast.Pat, Ast.Expr) -> Infer (Type, Type, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p

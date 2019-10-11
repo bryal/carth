@@ -19,7 +19,6 @@ module Ast
     , ConstructorDefs(..)
     , TypeDef(..)
     , Program(..)
-    , mainType
     )
 where
 
@@ -118,12 +117,8 @@ newtype ConstructorDefs = ConstructorDefs (Map String [Type])
 data TypeDef = TypeDef String [Id] ConstructorDefs
     deriving (Show, Eq)
 
--- TODO: Don't handle main separately here
-data Program = Program (Maybe (WithPos Scheme), Expr) [Def] [TypeDef]
+data Program = Program [Def] [TypeDef]
     deriving (Show, Eq)
-
-mainType :: Type
-mainType = TFun (TPrim TUnit) (TPrim TUnit)
 
 instance FreeVars Def Id where
     freeVars (name, (_, body)) = Set.delete name (freeVars body)
@@ -176,9 +171,8 @@ instance Pretty TVar               where
     pretty' _ = prettyTVar
 
 prettyProg :: Int -> Program -> String
-prettyProg d (Program main defs tdefs) =
+prettyProg d (Program defs tdefs) =
     let
-        allDefs = (WithPos dummyPos "main", main) : defs
         prettyDef = \case
             (name, (Just scm, body)) -> concat
                 [ indent d ++ "(define: " ++ pretty name ++ "\n"
@@ -189,7 +183,7 @@ prettyProg d (Program main defs tdefs) =
                 [ indent d ++ "(define " ++ pretty name ++ "\n"
                 , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
                 ]
-    in unlines (map prettyDef allDefs ++ map pretty tdefs)
+    in unlines (map prettyDef defs ++ map pretty tdefs)
 
 prettyTypeDef :: Int -> TypeDef -> String
 prettyTypeDef d (TypeDef name params constrs) = concat

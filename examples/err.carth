@@ -1,4 +1,5 @@
-(define (main _) (printInt 1))
+;; Main not defined
+;; (define (main _) (printInt 1))
 
 ;; Invalid user type signature
 ;; (define: (invalid-user-type-signature x)
@@ -19,7 +20,7 @@
 ;; (define undef-ctor ThisCtorIsUndefined)
 
 ;; Undefined variable
-(define undef-var this-var-is-undefined)
+;; (define undef-var this-var-is-undefined)
 
 ;; Helpers
 (type Integ (Integ Int))

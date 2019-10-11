@@ -38,12 +38,7 @@ program = do
     space
     (defs, typedefs) <- toplevels
     eof
-    -- TODO: Check this in Check instead
-    main <- maybe
-        (fail "main function not defined")
-        pure
-        (lookup (WithPos dummyPos "main") defs)
-    pure (Program main (filter ((/= "main") . idstr . fst) defs) typedefs)
+    pure (Program defs typedefs)
 
 toplevels :: Parser ([Def], [TypeDef])
 toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
