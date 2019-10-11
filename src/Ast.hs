@@ -191,9 +191,7 @@ prettyProg d (Program defs tdefs) =
 prettyTypeDef :: Int -> TypeDef -> String
 prettyTypeDef d (TypeDef name params constrs) = concat
     [ "(type "
-    , if null params
-        then name
-        else "(" ++ name ++ precalate " " (map pretty params) ++ ")"
+    , if null params then name else "(" ++ name ++ spcPretty params ++ ")"
     , indent (d + 2) ++ pretty' (d + 2) constrs
     , ")"
     ]
@@ -205,7 +203,7 @@ prettyConstructorDefs d (ConstructorDefs cs) = intercalate
   where
     prettyConstrDef = \case
         (c, []) -> c
-        (c, ts) -> concat ["(", c, precalate " " (map pretty ts), ")"]
+        (c, ts) -> concat ["(", c, " ", spcPretty ts, ")"]
 
 prettyExpr' :: Int -> Expr' -> String
 prettyExpr' d = \case
@@ -268,7 +266,7 @@ prettyPat' :: Pat' -> String
 prettyPat' = \case
     PConstructor c -> idstr c
     PConstruction c ps ->
-        concat ["(", idstr c, precalate " " (fromList1 (map1 pretty ps)), ")"]
+        concat ["(", idstr c, " ", spcPretty (fromList1 ps), ")"]
     PVar v -> idstr v
 
 prettyConst :: Const -> String
@@ -281,10 +279,8 @@ prettyConst = \case
     Bool b -> if b then "true" else "false"
 
 prettyScheme :: Scheme -> String
-prettyScheme (Forall ps t) = concat
-    [ "(forall [" ++ unwords (map pretty (Set.toList ps)) ++ "] "
-    , pretty t ++ ")"
-    ]
+prettyScheme (Forall ps t) =
+    concat ["(forall [" ++ spcPretty (Set.toList ps) ++ "] ", pretty t ++ ")"]
 
 prettyType :: Type -> String
 prettyType = \case
@@ -293,7 +289,7 @@ prettyType = \case
     Ast.TFun a b -> prettyTFun a b
     Ast.TConst c ts -> case ts of
         [] -> c
-        ts -> concat ["(", c, precalate " " (map pretty ts), ")"]
+        ts -> concat ["(", c, " ", spcPretty ts, ")"]
 
 prettyTFun :: Type -> Type -> String
 prettyTFun a b =
@@ -303,15 +299,7 @@ prettyTFun a b =
             TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
     in concat
-        [ "(Fun "
-        , pretty a
-        , precalate " " (map pretty bParams)
-        , " "
-        , pretty bBody
-        , ")"
-        ]
-
-    -- concat ["(Fun ", pretty a, " ", pretty b, ")"]
+        ["(Fun ", pretty a, " ", spcPretty bParams, " ", pretty bBody, ")"]
 
 prettyTPrim :: TPrim -> String
 prettyTPrim = \case
@@ -326,3 +314,6 @@ prettyTVar :: TVar -> String
 prettyTVar = \case
     TVExplicit v -> idstr v
     TVImplicit n -> "#" ++ show n
+
+spcPretty :: Pretty a => [a] -> String
+spcPretty = unwords . map pretty
