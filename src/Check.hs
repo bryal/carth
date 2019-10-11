@@ -76,7 +76,7 @@ builtinSchemes = Map.fromList
     [("printInt", Forall Set.empty (TFun (TPrim TInt) (TPrim TUnit)))]
 
 initSt :: St
-initSt = St {_tvCount = 0, _substs = Map.empty}
+initSt = St { _tvCount = 0, _substs = Map.empty }
 
 fresh :: Infer Type
 fresh = fmap TVar fresh'
