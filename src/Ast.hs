@@ -27,6 +27,7 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.List
+import Data.Bifunctor
 import Control.Lens (makeLenses)
 
 import Misc
@@ -281,7 +282,7 @@ prettyConst = \case
 
 prettyScheme :: Scheme -> String
 prettyScheme (Forall ps t) = concat
-    [ "(forall [" ++ intercalate " " (map pretty (Set.toList ps)) ++ "] "
+    [ "(forall [" ++ unwords (map pretty (Set.toList ps)) ++ "] "
     , pretty t ++ ")"
     ]
 
@@ -289,10 +290,28 @@ prettyType :: Type -> String
 prettyType = \case
     Ast.TVar tv -> pretty tv
     Ast.TPrim c -> pretty c
-    Ast.TFun a b -> concat ["(Fun ", pretty a, " ", pretty b, ")"]
+    Ast.TFun a b -> prettyTFun a b
     Ast.TConst c ts -> case ts of
         [] -> c
         ts -> concat ["(", c, precalate " " (map pretty ts), ")"]
+
+prettyTFun :: Type -> Type -> String
+prettyTFun a b =
+    let
+        (bParams, bBody) = f b
+        f = \case
+            TFun a' b' -> first (a' :) (f b')
+            t -> ([], t)
+    in concat
+        [ "(Fun "
+        , pretty a
+        , precalate " " (map pretty bParams)
+        , " "
+        , pretty bBody
+        , ")"
+        ]
+
+    -- concat ["(Fun ", pretty a, " ", pretty b, ")"]
 
 prettyTPrim :: TPrim -> String
 prettyTPrim = \case
