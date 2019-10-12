@@ -29,13 +29,14 @@ main = do
 
 interpretFile :: FilePath -> IO ()
 interpretFile f =
-    readFile f >>= parse' f >>= typecheck' >>= monomorphize' >>= interpret'
+    readFile f >>= parse' f >>= typecheck' f >>= monomorphize' >>= interpret'
 
 compileFile :: FilePath -> CompileConfig -> IO ()
 compileFile f cfg =
-    readFile f
+    putStrLn ("   Compiling " ++ f ++ "\n")
+        >> readFile f
         >>= parse' f
-        >>= typecheck'
+        >>= typecheck' f
         >>= monomorphize'
         >>= codegen' f
         >>= compile' cfg
@@ -49,38 +50,41 @@ parse' f src = do
             writeFile "out.untangled" s
             pure s
         else pure src
-    putStrLn "Parsing..."
     case Parse.parse f src' of
-        Left e -> putStrLn ("Parse error:\n" ++ e) >> exitFailure
+        Left e -> putStrLn (formatParseErr e) >> abort f
         Right p -> writeFile "out.parsed" (pretty p) $> p
+  where
+    formatParseErr e =
+        let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
-typecheck' :: Ast.Program -> IO AnnotAst.Program
-typecheck' p = do
-    putStrLn "Typechecking..."
+typecheck' :: FilePath -> Ast.Program -> IO AnnotAst.Program
+typecheck' f p = do
     case typecheck p of
-        Left e -> TypeErr.printErr e >> exitFailure
+        Left e -> TypeErr.printErr e >> abort f
         Right p -> writeFile "out.checked" (show p) $> p
 
 monomorphize' :: AnnotAst.Program -> IO MonoAst.Program
 monomorphize' p = do
-    putStrLn "Monomorphizing..."
     let p' = monomorphize p
     writeFile "out.mono" (show p')
     pure p'
 
 codegen' :: FilePath -> MonoAst.Program -> IO LLVM.AST.Module
 codegen' f p = do
-    putStrLn "Codegen..."
     let m = codegen f p
     writeFile "out.dbgll" (pretty m)
     pure m
 
 interpret' :: MonoAst.Program -> IO ()
 interpret' pgm = do
-    putStrLn "Interpreting..."
     interpret pgm
 
 compile' :: CompileConfig -> LLVM.AST.Module -> IO ()
 compile' cfg mod = do
-    putStrLn "Compiling..."
     compile cfg mod
+
+abort :: FilePath -> IO a
+abort f = do
+    putStrLn "Error: Aborting due to previous error."
+    putStrLn $ "Error: Could not compile/interpret " ++ f ++ "."
+    exitFailure

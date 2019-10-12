@@ -74,3 +74,4 @@ posd (SrcPos pos@(SourcePos file lineN colN)) parser msg = do
             (parse' (fmap fst (Mega.match parser)) "" rest)
     putStrLn (indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^')
     putStrLn msg
+    putStrLn ""
