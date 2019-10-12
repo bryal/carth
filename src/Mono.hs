@@ -45,14 +45,21 @@ mono = \case
         pure (Var (TypedVar x t'))
     AnnotAst.App f a -> liftA2 App (mono f) (mono a)
     AnnotAst.If p c a -> liftA3 If (mono p) (mono c) (mono a)
-    AnnotAst.Fun (p, tp) (b, bt) -> do
-        tp' <- monotype tp
-        b' <- mono b
-        bt' <- monotype bt
-        pure (Fun (TypedVar p tp') (b', bt'))
+    AnnotAst.Fun p b -> monoFun p b
     AnnotAst.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     AnnotAst.Match _ _ -> nyi "mono Match"
     AnnotAst.Constructor _ -> nyi "mono Constructor"
+
+monoFun
+    :: (String, AnnotAst.Type) -> (AnnotAst.Expr, AnnotAst.Type) -> Mono Expr
+monoFun (p, tp) (b, bt) = do
+    parentInst <- gets (Map.lookup p)
+    modify (Map.delete p)
+    tp' <- monotype tp
+    b' <- mono b
+    bt' <- monotype bt
+    maybe (pure ()) (modify . Map.insert p) parentInst
+    pure (Fun (TypedVar p tp') (b', bt'))
 
 monoLet :: AnnotAst.Defs -> AnnotAst.Expr -> Mono (Defs, Expr)
 monoLet (AnnotAst.Defs ds) body = do
@@ -74,7 +81,8 @@ addInst :: String -> Type -> Mono ()
 addInst x t1 = do
     insts <- get
     case Map.lookup x insts of
-        Nothing -> pure () -- If x is not in insts, it's a function parameter. Ignore.
+        -- If x is not in insts, it's a function parameter. Ignore.
+        Nothing -> pure ()
         Just xInsts -> unless (Map.member t1 xInsts) $ do
             (Forall _ t2, body) <- views
                 defs
