@@ -8,6 +8,7 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Arrow ((>>>))
 import Data.Either.Combinators
 import Data.Bifunctor
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
@@ -174,7 +175,7 @@ checkUserSchemes scms = forM_ scms $ \(WithPos p s1@(Forall _ t)) ->
         >>= \s2 -> when (s1 /= s2) (throwError (InvalidUserTypeSig p s1 s2))
 
 infer :: Ast.Expr -> Infer (Type, Expr)
-infer (WithPos pos expr) = case expr of
+infer = unpos >>> \case
     Ast.Lit l -> pure (litType l, Lit l)
     Ast.Var x -> fmap (\t -> (t, Var (TypedVar (idstr x) t))) (lookupEnv x)
     Ast.App f a -> do
@@ -183,7 +184,7 @@ infer (WithPos pos expr) = case expr of
         (tf', f') <- infer f
         unify (Expected (TFun ta tr)) (Found (getPos f) tf')
         (ta', a') <- infer a
-        unify (Expected ta) (Found pos ta')
+        unify (Expected ta) (Found (getPos a) ta')
         pure (tr, App f' a')
     Ast.If p c a -> do
         (tp, p') <- infer p
