@@ -249,7 +249,7 @@ inferPat = \case
         pure
             ( tv'
             , PVar (TypedVar (idstr x) tv')
-            , Map.singleton x (Forall (Set.singleton tv) tv')
+            , Map.singleton x (Forall Set.empty tv')
             )
 
 inferPatConstruction
