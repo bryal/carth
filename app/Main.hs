@@ -20,6 +20,7 @@ import Codegen
 import Compile
 import Mono
 import qualified Parse
+import Parse (Source)
 
 main :: IO ()
 main = do
@@ -28,18 +29,17 @@ main = do
         ModeCompile infile cfg -> compileFile infile cfg
 
 interpretFile :: FilePath -> IO ()
-interpretFile f =
-    readFile f >>= parse' f >>= typecheck' f >>= monomorphize' >>= interpret'
+interpretFile f = readFile f >>= \src ->
+    parse' f src >>= typecheck' f src >>= monomorphize' >>= interpret'
 
 compileFile :: FilePath -> CompileConfig -> IO ()
 compileFile f cfg =
-    putStrLn ("   Compiling " ++ f ++ "\n")
-        >> readFile f
-        >>= parse' f
-        >>= typecheck' f
-        >>= monomorphize'
-        >>= codegen' f
-        >>= compile' cfg
+    putStrLn ("   Compiling " ++ f ++ "\n") >> readFile f >>= \src ->
+        parse' f src
+            >>= typecheck' f src
+            >>= monomorphize'
+            >>= codegen' f
+            >>= compile' cfg
 
 parse' :: FilePath -> String -> IO Ast.Program
 parse' f src = do
@@ -57,10 +57,10 @@ parse' f src = do
     formatParseErr e =
         let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
-typecheck' :: FilePath -> Ast.Program -> IO AnnotAst.Program
-typecheck' f p = do
+typecheck' :: FilePath -> Source -> Ast.Program -> IO AnnotAst.Program
+typecheck' f src p = do
     case typecheck p of
-        Left e -> TypeErr.printErr e >> abort f
+        Left e -> putStrLn (TypeErr.prettyErr e src) >> abort f
         Right p -> writeFile "out.checked" (show p) $> p
 
 monomorphize' :: AnnotAst.Program -> IO MonoAst.Program

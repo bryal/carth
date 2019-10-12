@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase, FlexibleContexts #-}
 
-module TypeErr (TypeErr(..), printErr) where
+module TypeErr (TypeErr(..), prettyErr) where
 
 import Misc
 import SrcPos
@@ -9,7 +9,6 @@ import Parse
 
 import qualified Text.Megaparsec as Mega
 import Text.Megaparsec.Pos
-import Control.Monad
 import Data.Either
 
 data TypeErr
@@ -22,9 +21,11 @@ data TypeErr
     | InfType SrcPos TVar Type
     | UnificationFailed SrcPos Type Type Type Type
 
-printErr :: TypeErr -> IO ()
-printErr = \case
-    MainNotDefined -> putStrLn "Error: main not defined"
+type Message = String
+
+prettyErr :: TypeErr -> Source -> String
+prettyErr = \case
+    MainNotDefined -> const "Error: main not defined"
     InvalidUserTypeSig p s1 s2 ->
         posd p ns_scheme
             $ ("Invalid user type signature " ++ pretty s1)
@@ -50,28 +51,30 @@ printErr = \case
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
 
-posd :: SrcPos -> Parser a -> String -> IO ()
-posd (SrcPos pos@(SourcePos file lineN colN)) parser msg = do
-    let (lineN', colN') = (unPos lineN, unPos colN)
-    src <- readFile file
-    let lines' = lines src
-    when (lineN' > length lines')
-        $ ice "line num in SourcePos is greater than num of lines in src"
-    let line = lines' !! (lineN' - 1)
-    when (colN' > length line)
-        $ ice "col num in SourcePos is greater than num of cols in src line"
-    let lineNS = show lineN'
-    let pad = length lineNS + 1
-    putStrLn (sourcePosPretty pos ++ ": Error:")
-    putStrLn (indent pad ++ "|")
-    putStrLn (lineNS ++ " | " ++ line)
-    -- Find the span (end-pos) of the item in the source by applying the same
-    -- parser that gave the item, starting at its SourcePos
-    let rest = drop (colN' - 1) line
+posd :: SrcPos -> Parser a -> Message -> Source -> String
+posd (SrcPos pos@(SourcePos _ lineN colN)) parser msg src =
     let
+        (lineN', colN') = (unPos lineN, unPos colN)
+        lines' = lines src
+        line = if (lineN' <= length lines')
+            then lines' !! (lineN' - 1)
+            else ice "line num in SourcePos is greater than num of lines in src"
+        rest = if (colN' <= length line)
+            then drop (colN' - 1) line
+            else
+                ice
+                    "col num in SourcePos is greater than num of cols in src line"
+        lineNS = show lineN'
+        pad = length lineNS + 1
         s = fromRight
             (ice "posd parse error")
             (parse' (fmap fst (Mega.match parser)) "" rest)
-    putStrLn (indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^')
-    putStrLn msg
-    putStrLn ""
+    in unlines
+        [ sourcePosPretty pos ++ ": Error:"
+        , indent pad ++ "|"
+        , lineNS ++ " | " ++ line
+        -- Find the span (end-pos) of the item in the source by applying the same
+        -- parser that gave the item, starting at its SourcePos
+        , indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^'
+        , msg
+        ]

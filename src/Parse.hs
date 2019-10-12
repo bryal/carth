@@ -9,6 +9,7 @@
 
 module Parse
     ( Parser
+    , Source
     , parse
     , parse'
     , reserveds
@@ -44,12 +45,12 @@ import NonEmpty
 
 type Parser = Parsec Void String
 
-type SourceName = String
+type Source = String
 
-parse :: SourceName -> String -> Either String Program
+parse :: FilePath -> Source -> Either String Program
 parse = parse' program
 
-parse' :: Parser a -> SourceName -> String -> Either String a
+parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)
 
 program :: Parser Program

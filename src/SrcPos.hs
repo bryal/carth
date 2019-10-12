@@ -12,9 +12,6 @@ import Text.Megaparsec.Pos
 
 import Misc
 
--- TODO: Should probably include a reference to the source code string here, so
--- that when parsing again in case of a type-error, the contents are guaranteed
--- to be the same as when parsing the first time.
 newtype SrcPos = SrcPos SourcePos
     deriving Show
 
