@@ -69,7 +69,7 @@ data Scheme = Forall
 makeLenses ''Scheme
 
 data Pat
-    = PConstruction SourcePos Id [Pat]
+    = PConstruction SrcPos Id [Pat]
     | PVar Id
     deriving (Show, Eq)
 

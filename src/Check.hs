@@ -26,7 +26,7 @@ import qualified Ast
 import Ast (Id, idstr, scmBody)
 import AnnotAst
 
-data TypeErr = OtherErr String | PosErr SourcePos String
+data TypeErr = OtherErr String | PosErr SrcPos String
 
 instance Pretty TypeErr where
     pretty' _ = \case
@@ -264,7 +264,7 @@ inferPat = \case
             )
 
 inferPatConstruction
-    :: SourcePos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
+    :: SrcPos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
 inferPatConstruction pos c cArgs = do
     ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
     let arity = length cParams
@@ -381,7 +381,7 @@ composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1
 -- Unification
 --------------------------------------------------------------------------------
 newtype ExpectedType = Expected Type
-data FoundType = Found SourcePos Type
+data FoundType = Found SrcPos Type
 
 unify :: ExpectedType -> FoundType -> Infer ()
 unify (Expected t1) (Found pos t2) = do
@@ -471,5 +471,5 @@ ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
 otherErr :: MonadError TypeErr m => String -> m a
 otherErr = throwError . OtherErr
 
-posErr :: MonadError TypeErr m => SourcePos -> String -> m a
+posErr :: MonadError TypeErr m => SrcPos -> String -> m a
 posErr = throwError .* PosErr

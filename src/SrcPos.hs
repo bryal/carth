@@ -1,5 +1,5 @@
 module SrcPos
-    ( SourcePos(..)
+    ( SrcPos
     , WithPos(..)
     , HasPos(..)
     , onPosd
@@ -13,7 +13,9 @@ import Text.Megaparsec.Pos
 
 import Misc
 
-data WithPos a = WithPos SourcePos a
+type SrcPos = SourcePos
+
+data WithPos a = WithPos SrcPos a
 
 instance Show a => Show (WithPos a) where
     showsPrec p (WithPos _ a) = showsPrec p a
@@ -25,7 +27,7 @@ instance Pretty a => Pretty (WithPos a) where
     pretty' d = pretty' d . unpos
 
 class HasPos a where
-    getPos :: a -> SourcePos
+    getPos :: a -> SrcPos
 
 instance HasPos (WithPos a) where
     getPos (WithPos p _) = p
@@ -36,5 +38,5 @@ onPosd f = f . unpos
 unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
 
-dummyPos :: SourcePos
+dummyPos :: SrcPos
 dummyPos = initialPos "DUMMY"

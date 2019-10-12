@@ -59,18 +59,18 @@ typedef = do
     constrs <- many (onlyName <|> nameAndMany1 type_)
     pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
 
-def :: SourcePos -> Parser Def
+def :: SrcPos -> Parser Def
 def topPos = defUntyped topPos <|> defTyped topPos
 
-defUntyped :: SourcePos -> Parser Def
+defUntyped :: SrcPos -> Parser Def
 defUntyped = (reserved "define" *>) . def' (pure Nothing)
 
-defTyped :: SourcePos -> Parser Def
+defTyped :: SrcPos -> Parser Def
 defTyped = (reserved "define:" *>) . def' (fmap Just scheme)
 
 def'
     :: Parser (Maybe (WithPos Scheme))
-    -> SourcePos
+    -> SrcPos
     -> Parser (Id, (Maybe (WithPos Scheme), Expr))
 def' schemeParser topPos = varDef <|> funDef
   where
