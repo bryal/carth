@@ -9,6 +9,7 @@ import qualified LLVM.AST
 
 import Misc
 import Literate
+import qualified TypeErr
 import qualified Ast
 import qualified AnnotAst
 import qualified MonoAst
@@ -57,7 +58,7 @@ typecheck' :: Ast.Program -> IO AnnotAst.Program
 typecheck' p = do
     putStrLn "Typechecking..."
     case typecheck p of
-        Left e -> putStrLn ("Typecheck error:\n" ++ pretty e) >> exitFailure
+        Left e -> TypeErr.printErr e >> exitFailure
         Right p -> writeFile "out.checked" (show p) $> p
 
 monomorphize' :: AnnotAst.Program -> IO MonoAst.Program
