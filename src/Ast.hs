@@ -289,8 +289,7 @@ prettyTFun a b =
         f = \case
             TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
-    in concat
-        ["(Fun ", pretty a, " ", spcPretty bParams, " ", pretty bBody, ")"]
+    in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
 prettyTPrim :: TPrim -> String
 prettyTPrim = \case
