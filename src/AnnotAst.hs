@@ -21,6 +21,7 @@ import Data.Map.Strict (Map)
 
 import Ast (TVar(..), TPrim(..), Type(..), Scheme(..), Const(..))
 
+
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 

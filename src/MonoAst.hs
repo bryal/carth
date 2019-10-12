@@ -34,8 +34,7 @@ data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
 data Pat
-    = PConstructor String
-    | PConstruction String [Pat]
+    = PConstruction String [Pat]
     | PVar TypedVar
     deriving (Show, Eq)
 
@@ -76,6 +75,5 @@ instance Pattern Pat TypedVar where
 
 bvPat :: Pat -> Set TypedVar
 bvPat = \case
-    PConstructor _ -> Set.empty
     PConstruction _ ps -> Set.unions (map bvPat ps)
     PVar x -> Set.singleton x
