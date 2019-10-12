@@ -28,6 +28,7 @@ import Data.Map (Map)
 import Data.List
 import Data.Bifunctor
 import Control.Lens (makeLenses)
+import Control.Arrow ((>>>))
 
 import Misc
 import SrcPos
@@ -148,7 +149,7 @@ instance Pretty TVar where
 
 
 fvExpr :: Expr -> Set Id
-fvExpr = onPosd $ \case
+fvExpr = unpos >>> \case
     Lit _ -> Set.empty
     Var x -> Set.singleton x
     App f a -> fvApp f a

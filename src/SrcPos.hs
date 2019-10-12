@@ -2,7 +2,6 @@ module SrcPos
     ( SrcPos(..)
     , WithPos(..)
     , HasPos(..)
-    , onPosd
     , unpos
     , dummyPos
     , sourcePosPretty
@@ -18,6 +17,11 @@ newtype SrcPos = SrcPos SourcePos
 
 data WithPos a = WithPos SrcPos a
 
+
+class HasPos a where
+    getPos :: a -> SrcPos
+
+
 instance Show a => Show (WithPos a) where
     showsPrec p (WithPos _ a) = showsPrec p a
 instance Eq a => Eq (WithPos a) where
@@ -27,14 +31,9 @@ instance Ord a => Ord (WithPos a) where
 instance Pretty a => Pretty (WithPos a) where
     pretty' d = pretty' d . unpos
 
-class HasPos a where
-    getPos :: a -> SrcPos
-
 instance HasPos (WithPos a) where
     getPos (WithPos p _) = p
 
-onPosd :: (a -> b) -> WithPos a -> b
-onPosd f = f . unpos
 
 unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
