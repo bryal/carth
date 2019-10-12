@@ -90,7 +90,7 @@ semiExecRetGen gx = runWriterT $ do
     pure (typeOf x)
 
 initEnv :: Env
-initEnv = Env {_localEnv = Map.empty, _globalEnv = Map.empty}
+initEnv = Env { _localEnv = Map.empty, _globalEnv = Map.empty }
 
 initSt :: St
 initSt = St
@@ -484,7 +484,7 @@ ret = flip Ret [] . Just
 
 ptrtoint :: Operand -> Type -> FunInstruction
 ptrtoint p t =
-    WithRetType (PtrToInt {operand0 = p, type' = t, metadata = []}) t
+    WithRetType (PtrToInt { operand0 = p, type' = t, metadata = [] }) t
 
 bitcast :: Operand -> Type -> FunInstruction
 bitcast x t = WithRetType (BitCast x t []) t
@@ -494,12 +494,12 @@ insertvalue s e is = WithRetType (InsertValue s e is []) (typeOf s)
 
 extractvalue :: Operand -> [Word32] -> FunInstruction
 extractvalue struct is = WithRetType
-    (ExtractValue {aggregate = struct, indices' = is, metadata = []})
+    (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
     (getIndexed (typeOf struct) is)
 
 getelementptr :: Type -> Operand -> [Operand] -> FunInstruction
 getelementptr rt p is = WithRetType
-    (GetElementPtr {inBounds = False, address = p, indices = is, metadata = []})
+    GetElementPtr { inBounds = False, address = p, indices = is, metadata = [] }
     rt
 
 store :: Operand -> Operand -> Instruction
@@ -581,10 +581,10 @@ typeNamed :: String -> Type
 typeNamed = NamedTypeReference . mkName
 
 typeStruct :: [Type] -> Type
-typeStruct ts = StructureType {isPacked = False, elementTypes = ts}
+typeStruct ts = StructureType { isPacked = False, elementTypes = ts }
 
 typeUnit :: Type
-typeUnit = StructureType {isPacked = False, elementTypes = []}
+typeUnit = StructureType { isPacked = False, elementTypes = [] }
 
 getFunRet :: Type -> Type
 getFunRet = \case

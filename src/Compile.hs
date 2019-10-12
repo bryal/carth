@@ -20,7 +20,7 @@ data CompileConfig = CompileConfig
     , outfile :: Maybe FilePath }
 
 defaultCompileConfig :: CompileConfig
-defaultCompileConfig = CompileConfig {cc = "cc", outfile = Nothing}
+defaultCompileConfig = CompileConfig { cc = "cc", outfile = Nothing }
 
 -- TODO: Verify w LLVM.Analysis.verify :: Module -> IO ()
 -- TODO: CodeGenOpt level

@@ -34,7 +34,7 @@ monomorphize (AnnotAst.Program main ds) = (uncurry (flip Program))
     (evalState (runReaderT (monoLet ds main) initEnv) Map.empty)
 
 initEnv :: Env
-initEnv = Env {_defs = Map.empty, _tvBinds = Map.empty}
+initEnv = Env { _defs = Map.empty, _tvBinds = Map.empty }
 
 mono :: AnnotAst.Expr -> Mono Expr
 mono = \case

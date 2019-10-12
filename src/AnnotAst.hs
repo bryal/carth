@@ -33,11 +33,8 @@ data Expr
     = Lit Const
     | Var TypedVar
     | App Expr Expr
-    | If Expr
-         Expr
-         Expr
-    | Fun (String, Type)
-          (Expr, Type)
+    | If Expr Expr Expr
+    | Fun (String, Type) (Expr, Type)
     | Let Defs Expr
     | Match Expr [(Pat, Expr)]
     | Constructor String

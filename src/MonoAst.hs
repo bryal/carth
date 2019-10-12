@@ -26,8 +26,7 @@ import Ast (Const(..), TPrim(..))
 
 data Type
     = TPrim TPrim
-    | TFun Type
-           Type
+    | TFun Type Type
     | TConst String [Type]
     deriving (Show, Eq, Ord)
 
@@ -43,15 +42,10 @@ data Pat
 data Expr
     = Lit Const
     | Var TypedVar
-    | App Expr
-          Expr
-    | If Expr
-         Expr
-         Expr
-    | Fun TypedVar
-          (Expr, Type)
-    | Let Defs
-          Expr
+    | App Expr Expr
+    | If Expr Expr Expr
+    | Fun TypedVar (Expr, Type)
+    | Let Defs Expr
     | Match Expr [(Pat, Expr)]
     deriving (Show)
 
