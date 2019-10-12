@@ -34,10 +34,8 @@ import SrcPos
 import FreeVars
 import NonEmpty
 
-type Id = WithPos String
 
-idstr :: Id -> String
-idstr = unpos
+type Id = WithPos String
 
 data TVar
     = TVExplicit Id
@@ -71,7 +69,7 @@ makeLenses ''Scheme
 data Pat
     = PConstruction SrcPos Id [Pat]
     | PVar Id
-    deriving (Show, Eq)
+    deriving Show
 
 data Const
     = Unit
@@ -85,19 +83,14 @@ data Const
 data Expr'
     = Lit Const
     | Var Id
-    | App Expr
-          Expr
-    | If Expr
-         Expr
-         Expr
+    | App Expr Expr
+    | If Expr Expr Expr
     -- TODO: Not curried yet! Handle that in the parser instead, so that AST
     -- matches closer to what's actually parsed. That will improve error msgs
     | Fun Id Expr
-    | Let (NonEmpty Def)
-          Expr
+    | Let (NonEmpty Def) Expr
     | TypeAscr Expr Type
-    | Match Expr
-            (NonEmpty (Pat, Expr))
+    | Match Expr (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
     | Constructor Id
     deriving (Show, Eq)
@@ -115,33 +108,21 @@ data TypeDef = TypeDef String [Id] ConstructorDefs
 data Program = Program [Def] [TypeDef]
     deriving (Show, Eq)
 
+
+instance Eq Pat where
+    (==) = curry $ \case
+        (PConstruction _ x ps, PConstruction _ x' ps') -> x == x' && ps == ps'
+        (PVar x, PVar x') -> x == x'
+        _ -> False
+
 instance FreeVars Def Id where
     freeVars (name, (_, body)) = Set.delete name (freeVars body)
 
 instance FreeVars Expr Id where
     freeVars = fvExpr
 
-fvExpr :: Expr -> Set Id
-fvExpr = onPosd $ \case
-    Lit _ -> Set.empty
-    Var x -> Set.singleton x
-    App f a -> fvApp f a
-    If p c a -> fvIf p c a
-    Fun p b -> fvFun p b
-    Let bs e ->
-        fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
-    TypeAscr e _ -> freeVars e
-    Match e cs -> fvMatch e (fromList1 cs)
-    FunMatch cs -> fvCases (fromList1 cs)
-    Constructor _ -> Set.empty
-
 instance Pattern Pat Id where
     patternBoundVars = bvPat
-
-bvPat :: Pat -> Set Id
-bvPat = \case
-    PConstruction _ _ ps -> Set.unions (map bvPat ps)
-    PVar x -> Set.singleton x
 
 instance HasPos Pat where
     getPos = \case
@@ -168,6 +149,26 @@ instance Pretty TPrim where
     pretty' _ = prettyTPrim
 instance Pretty TVar where
     pretty' _ = prettyTVar
+
+
+fvExpr :: Expr -> Set Id
+fvExpr = onPosd $ \case
+    Lit _ -> Set.empty
+    Var x -> Set.singleton x
+    App f a -> fvApp f a
+    If p c a -> fvIf p c a
+    Fun p b -> fvFun p b
+    Let bs e ->
+        fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
+    TypeAscr e _ -> freeVars e
+    Match e cs -> fvMatch e (fromList1 cs)
+    FunMatch cs -> fvCases (fromList1 cs)
+    Constructor _ -> Set.empty
+
+bvPat :: Pat -> Set Id
+bvPat = \case
+    PConstruction _ _ ps -> Set.unions (map bvPat ps)
+    PVar x -> Set.singleton x
 
 prettyProg :: Int -> Program -> String
 prettyProg d (Program defs tdefs) =
@@ -311,3 +312,6 @@ prettyTVar = \case
 
 spcPretty :: Pretty a => [a] -> String
 spcPretty = unwords . map pretty
+
+idstr :: Id -> String
+idstr = unpos
