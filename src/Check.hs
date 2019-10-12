@@ -111,7 +111,7 @@ withLocal b = locally envDefs (uncurry Map.insert b)
 inferProgram :: Ast.Program -> Infer Program
 inferProgram (Ast.Program defs tdefs) = do
     (_, (WithPos mainPos _)) <- maybe
-        (otherErr "main not defined")
+        (throwError MainNotDefined)
         pure
         (lookup "main" (map (first unpos) defs))
     Defs defs' <- withTypes tdefs (inferDefs defs)
@@ -169,15 +169,9 @@ inferDefsComponents = \case
 
 -- | Verify that user-provided type signature schemes are valid
 checkUserSchemes :: [WithPos Scheme] -> Infer ()
-checkUserSchemes scms = forM_ scms check
-  where
-    check (WithPos p s1@(Forall _ t)) = generalize t >>= \s2 ->
-        when (s1 /= s2)
-            $ posErr p
-            $ "Invalid user type signature "
-            ++ pretty s1
-            ++ ", expected "
-            ++ pretty s2
+checkUserSchemes scms = forM_ scms $ \(WithPos p s1@(Forall _ t)) ->
+    generalize t
+        >>= \s2 -> when (s1 /= s2) (throwError (InvalidUserTypeSig p s1 s2))
 
 infer :: Ast.Expr -> Infer (Type, Expr)
 infer (WithPos pos expr) = case expr of
@@ -262,10 +256,7 @@ inferPatConstruction pos c cArgs = do
     ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
-    unless (arity == nArgs)
-        $ posErr pos
-        $ ("Arity mismatch for constructor `" ++ pretty c ++ "` in pattern. ")
-        ++ ("Expected " ++ show arity ++ ", found " ++ show nArgs)
+    unless (arity == nArgs) (throwError (CtorArityMismatch pos c arity nArgs))
     (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
     (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
@@ -276,11 +267,7 @@ inferPatConstruction pos c cArgs = do
 nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
-        Just (WithPos pos k) ->
-            posErr pos
-                $ "Conflicting definitions for `"
-                ++ pretty k
-                ++ "` in pattern"
+        Just (WithPos pos v) -> throwError (ConflictingPatVarDefs pos v)
         Nothing -> pure (Map.union acc ks)
 
 inferExprConstructor :: Id -> Infer (Type, Expr)
@@ -306,12 +293,9 @@ lookupEnvConstructor (WithPos pos cx) =
                 Just cps -> pure (cps, (tx, tps))
                 Nothing ->
                     ice
-                        $ "lookup failed for ctor `"
-                        ++ cx
-                        ++ "` in type `"
-                        ++ tx
-                        ++ "`"
-        Nothing -> posErr pos $ "Undefined constructor: " ++ cx
+                        $ ("lookup failed for ctor `" ++ cx)
+                        ++ ("` in type `" ++ tx ++ "`")
+        Nothing -> throwError (UndefCtor pos cx)
 
 lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
 lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = Map.lookup cx cs
@@ -328,7 +312,7 @@ litType = \case
 lookupEnv :: Id -> Infer Type
 lookupEnv (WithPos pos x) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
-    Nothing -> posErr pos ("Unbound variable: " ++ x)
+    Nothing -> throwError (UndefVar pos x)
 
 -- Substitution
 --------------------------------------------------------------------------------
@@ -385,19 +369,8 @@ unify (Expected t1) (Found pos t2) = do
 unify' :: ExpectedType -> FoundType -> Infer Subst
 unify' (Expected t1) (Found pos t2) = lift $ lift $ withExcept
     (\case
-        InfiniteType'' a t ->
-            PosErr pos (concat ["Infinite type: ", pretty a, ", ", pretty t])
-        UnificationFailed'' t'1 t'2 ->
-            PosErr pos
-                $ "Couldn't match type `"
-                ++ pretty t'2
-                ++ "` with `"
-                ++ pretty t'1
-                ++ "`. Expected type: "
-                ++ pretty t1
-                ++ ". Found type: "
-                ++ pretty t2
-                ++ "."
+        InfiniteType'' a t -> InfType pos a t
+        UnificationFailed'' t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
     )
     (unify'' t1 t2)
 
