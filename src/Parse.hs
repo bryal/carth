@@ -1,6 +1,24 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections #-}
 
-module Parse (parse, reserveds) where
+-- Note: Some parsers are greedy wrt consuming spaces and comments succeding the
+--       item, while others are lazy. You'll have to look at the impl to be
+--       sure.
+--
+--       If a parser has a variant with a "ns_" prefix, that variant does not
+--       consume succeding space, while the unprefixed variant does.
+
+module Parse
+    ( Parser
+    , parse
+    , parse'
+    , reserveds
+    , ns_scheme
+    , ns_patCtion
+    , var
+    , eConstructor
+    , ns_expr
+    )
+where
 
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
@@ -8,7 +26,7 @@ import Data.Functor
 import Data.Bifunctor
 import Data.Maybe
 import Control.Applicative (liftA2)
-import qualified Text.Megaparsec as Megaparsec
+import qualified Text.Megaparsec as Mega
 import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import qualified Text.Megaparsec.Char as Char
@@ -32,7 +50,7 @@ parse :: SourceName -> String -> Either String Program
 parse = parse' program
 
 parse' :: Parser a -> SourceName -> String -> Either String a
-parse' p name src = mapLeft errorBundlePretty (Megaparsec.parse p name src)
+parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)
 
 program :: Parser Program
 program = do
@@ -87,44 +105,38 @@ def' schemeParser topPos = varDef <|> funDef
         pure (name, (scm, fun))
 
 expr :: Parser Expr
-expr =
-    withPos $ choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
+expr = andSkipSpaceAfter ns_expr
 
-unit :: Parser Expr'
-unit = reserved "unit" $> Lit Unit
-
-num :: Parser Expr'
-num = lexeme $ do
-    neg <- option False (char '-' $> True)
-    a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
-    let
-        e = either
-            (\n -> Int (if neg then -n else n))
-            (\x -> Double (if neg then -x else x))
-            a
-    pure (Lit e)
-
-charLit :: Parser Expr'
-charLit = lexeme
-    $ fmap (Lit . Char) (between (char '\'') (char '\'') Lexer.charLiteral)
-
-str :: Parser Expr'
-str = lexeme
-    $ fmap (Lit . Str) (char '"' >> manyTill Lexer.charLiteral (char '"'))
-
-bool :: Parser Expr'
-bool = do
-    b <- (reserved "true" $> True) <|> (reserved "false" $> False)
-    pure (Lit (Bool b))
-
-var :: Parser Expr'
-var = fmap Var small'
+ns_expr :: Parser Expr
+ns_expr = withPos
+    $ choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
+  where
+    unit = ns_reserved "unit" $> Lit Unit
+    num = do
+        neg <- option False (char '-' $> True)
+        a <- eitherP
+            (try (Lexer.decimal <* notFollowedBy (char '.')))
+            Lexer.float
+        let
+            e = either
+                (\n -> Int (if neg then -n else n))
+                (\x -> Double (if neg then -x else x))
+                a
+        pure (Lit e)
+    charLit = fmap
+        (Lit . Char)
+        (between (char '\'') (char '\'') Lexer.charLiteral)
+    str = fmap (Lit . Str) (char '"' >> manyTill Lexer.charLiteral (char '"'))
+    bool = do
+        b <- (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
+        pure (Lit (Bool b))
+    pexpr = ns_parens (choice [funMatch, match, if', fun, let', typeAscr, app])
 
 eConstructor :: Parser Expr'
-eConstructor = fmap Constructor big'
+eConstructor = fmap Constructor ns_big'
 
-pexpr :: Parser Expr'
-pexpr = parens (choice [funMatch, match, if', fun, let', typeAscr, app])
+var :: Parser Expr'
+var = fmap Var ns_small'
 
 funMatch :: Parser Expr'
 funMatch = reserved "fun-match" *> fmap FunMatch cases
@@ -143,11 +155,18 @@ case' :: Parser (Pat, Expr)
 case' = parens (liftM2 (,) pat expr)
 
 pat :: Parser Pat
-pat = patTor <|> patTion <|> patVar
+pat = patCtor <|> patCtion <|> patVar
   where
-    patTor = fmap (\x -> PConstruction (getPos x) x []) big'
-    patTion = parens (liftM3 PConstruction getSrcPos big' (some pat))
+    patCtor = fmap (\x -> PConstruction (getPos x) x []) big'
     patVar = fmap PVar small'
+
+patCtion :: Parser Pat
+patCtion = andSkipSpaceAfter ns_patCtion
+
+ns_patCtion :: Parser Pat
+ns_patCtion = do
+    pos <- getSrcPos
+    ns_parens (liftM3 PConstruction (pure pos) big' (some pat))
 
 app :: Parser Expr'
 app = do
@@ -191,7 +210,11 @@ typeAscr :: Parser Expr'
 typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
 
 scheme :: Parser (WithPos Scheme)
-scheme = withPos $ wrap nonptype <|> parens (universal <|> wrap ptype')
+scheme = andSkipSpaceAfter ns_scheme
+
+ns_scheme :: Parser (WithPos Scheme)
+ns_scheme =
+    withPos $ wrap ns_nonptype <|> (ns_parens (universal <|> wrap ptype'))
   where
     wrap = fmap (Forall Set.empty)
     universal = reserved "forall" *> liftA2 Forall tvars type_
@@ -201,7 +224,11 @@ type_ :: Parser Type
 type_ = nonptype <|> ptype
 
 nonptype :: Parser Type
-nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (flip TConst []) big]
+nonptype = andSkipSpaceAfter ns_nonptype
+
+ns_nonptype :: Parser Type
+ns_nonptype = choice
+    [fmap TPrim ns_tprim, fmap TVar ns_tvar, fmap (flip TConst []) ns_big]
 
 ptype :: Parser Type
 ptype = parens ptype'
@@ -219,9 +246,9 @@ tfun = do
     ts <- some type_
     pure (foldr1 TFun (t : ts))
 
-tprim :: Parser TPrim
-tprim = try $ do
-    s <- big
+ns_tprim :: Parser TPrim
+ns_tprim = try $ do
+    s <- ns_big
     case s of
         "Unit" -> pure TUnit
         "Int" -> pure TInt
@@ -232,19 +259,34 @@ tprim = try $ do
         _ -> fail $ "Undefined type constant " ++ s
 
 tvar :: Parser TVar
-tvar = fmap TVExplicit small'
+tvar = andSkipSpaceAfter ns_tvar
+
+ns_tvar :: Parser TVar
+ns_tvar = fmap TVExplicit ns_small'
+
+parens :: Parser a -> Parser a
+parens = andSkipSpaceAfter . ns_parens
 
 -- Note that () and [] can be used interchangeably, as long as the
 -- opening and closing bracket matches.
-parens :: Parser a -> Parser a
-parens p = choice
-    (map (($ p) . uncurry between . both symbol) [("(", ")"), ("[", "]")])
+ns_parens :: Parser a -> Parser a
+ns_parens p = choice
+    (map
+        (($ p) . uncurry between . bimap symbol string)
+        [("(", ")"), ("[", "]")]
+    )
 
 big' :: Parser Id
-big' = withPos big
+big' = andSkipSpaceAfter ns_big'
+
+ns_big' :: Parser Id
+ns_big' = withPos ns_big
 
 big :: Parser String
-big = try $ do
+big = andSkipSpaceAfter ns_big
+
+ns_big :: Parser String
+ns_big = try $ do
     s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")
@@ -252,10 +294,10 @@ big = try $ do
         else fail "Big identifier must start with an uppercase letter or colon."
 
 small' :: Parser Id
-small' = withPos small
+small' = andSkipSpaceAfter ns_small'
 
-small :: Parser String
-small = try $ do
+ns_small' :: Parser Id
+ns_small' = withPos $ try $ do
     s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")
@@ -272,7 +314,7 @@ identifier = do
         else pure name
 
 ident :: Parser String
-ident = lexeme $ label "identifier" $ liftA2 (:) identStart (many identLetter)
+ident = label "identifier" $ liftA2 (:) identStart (many identLetter)
 
 identStart :: Parser Char
 identStart =
@@ -282,13 +324,16 @@ identLetter :: Parser Char
 identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
 
 reserved :: String -> Parser ()
-reserved x = do
+reserved = andSkipSpaceAfter . ns_reserved
+
+ns_reserved :: String -> Parser ()
+ns_reserved x = do
     if not (elem x reserveds)
         then ice ("`" ++ x ++ "` is not a reserved word")
         else label ("reserved word " ++ x) (try (mfilter (== x) ident)) $> ()
 
-lexeme :: Parser a -> Parser a
-lexeme = Lexer.lexeme space
+andSkipSpaceAfter :: Parser a -> Parser a
+andSkipSpaceAfter = Lexer.lexeme space
 
 symbol :: String -> Parser String
 symbol = Lexer.symbol space

@@ -19,7 +19,7 @@ import Interp
 import Codegen
 import Compile
 import Mono
-import Parse
+import qualified Parse
 
 main :: IO ()
 main = do
@@ -50,7 +50,7 @@ parse' f src = do
             pure s
         else pure src
     putStrLn "Parsing..."
-    case parse f src' of
+    case Parse.parse f src' of
         Left e -> putStrLn ("Parse error:\n" ++ e) >> exitFailure
         Right p -> writeFile "out.parsed" (pretty p) $> p
 
