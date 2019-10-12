@@ -219,6 +219,7 @@ infer = unpos >>> \case
         pure (t, e)
     Ast.Constructor c -> inferExprConstructor c
 
+-- TODO: Check that the patterns are exhaustive or variable/wildcard
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
 inferCases

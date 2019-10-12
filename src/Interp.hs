@@ -16,6 +16,8 @@ import MonoAst
 data Val
     = VConst Const
     | VFun (Val -> IO Val)
+    | VConstruction String
+                    [Val] -- ^ Arguments are in reverse order--last arg first
 
 type Env = Map TypedVar Val
 
@@ -48,7 +50,7 @@ evalProgram (Program main defs) = do
 evalDefs :: Defs -> Eval (Map TypedVar Val)
 evalDefs (Defs defs) = do
     let (defNames, defBodies) = unzip (Map.toList defs)
-    mfix $ \ ~defs' -> do
+    mfix $ \(~defs') -> do
         defVals <- withLocals defs' (mapM eval defBodies)
         pure (Map.fromList (zip defNames defVals))
 
@@ -56,25 +58,41 @@ eval :: Expr -> Eval Val
 eval = \case
     Lit c -> pure (VConst c)
     Var (TypedVar x t) -> lookupEnv (x, t)
-    App ef ea -> do
-        f <- fmap unwrapFun' (eval ef)
-        a <- eval ea
-        f a
+    App ef ea -> evalApp ef ea
     If p c a -> liftA3 (if' . unwrapBool) (eval p) (eval c) (eval a)
-    Fun (TypedVar p pt) (b, _) -> do
+    Fun p (b, _) -> do
         env <- ask
-        let
-            f v =
-                runEval (withLocals env (withLocal (TypedVar p pt) v (eval b)))
-        pure (VFun f)
+        pure (VFun (\v -> runEval (withLocals env (withLocal p v (eval b)))))
     Let defs body -> evalLet defs body
-    Match _ _ -> nyi "eval Match"
-    Constructor _ -> nyi "eval Constructor"
+    Match e cs -> eval e >>= flip evalCases cs
+    Constructor c -> pure (VConstruction c [])
+
+evalApp :: Expr -> Expr -> Eval Val
+evalApp ef ea = eval ef >>= \case
+    VFun f -> eval ea >>= lift . f
+    VConstruction c xs -> fmap (VConstruction c . (: xs)) (eval ea)
+    v -> ice ("Application of non-function: " ++ showVariant v)
 
 evalLet :: Defs -> Expr -> Eval Val
 evalLet defs body = do
     defs' <- evalDefs defs
     withLocals defs' (eval body)
+
+evalCases :: Val -> [(Pat, Expr)] -> Eval Val
+evalCases matchee = \case
+    [] -> ice "Non-exhaustive patterns in match. Fell out!"
+    (p, b) : cs -> matchPat matchee p >>= \case
+        Just defs -> withLocals defs (eval b)
+        Nothing -> evalCases matchee cs
+
+matchPat :: Val -> Pat -> Eval (Maybe (Map TypedVar Val))
+matchPat = curry $ \case
+    (VConstruction c xs, PConstruction c' ps) | c == c' ->
+        zipWithM matchPat (reverse xs) ps <&> sequence <&> \case
+            Just defss -> Just (Map.unions defss)
+            Nothing -> Nothing
+    (_, PConstruction _ _) -> pure Nothing
+    (x, PVar v) -> pure (Just (Map.singleton v x))
 
 lookupEnv :: (String, Type) -> Eval Val
 lookupEnv (x, t) = fmap
@@ -120,3 +138,4 @@ showVariant = \case
         Bool _ -> "bool"
         Char _ -> "character"
     VFun _ -> "function"
+    VConstruction c _ -> "construction of " ++ c
