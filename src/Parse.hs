@@ -46,7 +46,7 @@ toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
 
 toplevel :: Parser (([Def], [TypeDef]) -> ([Def], [TypeDef]))
 toplevel = do
-    topPos <- getSourcePos
+    topPos <- getSrcPos
     parens $ choice
         [fmap (second . (:)) typedef, fmap (first . (:)) (def topPos)]
 
@@ -146,7 +146,7 @@ pat :: Parser Pat
 pat = patTor <|> patTion <|> patVar
   where
     patTor = fmap (\x -> PConstruction (getPos x) x []) big'
-    patTion = parens (liftM3 PConstruction getSourcePos big' (some pat))
+    patTion = parens (liftM3 PConstruction getSrcPos big' (some pat))
     patVar = fmap PVar small'
 
 app :: Parser Expr'
@@ -328,4 +328,7 @@ space :: Parser ()
 space = Lexer.space Char.space1 (Lexer.skipLineComment ";") empty
 
 withPos :: Parser a -> Parser (WithPos a)
-withPos = liftA2 WithPos getSourcePos
+withPos = liftA2 WithPos getSrcPos
+
+getSrcPos :: Parser SrcPos
+getSrcPos = fmap SrcPos getSourcePos

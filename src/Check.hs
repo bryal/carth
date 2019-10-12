@@ -31,7 +31,7 @@ data TypeErr = OtherErr String | PosErr SrcPos String
 instance Pretty TypeErr where
     pretty' _ = \case
         OtherErr msg -> "Error: " ++ msg
-        PosErr p msg -> sourcePosPretty p ++ ": Error: " ++ msg
+        PosErr (SrcPos p) msg -> sourcePosPretty p ++ ": Error: " ++ msg
 
 data Env = Env
     { _envDefs :: Map String Scheme

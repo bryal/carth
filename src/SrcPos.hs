@@ -1,5 +1,5 @@
 module SrcPos
-    ( SrcPos
+    ( SrcPos(..)
     , WithPos(..)
     , HasPos(..)
     , onPosd
@@ -13,7 +13,8 @@ import Text.Megaparsec.Pos
 
 import Misc
 
-type SrcPos = SourcePos
+newtype SrcPos = SrcPos SourcePos
+    deriving Show
 
 data WithPos a = WithPos SrcPos a
 
@@ -39,4 +40,4 @@ unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
 
 dummyPos :: SrcPos
-dummyPos = initialPos "DUMMY"
+dummyPos = SrcPos (initialPos "DUMMY")
