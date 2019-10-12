@@ -10,7 +10,6 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Either.Combinators
 import Data.Bifunctor
-import Data.Composition
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -24,14 +23,8 @@ import FreeVars
 import NonEmpty
 import qualified Ast
 import Ast (Id, idstr, scmBody)
+import TypeErr
 import AnnotAst
-
-data TypeErr = OtherErr String | PosErr SrcPos String
-
-instance Pretty TypeErr where
-    pretty' _ = \case
-        OtherErr msg -> "Error: " ++ msg
-        PosErr (SrcPos p) msg -> sourcePosPretty p ++ ": Error: " ++ msg
 
 data Env = Env
     { _envDefs :: Map String Scheme
@@ -467,9 +460,3 @@ ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs
 
 ftvScheme :: Scheme -> Set TVar
 ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
-
-otherErr :: MonadError TypeErr m => String -> m a
-otherErr = throwError . OtherErr
-
-posErr :: MonadError TypeErr m => SrcPos -> String -> m a
-posErr = throwError .* PosErr
