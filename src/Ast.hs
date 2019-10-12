@@ -55,8 +55,6 @@ data Type
     = TVar TVar
     | TPrim TPrim
     | TConst String [Type]
-    -- TODO: Not curried yet! Handle that in the parser instead, so that AST
-    -- matches closer to what's actually parsed. That will improve error msgs
     | TFun Type Type
     deriving (Show, Eq, Ord)
 
@@ -85,8 +83,6 @@ data Expr'
     | Var Id
     | App Expr Expr
     | If Expr Expr Expr
-    -- TODO: Not curried yet! Handle that in the parser instead, so that AST
-    -- matches closer to what's actually parsed. That will improve error msgs
     | Fun Id Expr
     | Let (NonEmpty Def) Expr
     | TypeAscr Expr Type
