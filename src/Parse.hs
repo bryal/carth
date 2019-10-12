@@ -54,9 +54,9 @@ typedef :: Parser TypeDef
 typedef = do
     _ <- reserved "type"
     let onlyName = fmap (, []) big
-    let nameAndMany1 = parens . liftA2 (,) big . many1
-    (name, params) <- onlyName <|> nameAndMany1 small'
-    constrs <- many (onlyName <|> nameAndMany1 type_)
+    let nameAndSome = parens . liftA2 (,) big . some
+    (name, params) <- onlyName <|> nameAndSome small'
+    constrs <- many (onlyName <|> nameAndSome type_)
     pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
 
 def :: SrcPos -> Parser Def
@@ -80,7 +80,7 @@ def' schemeParser topPos = varDef <|> funDef
         body <- expr
         pure (name, (scm, body))
     funDef = do
-        (name, params) <- parens (liftM2 (,) small' (many1 small'))
+        (name, params) <- parens (liftM2 (,) small' (some small'))
         scm <- schemeParser
         body <- expr
         let fun = foldr (WithPos topPos .* Fun) body params
@@ -137,7 +137,7 @@ match = do
     pure (Match e cs)
 
 cases :: Parser (NonEmpty (Pat, Expr))
-cases = many1' case'
+cases = some' case'
 
 case' :: Parser (Pat, Expr)
 case' = parens (liftM2 (,) pat expr)
@@ -146,13 +146,13 @@ pat :: Parser Pat
 pat = patTor <|> patTion <|> patVar
   where
     patTor = fmap (\x -> PConstruction (getPos x) x []) big'
-    patTion = parens (liftM3 PConstruction getSourcePos big' (many1 pat))
+    patTion = parens (liftM3 PConstruction getSourcePos big' (some pat))
     patVar = fmap PVar small'
 
 app :: Parser Expr'
 app = do
     rator <- expr
-    rands <- many1 expr
+    rands <- some expr
     pure (unpos (foldl (WithPos (getPos rator) .* App) rator rands))
 
 if' :: Parser Expr'
@@ -167,7 +167,7 @@ fun :: Parser Expr'
 fun = do
     reserved "fun"
     params <- choice
-        [parens (many1 (withPos small')), fmap (\x -> [x]) (withPos small')]
+        [parens (some (withPos small')), fmap (\x -> [x]) (withPos small')]
     body <- expr
     pure $ unpos
         (foldr (\(WithPos pos p) b -> WithPos pos (Fun p b)) body params)
@@ -176,7 +176,7 @@ fun = do
 let' :: Parser Expr'
 let' = do
     reserved "let"
-    bindings <- parens (many1' binding)
+    bindings <- parens (some' binding)
     body <- expr
     pure (Let bindings body)
 
@@ -210,13 +210,13 @@ ptype' :: Parser Type
 ptype' = tfun <|> tapp
 
 tapp :: Parser Type
-tapp = liftA2 TConst big (many1 type_)
+tapp = liftA2 TConst big (some type_)
 
 tfun :: Parser Type
 tfun = do
     reserved "Fun"
     t <- type_
-    ts <- many1 type_
+    ts <- some type_
     pure (foldr1 TFun (t : ts))
 
 tprim :: Parser TPrim
@@ -320,11 +320,8 @@ otherChar = satisfy
         ]
     )
 
-many1' :: Parser a -> Parser (NonEmpty a)
-many1' = fmap (fromJust . nonEmpty) . many1
-
-many1 :: Parser a -> Parser [a]
-many1 p = liftA2 (:) p (many p)
+some' :: Parser a -> Parser (NonEmpty a)
+some' = fmap (fromJust . nonEmpty) . some
 
 -- | Spaces, line comments, and block comments
 space :: Parser ()
