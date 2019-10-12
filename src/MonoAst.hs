@@ -46,6 +46,7 @@ data Expr
     | Fun TypedVar (Expr, Type)
     | Let Defs Expr
     | Match Expr [(Pat, Expr)]
+    | Constructor String
     deriving (Show)
 
 newtype Defs = Defs (Map TypedVar Expr)
@@ -69,6 +70,7 @@ fvExpr = \case
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
     Match e cs -> fvMatch e cs
+    Constructor _ -> Set.empty
 
 instance Pattern Pat TypedVar where
     patternBoundVars = bvPat

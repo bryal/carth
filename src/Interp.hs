@@ -69,6 +69,7 @@ eval = \case
         pure (VFun f)
     Let defs body -> evalLet defs body
     Match _ _ -> nyi "eval Match"
+    Constructor _ -> nyi "eval Constructor"
 
 evalLet :: Defs -> Expr -> Eval Val
 evalLet defs body = do

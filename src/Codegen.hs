@@ -262,6 +262,7 @@ genExpr = \case
     Fun p b -> genLambda p b
     Let ds b -> genLet ds b
     Match _ _ -> nyi "genExpr Match"
+    Constructor _ -> nyi "genExpr Constructor"
 
 -- | Convert to the LLVM representation of a type in an expression-context.
 toLlvmType :: MonoAst.Type -> Type

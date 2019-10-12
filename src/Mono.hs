@@ -50,7 +50,7 @@ mono = \case
     An.Fun p b -> monoFun p b
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     An.Match e cs -> monoMatch e cs
-    An.Constructor _ -> nyi "mono Constructor"
+    An.Constructor c -> pure (Constructor c)
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do
