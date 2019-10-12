@@ -119,11 +119,15 @@ addInst x t1 = do
             insertInst x t1 body'
 
 bindTvs :: An.Type -> Type -> Map TVar Type
-bindTvs = curry $ \case
+bindTvs a b = case (a, b) of
     (An.TVar v, t) -> Map.singleton v t
     (An.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-    (An.TPrim a, TPrim b) | a == b -> Map.empty
-    (a, b) -> ice $ "bindTvs: " ++ show a ++ ", " ++ show b
+    (An.TPrim _, TPrim _) -> Map.empty
+    (An.TConst _ ts0, TConst _ ts1) -> Map.unions (zipWith bindTvs ts0 ts1)
+    (An.TPrim _, _) -> err
+    (An.TFun _ _, _) -> err
+    (An.TConst _ _, _) -> err
+    where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: An.Type -> Mono Type
 monotype = \case
