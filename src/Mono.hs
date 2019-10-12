@@ -13,12 +13,12 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 
 import Misc
-import qualified AnnotAst
+import qualified AnnotAst as An
 import AnnotAst (TVar(..), Scheme(..))
 import MonoAst
 
 data Env = Env
-    { _defs :: Map String (Scheme, AnnotAst.Expr)
+    { _defs :: Map String (Scheme, An.Expr)
     , _tvBinds :: Map TVar Type
     }
 
@@ -29,29 +29,28 @@ type Insts = Map String (Map Type Expr)
 -- | The monomorphization monad
 type Mono = ReaderT Env (State Insts)
 
-monomorphize :: AnnotAst.Program -> Program
-monomorphize (AnnotAst.Program main ds) = (uncurry (flip Program))
+monomorphize :: An.Program -> Program
+monomorphize (An.Program main ds) = (uncurry (flip Program))
     (evalState (runReaderT (monoLet ds main) initEnv) Map.empty)
 
 initEnv :: Env
 initEnv = Env { _defs = Map.empty, _tvBinds = Map.empty }
 
-mono :: AnnotAst.Expr -> Mono Expr
+mono :: An.Expr -> Mono Expr
 mono = \case
-    AnnotAst.Lit c -> pure (Lit c)
-    AnnotAst.Var (AnnotAst.TypedVar x t) -> do
+    An.Lit c -> pure (Lit c)
+    An.Var (An.TypedVar x t) -> do
         t' <- monotype t
         addInst x t'
         pure (Var (TypedVar x t'))
-    AnnotAst.App f a -> liftA2 App (mono f) (mono a)
-    AnnotAst.If p c a -> liftA3 If (mono p) (mono c) (mono a)
-    AnnotAst.Fun p b -> monoFun p b
-    AnnotAst.Let ds b -> fmap (uncurry Let) (monoLet ds b)
-    AnnotAst.Match _ _ -> nyi "mono Match"
-    AnnotAst.Constructor _ -> nyi "mono Constructor"
+    An.App f a -> liftA2 App (mono f) (mono a)
+    An.If p c a -> liftA3 If (mono p) (mono c) (mono a)
+    An.Fun p b -> monoFun p b
+    An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
+    An.Match _ _ -> nyi "mono Match"
+    An.Constructor _ -> nyi "mono Constructor"
 
-monoFun
-    :: (String, AnnotAst.Type) -> (AnnotAst.Expr, AnnotAst.Type) -> Mono Expr
+monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do
     parentInst <- gets (Map.lookup p)
     modify (Map.delete p)
@@ -61,8 +60,8 @@ monoFun (p, tp) (b, bt) = do
     maybe (pure ()) (modify . Map.insert p) parentInst
     pure (Fun (TypedVar p tp') (b', bt'))
 
-monoLet :: AnnotAst.Defs -> AnnotAst.Expr -> Mono (Defs, Expr)
-monoLet (AnnotAst.Defs ds) body = do
+monoLet :: An.Defs -> An.Expr -> Mono (Defs, Expr)
+monoLet (An.Defs ds) body = do
     let ks = Map.keys ds
     parentInsts <- gets (lookups ks)
     let newEmptyInsts = (fmap (const Map.empty) ds)
@@ -92,21 +91,19 @@ addInst x t1 = do
                 (mono body)
             insertInst x t1 body'
 
-bindTvs :: AnnotAst.Type -> Type -> Map TVar Type
+bindTvs :: An.Type -> Type -> Map TVar Type
 bindTvs = curry $ \case
-    (AnnotAst.TVar v, t) -> Map.singleton v t
-    (AnnotAst.TFun p0 r0, TFun p1 r1) ->
-        Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-    (AnnotAst.TPrim a, TPrim b) | a == b -> Map.empty
+    (An.TVar v, t) -> Map.singleton v t
+    (An.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
+    (An.TPrim a, TPrim b) | a == b -> Map.empty
     (a, b) -> ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
-monotype :: AnnotAst.Type -> Mono Type
+monotype :: An.Type -> Mono Type
 monotype = \case
-    AnnotAst.TVar v ->
-        views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
-    AnnotAst.TPrim c -> pure (TPrim c)
-    AnnotAst.TFun a b -> liftA2 TFun (monotype a) (monotype b)
-    AnnotAst.TConst c ts -> fmap (TConst c) (mapM monotype ts)
+    An.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
+    An.TPrim c -> pure (TPrim c)
+    An.TFun a b -> liftA2 TFun (monotype a) (monotype b)
+    An.TConst c ts -> fmap (TConst c) (mapM monotype ts)
 
 insertInst :: String -> Type -> Expr -> Mono ()
 insertInst x t b = modify (Map.adjust (Map.insert t b) x)
