@@ -274,7 +274,7 @@ genExpr = \case
     If p c a -> genIf p c a
     Fun p b -> genLambda p b
     Let ds b -> genLet ds b
-    Match _ _ -> nyi "genExpr Match"
+    Match e cs -> genMatch e cs
     Constructor _ -> nyi "genExpr Constructor"
 
 -- | Convert to the LLVM representation of a type in an expression-context.
@@ -352,6 +352,37 @@ genLet (Defs ds) b = do
     ns' <- mapM newName ns
     let ts' = map toLlvmType ts
     withDefSigs (zip vs ns') (mapM genDef (zip3 ns' ts' es) *> genExpr b)
+
+genMatch :: Expr -> [(Pat, Expr)] -> Gen Operand
+genMatch m cs = do
+    m' <- genExpr m
+    nextL <- newName "next"
+    nextCaseLs <- replicateM (length cs - 1) (newName "next_case")
+    noMatchL <- newName "no_match"
+    cs' <- zipWithM (genCase m' nextL) (nextCaseLs ++ [noMatchL]) cs
+    -- If we fell through the last case, the pattern was nonexhaustive and we're
+    -- in a failure state. Only thing to do now is panic!
+    genAbort
+    commitToNewBlock unreachable nextL
+    emitAnon (phi cs')
+
+genCase :: Operand -> Name -> Name -> (Pat, Expr) -> Gen (Operand, Name)
+genCase m nextL nextCaseL (p, b) = do
+    defs <- genMatchPattern nextCaseL m p
+    b' <- withDefSigs defs (genExpr b)
+    l <- use currentBlockLabel
+    commitToNewBlock (br nextL) nextCaseL
+    pure (b', l)
+
+genMatchPattern :: Name -> Operand -> Pat -> Gen [(TypedVar, Name)]
+genMatchPattern _nextCaseL m = \case
+    -- TODO: Change the fields of this constructor. Should be smth like index
+    --       and type of variant.
+    PConstruction _ _ -> nyi "genMatchPattern PConstruction"
+    PVar var@(TypedVar x t) -> do
+        n <- newName x
+        genVar n (toLlvmType t) m
+        pure [(var, n)]
 
 withDefSigs :: [(TypedVar, Name)] -> Gen a -> Gen a
 withDefSigs = locally localEnv . Map.union . Map.fromList . map
