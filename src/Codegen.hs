@@ -15,6 +15,7 @@ import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
+import qualified LLVM.AST.FunctionAttribute as LLFnAttr
 import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import LLVM.Pretty ()
@@ -31,6 +32,7 @@ import qualified Data.Set as Set
 import Data.Word
 import Data.Foldable
 import Data.List
+import Data.Composition
 import Control.Applicative
 import Control.Lens
     (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
@@ -45,7 +47,8 @@ import MonoAst hiding (Type, Const)
 -- only produce side effects.
 data FunInstruction = WithRetType Instruction Type
 
--- TODO: Either treat globals and locals separately - Globals behing pointers, locals not - or treat them the same - stack alloc space for locals.
+-- TODO: Either treat globals and locals separately - Globals behing pointers,
+--       locals not - or treat them the same - stack alloc space for locals.
 data Env = Env
     { _localEnv :: Map TypedVar Operand
     , _globalEnv :: Map TypedVar Operand
@@ -120,6 +123,7 @@ genBuiltins = map
         (mkName "malloc")
         [parameter (mkName "size") i64]
         (LLType.ptr typeUnit)
+    , simpleFunc' (mkName "abort") [] typeUnit [LLFnAttr.NoReturn]
     , simpleFunc (mkName "printInt") [parameter (mkName "n") i64] typeUnit
     ]
 
@@ -181,7 +185,16 @@ genFunDef' (name, fvs, (TypedVar p pt), body) = do
     pure (f, ss ++ ls)
 
 simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
-simpleFunc n ps rt bs = Function
+simpleFunc = ($ []) .** simpleFunc'
+
+simpleFunc'
+    :: Name
+    -> [Parameter]
+    -> Type
+    -> [LLFnAttr.FunctionAttribute]
+    -> [BasicBlock]
+    -> Global
+simpleFunc' n ps rt fnAttrs bs = Function
     { LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
     , LLGlob.dllStorageClass = Nothing
@@ -190,7 +203,7 @@ simpleFunc n ps rt bs = Function
     , LLGlob.returnType = rt
     , LLGlob.name = n
     , LLGlob.parameters = (ps, False)
-    , LLGlob.functionAttributes = []
+    , LLGlob.functionAttributes = map Right fnAttrs
     , LLGlob.section = Nothing
     , LLGlob.comdat = Nothing
     , LLGlob.alignment = 0
@@ -407,6 +420,9 @@ genSizeOf t = do
 genMalloc :: Operand -> Gen Operand
 genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
 
+genAbort :: Gen ()
+genAbort = emit (callExtern' "abort" [])
+
 withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
 withVars = flip (foldr (uncurry withVar))
 
@@ -456,23 +472,26 @@ newName'' :: ShortByteString -> Gen' Name
 newName'' s =
     fmap (Name . (mappend s) . fromString . show) (registerCount <<+= 1)
 
--- TODO: Shouldn't need a return type parameter. Should look at global list of hidden
--- builtins or something.
+-- TODO: Shouldn't need a return type parameter. Should look at global list of
+--       hidden builtins or something.
 callExtern :: String -> Type -> [Operand] -> FunInstruction
-callExtern f rt as = WithRetType
-    (Call
-        { tailCallKind = Just Tail
-        , callingConvention = callConv
-        , returnAttributes = []
-        , function = Right $ ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr (FunctionType rt (map typeOf as) False))
-            (mkName f)
-        , arguments = map (, []) as
-        , functionAttributes = []
-        , metadata = []
-        }
-    )
-    rt
+callExtern f rt as = WithRetType (callExtern'' f rt as) rt
+
+callExtern' :: String -> [Operand] -> Instruction
+callExtern' f as = callExtern'' f typeUnit as
+
+callExtern'' :: String -> Type -> [Operand] -> Instruction
+callExtern'' f rt as = Call
+    { tailCallKind = Just Tail
+    , callingConvention = callConv
+    , returnAttributes = []
+    , function = Right $ ConstantOperand $ LLConst.GlobalReference
+        (LLType.ptr (FunctionType rt (map typeOf as) False))
+        (mkName f)
+    , arguments = map (, []) as
+    , functionAttributes = []
+    , metadata = []
+    }
 
 condbr :: Operand -> Name -> Name -> Terminator
 condbr c t f = CondBr c t f []
@@ -482,6 +501,9 @@ br = flip Br []
 
 ret :: Operand -> Terminator
 ret = flip Ret [] . Just
+
+unreachable :: Terminator
+unreachable = Unreachable []
 
 ptrtoint :: Operand -> Type -> FunInstruction
 ptrtoint p t =
