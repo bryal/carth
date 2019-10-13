@@ -12,6 +12,7 @@ import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Linkage as LLLink
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LLConst
+import LLVM.AST.Constant (sizeof)
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
@@ -431,28 +432,19 @@ genStruct xs = do
 genBoxGeneric :: Operand -> Gen Operand
 genBoxGeneric x = do
     let t = typeOf x
-    ptrGeneric <- genMalloc =<< genSizeOf t
+    ptrGeneric <- genMalloc (sizeof' t)
     ptr <- emitAnon (bitcast ptrGeneric (LLType.ptr t))
     emit (store x ptr)
     pure ptrGeneric
-
-genSizeOf :: Type -> Gen Operand
-genSizeOf t = do
-    let ptrT = LLType.ptr t
-    p <- emitReg'
-        "size_ptr"
-        (getelementptr
-            ptrT
-            (ConstantOperand (LLConst.Null ptrT))
-            [ConstantOperand (litI64 1)]
-        )
-    emitReg' "size" (ptrtoint p i64)
 
 genMalloc :: Operand -> Gen Operand
 genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
 
 genAbort :: Gen ()
 genAbort = emit (callExtern' "abort" [])
+
+sizeof' :: Type -> Operand
+sizeof' = ConstantOperand . sizeof
 
 withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
 withVars = flip (foldr (uncurry withVar))
@@ -536,10 +528,6 @@ ret = flip Ret [] . Just
 unreachable :: Terminator
 unreachable = Unreachable []
 
-ptrtoint :: Operand -> Type -> FunInstruction
-ptrtoint p t =
-    WithRetType (PtrToInt { operand0 = p, type' = t, metadata = [] }) t
-
 bitcast :: Operand -> Type -> FunInstruction
 bitcast x t = WithRetType (BitCast x t []) t
 
@@ -550,11 +538,6 @@ extractvalue :: Operand -> [Word32] -> FunInstruction
 extractvalue struct is = WithRetType
     (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
     (getIndexed (typeOf struct) is)
-
-getelementptr :: Type -> Operand -> [Operand] -> FunInstruction
-getelementptr rt p is = WithRetType
-    GetElementPtr { inBounds = False, address = p, indices = is, metadata = [] }
-    rt
 
 store :: Operand -> Operand -> Instruction
 store srcVal destPtr = Store
