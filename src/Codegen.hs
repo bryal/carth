@@ -54,6 +54,7 @@ import qualified MonoAst
 import MonoAst hiding (Type, Const)
 import qualified SizeOf
 
+
 -- | An instruction that returns a value. The name refers to the fact that a
 -- mathematical function always returns a value, but an imperative procedure may
 -- only produce side effects.
@@ -84,35 +85,22 @@ data Out = Out
     , _outFuncs :: [(Name, [TypedVar], TypedVar, Expr)]}
 makeLenses ''Out
 
+type Gen = WriterT Out Gen'
+
+
 instance Semigroup Out where
     Out bs1 ss1 fs1 <> Out bs2 ss2 fs2 =
         Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2)
-
 instance Monoid Out where
     mempty = Out [] [] []
 
-type Gen = WriterT Out Gen'
+instance Pretty Type where
+    pretty' _ = show . Prettyprint.pretty
+instance Pretty Name where
+    pretty' _ = show . Prettyprint.pretty
+instance Pretty Module where
+    pretty' _ = show . Prettyprint.pretty
 
-callConv :: LLCallConv.CallingConvention
-callConv = LLCallConv.C
-
-runGen' :: Context -> Gen' a -> IO a
-runGen' c g = runReaderT
-    (evalStateT g initSt)
-    Env { _localEnv = Map.empty, _globalEnv = Map.empty, _ctx = c }
-
-semiExecRetGen :: Gen Operand -> Gen' (Type, Out)
-semiExecRetGen gx = runWriterT $ do
-    x <- gx
-    commitFinalFuncBlock (ret x)
-    pure (typeOf x)
-
-initSt :: St
-initSt = St
-    { _currentBlockLabel = "entry"
-    , _currentBlockInstrs = []
-    , _registerCount = 0
-    }
 
 codegen :: Context -> FilePath -> Program -> IO Module
 codegen context moduleFilePath (Program main (Defs defs)) = do
@@ -128,6 +116,18 @@ codegen context moduleFilePath (Program main (Defs defs)) = do
         , moduleTargetTriple = Nothing
         , moduleDefinitions = genBuiltins ++ globDefs
         }
+
+runGen' :: Context -> Gen' a -> IO a
+runGen' c g = runReaderT
+    (evalStateT g initSt)
+    Env { _localEnv = Map.empty, _globalEnv = Map.empty, _ctx = c }
+
+initSt :: St
+initSt = St
+    { _currentBlockLabel = "entry"
+    , _currentBlockInstrs = []
+    , _registerCount = 0
+    }
 
 genBuiltins :: [Definition]
 genBuiltins = map
@@ -191,80 +191,10 @@ genFunDef' (name, fvs, (TypedVar p pt), body) = do
     let ss = map globStrVar globStrings
     ls <- concat <$> mapM genFunDef lambdaFuncs
 
-
     let fParams = [parameter capturesName capturesType, parameter p' pt']
     let f = simpleFunc name fParams rt basicBlocks
 
     pure (f, ss ++ ls)
-
-simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
-simpleFunc = ($ []) .** simpleFunc'
-
-simpleFunc'
-    :: Name
-    -> [Parameter]
-    -> Type
-    -> [LLFnAttr.FunctionAttribute]
-    -> [BasicBlock]
-    -> Global
-simpleFunc' n ps rt fnAttrs bs = Function
-    { LLGlob.linkage = LLLink.External
-    , LLGlob.visibility = LLVis.Default
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = callConv
-    , LLGlob.returnAttributes = []
-    , LLGlob.returnType = rt
-    , LLGlob.name = n
-    , LLGlob.parameters = (ps, False)
-    , LLGlob.functionAttributes = map Right fnAttrs
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.garbageCollectorName = Nothing
-    , LLGlob.prefix = Nothing
-    , LLGlob.basicBlocks = bs
-    , LLGlob.personalityFunction = Nothing
-    , LLGlob.metadata = []
-    }
-
-globStrVar :: (Name, String) -> Global
-globStrVar (name, str) =
-    let bytes = UTF8.String.encode str
-    in
-        simpleGlobVar
-            name
-            (ArrayType (fromIntegral (length bytes)) i8)
-            (LLConst.Array i8 (map (litI8) bytes))
-
-simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
-simpleGlobVar name t init = GlobalVariable
-    { LLGlob.name = name
-    , LLGlob.linkage = LLLink.External
-    , LLGlob.visibility = LLVis.Default
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.threadLocalMode = Nothing
-    , LLGlob.addrSpace = LLAddr.AddrSpace 0
-    , LLGlob.unnamedAddr = Nothing
-    , LLGlob.isConstant = True
-    , LLGlob.type' = t
-    , LLGlob.initializer = Just init
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.metadata = []
-    }
-
-parameter :: Name -> Type -> LLGlob.Parameter
-parameter p pt = LLGlob.Parameter pt p []
-
-withGlobDefSigs :: MonadReader Env m => [(TypedVar, Expr)] -> m a -> m a
-withGlobDefSigs = locally globalEnv . Map.union . Map.fromList . map
-    (\(v@(TypedVar _ t), _) ->
-        ( v
-        , ConstantOperand
-            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mangleName v))
-        )
-    )
 
 genExtractCaptures :: Operand -> [TypedVar] -> Gen a -> Gen a
 genExtractCaptures capturesPtrGeneric fvs ga = if null fvs
@@ -455,6 +385,71 @@ genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
 genAbort :: Gen ()
 genAbort = emit (callExtern' "abort" [])
 
+semiExecRetGen :: Gen Operand -> Gen' (Type, Out)
+semiExecRetGen gx = runWriterT $ do
+    x <- gx
+    commitFinalFuncBlock (ret x)
+    pure (typeOf x)
+
+globStrVar :: (Name, String) -> Global
+globStrVar (name, str) =
+    let bytes = UTF8.String.encode str
+    in
+        simpleGlobVar
+            name
+            (ArrayType (fromIntegral (length bytes)) i8)
+            (LLConst.Array i8 (map (litI8) bytes))
+
+simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
+simpleFunc = ($ []) .** simpleFunc'
+
+simpleFunc'
+    :: Name
+    -> [Parameter]
+    -> Type
+    -> [LLFnAttr.FunctionAttribute]
+    -> [BasicBlock]
+    -> Global
+simpleFunc' n ps rt fnAttrs bs = Function
+    { LLGlob.linkage = LLLink.External
+    , LLGlob.visibility = LLVis.Default
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.callingConvention = callConv
+    , LLGlob.returnAttributes = []
+    , LLGlob.returnType = rt
+    , LLGlob.name = n
+    , LLGlob.parameters = (ps, False)
+    , LLGlob.functionAttributes = map Right fnAttrs
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.garbageCollectorName = Nothing
+    , LLGlob.prefix = Nothing
+    , LLGlob.basicBlocks = bs
+    , LLGlob.personalityFunction = Nothing
+    , LLGlob.metadata = []
+    }
+
+simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
+simpleGlobVar name t init = GlobalVariable
+    { LLGlob.name = name
+    , LLGlob.linkage = LLLink.External
+    , LLGlob.visibility = LLVis.Default
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.threadLocalMode = Nothing
+    , LLGlob.addrSpace = LLAddr.AddrSpace 0
+    , LLGlob.unnamedAddr = Nothing
+    , LLGlob.isConstant = True
+    , LLGlob.type' = t
+    , LLGlob.initializer = Just init
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.metadata = []
+    }
+
+parameter :: Name -> Type -> LLGlob.Parameter
+parameter p pt = LLGlob.Parameter pt p []
 
 sizeof'' :: Type -> Gen Operand
 sizeof'' = fmap ConstantOperand . sizeof'
@@ -466,6 +461,15 @@ sizeof :: Type -> Gen Word64
 sizeof t = do
     c <- view ctx
     liftIO (SizeOf.sizeof c t)
+
+withGlobDefSigs :: MonadReader Env m => [(TypedVar, Expr)] -> m a -> m a
+withGlobDefSigs = locally globalEnv . Map.union . Map.fromList . map
+    (\(v@(TypedVar _ t), _) ->
+        ( v
+        , ConstantOperand
+            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mangleName v))
+        )
+    )
 
 withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
 withVars = flip (foldr (uncurry withVar))
@@ -677,11 +681,5 @@ unName = \case
     Name s -> s
     UnName n -> fromString (show n)
 
-instance Pretty Type where
-    pretty' _ = show . Prettyprint.pretty
-
-instance Pretty Name where
-    pretty' _ = show . Prettyprint.pretty
-
-instance Pretty Module where
-    pretty' _ = show . Prettyprint.pretty
+callConv :: LLCallConv.CallingConvention
+callConv = LLCallConv.C
