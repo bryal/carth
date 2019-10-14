@@ -7,12 +7,12 @@ import LLVM.Prelude (ShortByteString)
 import LLVM.AST
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
+import LLVM.Context
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Linkage as LLLink
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LLConst
-import LLVM.AST.Constant (sizeof)
 import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
@@ -36,12 +36,23 @@ import Data.List
 import Data.Composition
 import Control.Applicative
 import Control.Lens
-    (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
+    ( makeLenses
+    , modifying
+    , scribe
+    , (<<+=)
+    , use
+    , uses
+    , assign
+    , view
+    , views
+    , locally
+    )
 
 import Misc
 import FreeVars
 import qualified MonoAst
 import MonoAst hiding (Type, Const)
+import qualified SizeOf
 
 -- | An instruction that returns a value. The name refers to the fact that a
 -- mathematical function always returns a value, but an imperative procedure may
@@ -53,6 +64,7 @@ data FunInstruction = WithRetType Instruction Type
 data Env = Env
     { _localEnv :: Map TypedVar Operand
     , _globalEnv :: Map TypedVar Operand
+    , _ctx :: Context
     }
 makeLenses ''Env
 
@@ -63,7 +75,7 @@ data St = St
     }
 makeLenses ''St
 
-type Gen' = StateT St (Reader Env)
+type Gen' = StateT St (ReaderT Env IO)
 
 -- | The output of generating a function
 data Out = Out
@@ -84,17 +96,16 @@ type Gen = WriterT Out Gen'
 callConv :: LLCallConv.CallingConvention
 callConv = LLCallConv.C
 
-runGen' :: Gen' a -> a
-runGen' g = runReader (evalStateT g initSt) initEnv
+runGen' :: Context -> Gen' a -> IO a
+runGen' c g = runReaderT
+    (evalStateT g initSt)
+    Env { _localEnv = Map.empty, _globalEnv = Map.empty, _ctx = c }
 
 semiExecRetGen :: Gen Operand -> Gen' (Type, Out)
 semiExecRetGen gx = runWriterT $ do
     x <- gx
     commitFinalFuncBlock (ret x)
     pure (typeOf x)
-
-initEnv :: Env
-initEnv = Env { _localEnv = Map.empty, _globalEnv = Map.empty }
 
 initSt :: St
 initSt = St
@@ -103,18 +114,19 @@ initSt = St
     , _registerCount = 0
     }
 
-
-codegen :: FilePath -> Program -> Module
-codegen moduleFilePath (Program main (Defs defs)) =
-    let
-        defs' = (TypedVar "main" mainType, main) : Map.toList defs
+codegen :: Context -> FilePath -> Program -> IO Module
+codegen context moduleFilePath (Program main (Defs defs)) = do
+    let defs' = (TypedVar "main" mainType, main) : Map.toList defs
         genGlobDefs = withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
-    in defaultModule
+    globDefs <- runGen' context genGlobDefs
+    pure Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
         , moduleSourceFileName = fromString moduleFilePath
-        , moduleDefinitions = genBuiltins ++ runGen' genGlobDefs
+        , moduleDataLayout = Just SizeOf.dataLayout
+        , moduleTargetTriple = Nothing
+        , moduleDefinitions = genBuiltins ++ globDefs
         }
 
 genBuiltins :: [Definition]
@@ -432,7 +444,7 @@ genStruct xs = do
 genBoxGeneric :: Operand -> Gen Operand
 genBoxGeneric x = do
     let t = typeOf x
-    ptrGeneric <- genMalloc (sizeof' t)
+    ptrGeneric <- genMalloc =<< sizeof'' t
     ptr <- emitAnon (bitcast ptrGeneric (LLType.ptr t))
     emit (store x ptr)
     pure ptrGeneric
@@ -443,8 +455,17 @@ genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
 genAbort :: Gen ()
 genAbort = emit (callExtern' "abort" [])
 
-sizeof' :: Type -> Operand
-sizeof' = ConstantOperand . sizeof
+
+sizeof'' :: Type -> Gen Operand
+sizeof'' = fmap ConstantOperand . sizeof'
+
+sizeof' :: Type -> Gen LLConst.Constant
+sizeof' = fmap (litI64 . fromIntegral) . sizeof
+
+sizeof :: Type -> Gen Word64
+sizeof t = do
+    c <- view ctx
+    liftIO (SizeOf.sizeof c t)
 
 withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
 withVars = flip (foldr (uncurry withVar))

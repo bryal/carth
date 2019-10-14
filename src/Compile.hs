@@ -1,6 +1,5 @@
 module Compile (compile, CompileConfig(..), defaultCompileConfig) where
 
-import qualified LLVM.AST
 import LLVM.Context
 import LLVM.Module
 import LLVM.Target
@@ -10,6 +9,10 @@ import System.Process
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
+
+import Misc
+import qualified MonoAst
+import Codegen
 
 -- | Configuration for LLVM compilation and CC linking
 data CompileConfig = CompileConfig
@@ -24,9 +27,11 @@ defaultCompileConfig = CompileConfig { cc = "cc", outfile = Nothing }
 
 -- TODO: Verify w LLVM.Analysis.verify :: Module -> IO ()
 -- TODO: CodeGenOpt level
-compile :: CompileConfig -> LLVM.AST.Module -> IO ()
-compile cfg mod =
-    withContext $ \c -> withModuleFromAST c mod (compileModule cfg)
+compile :: FilePath -> CompileConfig -> MonoAst.Program -> IO ()
+compile f cfg pgm = withContext $ \c -> do
+    mod <- codegen c f pgm
+    writeFile "out.dbgll" (pretty mod)
+    withModuleFromAST c mod (compileModule cfg)
 
 compileModule :: CompileConfig -> Module -> IO ()
 compileModule cfg m = withHostTargetMachinePIC $ \t -> do
