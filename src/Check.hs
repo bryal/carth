@@ -303,10 +303,12 @@ inferExprConstructor :: Id -> Infer (Type, Expr)
 inferExprConstructor c = do
     (variantIx, tdefLhs, cParams) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
-    pure
-        ( foldr TFun (TConst tdefInst) cParams'
-        , Ctor (variantIx, tdefInst, cParams')
-        )
+    cParams'' <- mapM (\t -> freshVar >>= \x -> (x, t)) cParams'
+    let cArgs = map (Var .* TypedVar) cParams''
+        tInner = TConst tdefInst
+    let t = foldr TFun tInner cParams'
+    let e = foldr Fun (Ction (variantIx, tdefInst, cArgs), tInner) cParams''
+    pure (t, e)
 
 instantiateConstructorOfTypeDef
     :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])

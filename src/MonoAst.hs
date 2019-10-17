@@ -10,7 +10,7 @@ module MonoAst
     , TypedVar(..)
     , VariantIx
     , Pat(..)
-    , Ctor
+    , Ction
     , Const(..)
     , Expr(..)
     , Defs(..)
@@ -45,8 +45,8 @@ data Pat
     | PVar TypedVar
     deriving (Show, Eq)
 
--- | (Variant index, constructed type, innter type of this variant)
-type Ctor = (VariantIx, TConst, [Type])
+-- | (Variant index, constructed type, arguments)
+type Ction = (VariantIx, TConst, [Expr])
 
 data Expr
     = Lit Const
@@ -56,7 +56,7 @@ data Expr
     | Fun TypedVar (Expr, Type)
     | Let Defs Expr
     | Match Expr [(Pat, Expr)]
-    | Ctor Ctor
+    | Ction Ction
     deriving (Show)
 
 newtype Defs = Defs (Map TypedVar Expr)
@@ -85,7 +85,7 @@ fvExpr = \case
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
     Match e cs -> fvMatch e cs
-    Ctor _ -> Set.empty
+    Ction _ -> Set.empty
 
 bvPat :: Pat -> Set TypedVar
 bvPat = \case

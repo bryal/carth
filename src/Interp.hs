@@ -65,12 +65,11 @@ eval = \case
         pure (VFun (\v -> runEval (withLocals env (withLocal p v (eval b)))))
     Let defs body -> evalLet defs body
     Match e cs -> eval e >>= flip evalCases cs
-    Ctor (i, _, _) -> pure (VConstruction i [])
+    Ction (i, _, as) -> fmap (VConstruction i) (mapM eval as)
 
 evalApp :: Expr -> Expr -> Eval Val
 evalApp ef ea = eval ef >>= \case
     VFun f -> eval ea >>= lift . f
-    VConstruction c xs -> fmap (VConstruction c . (: xs)) (eval ea)
     v -> ice ("Application of non-function: " ++ showVariant v)
 
 evalLet :: Defs -> Expr -> Eval Val

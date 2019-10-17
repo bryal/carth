@@ -228,7 +228,7 @@ genExpr = \case
     Fun p b -> genLambda p b
     Let ds b -> genLet ds b
     Match e cs -> genMatch e cs
-    Ctor _ -> nyi "genExpr Constructor"
+    Ction c -> genCtion c
 
 -- | Convert to the LLVM representation of a type in an expression-context.
 toLlvmType :: MonoAst.Type -> Type
@@ -336,6 +336,9 @@ genMatchPattern _nextCaseL m = \case
         n <- newName x
         genVar n (toLlvmType t) m
         pure [(var, n)]
+
+genCtion :: MonoAst.Ction -> Gen Operand
+genCtion (i, tdef, as) = nyi "genCtion"
 
 withDefSigs :: [(TypedVar, Name)] -> Gen a -> Gen a
 withDefSigs = augment localEnv . Map.fromList . map

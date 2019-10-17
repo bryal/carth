@@ -59,7 +59,7 @@ mono = \case
     An.Fun p b -> monoFun p b
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     An.Match e cs -> monoMatch e cs
-    An.Ctor c -> monoCtor c
+    An.Ction c -> monoCtion c
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do
@@ -110,13 +110,13 @@ monoPat = \case
     An.PVar (An.TypedVar x t) ->
         fmap (\t' -> (PVar (TypedVar x t'), Set.singleton x)) (monotype t)
 
-monoCtor :: An.Ctor -> Mono Expr
-monoCtor (i, (tdefName, tdefArgs), ts) = do
+monoCtion :: An.Ction -> Mono Expr
+monoCtion (i, (tdefName, tdefArgs), as) = do
     tdefArgs' <- mapM monotype tdefArgs
     let tdefInst = (tdefName, tdefArgs')
     modifying tdefInsts (Set.insert tdefInst)
-    ts' <- mapM monotype ts
-    pure (Ctor (i, tdefInst, ts'))
+    as' <- mapM mono as
+    pure (Ction (i, tdefInst, as'))
 
 addDefInst :: String -> Type -> Mono ()
 addDefInst x t1 = do

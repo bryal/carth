@@ -12,7 +12,7 @@ module AnnotAst
     , TypedVar(..)
     , VariantIx
     , Pat(..)
-    , Ctor
+    , Ction
     , Const(..)
     , Expr(..)
     , Defs(..)
@@ -37,7 +37,7 @@ data Pat
     | PVar TypedVar
     deriving (Show, Eq)
 
-type Ctor = (VariantIx, (String, [Type]), [Type])
+type Ction = (VariantIx, (String, [Type]), [Expr])
 
 data Expr
     = Lit Const
@@ -47,7 +47,7 @@ data Expr
     | Fun (String, Type) (Expr, Type)
     | Let Defs Expr
     | Match Expr [(Pat, Expr)]
-    | Ctor Ctor
+    | Ction Ction
     deriving (Show)
 
 newtype Defs = Defs (Map String (Scheme, Expr))
