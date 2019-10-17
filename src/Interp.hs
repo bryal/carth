@@ -16,7 +16,7 @@ import MonoAst
 data Val
     = VConst Const
     | VFun (Val -> IO Val)
-    | VConstruction String
+    | VConstruction VariantIx
                     [Val] -- ^ Arguments are in reverse order--last arg first
 
 type Env = Map TypedVar Val
@@ -43,7 +43,7 @@ plus :: Val -> Val -> Val
 plus a b = VConst (Int (unwrapInt a + unwrapInt b))
 
 evalProgram :: Program -> Eval ()
-evalProgram (Program main defs) = do
+evalProgram (Program main defs _) = do
     f <- evalLet defs main
     fmap unwrapUnit (unwrapFun' f (VConst Unit))
 
@@ -65,7 +65,7 @@ eval = \case
         pure (VFun (\v -> runEval (withLocals env (withLocal p v (eval b)))))
     Let defs body -> evalLet defs body
     Match e cs -> eval e >>= flip evalCases cs
-    Constructor c -> pure (VConstruction c [])
+    Ctor (i, _, _) -> pure (VConstruction i [])
 
 evalApp :: Expr -> Expr -> Eval Val
 evalApp ef ea = eval ef >>= \case
@@ -138,4 +138,4 @@ showVariant = \case
         Bool _ -> "bool"
         Char _ -> "character"
     VFun _ -> "function"
-    VConstruction c _ -> "construction of " ++ c
+    VConstruction c _ -> "construction of variant " ++ show c

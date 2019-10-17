@@ -18,6 +18,7 @@ module Parse
     , var
     , eConstructor
     , ns_expr
+    , ns_big
     )
 where
 
@@ -33,10 +34,10 @@ import Text.Megaparsec.Char hiding (space, space1)
 import qualified Text.Megaparsec.Char as Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
 import qualified Data.Set as Set
-import qualified Data.Map as Map
 import Data.Either.Combinators
 import Data.Void
 import Data.Composition
+import Data.List
 
 import Misc
 import SrcPos
@@ -72,11 +73,11 @@ toplevel = do
 typedef :: Parser TypeDef
 typedef = do
     _ <- reserved "type"
-    let onlyName = fmap (, []) big
-    let nameAndSome = parens . liftA2 (,) big . some
+    let onlyName = fmap (, []) big'
+    let nameAndSome = parens . liftA2 (,) big' . some
     (name, params) <- onlyName <|> nameAndSome small'
     constrs <- many (onlyName <|> nameAndSome type_)
-    pure (TypeDef name params (ConstructorDefs (Map.fromList constrs)))
+    pure (TypeDef name params (ConstructorDefs constrs))
 
 def :: SrcPos -> Parser Def
 def topPos = defUntyped topPos <|> defTyped topPos
@@ -118,8 +119,7 @@ ns_expr = withPos
         a <- eitherP
             (try (Lexer.decimal <* notFollowedBy (char '.')))
             Lexer.float
-        let
-            e = either
+        let e = either
                 (\n -> Int (if neg then -n else n))
                 (\x -> Double (if neg then -x else x))
                 a
@@ -127,11 +127,13 @@ ns_expr = withPos
     charLit = fmap
         (Lit . Char)
         (between (char '\'') (char '\'') Lexer.charLiteral)
-    str = fmap (Lit . Str) (char '"' >> manyTill Lexer.charLiteral (char '"'))
+    str =
+        fmap (Lit . Str) $ char '"' >> manyTill Lexer.charLiteral (char '"')
     bool = do
         b <- (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
         pure (Lit (Bool b))
-    pexpr = ns_parens (choice [funMatch, match, if', fun, let', typeAscr, app])
+    pexpr = ns_parens
+        (choice [funMatch, match, if', fun, let', typeAscr, app])
 
 eConstructor :: Parser Expr'
 eConstructor = fmap Constructor ns_big'
@@ -173,7 +175,7 @@ app :: Parser Expr'
 app = do
     rator <- expr
     rands <- some expr
-    pure (unpos (foldl (WithPos (getPos rator) .* App) rator rands))
+    pure (unpos (foldl' (WithPos (getPos rator) .* App) rator rands))
 
 if' :: Parser Expr'
 if' = do
@@ -203,8 +205,8 @@ let' = do
 binding :: Parser Def
 binding = parens (bindingTyped <|> bindingUntyped)
   where
-    bindingTyped =
-        reserved ":" *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
+    bindingTyped = reserved ":"
+        *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
     bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
 
 typeAscr :: Parser Expr'
@@ -229,7 +231,7 @@ nonptype = andSkipSpaceAfter ns_nonptype
 
 ns_nonptype :: Parser Type
 ns_nonptype = choice
-    [fmap TPrim ns_tprim, fmap TVar ns_tvar, fmap (flip TConst []) ns_big]
+    [fmap TPrim ns_tprim, fmap TVar ns_tvar, fmap (TConst . (, [])) ns_big]
 
 ptype :: Parser Type
 ptype = parens ptype'
@@ -238,7 +240,7 @@ ptype' :: Parser Type
 ptype' = tfun <|> tapp
 
 tapp :: Parser Type
-tapp = liftA2 TConst big (some type_)
+tapp = liftA2 (TConst .* (,)) big (some type_)
 
 tfun :: Parser Type
 tfun = do

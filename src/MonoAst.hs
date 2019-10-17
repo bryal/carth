@@ -5,12 +5,16 @@
 
 module MonoAst
     ( TPrim(..)
+    , TConst
     , Type(..)
     , TypedVar(..)
+    , VariantIx
     , Pat(..)
+    , Ctor
     , Const(..)
     , Expr(..)
     , Defs(..)
+    , TypeDefs
     , Program(..)
     , mainType
     )
@@ -20,23 +24,29 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import AnnotAst (VariantIx)
 
 import FreeVars
 import Ast (Const(..), TPrim(..))
 
+type TConst = (String, [Type])
+
 data Type
     = TPrim TPrim
     | TFun Type Type
-    | TConst String [Type]
+    | TConst TConst
     deriving (Show, Eq, Ord)
 
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
 data Pat
-    = PConstruction String [Pat]
+    = PConstruction VariantIx [Pat]
     | PVar TypedVar
     deriving (Show, Eq)
+
+-- | (Variant index, constructed type, innter type of this variant)
+type Ctor = (VariantIx, TConst, [Type])
 
 data Expr
     = Lit Const
@@ -46,20 +56,25 @@ data Expr
     | Fun TypedVar (Expr, Type)
     | Let Defs Expr
     | Match Expr [(Pat, Expr)]
-    | Constructor String
+    | Ctor Ctor
     deriving (Show)
 
 newtype Defs = Defs (Map TypedVar Expr)
     deriving (Show)
 
-data Program = Program Expr Defs
+type Variant = [Type]
+type TypeDefs = [(TConst, [Variant])]
+
+data Program = Program Expr Defs TypeDefs
     deriving (Show)
 
-mainType :: Type
-mainType = TFun (TPrim TUnit) (TPrim TUnit)
 
 instance FreeVars Expr TypedVar where
     freeVars = fvExpr
+
+instance Pattern Pat TypedVar where
+    patternBoundVars = bvPat
+
 
 fvExpr :: Expr -> Set TypedVar
 fvExpr = \case
@@ -70,12 +85,12 @@ fvExpr = \case
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
     Match e cs -> fvMatch e cs
-    Constructor _ -> Set.empty
-
-instance Pattern Pat TypedVar where
-    patternBoundVars = bvPat
+    Ctor _ -> Set.empty
 
 bvPat :: Pat -> Set TypedVar
 bvPat = \case
     PConstruction _ ps -> Set.unions (map bvPat ps)
     PVar x -> Set.singleton x
+
+mainType :: Type
+mainType = TFun (TPrim TUnit) (TPrim TUnit)

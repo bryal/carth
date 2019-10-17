@@ -4,6 +4,7 @@
 module Ast
     ( TVar(..)
     , TPrim(..)
+    , TConst
     , Type(..)
     , Scheme(..)
     , scmParams
@@ -23,8 +24,6 @@ where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import qualified Data.Map as Map
-import Data.Map (Map)
 import Data.List
 import Data.Bifunctor
 import Control.Lens (makeLenses)
@@ -52,10 +51,12 @@ data TPrim
     | TBool
     deriving (Show, Eq, Ord)
 
+type TConst = (String, [Type])
+
 data Type
     = TVar TVar
     | TPrim TPrim
-    | TConst String [Type]
+    | TConst TConst
     | TFun Type Type
     deriving (Show, Eq, Ord)
 
@@ -96,10 +97,10 @@ type Expr = WithPos Expr'
 
 type Def = (Id, (Maybe (WithPos Scheme), Expr))
 
-newtype ConstructorDefs = ConstructorDefs (Map String [Type])
+newtype ConstructorDefs = ConstructorDefs [(Id, [Type])]
     deriving (Show, Eq)
 
-data TypeDef = TypeDef String [Id] ConstructorDefs
+data TypeDef = TypeDef Id [Id] ConstructorDefs
     deriving (Show, Eq)
 
 data Program = Program [Def] [TypeDef]
@@ -185,7 +186,9 @@ prettyProg d (Program defs tdefs) =
 prettyTypeDef :: Int -> TypeDef -> String
 prettyTypeDef d (TypeDef name params constrs) = concat
     [ "(type "
-    , if null params then name else "(" ++ name ++ spcPretty params ++ ")"
+    , if null params
+        then pretty name
+        else "(" ++ pretty name ++ spcPretty params ++ ")"
     , indent (d + 2) ++ pretty' (d + 2) constrs
     , ")"
     ]
@@ -193,11 +196,11 @@ prettyTypeDef d (TypeDef name params constrs) = concat
 prettyConstructorDefs :: Int -> ConstructorDefs -> String
 prettyConstructorDefs d (ConstructorDefs cs) = intercalate
     ("\n" ++ indent d)
-    (map prettyConstrDef (Map.toList cs))
+    (map prettyConstrDef cs)
   where
     prettyConstrDef = \case
-        (c, []) -> c
-        (c, ts) -> concat ["(", c, " ", spcPretty ts, ")"]
+        (c, []) -> pretty c
+        (c, ts) -> concat ["(", pretty c, " ", spcPretty ts, ")"]
 
 prettyExpr' :: Int -> Expr' -> String
 prettyExpr' d = \case
@@ -279,7 +282,7 @@ prettyType = \case
     Ast.TVar tv -> pretty tv
     Ast.TPrim c -> pretty c
     Ast.TFun a b -> prettyTFun a b
-    Ast.TConst c ts -> case ts of
+    Ast.TConst (c, ts) -> case ts of
         [] -> c
         ts -> concat ["(", c, " ", spcPretty ts, ")"]
 

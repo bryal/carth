@@ -20,6 +20,8 @@ data TypeErr
     | UndefVar SrcPos String
     | InfType SrcPos TVar Type
     | UnificationFailed SrcPos Type Type Type Type
+    | ConflictingTypeDef Id
+    | ConflictingCtorDef Id
 
 type Message = String
 
@@ -38,7 +40,7 @@ prettyErr = \case
     ConflictingPatVarDefs p v ->
         posd p var
             $ "Conflicting definitions for variable `"
-            ++ pretty v
+            ++ v
             ++ "` in pattern."
     UndefCtor p c ->
         posd p eConstructor $ "Undefined constructor `" ++ c ++ "`"
@@ -50,6 +52,10 @@ prettyErr = \case
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
+    ConflictingTypeDef (WithPos p x) ->
+        posd p ns_big $ "Conflicting definitions for type `" ++ x ++ "`."
+    ConflictingCtorDef (WithPos p x) ->
+        posd p ns_big $ "Conflicting definitions for constructor `" ++ x ++ "`."
 
 posd :: SrcPos -> Parser a -> Message -> Source -> String
 posd (SrcPos pos@(SourcePos _ lineN colN)) parser msg src =

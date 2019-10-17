@@ -4,7 +4,7 @@
 module Check (typecheck) where
 
 import Control.Lens
-    (Lens', (<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
+    ((<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -29,10 +29,10 @@ import AnnotAst
 
 data Env = Env
     { _envDefs :: Map String Scheme
-    -- | Maps the name of an algebraic datatype to its definition
-    , _envTypeDefs :: Map String Ast.TypeDef
-    -- | Maps a constructor to the definition of the type it constructs
-    , _envConstructors :: Map String Ast.TypeDef
+    -- | Maps a constructor to its variant index in the type definition it
+    --   constructs, the signature/left-hand-side of the type definition, and
+    --   the types of its parameters
+    , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type])
     }
 makeLenses ''Env
 
@@ -60,11 +60,7 @@ runInfer' :: Infer a -> Either TypeErr (a, St)
 runInfer' = runExcept . flip runStateT initSt . flip runReaderT initEnv
 
 initEnv :: Env
-initEnv = Env
-    { _envDefs = builtinSchemes
-    , _envTypeDefs = Map.empty
-    , _envConstructors = Map.empty
-    }
+initEnv = Env { _envDefs = builtinSchemes, _envCtors = Map.empty }
 
 builtinSchemes :: Map String Scheme
 builtinSchemes = Map.fromList
@@ -85,24 +81,11 @@ freshVar = fmap show fresh''
 fresh'' :: Infer Int
 fresh'' = tvCount <<+= 1
 
-withTypes :: [Ast.TypeDef] -> Infer a -> Infer a
-withTypes tds =
-    let
-        tds' = Map.fromList (map (\td@(Ast.TypeDef x _ _) -> (x, td)) tds)
-        tdsCs = Map.fromList (concatMap extractCtors tds)
-        extractCtors td@(Ast.TypeDef _ _ (Ast.ConstructorDefs cs)) =
-            map (, td) (Map.keys cs)
-    in augment envTypeDefs tds' . augment envConstructors tdsCs
-
-augment
-    :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
-augment l = locally l . Map.union
-
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = withLocals' . Map.fromList
 
 withLocals' :: Map String Scheme -> Infer a -> Infer a
-withLocals' = locally envDefs . Map.union
+withLocals' = augment envDefs
 
 withLocal :: (String, Scheme) -> Infer a -> Infer a
 withLocal b = locally envDefs (uncurry Map.insert b)
@@ -115,12 +98,56 @@ inferProgram (Ast.Program defs tdefs) = do
         (throwError MainNotDefined)
         pure
         (lookup "main" (map (first unpos) defs))
-    Defs defs' <- withTypes tdefs (inferDefs defs)
+    (tdefs', ctors) <- checkTypeDefs tdefs
+    Defs defs' <- augment envCtors ctors (inferDefs defs)
     let (Forall _ mainT, main) = fromJust (Map.lookup "main" defs')
     let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
     unify (Expected expectedMainType) (Found mainPos mainT)
     let defs'' = Map.delete "main" defs'
-    pure (Program main (Defs defs''))
+    pure (Program main (Defs defs'') tdefs')
+
+checkTypeDefs
+    :: [Ast.TypeDef]
+    -> Infer
+           ( Map String ([TVar], [[Type]])
+           , Map String (VariantIx, (String, [TVar]), [Type])
+           )
+checkTypeDefs =
+    (fmap (second (fmap snd)) .)
+        $ flip foldM (Map.empty, Map.empty)
+        $ \(tds', csAcc) td@(Ast.TypeDef x _ _) -> do
+            when (Map.member (idstr x) tds') (throwError (ConflictingTypeDef x))
+            (td', cs) <- checkTypeDef td
+            case listToMaybe (Map.elems (Map.intersection csAcc cs)) of
+                Just (cId, _) -> throwError (ConflictingCtorDef cId)
+                Nothing ->
+                    pure (uncurry Map.insert td' tds', Map.union cs csAcc)
+
+checkTypeDef
+    :: Ast.TypeDef
+    -> Infer
+           ( (String, ([TVar], [[Type]]))
+           , Map String (Id, (VariantIx, (String, [TVar]), [Type]))
+           )
+checkTypeDef (Ast.TypeDef (WithPos _ x) ps (Ast.ConstructorDefs cs)) = do
+    let ps' = map TVExplicit ps
+    let cs' = map snd cs
+    cs''' <- foldM
+        (\cs'' (i, (cx, cps)) -> if Map.member (idstr cx) cs''
+            then throwError (ConflictingCtorDef cx)
+            else pure (Map.insert (idstr cx) (cx, (i, (x, ps'), cps)) cs'')
+        )
+        Map.empty
+        (zip [0 ..] cs)
+    pure ((x, (ps', cs')), cs''')
+--
+-- withTypes tds =
+--     let
+--         tds' = Map.fromList (map (\td@(Ast.TypeDef x _ _) -> (x, td)) tds)
+--         tdsCs = Map.fromList (concatMap extractCtors tds)
+--         extractCtors td@(Ast.TypeDef _ _ (Ast.ConstructorDefs cs)) =
+--             map (second (const td)) cs
+--     in augment envTypeDefs tds' . augment envCtors tdsCs
 
 inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
@@ -149,17 +176,16 @@ inferDefsComponents = \case
         let mayscms' = map (fmap unpos) mayscms
         let names = map idstr idents
         ts <- replicateM (length names) fresh
-        let
-            scms = map
+        let scms = map
                 (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
                 (zip mayscms' ts)
         bodies' <-
             withLocals (zip names scms)
             $ forM (zip bodies scms)
             $ \(body, Forall _ t1) -> do
-                  (t2, body') <- infer body
-                  unify (Expected t1) (Found (getPos body) t2)
-                  pure body'
+                (t2, body') <- infer body
+                unify (Expected t1) (Found (getPos body) t2)
+                pure body'
         generalizeds <- mapM generalize ts
         let scms' = zipWith fromMaybe generalizeds mayscms'
         let annotDefs = Map.fromList (zip names (zip scms' bodies'))
@@ -255,16 +281,17 @@ inferPat = \case
 inferPatConstruction
     :: SrcPos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
 inferPatConstruction pos c cArgs = do
-    ctorOfTypeDef@(cParams, _) <- lookupEnvConstructor c
+    (variantIx, tdefLhs, cParams) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
     unless (arity == nArgs) (throwError (CtorArityMismatch pos c arity nArgs))
-    (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
+    (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
+    let t = TConst tdefInst
     (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
         unify (Expected cParamT) (Found (getPos cArg) cArgT)
-    pure (t, PConstruction (idstr c) cArgs', cArgsVars')
+    pure (t, PConstruction variantIx cArgs', cArgsVars')
 
 nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
@@ -274,33 +301,36 @@ nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
 
 inferExprConstructor :: Id -> Infer (Type, Expr)
 inferExprConstructor c = do
-    ctorOfTypeDef <- lookupEnvConstructor c
-    (cParams', t) <- instantiateConstructorOfTypeDef ctorOfTypeDef
-    pure (foldr TFun t cParams', Constructor (idstr c))
+    (variantIx, tdefLhs, cParams) <- lookupEnvConstructor c
+    (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
+    pure
+        ( foldr TFun (TConst tdefInst) cParams'
+        , Ctor (variantIx, tdefInst, cParams')
+        )
 
 instantiateConstructorOfTypeDef
-    :: ([Type], (String, [Id])) -> Infer ([Type], Type)
-instantiateConstructorOfTypeDef (cParams, (tName, tParams)) = do
+    :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])
+instantiateConstructorOfTypeDef (tName, tParams) cParams = do
     tVars <- mapM (const fresh) tParams
-    let tParams' = map TVExplicit tParams
-    let cParams' = map (subst (Map.fromList (zip tParams' tVars))) cParams
-    let t = TConst tName tVars
-    pure (cParams', t)
+    let cParams' = map (subst (Map.fromList (zip tParams tVars))) cParams
+    pure ((tName, tVars), cParams')
 
-lookupEnvConstructor :: Id -> Infer ([Type], (String, [Id]))
+lookupEnvConstructor :: Id -> Infer (VariantIx, (String, [TVar]), [Type])
 lookupEnvConstructor (WithPos pos cx) =
-    views envConstructors (Map.lookup cx) >>= \case
-        Just (Ast.TypeDef tx tps cs) ->
-            case lookupConstructorParamTypes cx cs of
-                Just cps -> pure (cps, (tx, tps))
-                Nothing ->
-                    ice
-                        $ ("lookup failed for ctor `" ++ cx)
-                        ++ ("` in type `" ++ tx ++ "`")
-        Nothing -> throwError (UndefCtor pos cx)
+    views envCtors (Map.lookup cx)
+        >>= maybe (throwError (UndefCtor pos cx)) pure
+    -- views envCtors (Map.lookup cx) >>= \case
+    --     Just (Ast.TypeDef tx tps cs) ->
+    --         case lookupConstructorParamTypes cx cs of
+    --             Just cps -> pure (cps, (tx, tps))
+    --             Nothing ->
+    --                 ice
+    --                     $ ("lookup failed for ctor `" ++ cx)
+    --                     ++ ("` in type `" ++ tx ++ "`")
+    --     Nothing -> throwError (UndefCtor pos cx)
 
-lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
-lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = Map.lookup cx cs
+-- lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
+-- lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = lookup cx cs
 
 litType :: Const -> Type
 litType = \case
@@ -319,8 +349,8 @@ lookupEnv (WithPos pos x) = views envDefs (Map.lookup x) >>= \case
 -- Substitution
 --------------------------------------------------------------------------------
 substProgram :: Subst -> Program -> Program
-substProgram s (Program main (Defs defs)) =
-    Program (substExpr s main) (Defs (fmap (substDef s) defs))
+substProgram s (Program main (Defs defs) tdefs) =
+    Program (substExpr s main) (Defs (fmap (substDef s) defs)) tdefs
 
 substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = bimap id (substExpr s)
@@ -337,7 +367,7 @@ substExpr s = \case
     Match e cs -> Match
         (substExpr s e)
         (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
-    Constructor c -> Constructor c
+    Ctor c -> Ctor c
 
 substPat :: Subst -> Pat -> Pat
 substPat s = \case
@@ -349,7 +379,7 @@ subst s t = case t of
     TVar tv -> fromMaybe t (Map.lookup tv s)
     TPrim _ -> t
     TFun a b -> TFun (subst s a) (subst s b)
-    TConst c ts -> TConst c (map (subst s) ts)
+    TConst (c, ts) -> TConst (c, (map (subst s) ts))
 
 substEnv :: Subst -> Env -> Env
 substEnv s = over (envDefs . mapped . scmBody) (subst s)
@@ -381,9 +411,10 @@ data UnifyErr'' = InfiniteType'' TVar Type | UnificationFailed'' Type Type
 unify'' :: Type -> Type -> Except UnifyErr'' Subst
 unify'' = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty
-    (TConst c0 ts0, TConst c1 ts1) | c0 == c1 -> if length ts0 /= length ts1
-        then ice "lengths of TConst params differ in unify"
-        else unifys ts0 ts1
+    (TConst (c0, ts0), TConst (c1, ts1)) | c0 == c1 ->
+        if length ts0 /= length ts1
+            then ice "lengths of TConst params differ in unify"
+            else unifys ts0 ts1
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t -> throwError (InfiniteType'' a t)
     -- Do not allow "override" of explicit (user given) type variables.
@@ -428,7 +459,7 @@ ftv = \case
     TVar tv -> Set.singleton tv
     TPrim _ -> Set.empty
     TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
-    TConst _ ts -> Set.unions (map ftv ts)
+    TConst (_, ts) -> Set.unions (map ftv ts)
 
 ftvEnv :: Env -> Set TVar
 ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs

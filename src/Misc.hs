@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase, RankNTypes #-}
 
 module Misc
     ( ice
@@ -12,10 +12,15 @@ module Misc
     , showChar''
     , showChar'
     , both
+    , augment
     )
 where
 
 import Data.List (intercalate)
+import qualified Data.Map as Map
+import Data.Map (Map)
+import Control.Monad.Reader
+import Control.Lens (Lens', locally)
 
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)
@@ -70,3 +75,7 @@ showChar' c = "'" ++ showChar'' c ++ "'"
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (a0, a1) = (f a0, f a1)
+
+augment
+    :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
+augment l = locally l . Map.union
