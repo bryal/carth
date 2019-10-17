@@ -5,11 +5,12 @@ module TypeErr (TypeErr(..), prettyErr) where
 import Misc
 import SrcPos
 import Ast
-import Parse
+import qualified Parse
 
 import qualified Text.Megaparsec as Mega
 import Text.Megaparsec.Pos
-import Data.Either
+import Data.Functor
+import Control.Applicative
 
 data TypeErr
     = MainNotDefined
@@ -25,15 +26,15 @@ data TypeErr
 
 type Message = String
 
-prettyErr :: TypeErr -> Source -> String
+prettyErr :: TypeErr -> Parse.Source -> String
 prettyErr = \case
     MainNotDefined -> const "Error: main not defined"
     InvalidUserTypeSig p s1 s2 ->
-        posd p ns_scheme
+        posd p scheme
             $ ("Invalid user type signature " ++ pretty s1)
             ++ (", expected " ++ pretty s2)
     CtorArityMismatch p c arity nArgs ->
-        posd p ns_patCtion
+        posd p patCtion
             $ ("Arity mismatch for constructor `" ++ pretty c)
             ++ ("` in pattern.\nExpected " ++ show arity)
             ++ (", found " ++ show nArgs)
@@ -46,18 +47,35 @@ prettyErr = \case
         posd p eConstructor $ "Undefined constructor `" ++ c ++ "`"
     UndefVar p v -> posd p var $ "Undefined variable `" ++ v ++ "`"
     InfType p a t ->
-        posd p ns_expr $ "Infinite type: " ++ pretty a ++ " ~ " ++ pretty t
+        posd p defOrExpr
+            $ ("Infinite type: " ++ pretty a)
+            ++ (" ~ " ++ pretty t)
     UnificationFailed p t1 t2 t'1 t'2 ->
-        posd p ns_expr
+        posd p defOrExpr
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
     ConflictingTypeDef (WithPos p x) ->
-        posd p ns_big $ "Conflicting definitions for type `" ++ x ++ "`."
+        posd p big $ "Conflicting definitions for type `" ++ x ++ "`."
     ConflictingCtorDef (WithPos p x) ->
-        posd p ns_big $ "Conflicting definitions for constructor `" ++ x ++ "`."
+        posd p big $ "Conflicting definitions for constructor `" ++ x ++ "`."
+  where
+    -- | Used to handle that the position of the generated nested lambdas of a
+    --   definition of the form `(define (foo a b ...) ...)` is set to the
+    --   top-level position.
+    defOrExpr =
+        (Parse.ns_parens . Parse.def =<< Parse.getSrcPos)
+            <||> Parse.ns_expr
+            <||> wholeLine
+    scheme = Parse.ns_scheme <||> wholeLine
+    patCtion = Parse.ns_patCtion <||> wholeLine
+    var = Parse.var <||> wholeLine
+    eConstructor = Parse.eConstructor <||> wholeLine
+    big = Parse.ns_big
+    wholeLine = many Mega.anySingle
+    (<||>) pa pb = (Mega.try pa $> ()) <|> (pb $> ())
 
-posd :: SrcPos -> Parser a -> Message -> Source -> String
+posd :: SrcPos -> Parse.Parser a -> Message -> Parse.Source -> String
 posd (SrcPos pos@(SourcePos _ lineN colN)) parser msg src =
     let
         (lineN', colN') = (unPos lineN, unPos colN)
@@ -72,9 +90,10 @@ posd (SrcPos pos@(SourcePos _ lineN colN)) parser msg src =
                     "col num in SourcePos is greater than num of cols in src line"
         lineNS = show lineN'
         pad = length lineNS + 1
-        s = fromRight
-            (ice "posd parse error")
-            (parse' (fmap fst (Mega.match parser)) "" rest)
+        s = either
+            (\e -> ice ("posd: msg=|" ++ msg ++ "|,err=|" ++ show e ++ "|"))
+            id
+            (Parse.parse' (fmap fst (Mega.match parser)) "" rest)
     in unlines
         [ sourcePosPretty pos ++ ": Error:"
         , indent pad ++ "|"

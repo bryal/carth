@@ -19,6 +19,9 @@ module Parse
     , eConstructor
     , ns_expr
     , ns_big
+    , ns_parens
+    , def
+    , getSrcPos
     )
 where
 
