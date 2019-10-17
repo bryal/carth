@@ -19,7 +19,7 @@ data TypeErr
     | ConflictingPatVarDefs SrcPos String
     | UndefCtor SrcPos String
     | UndefVar SrcPos String
-    | InfType SrcPos TVar Type
+    | InfType SrcPos Type Type TVar Type
     | UnificationFailed SrcPos Type Type Type Type
     | ConflictingTypeDef Id
     | ConflictingCtorDef Id
@@ -46,10 +46,12 @@ prettyErr = \case
     UndefCtor p c ->
         posd p eConstructor $ "Undefined constructor `" ++ c ++ "`"
     UndefVar p v -> posd p var $ "Undefined variable `" ++ v ++ "`"
-    InfType p a t ->
+    InfType p t1 t2 a t ->
         posd p defOrExpr
-            $ ("Infinite type: " ++ pretty a)
-            ++ (" ~ " ++ pretty t)
+            $ "Infinite type: "
+            ++ (pretty a ++ " ~ " ++ pretty t)
+            ++ ("\nExpected type: " ++ pretty t1)
+            ++ ("\nFound type: " ++ pretty t2)
     UnificationFailed p t1 t2 t'1 t'2 ->
         posd p defOrExpr
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)

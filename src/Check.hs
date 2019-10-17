@@ -403,7 +403,7 @@ unify (Expected t1) (Found pos t2) = do
 unify' :: ExpectedType -> FoundType -> Infer Subst
 unify' (Expected t1) (Found pos t2) = lift $ lift $ withExcept
     (\case
-        InfiniteType'' a t -> InfType pos a t
+        InfiniteType'' a t -> InfType pos t1 t2 a t
         UnificationFailed'' t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
     )
     (unify'' t1 t2)
