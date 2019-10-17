@@ -8,7 +8,9 @@
 
 (define (main _)
   (let [[xs (List 42 (List 69 Nil))]]
-    (printInt (head (tail xs)))))
+    (match (bindMaybe head (tail xs))
+      [(Some n) (printInt n)]
+      [None     (printInt 666)])))
 
 (define: (head xs)
     (forall [a] (Fun (List a) (Maybe a)))
@@ -22,3 +24,11 @@
     (match ys
       [Nil None]
       [(List _ xs) (Some xs)])))
+
+(define: (bindMaybe f)
+    (forall [a b] (Fun (Fun a (Maybe b))
+                       (Maybe a)
+                       (Maybe b)))
+  (fun-match
+    [(Some a) (f a)]
+    [None None]))
