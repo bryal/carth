@@ -90,7 +90,7 @@ data Expr'
     | TypeAscr Expr Type
     | Match Expr (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
-    | Constructor Id
+    | Ctor Id
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
@@ -161,7 +161,7 @@ fvExpr = unpos >>> \case
     TypeAscr e _ -> freeVars e
     Match e cs -> fvMatch e (fromList1 cs)
     FunMatch cs -> fvCases (fromList1 cs)
-    Constructor _ -> Set.empty
+    Ctor _ -> Set.empty
 
 bvPat :: Pat -> Set Id
 bvPat = \case
@@ -257,7 +257,7 @@ prettyExpr' d = \case
             (map1 (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
-    Constructor c -> pretty c
+    Ctor c -> pretty c
 
 prettyPat :: Pat -> String
 prettyPat = \case

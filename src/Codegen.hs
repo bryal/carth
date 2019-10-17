@@ -131,10 +131,14 @@ initSt = St
     , _registerCount = 0
     }
 
+-- TODO: Will probably change type of variant-index. Update to reflect this.
+-- | A data-type is a tagged union, and is represented in LLVM as a struct where
+--   the first element is the variant-index as an i64, and the rest of the
+--   elements are the field-types of the largest variant wrt allocation size.
 genTypeDef :: (TConst, [[MonoAst.Type]]) -> Gen' Definition
 genTypeDef (lhs, variants) = do
     let name = mkName (mangleTConst lhs)
-    let ts = map (typeStruct . map toLlvmType) variants
+    let ts = map toLlvmVariantType variants
     sizedTs <- mapM (\t -> fmap (, t) (sizeof t)) ts
     let (_, tmax) = maximum sizedTs
     pure (TypeDefinition name (Just tmax))
@@ -230,6 +234,12 @@ genExpr = \case
     Match e cs -> genMatch e cs
     Ction c -> genCtion c
 
+toLlvmDataType :: MonoAst.TConst -> Type
+toLlvmDataType = typeNamed . mangleTConst
+
+toLlvmVariantType :: [MonoAst.Type] -> Type
+toLlvmVariantType = typeStruct . (i64 :) . map toLlvmType
+
 -- | Convert to the LLVM representation of a type in an expression-context.
 toLlvmType :: MonoAst.Type -> Type
 toLlvmType = \case
@@ -239,7 +249,7 @@ toLlvmType = \case
         TDouble -> double
         TChar -> i32
         TStr -> LLType.ptr i8
-        TBool -> i1
+        TBool -> typeBool
     TFun a r -> typeStruct
         [ LLType.ptr typeUnit
         , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
@@ -328,17 +338,45 @@ genCase m nextL nextCaseL (p, b) = do
     pure (b', l)
 
 genMatchPattern :: Name -> Operand -> Pat -> Gen [(TypedVar, Name)]
-genMatchPattern _nextCaseL m = \case
-    -- TODO: Change the fields of this constructor. Should be smth like index
-    --       and type of variant.
-    PConstruction _ _ -> nyi "genMatchPattern PConstruction"
+genMatchPattern nextCaseL m = \case
+    PConstruction i ts ps -> do
+        let tvariant = toLlvmVariantType ts
+        let i' = litU64' i
+        j <- emitReg' "found_variant_ix" (extractvalue m [0])
+        isMatch <- emitReg' "is_match" (icmp LLIntPred.EQ i' j)
+        subpatsL <- newName "subpats"
+        commitToNewBlock (condbr isMatch subpatsL nextCaseL) subpatsL
+        let tgeneric = typeOf m
+        pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
+        emit (store m pGeneric)
+        p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
+        m' <- emitReg' "ction" (load p)
+        genMatchPatterns nextCaseL m' ps
     PVar var@(TypedVar x t) -> do
         n <- newName x
         genVar n (toLlvmType t) m
         pure [(var, n)]
 
+genMatchPatterns :: Name -> Operand -> [Pat] -> Gen [(TypedVar, Name)]
+genMatchPatterns nextCaseL m ps =
+    let
+        f vsAcc (i, p) = do
+            sm <- emitReg' "submatchee" (extractvalue m [i])
+            vs <- genMatchPattern nextCaseL sm p
+            pure (vs ++ vsAcc)
+    in foldM f [] (zip [1 ..] ps)
+
 genCtion :: MonoAst.Ction -> Gen Operand
-genCtion (i, tdef, as) = nyi "genCtion"
+genCtion (i, tdef, as) = do
+    let i' = litU64' i
+    as' <- mapM genExpr as
+    s <- genStruct (i' : as')
+    let t = typeOf s
+    let tgeneric = toLlvmDataType tdef
+    pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
+    p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr t))
+    emit (store s p)
+    emitReg' "ction_generic" (load pGeneric)
 
 withDefSigs :: [(TypedVar, Name)] -> Gen a -> Gen a
 withDefSigs = augment localEnv . Map.fromList . map
@@ -465,7 +503,7 @@ parameter :: Name -> Type -> LLGlob.Parameter
 parameter p pt = LLGlob.Parameter pt p []
 
 genSizeof :: Type -> Gen Operand
-genSizeof = fmap (ConstantOperand . litI64 . fromIntegral) . sizeof'
+genSizeof = fmap litU64' . sizeof'
 
 sizeof' :: Type -> Gen Word64
 sizeof' = lift . sizeof
@@ -621,6 +659,15 @@ call f as = WithRetType
 alloca :: Type -> FunInstruction
 alloca t = WithRetType (Alloca t Nothing 0 []) t
 
+icmp :: LLIntPred.IntegerPredicate -> Operand -> Operand -> FunInstruction
+icmp p a b = WithRetType (ICmp p a b []) typeBool
+
+litU64' :: Word64 -> Operand
+litU64' = ConstantOperand . litU64
+
+litU64 :: Word64 -> LLConst.Constant
+litU64 = litI64 . fromIntegral
+
 litI64 :: Int -> LLConst.Constant
 litI64 = LLConst.Int 64 . toInteger
 
@@ -657,6 +704,9 @@ typeNamed = NamedTypeReference . mkName
 
 typeStruct :: [Type] -> Type
 typeStruct ts = StructureType { isPacked = False, elementTypes = ts }
+
+typeBool :: Type
+typeBool = i1
 
 typeUnit :: Type
 typeUnit = StructureType { isPacked = False, elementTypes = [] }

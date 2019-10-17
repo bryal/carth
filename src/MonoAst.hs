@@ -40,8 +40,10 @@ data Type
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
+type VariantTypes = [Type]
+
 data Pat
-    = PConstruction VariantIx [Pat]
+    = PConstruction VariantIx VariantTypes [Pat]
     | PVar TypedVar
     deriving (Show, Eq)
 
@@ -62,8 +64,7 @@ data Expr
 newtype Defs = Defs (Map TypedVar Expr)
     deriving (Show)
 
-type Variant = [Type]
-type TypeDefs = [(TConst, [Variant])]
+type TypeDefs = [(TConst, [VariantTypes])]
 
 data Program = Program Expr Defs TypeDefs
     deriving (Show)
@@ -89,7 +90,7 @@ fvExpr = \case
 
 bvPat :: Pat -> Set TypedVar
 bvPat = \case
-    PConstruction _ ps -> Set.unions (map bvPat ps)
+    PConstruction _ _ ps -> Set.unions (map bvPat ps)
     PVar x -> Set.singleton x
 
 mainType :: Type

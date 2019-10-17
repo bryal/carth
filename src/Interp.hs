@@ -86,11 +86,11 @@ evalCases matchee = \case
 
 matchPat :: Val -> Pat -> Eval (Maybe (Map TypedVar Val))
 matchPat = curry $ \case
-    (VConstruction c xs, PConstruction c' ps) | c == c' ->
+    (VConstruction c xs, PConstruction c' _ ps) | c == c' ->
         zipWithM matchPat (reverse xs) ps <&> sequence <&> \case
             Just defss -> Just (Map.unions defss)
             Nothing -> Nothing
-    (_, PConstruction _ _) -> pure Nothing
+    (_, PConstruction _ _ _) -> pure Nothing
     (x, PVar v) -> pure (Just (Map.singleton v x))
 
 lookupEnv :: (String, Type) -> Eval Val

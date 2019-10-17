@@ -243,7 +243,7 @@ infer = unpos >>> \case
         x <- freshVar
         let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) cases', tbody)
         pure (t, e)
-    Ast.Constructor c -> inferExprConstructor c
+    Ast.Ctor c -> inferExprConstructor c
 
 -- TODO: Check that the patterns are exhaustive or variable/wildcard
 -- | All the patterns must be of the same types, and all the bodies must be of
@@ -291,7 +291,7 @@ inferPatConstruction pos c cArgs = do
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
         unify (Expected cParamT) (Found (getPos cArg) cArgT)
-    pure (t, PConstruction variantIx cArgs', cArgsVars')
+    pure (t, PConstruction variantIx cArgTs cArgs', cArgsVars')
 
 nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
@@ -303,12 +303,13 @@ inferExprConstructor :: Id -> Infer (Type, Expr)
 inferExprConstructor c = do
     (variantIx, tdefLhs, cParams) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
-    cParams'' <- mapM (\t -> freshVar >>= \x -> (x, t)) cParams'
-    let cArgs = map (Var .* TypedVar) cParams''
+    cParams'' <- mapM (\t -> fmap (, t) freshVar) cParams'
+    let cArgs = map (Var . uncurry TypedVar) cParams''
         tInner = TConst tdefInst
-    let t = foldr TFun tInner cParams'
-    let e = foldr Fun (Ction (variantIx, tdefInst, cArgs), tInner) cParams''
-    pure (t, e)
+    pure $ foldr
+        (\(p, tp) (tb, b) -> (TFun tp tb, Fun (p, tp) (b, tb)))
+        (tInner, Ction (variantIx, tdefInst, cArgs))
+        cParams''
 
 instantiateConstructorOfTypeDef
     :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])
@@ -369,11 +370,13 @@ substExpr s = \case
     Match e cs -> Match
         (substExpr s e)
         (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
-    Ctor c -> Ctor c
+    Ction (i, (tx, tts), es) ->
+        Ction (i, (tx, map (subst s) tts), map (substExpr s) es)
 
 substPat :: Subst -> Pat -> Pat
 substPat s = \case
-    PConstruction c ps -> PConstruction c (map (substPat s) ps)
+    PConstruction c ts ps ->
+        PConstruction c (map (subst s) ts) (map (substPat s) ps)
     PVar (TypedVar x t) -> PVar (TypedVar x (subst s t))
 
 subst :: Subst -> Type -> Type

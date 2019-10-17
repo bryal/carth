@@ -104,9 +104,10 @@ monoCase (p, e) = do
 
 monoPat :: An.Pat -> Mono (Pat, Set String)
 monoPat = \case
-    An.PConstruction c ps -> do
+    An.PConstruction c ts ps -> do
+        ts' <- mapM monotype ts
         (ps', bvs) <- fmap unzip (mapM monoPat ps)
-        pure (PConstruction c ps', Set.unions bvs)
+        pure (PConstruction c ts' ps', Set.unions bvs)
     An.PVar (An.TypedVar x t) ->
         fmap (\t' -> (PVar (TypedVar x t'), Set.singleton x)) (monotype t)
 

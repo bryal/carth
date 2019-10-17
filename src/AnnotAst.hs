@@ -33,7 +33,7 @@ data TypedVar = TypedVar String Type
 type VariantIx = Word64
 
 data Pat
-    = PConstruction VariantIx [Pat]
+    = PConstruction VariantIx [Type] [Pat]
     | PVar TypedVar
     deriving (Show, Eq)
 

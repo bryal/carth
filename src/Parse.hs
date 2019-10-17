@@ -139,7 +139,7 @@ ns_expr = withPos
         (choice [funMatch, match, if', fun, let', typeAscr, app])
 
 eConstructor :: Parser Expr'
-eConstructor = fmap Constructor ns_big'
+eConstructor = fmap Ctor ns_big'
 
 var :: Parser Expr'
 var = fmap Var ns_small'
