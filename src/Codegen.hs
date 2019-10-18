@@ -763,7 +763,7 @@ mangleType = \case
 
 mangleTConst :: TConst -> String
 mangleTConst (c, ts) =
-    concat ["(", c, ",", intercalate "," (map mangleType ts), ")"]
+    concat ["(", c, ";", intercalate "," (map mangleType ts), ")"]
 
 unName :: Name -> ShortByteString
 unName = \case
