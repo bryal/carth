@@ -9,6 +9,7 @@ import System.Process
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
+import LLVM.Internal.EncodeAST (runEncodeAST)
 
 import Misc
 import qualified MonoAst
@@ -29,7 +30,7 @@ defaultCompileConfig = CompileConfig { cc = "cc", outfile = Nothing }
 -- TODO: CodeGenOpt level
 compile :: FilePath -> CompileConfig -> MonoAst.Program -> IO ()
 compile f cfg pgm = withContext $ \c -> do
-    mod <- codegen c f pgm
+    mod <- runEncodeAST c $ codegen f pgm
     writeFile "out.dbgll" (pretty mod)
     withModuleFromAST c mod (compileModule cfg)
 

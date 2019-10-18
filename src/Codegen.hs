@@ -7,7 +7,7 @@ import LLVM.Prelude (ShortByteString)
 import LLVM.AST
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
-import LLVM.Context
+import LLVM.AST.DataLayout
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Linkage as LLLink
@@ -17,6 +17,14 @@ import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.FunctionAttribute as LLFnAttr
+import qualified LLVM.AST.IntegerPredicate as LLIntPred
+import LLVM.Internal.DataLayout (withFFIDataLayout)
+import LLVM.Internal.FFI.DataLayout (getTypeAllocSize)
+import qualified LLVM.Internal.FFI.PtrHierarchy as LLPtrHierarchy
+import LLVM.Internal.Coding (encodeM)
+import LLVM.Internal.EncodeAST (EncodeAST, defineType)
+import LLVM.Internal.Type (createNamedType, setNamedType)
+import qualified Foreign.Ptr
 import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import LLVM.Pretty ()
@@ -36,23 +44,15 @@ import Data.List
 import Data.Composition
 import Control.Applicative
 import Control.Lens
-    ( makeLenses
-    , modifying
-    , scribe
-    , (<<+=)
-    , use
-    , uses
-    , assign
-    , view
-    , views
-    , locally
-    )
+    (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
 
 import Misc
 import FreeVars
 import qualified MonoAst
 import MonoAst hiding (Type, Const)
-import qualified SizeOf
+
+
+type FFIType = Foreign.Ptr.Ptr LLPtrHierarchy.Type
 
 -- | An instruction that returns a value. The name refers to the fact that a
 --   mathematical function always returns a value, but an imperative procedure
@@ -64,7 +64,6 @@ data FunInstruction = WithRetType Instruction Type
 data Env = Env
     { _localEnv :: Map TypedVar Operand
     , _globalEnv :: Map TypedVar Operand
-    , _ctx :: Context
     }
 makeLenses ''Env
 
@@ -75,7 +74,7 @@ data St = St
     }
 makeLenses ''St
 
-type Gen' = StateT St (ReaderT Env IO)
+type Gen' = StateT St (ReaderT Env EncodeAST)
 
 -- | The output of generating a function
 data Out = Out
@@ -102,27 +101,58 @@ instance Pretty Module where
     pretty' _ = show . Prettyprint.pretty
 
 
-codegen :: Context -> FilePath -> Program -> IO Module
-codegen context moduleFilePath (Program main (Defs defs) tdefs) = do
+codegen :: FilePath -> Program -> EncodeAST Module
+codegen moduleFilePath (Program main (Defs defs) tdefs) = do
+    tdefs' <- defineDataTypes tdefs
     let defs' = (TypedVar "main" mainType, main) : Map.toList defs
         genGlobDefs = withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
-    globDefs <- runGen'
-        context
-        (liftA2 (++) (mapM genTypeDef tdefs) genGlobDefs)
+    globDefs <- runGen' genGlobDefs
     pure Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
         , moduleSourceFileName = fromString moduleFilePath
-        , moduleDataLayout = Just SizeOf.dataLayout
+        , moduleDataLayout = Just cfg_dataLayout
         , moduleTargetTriple = Nothing
-        , moduleDefinitions = genBuiltins ++ globDefs
+        , moduleDefinitions = tdefs' ++ genBuiltins ++ globDefs
         }
 
-runGen' :: Context -> Gen' a -> IO a
-runGen' c g = runReaderT
+-- TODO: Consider separating sizeof calculations to a separate pass preceeding
+--       Codegen, so that IO/EncodeAST may be limited to a more overviewable and
+--       very self-contained module.
+--
+-- | Convert data-type definitions from `MonoAst` format to LLVM format, and
+--   then both add them to the `EncodeAST` environment so `sizeof` can see them
+--   later, and return them as `Definition`s so that they may be exported in the
+--   Module AST.
+--
+--   Note that this method may be inefficient, since we define the data-types
+--   twice. The first time manually within this module in order to be able to do
+--   `sizeof`, and the second time implicitly within `withModuleFromAST`
+--   somewhere when actually compiling the whole module with the LLVM library.
+--
+--   A data-type is a tagged union, and is represented in LLVM as a struct where
+--   the first element is the variant-index as an i64, and the rest of the
+--   elements are the field-types of the largest variant wrt allocation size.
+defineDataTypes :: TypeDefs -> EncodeAST [Definition]
+defineDataTypes tds = do
+    -- Forward declare to allow for recursion and unordered defs
+    lhss <- forM tds $ \(tc, _) -> do
+        let n = mkName (mangleTConst tc)
+        (lhs, n') <- createNamedType n
+        defineType n n' lhs
+        pure (n, lhs)
+    forM (zip lhss tds) $ \((n, lhs), (_, vs)) -> do
+        let ts = map toLlvmVariantType vs
+        sizedTs <- mapM (\t -> fmap (, t) (sizeof t)) ts
+        let (_, tmax) = maximum sizedTs
+        setNamedType lhs tmax
+        pure (TypeDefinition n (Just tmax))
+
+runGen' :: Gen' a -> EncodeAST a
+runGen' g = runReaderT
     (evalStateT g initSt)
-    Env { _localEnv = Map.empty, _globalEnv = Map.empty, _ctx = c }
+    Env { _localEnv = Map.empty, _globalEnv = Map.empty }
 
 initSt :: St
 initSt = St
@@ -130,18 +160,6 @@ initSt = St
     , _currentBlockInstrs = []
     , _registerCount = 0
     }
-
--- TODO: Will probably change type of variant-index. Update to reflect this.
--- | A data-type is a tagged union, and is represented in LLVM as a struct where
---   the first element is the variant-index as an i64, and the rest of the
---   elements are the field-types of the largest variant wrt allocation size.
-genTypeDef :: (TConst, [[MonoAst.Type]]) -> Gen' Definition
-genTypeDef (lhs, variants) = do
-    let name = mkName (mangleTConst lhs)
-    let ts = map toLlvmVariantType variants
-    sizedTs <- mapM (\t -> fmap (, t) (sizeof t)) ts
-    let (_, tmax) = maximum sizedTs
-    pure (TypeDefinition name (Just tmax))
 
 genBuiltins :: [Definition]
 genBuiltins = map
@@ -495,15 +513,7 @@ parameter :: Name -> Type -> LLGlob.Parameter
 parameter p pt = LLGlob.Parameter pt p []
 
 genSizeof :: Type -> Gen Operand
-genSizeof = fmap litU64' . sizeof'
-
-sizeof' :: Type -> Gen Word64
-sizeof' = lift . sizeof
-
-sizeof :: Type -> Gen' Word64
-sizeof t = do
-    c <- view ctx
-    liftIO (SizeOf.sizeof c t)
+genSizeof = fmap litU64' . lift . lift . lift . sizeof
 
 withGlobDefSigs :: MonadReader Env m => [(TypedVar, Expr)] -> m a -> m a
 withGlobDefSigs = augment globalEnv . Map.fromList . map
@@ -769,6 +779,22 @@ unName :: Name -> ShortByteString
 unName = \case
     Name s -> s
     UnName n -> fromString (show n)
+
+sizeof :: Type -> EncodeAST Word64
+sizeof t = do
+    t' <- toFFIType t
+    liftIO (withFFIDataLayout cfg_dataLayout $ \dl -> getTypeAllocSize dl t')
+
+-- Note: encodeM requires named-types to be defined in the EncodeAST monad
+--       already, which makes sense as e.g. getTypeAllocSize wouldn't make sense
+--       to run before all types are defined. As such, make sure to define
+--       all type-definitions in the EncodeAST monad first via llvm-hs internal
+--       functions createNamedType => defineType => setNamedType.
+toFFIType :: Type -> EncodeAST FFIType
+toFFIType = encodeM
+
+cfg_dataLayout :: DataLayout
+cfg_dataLayout = defaultDataLayout LittleEndian
 
 cfg_callConv :: LLCallConv.CallingConvention
 cfg_callConv = LLCallConv.C
