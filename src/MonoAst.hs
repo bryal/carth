@@ -86,7 +86,7 @@ fvExpr = \case
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
     Match e cs -> fvMatch e cs
-    Ction _ -> Set.empty
+    Ction (_, _, as) -> Set.unions (map fvExpr as)
 
 bvPat :: Pat -> Set TypedVar
 bvPat = \case
