@@ -42,7 +42,9 @@ compileModule cfg m = withHostTargetMachinePIC $ \t -> do
     writeLLVMAssemblyToFile (File llfile) m
     writeBitcodeToFile (File bcfile) m
     writeObjectToFile t (File ofile) m
-    callProcess (cc cfg) ["-o", binfile, ofile, "lib/lib.c"]
+    callProcess
+        (cc cfg)
+        ["-o", binfile, ofile, "/home/jojo/Hack/carth/lib/lib.c"]
 
 withHostTargetMachinePIC :: (TargetMachine -> IO a) -> IO a
 withHostTargetMachinePIC f = do

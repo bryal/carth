@@ -465,7 +465,7 @@ simpleFunc' n ps rt fnAttrs bs = Function
     { LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
     , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = callConv
+    , LLGlob.callingConvention = cfg_callConv
     , LLGlob.returnAttributes = []
     , LLGlob.returnType = rt
     , LLGlob.name = n
@@ -582,7 +582,7 @@ callExtern' f as = callExtern'' f typeUnit as
 callExtern'' :: String -> Type -> [Operand] -> Instruction
 callExtern'' f rt as = Call
     { tailCallKind = Just Tail
-    , callingConvention = callConv
+    , callingConvention = cfg_callConv
     , returnAttributes = []
     , function = Right $ ConstantOperand $ LLConst.GlobalReference
         (LLType.ptr (FunctionType rt (map typeOf as) False))
@@ -646,7 +646,7 @@ call :: Operand -> [Operand] -> FunInstruction
 call f as = WithRetType
     (Call
         { tailCallKind = Just Tail
-        , callingConvention = callConv
+        , callingConvention = cfg_callConv
         , returnAttributes = []
         , function = Right f
         , arguments = map (, []) as
@@ -747,5 +747,5 @@ unName = \case
     Name s -> s
     UnName n -> fromString (show n)
 
-callConv :: LLCallConv.CallingConvention
-callConv = LLCallConv.C
+cfg_callConv :: LLCallConv.CallingConvention
+cfg_callConv = LLCallConv.C

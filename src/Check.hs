@@ -123,6 +123,17 @@ checkTypeDefs =
                 Nothing ->
                     pure (uncurry Map.insert td' tds', Map.union cs csAcc)
 
+-- TODO: Check if type is finitely sized, i.e. that all recursion, indirect or
+--       otherwise, happens via a pointer of some sort. Rust example:
+--           |
+--         1 | struct Foo(Foo);
+--           | ^^^^^^^^^^^---^^
+--           | |          |
+--           | |          recursive without indirection
+--           | recursive type has infinite size
+--           |
+--           = help: insert indirection (e.g., a `Box`, `Rc`, or `&`) at some
+--                   point to make `Foo` representable
 checkTypeDef
     :: Ast.TypeDef
     -> Infer
@@ -140,14 +151,6 @@ checkTypeDef (Ast.TypeDef (WithPos _ x) ps (Ast.ConstructorDefs cs)) = do
         Map.empty
         (zip [0 ..] cs)
     pure ((x, (ps', cs')), cs''')
---
--- withTypes tds =
---     let
---         tds' = Map.fromList (map (\td@(Ast.TypeDef x _ _) -> (x, td)) tds)
---         tdsCs = Map.fromList (concatMap extractCtors tds)
---         extractCtors td@(Ast.TypeDef _ _ (Ast.ConstructorDefs cs)) =
---             map (second (const td)) cs
---     in augment envTypeDefs tds' . augment envCtors tdsCs
 
 inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
