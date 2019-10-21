@@ -61,6 +61,8 @@ data FunInstruction = WithRetType Instruction Type
 
 -- TODO: Either treat globals and locals separately - Globals behing pointers,
 --       locals not - or treat them the same - stack alloc space for locals.
+--       Update: They are both behind pointers now, right? So we could just have
+--       a single map?
 data Env = Env
     { _localEnv :: Map TypedVar Operand
     , _globalEnv :: Map TypedVar Operand

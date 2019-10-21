@@ -123,17 +123,6 @@ checkTypeDefs =
                 Nothing ->
                     pure (uncurry Map.insert td' tds', Map.union cs csAcc)
 
--- TODO: Check if type is finitely sized, i.e. that all recursion, indirect or
---       otherwise, happens via a pointer of some sort. Rust example:
---           |
---         1 | struct Foo(Foo);
---           | ^^^^^^^^^^^---^^
---           | |          |
---           | |          recursive without indirection
---           | recursive type has infinite size
---           |
---           = help: insert indirection (e.g., a `Box`, `Rc`, or `&`) at some
---                   point to make `Foo` representable
 checkTypeDef
     :: Ast.TypeDef
     -> Infer
@@ -248,7 +237,6 @@ infer = unpos >>> \case
         pure (t, e)
     Ast.Ctor c -> inferExprConstructor c
 
--- TODO: Check that the patterns are exhaustive or variable/wildcard
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
 inferCases
