@@ -11,16 +11,19 @@ import Control.Monad.State.Strict
 import Control.Arrow ((>>>))
 import Data.Either.Combinators
 import Data.Bifunctor
+import Data.Foldable
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Maybe
+import Data.Composition
 import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Misc
 import SrcPos
 import FreeVars
+import Subst
 import NonEmpty
 import qualified Ast
 import Ast (Id, idstr, scmBody)
@@ -33,11 +36,9 @@ data Env = Env
     --   constructs, the signature/left-hand-side of the type definition, and
     --   the types of its parameters
     , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type])
+    , _envTypeDefs :: Map String ([TVar], [[Type]])
     }
 makeLenses ''Env
-
--- | Map of substitutions from type-variables to more specific types
-type Subst = Map TVar Type
 
 data St = St
     { _tvCount :: Int
@@ -48,6 +49,7 @@ makeLenses ''St
 
 -- | Type checker monad
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
+
 
 typecheck :: Ast.Program -> Either TypeErr Program
 typecheck = runInfer . inferProgram
@@ -60,7 +62,11 @@ runInfer' :: Infer a -> Either TypeErr (a, St)
 runInfer' = runExcept . flip runStateT initSt . flip runReaderT initEnv
 
 initEnv :: Env
-initEnv = Env { _envDefs = builtinSchemes, _envCtors = Map.empty }
+initEnv = Env
+    { _envDefs = builtinSchemes
+    , _envCtors = Map.empty
+    , _envTypeDefs = Map.empty
+    }
 
 builtinSchemes :: Map String Scheme
 builtinSchemes = Map.fromList
@@ -99,7 +105,8 @@ inferProgram (Ast.Program defs tdefs) = do
         pure
         (lookup "main" (map (first unpos) defs))
     (tdefs', ctors) <- checkTypeDefs tdefs
-    Defs defs' <- augment envCtors ctors (inferDefs defs)
+    Defs defs' <-
+        augment envTypeDefs tdefs' $ augment envCtors ctors $ inferDefs defs
     let (Forall _ mainT, main) = fromJust (Map.lookup "main" defs')
     let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
     unify (Expected expectedMainType) (Found mainPos mainT)
@@ -227,22 +234,29 @@ infer = unpos >>> \case
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
-        pure (tbody, Match matchee' cases')
+        dt <- toDecisionTree tmatchee cases'
+        pure (tbody, Match matchee' dt tbody)
     Ast.FunMatch cases -> do
         tpat <- fresh
         (tbody, cases') <- inferCases (Expected tpat) cases
+        dt <- toDecisionTree tpat cases'
         let t = TFun tpat tbody
         x <- freshVar
-        let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) cases', tbody)
+        let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) dt tbody, tbody)
         pure (t, e)
     Ast.Ctor c -> inferExprConstructor c
+
+data Pat
+    = PConstruction VariantIx [Type] [Pat]
+    | PVar String
+    deriving (Show)
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
 inferCases
     :: ExpectedType -- Type of matchee. Expected type of pattern.
     -> NonEmpty (Ast.Pat, Ast.Expr)
-    -> Infer (Type, [(Pat, Expr)])
+    -> Infer (Type, [(SrcPos, Pat, Expr)])
 inferCases tmatchee cases = do
     (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase (fromList1 cases))
     forM_ tpats (unify tmatchee)
@@ -250,12 +264,14 @@ inferCases tmatchee cases = do
     forM_ tbodies (unify (Expected tbody))
     pure (tbody, cases')
 
-inferCase :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
+inferCase
+    :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (SrcPos, Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
     let pvs' = Map.mapKeys Ast.idstr pvs
     (tb, b') <- withLocals' pvs' (infer b)
-    pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
+    let ppos = getPos p
+    pure (Found ppos tp, Found (getPos b) tb, (ppos, p', b'))
 
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map Id Scheme)
 inferPat = \case
@@ -263,11 +279,7 @@ inferPat = \case
     Ast.PVar x -> do
         tv <- fresh'
         let tv' = TVar tv
-        pure
-            ( tv'
-            , PVar (TypedVar (idstr x) tv')
-            , Map.singleton x (Forall Set.empty tv')
-            )
+        pure (tv', PVar (idstr x), Map.singleton x (Forall Set.empty tv'))
 
 inferPatConstruction
     :: SrcPos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
@@ -289,6 +301,90 @@ nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
         Just (WithPos pos v) -> throwError (ConflictingPatVarDefs pos v)
         Nothing -> pure (Map.union acc ks)
+
+-- TODO: Check for exhaustiveness
+-- | Build decision tree that matches out -> in, left -> right
+--
+--   For each variant/constructor, there is a node in the decision tree. When
+--   picking a ctor in a column to create a sub-tree, remove all rows in that
+--   column not beginning with that ctor, then splice the members of the variant
+--   into the matrix.
+toDecisionTree :: Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
+toDecisionTree tpat cs =
+    toDecisionTreeRows tpat [] (map (\(pos, p, e) -> (pos, p, [], e)) cs)
+
+toDecisionTreeRows
+    :: Type -> [Type] -> [(SrcPos, Pat, [Pat], Expr)] -> Infer DecisionTree
+toDecisionTreeRows tpat tpats cases = do
+    varName <- freshVar
+    (ctorCases, varCases) <- foldlM
+        (toDecisionTreeRow tpats varName)
+        (Map.empty, [])
+        cases
+    buildDecisionTree ctorCases (TypedVar varName tpat) (tpats, varCases)
+
+toDecisionTreeRow
+    :: [Type]
+    -> String
+    -> ( Map VariantIx ([Type], [(SrcPos, [Pat], Expr)])
+       , [(SrcPos, [Pat], Expr)]
+       )
+    -> (SrcPos, Pat, [Pat], Expr)
+    -> Infer
+           ( Map VariantIx ([Type], [(SrcPos, [Pat], Expr)])
+           , [(SrcPos, [Pat], Expr)]
+           )
+toDecisionTreeRow ts varName (ctorCases, varCases) (pos, col, cols, body) =
+    case col of
+        PConstruction ctor cts ps ->
+            if isRedundant ps (map (\(_, x, _) -> x) varCases)
+                then throwError (RedundantCase pos)
+                else
+                    let
+                        row' = (pos, ps ++ cols, body)
+                        ts' = cts ++ ts
+                        ctorCases' =
+                            insertOrPrefix ctor (ts', [row']) ctorCases
+                    in pure (ctorCases', varCases)
+        PVar x ->
+            let
+                body' = substVExpr (x, varName) body
+                varCases' = (pos, cols, body') : varCases
+            in pure (ctorCases, varCases')
+
+isRedundant :: [Pat] -> [[Pat]] -> Bool
+isRedundant ps = any (isRedundant' ps)
+
+isRedundant' :: [Pat] -> [Pat] -> Bool
+isRedundant' = all isRedundant'' .* zip
+
+isRedundant'' :: (Pat, Pat) -> Bool
+isRedundant'' = \case
+    (PConstruction _ _ ps, PConstruction _ _ qs) -> isRedundant' ps qs
+    (PConstruction _ _ _, PVar _) -> False
+    (PVar _, _) -> True
+
+buildDecisionTree
+    :: Map VariantIx ([Type], [(SrcPos, [Pat], Expr)])
+    -> TypedVar
+    -> ([Type], [(SrcPos, [Pat], Expr)])
+    -> Infer DecisionTree
+buildDecisionTree ctorCases varLhs varCases@(_, varCases') = do
+    ctorCases' <- forM ctorCases
+        $ \cs@(ts, _) -> fmap (ts, ) (toDecisionTreeRows' cs)
+    varDecisionTree <- if null varCases'
+        then pure Nothing
+        else fmap (Just . (varLhs, )) (toDecisionTreeRows' varCases)
+    pure (DecisionTree ctorCases' varDecisionTree)
+
+toDecisionTreeRows' :: ([Type], [(SrcPos, [Pat], Expr)]) -> Infer DecisionTree
+toDecisionTreeRows' = \case
+    ([], [(_, [], body)]) -> pure (DecisionLeaf body)
+    ([], (pos, _, _) : _) -> throwError (RedundantCase pos)
+    (t : ts, cs) -> toDecisionTreeRows t ts $ flip map cs $ \case
+        (_, [], _) -> ice "ps empty in toDecisionTreeRows'"
+        (pos, p : ps, b) -> (pos, p, ps, b)
+    x -> ice $ "unexpected pattern in toDecisionTreeRows': " ++ show x
 
 inferExprConstructor :: Id -> Infer (Type, Expr)
 inferExprConstructor c = do
@@ -313,18 +409,6 @@ lookupEnvConstructor :: Id -> Infer (VariantIx, (String, [TVar]), [Type])
 lookupEnvConstructor (WithPos pos cx) =
     views envCtors (Map.lookup cx)
         >>= maybe (throwError (UndefCtor pos cx)) pure
-    -- views envCtors (Map.lookup cx) >>= \case
-    --     Just (Ast.TypeDef tx tps cs) ->
-    --         case lookupConstructorParamTypes cx cs of
-    --             Just cps -> pure (cps, (tx, tps))
-    --             Nothing ->
-    --                 ice
-    --                     $ ("lookup failed for ctor `" ++ cx)
-    --                     ++ ("` in type `" ++ tx ++ "`")
-    --     Nothing -> throwError (UndefCtor pos cx)
-
--- lookupConstructorParamTypes :: String -> Ast.ConstructorDefs -> Maybe [Type]
--- lookupConstructorParamTypes cx (Ast.ConstructorDefs cs) = lookup cx cs
 
 litType :: Const -> Type
 litType = \case
@@ -339,49 +423,6 @@ lookupEnv :: Id -> Infer Type
 lookupEnv (WithPos pos x) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
     Nothing -> throwError (UndefVar pos x)
-
--- Substitution
---------------------------------------------------------------------------------
-substProgram :: Subst -> Program -> Program
-substProgram s (Program main (Defs defs) tdefs) =
-    Program (substExpr s main) (Defs (fmap (substDef s) defs)) tdefs
-
-substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
-substDef s = bimap id (substExpr s)
-
-substExpr :: Subst -> Expr -> Expr
-substExpr s = \case
-    Lit c -> Lit c
-    Var (TypedVar x t) -> Var (TypedVar x (subst s t))
-    App f a -> App (substExpr s f) (substExpr s a)
-    If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
-    Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
-    Let (Defs defs) body ->
-        Let (Defs (fmap (substDef s) defs)) (substExpr s body)
-    Match e cs -> Match
-        (substExpr s e)
-        (map (\(p, b) -> (substPat s p, substExpr s b)) cs)
-    Ction (i, (tx, tts), es) ->
-        Ction (i, (tx, map (subst s) tts), map (substExpr s) es)
-
-substPat :: Subst -> Pat -> Pat
-substPat s = \case
-    PConstruction c ts ps ->
-        PConstruction c (map (subst s) ts) (map (substPat s) ps)
-    PVar (TypedVar x t) -> PVar (TypedVar x (subst s t))
-
-subst :: Subst -> Type -> Type
-subst s t = case t of
-    TVar tv -> fromMaybe t (Map.lookup tv s)
-    TPrim _ -> t
-    TFun a b -> TFun (subst s a) (subst s b)
-    TConst (c, ts) -> TConst (c, (map (subst s) ts))
-
-substEnv :: Subst -> Env -> Env
-substEnv s = over (envDefs . mapped . scmBody) (subst s)
-
-composeSubsts :: Subst -> Subst -> Subst
-composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1
 
 -- Unification
 --------------------------------------------------------------------------------
@@ -447,6 +488,9 @@ generalize t = do
 
 generalize' :: Env -> Type -> Set TVar
 generalize' env t = Set.difference (ftv t) (ftvEnv env)
+
+substEnv :: Subst -> Env -> Env
+substEnv s = over (envDefs . mapped . scmBody) (subst s)
 
 -- Free type variables
 --------------------------------------------------------------------------------

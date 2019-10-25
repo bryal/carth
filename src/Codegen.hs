@@ -17,7 +17,6 @@ import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.FunctionAttribute as LLFnAttr
-import qualified LLVM.AST.IntegerPredicate as LLIntPred
 import LLVM.Internal.DataLayout (withFFIDataLayout)
 import LLVM.Internal.FFI.DataLayout (getTypeAllocSize)
 import qualified LLVM.Internal.FFI.PtrHierarchy as LLPtrHierarchy
@@ -40,7 +39,9 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Word
 import Data.Foldable
+import Data.Functor
 import Data.List
+import Data.Maybe
 import Data.Composition
 import Control.Applicative
 import Control.Lens
@@ -251,7 +252,7 @@ genExpr = \case
     If p c a -> genIf p c a
     Fun p b -> genLambda p b
     Let ds b -> genLet ds b
-    Match e cs -> genMatch e cs
+    Match e cs tbody -> genMatch e cs (toLlvmType tbody)
     Ction c -> genCtion c
 
 toLlvmDataType :: MonoAst.TConst -> Type
@@ -345,54 +346,63 @@ genLet (Defs ds) b = do
 genDef :: (Name, Type, Expr) -> Gen Operand
 genDef (n, t, e) = genVar n t (genExpr e)
 
-genMatch :: Expr -> [(Pat, Expr)] -> Gen Operand
-genMatch m cs = do
+genMatch :: Expr -> DecisionTree -> Type -> Gen Operand
+genMatch m dt tbody = do
     m' <- genExpr m
-    nextL <- newName "next"
-    nextCaseLs <- replicateM (length cs - 1) (newName "next_case")
-    noMatchL <- newName "no_match"
-    cs' <- zipWithM (genCase m' nextL) (nextCaseLs ++ [noMatchL]) cs
-    -- If we fell through the last case, the pattern was nonexhaustive and we're
-    -- in a failure state. Only thing to do now is panic!
-    genAbort
-    commitToNewBlock unreachable nextL
-    emitAnon (phi cs')
+    genDecisionTree [m'] tbody dt
 
-genCase :: Operand -> Name -> Name -> (Pat, Expr) -> Gen (Operand, Name)
-genCase m nextL nextCaseL (p, b) = do
-    defs <- genMatchPattern nextCaseL m p
-    b' <- withVars defs (genExpr b)
-    l <- use currentBlockLabel
-    commitToNewBlock (br nextL) nextCaseL
-    pure (b', l)
+-- | During eval of decision trees, put sub-matchees on a stack, and they will
+--   be popped as we go out -> in, left -> right. Stack starts with matchee.
+genDecisionTree :: [Operand] -> Type -> DecisionTree -> Gen Operand
+genDecisionTree ms tbody = \case
+    DecisionTree cs vdt -> if Map.null cs
+        then genVdt vdt
+        else do
+            let (variantIxs, variantDts) = unzip (Map.toAscList cs)
+            variantLs <- mapM
+                (newName . (++ "_") . ("variant_" ++) . show)
+                variantIxs
+            let dests = zip (map litU64 variantIxs) variantLs
+            defaultL <- newName "default"
+            nextL <- newName "next"
+            let (m, ms') = fromJust (uncons ms)
+            mVariantIx <- emitReg'
+                "found_variant_ix"
+                (extractvalueFromNamed m i64 [0])
+            commitToNewBlock (switch mVariantIx defaultL dests) defaultL
+            v <- genVdt vdt
+            let genCase l dt = do
+                    commitToNewBlock (br nextL) l
+                    genDecisionTree' m ms' tbody dt
+            vs <- zipWithM genCase variantLs variantDts
+            commitToNewBlock (br nextL) nextL
+            emitAnon (phi (zip (v : vs) (defaultL : variantLs)))
+    DecisionLeaf b -> genExpr b
+  where
+    genVdt = \case
+        Just (tv, dt) ->
+            withLocal tv (head ms) (genDecisionTree (tail ms) tbody dt)
+        -- If we fell through the last case, the pattern was nonexhaustive
+        -- and we're in a failure state. Only thing to do now is panic!
+        Nothing -> genAbort $> undef tbody
 
-genMatchPattern :: Name -> Operand -> Pat -> Gen [(TypedVar, Operand)]
-genMatchPattern nextCaseL m = \case
-    PConstruction i ts ps -> do
-        let tvariant = toLlvmVariantType ts
-        let i' = litU64' i
-        j <- emitReg' "found_variant_ix" (extractvalue m [0])
-        isMatch <- emitReg' "is_match" (icmp LLIntPred.EQ i' j)
-        subpatsL <- newName "subpats"
-        commitToNewBlock (condbr isMatch subpatsL nextCaseL) subpatsL
-        let tgeneric = typeOf m
-        pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
-        emit (store m pGeneric)
-        p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
-        m' <- emitReg' "ction" (load p)
-        genMatchPatterns nextCaseL m' ps
-    PVar tv -> do
-        var <- genVar' tv (pure m)
-        pure [(tv, var)]
-
-genMatchPatterns :: Name -> Operand -> [Pat] -> Gen [(TypedVar, Operand)]
-genMatchPatterns nextCaseL m ps =
-    let
-        f vsAcc (i, p) = do
-            sm <- emitReg' "submatchee" (extractvalue m [i])
-            vs <- genMatchPattern nextCaseL sm p
-            pure (vs ++ vsAcc)
-    in foldM f [] (zip [1 ..] ps)
+genDecisionTree'
+    :: Operand
+    -> [Operand]
+    -> Type
+    -> ([MonoAst.Type], DecisionTree)
+    -> Gen Operand
+genDecisionTree' matchee stack tbody (ts, dt) = do
+    let tvariant = toLlvmVariantType ts
+    let tgeneric = typeOf matchee
+    pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
+    emit (store matchee pGeneric)
+    p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
+    matchee' <- emitReg' "ction" (load p)
+    subs <- mapM
+        (emitReg' "submatchee" . extractvalue matchee' . pure)
+        (take (length ts) [1 ..])
+    genDecisionTree (subs ++ stack) tbody dt
 
 genCtion :: MonoAst.Ction -> Gen Operand
 genCtion (i, tdef, as) = do
@@ -431,7 +441,7 @@ genStruct xs = do
     let t = typeStruct (map typeOf xs)
     foldlM
         (\s (i, x) -> emitReg' "acc" (insertvalue s x [i]))
-        (ConstantOperand (LLConst.Undef t))
+        (undef t)
         (zip [0 ..] xs)
 
 genBoxGeneric :: Operand -> Gen Operand
@@ -542,9 +552,6 @@ withLocal x v gen = do
     vPtr <- genVar' x (pure v)
     withVar x vPtr gen
 
-withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
-withVars = flip (foldr (uncurry withVar))
-
 -- | Takes a local value, allocates a variable for it, and runs a generator in
 --   the environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
@@ -627,6 +634,9 @@ callExtern'' f rt as = Call
     , metadata = []
     }
 
+undef :: Type -> Operand
+undef = ConstantOperand . LLConst.Undef
+
 condbr :: Operand -> Name -> Name -> Terminator
 condbr c t f = CondBr c t f []
 
@@ -636,8 +646,8 @@ br = flip Br []
 ret :: Operand -> Terminator
 ret = flip Ret [] . Just
 
-unreachable :: Terminator
-unreachable = Unreachable []
+switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
+switch x def cs = Switch x def cs []
 
 bitcast :: Operand -> Type -> FunInstruction
 bitcast x t = WithRetType (BitCast x t []) t
@@ -649,6 +659,11 @@ extractvalue :: Operand -> [Word32] -> FunInstruction
 extractvalue struct is = WithRetType
     (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
     (getIndexed (typeOf struct) is)
+
+extractvalueFromNamed :: Operand -> Type -> [Word32] -> FunInstruction
+extractvalueFromNamed struct t is = WithRetType
+    (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
+    t
 
 store :: Operand -> Operand -> Instruction
 store srcVal destPtr = Store
@@ -693,9 +708,6 @@ call f as = WithRetType
 
 alloca :: Type -> FunInstruction
 alloca t = WithRetType (Alloca t Nothing 0 []) (LLType.ptr t)
-
-icmp :: LLIntPred.IntegerPredicate -> Operand -> Operand -> FunInstruction
-icmp p a b = WithRetType (ICmp p a b []) typeBool
 
 litU64' :: Word64 -> Operand
 litU64' = ConstantOperand . litU64

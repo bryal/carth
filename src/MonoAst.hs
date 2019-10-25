@@ -8,10 +8,11 @@ module MonoAst
     , TConst
     , Type(..)
     , TypedVar(..)
-    , VariantIx
-    , Pat(..)
-    , Ction
     , Const(..)
+    , VariantIx
+    , VariantTypes
+    , DecisionTree(..)
+    , Ction
     , Expr(..)
     , Defs(..)
     , TypeDefs
@@ -42,10 +43,11 @@ data TypedVar = TypedVar String Type
 
 type VariantTypes = [Type]
 
-data Pat
-    = PConstruction VariantIx VariantTypes [Pat]
-    | PVar TypedVar
-    deriving (Show, Eq)
+data DecisionTree
+    = DecisionTree (Map VariantIx (VariantTypes, DecisionTree))
+                   (Maybe (TypedVar, DecisionTree))
+    | DecisionLeaf Expr
+    deriving (Show)
 
 -- | (Variant index, constructed type, arguments)
 type Ction = (VariantIx, TConst, [Expr])
@@ -57,7 +59,7 @@ data Expr
     | If Expr Expr Expr
     | Fun TypedVar (Expr, Type)
     | Let Defs Expr
-    | Match Expr [(Pat, Expr)]
+    | Match Expr DecisionTree Type
     | Ction Ction
     deriving (Show)
 
@@ -73,9 +75,6 @@ data Program = Program Expr Defs TypeDefs
 instance FreeVars Expr TypedVar where
     freeVars = fvExpr
 
-instance Pattern Pat TypedVar where
-    patternBoundVars = bvPat
-
 
 fvExpr :: Expr -> Set TypedVar
 fvExpr = \case
@@ -85,13 +84,16 @@ fvExpr = \case
     If p c a -> fvIf p c a
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
-    Match e cs -> fvMatch e cs
+    Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
     Ction (_, _, as) -> Set.unions (map fvExpr as)
 
-bvPat :: Pat -> Set TypedVar
-bvPat = \case
-    PConstruction _ _ ps -> Set.unions (map bvPat ps)
-    PVar x -> Set.singleton x
+fvDecisionTree :: DecisionTree -> Set TypedVar
+fvDecisionTree = \case
+    DecisionTree cs vdt ->
+        Set.unions
+            $ maybe Set.empty (\(v, dt) -> Set.delete v (fvDecisionTree dt)) vdt
+            : map (fvDecisionTree . snd) (Map.elems cs)
+    DecisionLeaf e -> fvExpr e
 
 mainType :: Type
 mainType = TFun (TPrim TUnit) (TPrim TUnit)

@@ -40,11 +40,14 @@ the fix etc:
     Some details were not implemented in this step. Exhaustive pattern
     checking, and handling of recursive datatypes.
 
-** TODO Check patterns for exhaustiveness and redundancy
+** DONE Implement pattern matching w decision trees
+   Slower to compile, faster to execute
+** DONE Check patterns for redundancy
+** TODO Check patterns for exhaustiveness
    For a datatype ~(type Foo Bar Baz)~, following are some examples of
    pattern matches and expected results:
 
-   - ~(match x [Bar y] [Baz z]~ :: is exhaustive and non-reduntant, and should pass.
+   - ~(match x [Bar y] [Baz z])~ :: is exhaustive and non-reduntant, and should pass.
    - ~(match x [Bar y] [xx z])~ :: is exhaustive and non-redundant, and should pass.
    - ~(match x [Bar y])~ :: is inexhaustive and should produce an error.
    - ~(match x [xx z] [Bar y])~ :: is exhaustive but redundant, and should produce an error or warning.
@@ -79,6 +82,8 @@ the fix etc:
              point to make `Foo` representable
    #+END_EXAMPLE
 
+** NEXT Uninhabited types
+   Definition and pattern-matching of.
 * NEXT Typeclasses
 ** Agda style classes w implicit args
    In Haskell, you can only have a single instance of a specific

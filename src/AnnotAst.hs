@@ -10,10 +10,10 @@ module AnnotAst
     , Type(..)
     , Scheme(..)
     , TypedVar(..)
-    , VariantIx
-    , Pat(..)
-    , Ction
     , Const(..)
+    , VariantIx
+    , DecisionTree(..)
+    , Ction
     , Expr(..)
     , Defs(..)
     , TypeDefs
@@ -32,10 +32,11 @@ data TypedVar = TypedVar String Type
 
 type VariantIx = Word64
 
-data Pat
-    = PConstruction VariantIx [Type] [Pat]
-    | PVar TypedVar
-    deriving (Show, Eq)
+data DecisionTree
+    = DecisionTree (Map VariantIx ([Type], DecisionTree))
+                   (Maybe (TypedVar, DecisionTree))
+    | DecisionLeaf Expr
+    deriving (Show)
 
 type Ction = (VariantIx, (String, [Type]), [Expr])
 
@@ -46,7 +47,7 @@ data Expr
     | If Expr Expr Expr
     | Fun (String, Type) (Expr, Type)
     | Let Defs Expr
-    | Match Expr [(Pat, Expr)]
+    | Match Expr DecisionTree Type
     | Ction Ction
     deriving (Show)
 

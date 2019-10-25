@@ -14,7 +14,7 @@ module Parse
     , parse'
     , reserveds
     , ns_scheme
-    , ns_patCtion
+    , ns_pat
     , var
     , eConstructor
     , ns_expr
@@ -161,18 +161,16 @@ case' :: Parser (Pat, Expr)
 case' = parens (liftM2 (,) pat expr)
 
 pat :: Parser Pat
-pat = patCtor <|> patCtion <|> patVar
+pat = andSkipSpaceAfter ns_pat
+
+ns_pat :: Parser Pat
+ns_pat = patCtor <|> patCtion <|> patVar
   where
-    patCtor = fmap (\x -> PConstruction (getPos x) x []) big'
-    patVar = fmap PVar small'
-
-patCtion :: Parser Pat
-patCtion = andSkipSpaceAfter ns_patCtion
-
-ns_patCtion :: Parser Pat
-ns_patCtion = do
-    pos <- getSrcPos
-    ns_parens (liftM3 PConstruction (pure pos) big' (some pat))
+    patCtor = fmap (\x -> PConstruction (getPos x) x []) ns_big'
+    patVar = fmap PVar ns_small'
+    patCtion = do
+        pos <- getSrcPos
+        ns_parens (liftM3 PConstruction (pure pos) big' (some pat))
 
 app :: Parser Expr'
 app = do

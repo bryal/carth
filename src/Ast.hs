@@ -119,9 +119,6 @@ instance FreeVars Def Id where
 instance FreeVars Expr Id where
     freeVars = fvExpr
 
-instance Pattern Pat Id where
-    patternBoundVars = bvPat
-
 instance HasPos Pat where
     getPos = \case
         PConstruction p _ _ -> p
@@ -162,6 +159,12 @@ fvExpr = unpos >>> \case
     Match e cs -> fvMatch e (fromList1 cs)
     FunMatch cs -> fvCases (fromList1 cs)
     Ctor _ -> Set.empty
+
+fvMatch :: Expr -> [(Pat, Expr)] -> Set Id
+fvMatch e cs = Set.union (freeVars e) (fvCases cs)
+
+fvCases :: [(Pat, Expr)] -> Set Id
+fvCases = Set.unions . map (\(p, e) -> Set.difference (freeVars e) (bvPat p))
 
 bvPat :: Pat -> Set Id
 bvPat = \case

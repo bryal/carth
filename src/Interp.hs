@@ -9,6 +9,7 @@ import Data.Functor
 import Data.Map.Lazy (Map)
 import qualified Data.Map.Lazy as Map
 import Data.Maybe
+import Data.List
 
 import Misc
 import MonoAst
@@ -64,7 +65,9 @@ eval = \case
         env <- ask
         pure (VFun (\v -> runEval (withLocals env (withLocal p v (eval b)))))
     Let defs body -> evalLet defs body
-    Match e cs -> eval e >>= flip evalCases cs
+    Match e dt _ -> do
+        v <- eval e
+        evalDecisionTree [v] dt
     Ction (i, _, as) -> fmap (VConstruction i) (mapM eval as)
 
 evalApp :: Expr -> Expr -> Eval Val
@@ -77,21 +80,32 @@ evalLet defs body = do
     defs' <- evalDefs defs
     withLocals defs' (eval body)
 
-evalCases :: Val -> [(Pat, Expr)] -> Eval Val
-evalCases matchee = \case
-    [] -> ice "Non-exhaustive patterns in match. Fell out!"
-    (p, b) : cs -> matchPat matchee p >>= \case
-        Just defs -> withLocals defs (eval b)
-        Nothing -> evalCases matchee cs
+-- | Out to in, left to right.
+evalDecisionTree :: [Val] -> DecisionTree -> Eval Val
+evalDecisionTree stack = \case
+    DecisionTree cs default' -> do
+        let
+            (m, ms) = fromMaybe
+                (ice "Stack is empty in evalDecisionTree")
+                (uncons stack)
+        evalDecisionTree' m ms cs >>= \case
+            Just v -> pure v
+            Nothing -> case default' of
+                Just (tv, d) -> withLocal tv m (evalDecisionTree ms d)
+                Nothing ->
+                    ice "default' is Nothing after fail in evalDecisionTree"
+    DecisionLeaf e -> eval e
 
-matchPat :: Val -> Pat -> Eval (Maybe (Map TypedVar Val))
-matchPat = curry $ \case
-    (VConstruction c xs, PConstruction c' _ ps) | c == c' ->
-        zipWithM matchPat (reverse xs) ps <&> sequence <&> \case
-            Just defss -> Just (Map.unions defss)
-            Nothing -> Nothing
-    (_, PConstruction _ _ _) -> pure Nothing
-    (x, PVar v) -> pure (Just (Map.singleton v x))
+evalDecisionTree'
+    :: Val
+    -> [Val]
+    -> Map VariantIx (VariantTypes, DecisionTree)
+    -> Eval (Maybe Val)
+evalDecisionTree' m ms cs = case m of
+    VConstruction ctor xs -> case Map.lookup ctor cs of
+        Just (_, d) -> fmap Just (evalDecisionTree (xs ++ ms) d)
+        Nothing -> pure Nothing
+    _ -> pure Nothing
 
 lookupEnv :: (String, Type) -> Eval Val
 lookupEnv (x, t) = fmap

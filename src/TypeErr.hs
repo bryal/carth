@@ -23,6 +23,7 @@ data TypeErr
     | UnificationFailed SrcPos Type Type Type Type
     | ConflictingTypeDef Id
     | ConflictingCtorDef Id
+    | RedundantCase SrcPos
 
 type Message = String
 
@@ -34,7 +35,7 @@ prettyErr = \case
             $ ("Invalid user type signature " ++ pretty s1)
             ++ (", expected " ++ pretty s2)
     CtorArityMismatch p c arity nArgs ->
-        posd p patCtion
+        posd p pat
             $ ("Arity mismatch for constructor `" ++ pretty c)
             ++ ("` in pattern.\nExpected " ++ show arity)
             ++ (", found " ++ show nArgs)
@@ -61,6 +62,7 @@ prettyErr = \case
         posd p big $ "Conflicting definitions for type `" ++ x ++ "`."
     ConflictingCtorDef (WithPos p x) ->
         posd p big $ "Conflicting definitions for constructor `" ++ x ++ "`."
+    RedundantCase p -> posd p pat $ "Redundant case in pattern match."
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
@@ -70,7 +72,7 @@ prettyErr = \case
             <||> Parse.ns_expr
             <||> wholeLine
     scheme = Parse.ns_scheme <||> wholeLine
-    patCtion = Parse.ns_patCtion <||> wholeLine
+    pat = Parse.ns_pat <||> wholeLine
     var = Parse.var <||> wholeLine
     eConstructor = Parse.eConstructor <||> wholeLine
     big = Parse.ns_big

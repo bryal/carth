@@ -14,6 +14,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Bitraversable
 
 import Misc
 import qualified AnnotAst as An
@@ -58,7 +59,7 @@ mono = \case
     An.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     An.Fun p b -> monoFun p b
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
-    An.Match e cs -> monoMatch e cs
+    An.Match e cs tbody -> monoMatch e cs tbody
     An.Ction c -> monoCtion c
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
@@ -86,30 +87,23 @@ monoLet (An.Defs ds) body = do
             pure (TypedVar name t, body)
     pure (Defs ds', body')
 
-monoMatch :: An.Expr -> [(An.Pat, An.Expr)] -> Mono Expr
-monoMatch e cs = do
-    e' <- mono e
-    cs' <- mapM monoCase cs
-    pure (Match e' cs')
+monoMatch :: An.Expr -> An.DecisionTree -> An.Type -> Mono Expr
+monoMatch e dt tbody =
+    liftA3 Match (mono e) (monoDecisionTree dt) (monotype tbody)
 
-monoCase :: (An.Pat, An.Expr) -> Mono (Pat, Expr)
-monoCase (p, e) = do
-    (p', pvs) <- monoPat p
-    let pvs' = Set.toList pvs
-    parentInsts <- uses defInsts (lookups pvs')
-    modifying defInsts (deletes pvs')
-    e' <- mono e
-    modifying defInsts (Map.union (Map.fromList parentInsts))
-    pure (p', e')
-
-monoPat :: An.Pat -> Mono (Pat, Set String)
-monoPat = \case
-    An.PConstruction c ts ps -> do
-        ts' <- mapM monotype ts
-        (ps', bvs) <- fmap unzip (mapM monoPat ps)
-        pure (PConstruction c ts' ps', Set.unions bvs)
-    An.PVar (An.TypedVar x t) ->
-        fmap (\t' -> (PVar (TypedVar x t'), Set.singleton x)) (monotype t)
+monoDecisionTree :: An.DecisionTree -> Mono DecisionTree
+monoDecisionTree = \case
+    An.DecisionTree cs vdt -> do
+        cs' <- mapM (bimapM (mapM monotype) monoDecisionTree) cs
+        vdt' <- flip (maybe (pure Nothing)) vdt $ \(An.TypedVar x t, dt) -> do
+            parentInst <- uses defInsts (Map.lookup x)
+            modifying defInsts (Map.delete x)
+            t' <- monotype t
+            dt' <- monoDecisionTree dt
+            maybe (pure ()) (modifying defInsts . Map.insert x) parentInst
+            pure (Just (TypedVar x t', dt'))
+        pure (DecisionTree cs' vdt')
+    An.DecisionLeaf e -> fmap DecisionLeaf (mono e)
 
 monoCtion :: An.Ction -> Mono Expr
 monoCtion (i, (tdefName, tdefArgs), as) = do
@@ -180,6 +174,3 @@ lookup' = Map.findWithDefault
 
 lookups :: Ord k => [k] -> Map k v -> [(k, v)]
 lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
-
-deletes :: (Foldable t, Ord k) => t k -> Map k v -> Map k v
-deletes = flip (foldr Map.delete)
