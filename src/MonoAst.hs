@@ -49,7 +49,6 @@ data DecisionTree
     | DecisionLeaf Expr
     deriving (Show)
 
--- | (Variant index, constructed type, arguments)
 type Ction = (VariantIx, TConst, [Expr])
 
 data Expr

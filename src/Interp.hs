@@ -18,7 +18,7 @@ data Val
     = VConst Const
     | VFun (Val -> IO Val)
     | VConstruction VariantIx
-                    [Val] -- ^ Arguments are in reverse order--last arg first
+                    [Val] -- ^ Arguments are in reverse order -- last arg first
 
 type Env = Map TypedVar Val
 

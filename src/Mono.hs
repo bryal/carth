@@ -150,13 +150,6 @@ monotype' = \case
 insertInst :: String -> Type -> Expr -> Mono ()
 insertInst x t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
--- Anot: [(String, ([TVar], [[Type]]))]
--- Mono: [(TConst, [[Type]])]
---
--- Env
---    { _defs :: Map String (Scheme, An.Expr)
---    , _tvBinds :: Map TVar Type
---    }
 instTypeDefs :: An.TypeDefs -> Set TConst -> TypeDefs
 instTypeDefs tdefs insts = map
     (\(x, ts) -> instTypeDef x ts (lookup' (ice "in instTypeDefs") x tdefs))
