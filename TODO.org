@@ -25,6 +25,44 @@ the fix etc:
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
   information floats to the left. Maybe a good idea, maybe
   not. Consider it.
+** INACTIVE Allow conflicting imports if unambiguous?
+   I'm thinking something that would allow the following. It would be
+   less annoying than having to qualify everything. Also, gotta think
+   about how this relates to overloading à la C++.
+
+   #+BEGIN_SRC carth
+   (module Foo
+           (data FooThing First Second)
+           (define: isFirst
+               (Fun FooThing Bool)
+             (fun-match
+               [First True]
+               [Second False])))
+
+   (module Bar
+           (data BarThing First Second)
+           (define: isFirst
+               (Fun BarThing Bool)
+             (fun-match
+               [First True]
+               [Second False])))
+
+   ;; First, there should be no error for just importing modules with conflicting
+   ;; defs. This is ok in Haskell, unless one of the conflicting defs is used.
+   (import Foo)
+   (import Bar)
+
+   ;; Second, it should be allowed to use one of a set of conflicting defs if the
+   ;; type makes it unambiguous....
+
+   ;; either explicitly
+   (define: x FooThing First)
+   (define: y BarThing First)
+
+   ;; or implicitly
+   (define t (isFirst x))
+   (define u (isFirst y))
+   #+END_SRC
 
 * Algebraic datatypes
   Construction, pattern matching, the whole shebang.
@@ -375,3 +413,10 @@ the fix etc:
   ...
   !1266 = !DILocation(line: 6, column: 4, scope: !1265)
   #+END_EXAMPLE
+* INACTIVE Guarantee no stack overflow for tail recursion
+  We should guarantee that directly (and indirectly?) recursive
+  function call should not cause the stack usage to grow
+  indefinitely. Tail call elimination or trampolining should take
+  place. Will need to look into what LLVM can do, and what's possible
+  on different platforms. Hopefully we won't have to resort to
+  trampolining--that seems slow.
