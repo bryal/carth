@@ -218,7 +218,13 @@ the fix etc:
      }
    #+END_SRC
 
-* NEXT Consider a Rust-like typesystem
+* Memory model
+  How do we handle the heap? Garbage collection like Haskell?
+  Ownership and borrowing like Rust? Something in between?
+
+  Should heap allocations be explicit or implicit? Even if we go with
+  a Haskell-like model, should there be an explicit ~Box a~ type?
+** NEXT Consider something Rust-like
   I.e. affine/linear types, lifetimes, little/no GC by default.
   Would allow writing real-time applications like games.
 
@@ -240,46 +246,55 @@ the fix etc:
 
   [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
 
-* Garbage collector
-  Until we get linear types, and probably even then, we'll need some
-  form of GC.
+** Garbage collector
+   Until we get linear types, and probably even then, we'll need some
+   form of GC.
 
-  There are many problems with refcounting: Generated llvm ir/asm gets
-  polluted; While performance is more predictable, it's typically
-  worse overall; Cycle breaking would either require using weak refs
-  where appropriate, which would in turn require user input or an
-  advanced implementation, or a periodic cycle breaker, which would be
-  costly performance wise. So tracing GC is probably a good idea.
+   There are many problems with refcounting: Generated llvm ir/asm gets
+   polluted; While performance is more predictable, it's typically
+   worse overall; Cycle breaking would either require using weak refs
+   where appropriate, which would in turn require user input or an
+   advanced implementation, or a periodic cycle breaker, which would be
+   costly performance wise. So tracing GC is probably a good idea.
 
-** NEXT Boehms GC
-   Simplest way to get rudimentary, but decently performant, GC.
+*** NEXT Boehms GC
+    Simplest way to get rudimentary, but decently performant, GC.
 
-** INACTIVE DIY Garbage collector
-   A tracing GC would be quite separate from the rest of the
-   program. The only pollution would be calls to the allocator (not
-   much different from the current sitch w malloc) and
-   (de)registrations of local variables in Let forms (a total of two
-   function calls per heap allocated variable).
+*** INACTIVE DIY Garbage collector
+    A tracing GC would be quite separate from the rest of the
+    program. The only pollution would be calls to the allocator (not
+    much different from the current sitch w malloc) and
+    (de)registrations of local variables in Let forms (a total of two
+    function calls per heap allocated variable).
 
-   Implementing a tracing GC would also be a fun challenge, and I'm
-   sure it could be fun to try different algorithms etc.
+    Implementing a tracing GC would also be a fun challenge, and I'm
+    sure it could be fun to try different algorithms etc.
 
-*** How it would work
-    Basically, instead of calling =malloc=, the alloc function of the
-    GC is called. This function keeps track of either the number of
-    calls, the time, or the current sum of allocated space, and
-    periodically performs a mark-and-sweep, walking through the object
-    graph and marking objects not directly or indirectly referenced by
-    a "root" node for sweeping.
+**** How it would work
+     Basically, instead of calling =malloc=, the alloc function of the
+     GC is called. This function keeps track of either the number of
+     calls, the time, or the current sum of allocated space, and
+     periodically performs a mark-and-sweep, walking through the object
+     graph and marking objects not directly or indirectly referenced by
+     a "root" node for sweeping.
 
-    Root nodes are global variables and all local variables visible in
-    the current scope. Global variables can be registered in the main
-    wrapper, while local variables could be registered right after
-    they've been created (in a Let, Match, ...). They would then be
-    unregistered right before the function returns (or in the case of
-    tail calls, right before the tail call). Registering could happen
-    directly in the GC alloc routine.
+     Root nodes are global variables and all local variables visible in
+     the current scope. Global variables can be registered in the main
+     wrapper, while local variables could be registered right after
+     they've been created (in a Let, Match, ...). They would then be
+     unregistered right before the function returns (or in the case of
+     tail calls, right before the tail call). Registering could happen
+     directly in the GC alloc routine.
 
+** Merging affine/linear types and GC
+   Best of both worlds? Maybe.
+
+   I don't think I want memory management to be quite as explicit and
+   cumbersome as in Rust, especially wrt lifetimes. An alternative
+   could be to just add linear types to allow for structures that
+   require mutability, like HashMap, but not borrowing. This would not
+   enable us to write *the most* performant code, but we'd be able to
+   do a lot better than with just GC--games may be quite possible.
 * INACTIVE Effect system
 
 * INACTIVE Macros?
