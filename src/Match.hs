@@ -84,32 +84,34 @@ compile' = disjunct (Neg Set.empty)
 
 disjunct :: Descr -> (Type, [(Pat, Rhs)]) -> Match DecisionDag
 disjunct descr = \case
-    (tpat, []) ->
-        throwError
-            $ "Inexhaustive patterns: "
-            ++ missingPat tpat descr
-            ++ " not covered"
+    (tpat, []) -> do
+        p <- missingPat tpat descr
+        throwError $ "Inexhaustive patterns: " ++ p ++ " not covered"
     (tpat, (pat1, rhs1) : rulerest) ->
         match Obj descr [] [] rhs1 (tpat, rulerest) pat1
 
-missingPat :: Type -> Descr -> String
+missingPat :: Type -> Descr -> Match String
 missingPat t descr = case t of
-    TVar _ -> "_"
-    TPrim _ -> "_"
-    TConst (tx, _) -> missingPat' (fromJust (Map.lookup tx datatypes)) descr
-    TFun _ _ -> "_"
+    TVar _ -> pure "_"
+    TPrim _ -> pure "_"
+    TConst (tx, _) -> do
+        vs <- asks (fromJust . Map.lookup tx)
+        missingPat' vs descr
+    TFun _ _ -> pure "_"
 
-missingPat' :: [(String, [Type])] -> Descr -> String
+missingPat' :: [(String, [Type])] -> Descr -> Match String
 missingPat' vs = \case
-    Neg cs ->
-        head (Map.elems (Map.withoutKeys (allVariants vs) (Set.map variant cs)))
+    Neg cs -> pure $ head $ Map.elems
+        (Map.withoutKeys (allVariants vs) (Set.map variant cs))
     Pos con dargs ->
         let
             i = fromIntegral (variant con)
             (s, ts) = vs !! i
         in if null dargs
-            then s
-            else "(" ++ s ++ precalate " " (zipWith missingPat ts dargs) ++ ")"
+            then pure s
+            else do
+                ps <- zipWithM missingPat ts dargs
+                pure ("(" ++ s ++ precalate " " ps ++ ")")
 
 allVariants :: [(String, [Type])] -> Map VariantIx String
 allVariants = Map.fromList . zip [0 ..] . map fst
