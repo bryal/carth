@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, TemplateHaskell #-}
 
 -- | Implementation of the algorithm described in /ML pattern match compilation
 --   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
@@ -18,9 +18,11 @@ import Control.Applicative
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Except
+import Control.Lens (makeLenses, view, views)
 
 import Misc hiding (augment)
 import SrcPos
+import TypeErr
 import AnnotAst
 
 
@@ -55,7 +57,10 @@ type TypeDefs' = Map String [(String, [Type])]
 
 type RedundantCases = [SrcPos]
 
-type Match = ReaderT TypeDefs' (StateT RedundantCases (Except String))
+data Env = Env { _tdefs :: TypeDefs', _tpat :: Type, _exprPos :: SrcPos }
+makeLenses ''Env
+
+type Match = ReaderT Env (StateT RedundantCases (Except TypeErr))
 
 
 instance Eq Con where
@@ -66,36 +71,41 @@ instance Ord Con where
 
 
 compile
-    :: TypeDefs' -> (Type, [(SrcPos, Pat, Expr)]) -> Either String DecisionDag
-compile tds (t, cases) =
+    :: TypeDefs'
+    -> SrcPos
+    -> Type
+    -> [(SrcPos, Pat, Expr)]
+    -> Either TypeErr DecisionDag
+compile tds exprPos tpat cases =
     let
-        rules = (t, map (\(pos, p, e) -> (p, (pos, e))) cases)
+        rules = map (\(pos, p, e) -> (p, (pos, e))) cases
         redundantCases = map (\(pos, _, _) -> pos) cases
     in runExcept $ do
+        let env = Env { _tdefs = tds, _tpat = tpat, _exprPos = exprPos }
         (d, redundantCases') <- runStateT
-            (runReaderT (compile' rules) tds)
+            (runReaderT (compile' rules) env)
             redundantCases
-        forM_ redundantCases' $ throwError . ("Redundant case: " ++) . show
+        forM_ redundantCases' $ throwError . RedundantCase
         pure d
 
-compile' :: (Type, [(Pat, Rhs)]) -> Match DecisionDag
+compile' :: [(Pat, Rhs)] -> Match DecisionDag
 compile' = disjunct (Neg Set.empty)
 
 
-disjunct :: Descr -> (Type, [(Pat, Rhs)]) -> Match DecisionDag
+disjunct :: Descr -> [(Pat, Rhs)] -> Match DecisionDag
 disjunct descr = \case
-    (tpat, []) -> do
-        p <- missingPat tpat descr
-        throwError $ "Inexhaustive patterns: " ++ p ++ " not covered"
-    (tpat, (pat1, rhs1) : rulerest) ->
-        match Obj descr [] [] rhs1 (tpat, rulerest) pat1
+    [] -> do
+        patStr <- view tpat >>= flip missingPat descr
+        exprPos' <- view exprPos
+        throwError $ InexhaustivePats exprPos' patStr
+    (pat1, rhs1) : rulerest -> match Obj descr [] [] rhs1 rulerest pat1
 
 missingPat :: Type -> Descr -> Match String
 missingPat t descr = case t of
     TVar _ -> pure "_"
     TPrim _ -> pure "_"
     TConst (tx, _) -> do
-        vs <- asks (fromJust . Map.lookup tx)
+        vs <- views tdefs (fromJust . Map.lookup tx)
         missingPat' vs descr
     TFun _ _ -> pure "_"
 
@@ -122,7 +132,7 @@ match
     -> Ctx
     -> Work
     -> Rhs
-    -> (Type, [(Pat, Rhs)])
+    -> [(Pat, Rhs)]
     -> Pat
     -> Match DecisionDag
 match obj descr ctx work rhs rules = \case
@@ -155,7 +165,7 @@ match obj descr ctx work rhs rules = \case
             Maybe ->
                 liftA2 (IfEq obj pcon) conjunct' (disjunct' (addneg pcon descr))
 
-conjunct :: Ctx -> Rhs -> (Type, [(Pat, Rhs)]) -> Work -> Match DecisionDag
+conjunct :: Ctx -> Rhs -> [(Pat, Rhs)] -> Work -> Match DecisionDag
 conjunct ctx rhs@(casePos, e) rules = \case
     [] -> caseReached casePos $> Success e
     (work1 : workr) -> case work1 of

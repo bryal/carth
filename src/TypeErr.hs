@@ -24,6 +24,7 @@ data TypeErr
     | ConflictingTypeDef Id
     | ConflictingCtorDef Id
     | RedundantCase SrcPos
+    | InexhaustivePats SrcPos String
 
 type Message = String
 
@@ -63,6 +64,11 @@ prettyErr = \case
     ConflictingCtorDef (WithPos p x) ->
         posd p big $ "Conflicting definitions for constructor `" ++ x ++ "`."
     RedundantCase p -> posd p pat $ "Redundant case in pattern match."
+    InexhaustivePats p patStr ->
+        posd p defOrExpr
+            $ "Inexhaustive patterns: "
+            ++ patStr
+            ++ " not covered."
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
