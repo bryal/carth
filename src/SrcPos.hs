@@ -13,7 +13,7 @@ import Text.Megaparsec.Pos
 import Misc
 
 newtype SrcPos = SrcPos SourcePos
-    deriving Show
+    deriving (Show, Eq)
 
 data WithPos a = WithPos SrcPos a
 
