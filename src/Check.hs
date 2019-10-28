@@ -323,6 +323,10 @@ toDecisionTreeRows tpat tpats cases = do
         cases
     buildDecisionTree ctorCases (TypedVar varName tpat) (tpats, varCases)
 
+-- TODO: Generalize variable patterns to wildcard patterns, and add support for
+--       binding a variable to an arbitrary pattern.  E.g. the case `a -> foo a`
+--       is equivalent to `a@_ -> foo a`, and e.g. `a@Foo -> bar a` should be
+--       allowed.
 toDecisionTreeRow
     :: [Type]
     -> String
@@ -337,14 +341,19 @@ toDecisionTreeRow
 toDecisionTreeRow ts varName (ctorCases, varCases) (pos, col, cols, body) =
     case col of
         PConstruction ctor cts ps ->
+            -- Checks if constructor pattern is made redundant by earlier
+            -- variable pattern
             if isRedundant ps (map (\(_, x, _) -> x) varCases)
                 then throwError (RedundantCase pos)
                 else
                     let
                         row' = (pos, ps ++ cols, body)
                         ts' = cts ++ ts
-                        ctorCases' =
-                            insertOrPrefix ctor (ts', [row']) ctorCases
+                        ctorCases' = insertWith'
+                            (second (row' :))
+                            ctor
+                            (ts', [row'])
+                            ctorCases
                     in pure (ctorCases', varCases)
         PVar x ->
             let

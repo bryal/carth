@@ -13,7 +13,6 @@ module Misc
     , showChar'
     , both
     , augment
-    , insertOrPrefix
     , insertWith'
     )
 where
@@ -82,9 +81,6 @@ both f (a0, a1) = (f a0, f a1)
 augment
     :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
 augment l = locally l . Map.union
-
-insertOrPrefix :: (Ord k, Monoid v) => k -> v -> Map k v -> Map k v
-insertOrPrefix k v = insertWith' (mappend v) k v
 
 insertWith' :: Ord k => (v -> v) -> k -> v -> Map k v -> Map k v
 insertWith' f = Map.insertWith (f .* flip const)
