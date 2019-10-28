@@ -44,14 +44,14 @@ type Ctx = [(Con, [Descr])]
 type Work = [([Pat], [Access], [Descr])]
 
 data Access = Obj | Sel Int Access
-    deriving Show
+    deriving (Show, Eq)
 
 data DecisionDag
-    = Success Expr
+    = Success ([(String, Access)], Expr)
     | IfEq Access Con DecisionDag DecisionDag
     deriving Show
 
-type Rhs = (SrcPos, Expr)
+type Rhs = (SrcPos, [(String, Access)], Expr)
 
 type TypeDefs' = Map String [(String, [Type])]
 
@@ -75,10 +75,10 @@ compile
     -> SrcPos
     -> Type
     -> [(SrcPos, Pat, Expr)]
-    -> Either TypeErr DecisionDag
+    -> Either TypeErr DecisionDag'
 compile tds exprPos tpat cases =
     let
-        rules = map (\(pos, p, e) -> (p, (pos, e))) cases
+        rules = map (\(pos, p, e) -> (p, (pos, [], e))) cases
         redundantCases = map (\(pos, _, _) -> pos) cases
     in runExcept $ do
         let env = Env { _tdefs = tds, _tpat = tpat, _exprPos = exprPos }
@@ -86,11 +86,10 @@ compile tds exprPos tpat cases =
             (runReaderT (compile' rules) env)
             redundantCases
         forM_ redundantCases' $ throwError . RedundantCase
-        pure d
+        pure (switchify d)
 
 compile' :: [(Pat, Rhs)] -> Match DecisionDag
 compile' = disjunct (Neg Set.empty)
-
 
 disjunct :: Descr -> [(Pat, Rhs)] -> Match DecisionDag
 disjunct descr = \case
@@ -136,7 +135,7 @@ match
     -> Pat
     -> Match DecisionDag
 match obj descr ctx work rhs rules = \case
-    PVar _ -> conjunct (augment descr ctx) rhs rules work
+    PVar x -> conjunct (augment descr ctx) (addBind x obj rhs) rules work
     PCon pcon pargs ->
         let
             disjunct' :: Descr -> Match DecisionDag
@@ -150,7 +149,7 @@ match obj descr ctx work rhs rules = \case
                 ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs = args (\i -> Sel (i + 1) obj)
+            getoargs = args (\i -> Sel i obj)
 
             getdargs :: [Descr]
             getdargs = case descr of
@@ -166,8 +165,8 @@ match obj descr ctx work rhs rules = \case
                 liftA2 (IfEq obj pcon) conjunct' (disjunct' (addneg pcon descr))
 
 conjunct :: Ctx -> Rhs -> [(Pat, Rhs)] -> Work -> Match DecisionDag
-conjunct ctx rhs@(casePos, e) rules = \case
-    [] -> caseReached casePos $> Success e
+conjunct ctx rhs@(casePos, binds, e) rules = \case
+    [] -> caseReached casePos $> Success (binds, e)
     (work1 : workr) -> case work1 of
         ([], [], []) -> conjunct (norm ctx) rhs rules workr
         (pat1 : patr, obj1 : objr, descr1 : descrr) ->
@@ -176,6 +175,9 @@ conjunct ctx rhs@(casePos, e) rules = \case
 
 caseReached :: SrcPos -> Match ()
 caseReached p = modify (delete p)
+
+addBind :: String -> Access -> Rhs -> Rhs
+addBind x obj (pos, binds, e) = (pos, (x, obj) : binds, e)
 
 buildDescr :: Descr -> Ctx -> Work -> Descr
 buildDescr descr = curry $ \case
@@ -208,3 +210,24 @@ addneg :: Con -> Descr -> Descr
 addneg con = \case
     Neg nonset -> Neg (Set.insert con nonset)
     Pos _ _ -> ice "unexpected Pos in addneg"
+
+data DecisionDag'
+    = Leaf ([(String, Access)], Expr)
+    | Switch Access (Map VariantIx DecisionDag') DecisionDag'
+    deriving Show
+
+switchify :: DecisionDag -> DecisionDag'
+switchify = \case
+    Success e -> Leaf e
+    IfEq obj con d0 d1 ->
+        uncurry (Switch obj) (switchify' obj [(variant con, switchify d0)] d1)
+
+switchify'
+    :: Access
+    -> [(VariantIx, DecisionDag')]
+    -> DecisionDag
+    -> (Map VariantIx DecisionDag', DecisionDag')
+switchify' obj rules = \case
+    IfEq obj' con d0 d1 | obj == obj' ->
+        switchify' obj ((variant con, switchify d0) : rules) d1
+    rule -> (Map.fromList rules, switchify rule)

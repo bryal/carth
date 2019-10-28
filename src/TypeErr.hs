@@ -25,6 +25,7 @@ data TypeErr
     | ConflictingCtorDef Id
     | RedundantCase SrcPos
     | InexhaustivePats SrcPos String
+    deriving Show
 
 type Message = String
 
