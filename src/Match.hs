@@ -7,6 +7,13 @@ module Match where
 import Prelude hiding (span)
 import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Map as Map
+import Data.Map (Map)
+import Data.Maybe
+import Data.Composition
+import Control.Applicative
+import Control.Monad.Reader
+import Control.Monad.Except
 
 import Misc hiding (augment)
 import AnnotAst
@@ -33,7 +40,7 @@ data Access = Obj | Sel Int Access
     deriving Show
 
 data DecisionDag
-    = Failure
+    = Failure Type Descr
     | Success Expr
     | IfEq Access Con DecisionDag DecisionDag
     deriving Show
@@ -46,13 +53,74 @@ instance Ord Con where
     compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
 
 
-compile :: [(Pat, Expr)] -> DecisionDag
+-- Exhaustiveness
+--------------------------------------------------------------------------------
+
+data DecisionExhaustive
+    = SuccessE Expr
+    | IfEqE Access Con DecisionExhaustive DecisionExhaustive
+    deriving Show
+
+type TypeDefs' = Map String [(String, [Type])]
+
+type M = ReaderT TypeDefs' (Except String)
+
+runM :: TypeDefs' -> M a -> Either String a
+runM = runExcept .* flip runReaderT
+
+exhaustive
+    :: TypeDefs' -> (Type, [(Pat, Expr)]) -> Either String DecisionExhaustive
+exhaustive tds = runM tds . exhaustive' . compile
+
+exhaustive' :: DecisionDag -> M DecisionExhaustive
+exhaustive' = \case
+    Failure tpat descr ->
+        throwError
+            $ "Inexhaustive patterns: "
+            ++ missingPat tpat descr
+            ++ " not covered"
+    Success e -> pure (SuccessE e)
+    IfEq obj con d1 d2 ->
+        liftA2 (IfEqE obj con) (exhaustive' d1) (exhaustive' d2)
+
+missingPat :: Type -> Descr -> String
+missingPat t descr = case t of
+    TVar _ -> "_"
+    TPrim _ -> "_"
+    TConst (tx, _) ->
+        let vs = fromJust (Map.lookup tx datatypes)
+        in
+            case descr of
+                Neg cs -> head $ Map.elems $ Map.withoutKeys
+                    (allVariants vs)
+                    (Set.map variant cs)
+                Pos con dargs ->
+                    let
+                        i = fromIntegral (variant con)
+                        (s, ts) = vs !! i
+                    in if null dargs
+                        then s
+                        else
+                            "("
+                            ++ s
+                            ++ precalate " " (zipWith missingPat ts dargs)
+                            ++ ")"
+    TFun _ _ -> "_"
+
+allVariants :: [(String, [Type])] -> Map VariantIx String
+allVariants = Map.fromList . zip [0 ..] . map fst
+
+-- Sestoft's algorithm, basically 1:1
+--------------------------------------------------------------------------------
+
+compile :: (Type, [(Pat, Expr)]) -> DecisionDag
 compile = disjunct (Neg Set.empty)
 
-disjunct :: Descr -> [(Pat, Expr)] -> DecisionDag
+disjunct :: Descr -> (Type, [(Pat, Expr)]) -> DecisionDag
 disjunct descr = \case
-    [] -> Failure
-    (pat1, rhs1) : rulerest -> match Obj descr [] [] rhs1 rulerest pat1
+    (tpat, []) -> Failure tpat descr
+    (tpat, (pat1, rhs1) : rulerest) ->
+        match Obj descr [] [] rhs1 (tpat, rulerest) pat1
 
 match
     :: Access
@@ -60,7 +128,7 @@ match
     -> Ctx
     -> Work
     -> Expr
-    -> [(Pat, Expr)]
+    -> (Type, [(Pat, Expr)])
     -> Pat
     -> DecisionDag
 match obj descr ctx work rhs rules = \case
@@ -92,7 +160,7 @@ match obj descr ctx work rhs rules = \case
             No -> disjunct' descr
             Maybe -> IfEq obj pcon conjunct' (disjunct' (addneg pcon descr))
 
-conjunct :: Ctx -> Expr -> [(Pat, Expr)] -> Work -> DecisionDag
+conjunct :: Ctx -> Expr -> (Type, [(Pat, Expr)]) -> Work -> DecisionDag
 conjunct ctx rhs rules = \case
     [] -> Success rhs
     (work1 : workr) -> case work1 of
