@@ -389,7 +389,9 @@ buildDecisionTree ctorCases varLhs varCases@(_, varCases') = do
 toDecisionTreeRows' :: ([Type], [(SrcPos, [Pat], Expr)]) -> Infer DecisionTree
 toDecisionTreeRows' = \case
     ([], [(_, [], body)]) -> pure (DecisionLeaf body)
-    ([], (pos, _, _) : _) -> throwError (RedundantCase pos)
+    -- If constructor or variable pattern is redundant by duplication
+    ([], _ : cs) ->
+        let (pos, _, _) = last cs in throwError (RedundantCase pos)
     (t : ts, cs) -> toDecisionTreeRows t ts $ flip map cs $ \case
         (_, [], _) -> ice "ps empty in toDecisionTreeRows'"
         (pos, p : ps, b) -> (pos, p, ps, b)
