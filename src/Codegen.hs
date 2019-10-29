@@ -39,9 +39,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Word
 import Data.Foldable
-import Data.Functor
 import Data.List
-import Data.Maybe
 import Data.Composition
 import Control.Applicative
 import Control.Lens
@@ -51,6 +49,7 @@ import Misc
 import FreeVars
 import qualified MonoAst
 import MonoAst hiding (Type, Const)
+import Selections
 
 
 type FFIType = Foreign.Ptr.Ptr LLPtrHierarchy.Type
@@ -171,7 +170,6 @@ genBuiltins = map
         (mkName "malloc")
         [parameter (mkName "size") i64]
         (LLType.ptr typeUnit)
-    , simpleFunc' (mkName "abort") [] typeUnit [LLFnAttr.NoReturn]
     , simpleFunc (mkName "printInt") [parameter (mkName "n") i64] typeUnit
     ]
 
@@ -349,60 +347,60 @@ genDef (n, t, e) = genVar n t (genExpr e)
 genMatch :: Expr -> DecisionTree -> Type -> Gen Operand
 genMatch m dt tbody = do
     m' <- genExpr m
-    genDecisionTree [m'] tbody dt
+    genDecisionTree tbody dt (newSelections m')
 
--- | During eval of decision trees, put sub-matchees on a stack, and they will
---   be popped as we go out -> in, left -> right. Stack starts with matchee.
-genDecisionTree :: [Operand] -> Type -> DecisionTree -> Gen Operand
-genDecisionTree ms tbody = \case
-    DecisionTree cs vdt -> if Map.null cs
-        then genVdt vdt
-        else do
-            let (variantIxs, variantDts) = unzip (Map.toAscList cs)
-            variantLs <- mapM
-                (newName . (++ "_") . ("variant_" ++) . show)
-                variantIxs
-            let dests = zip (map litU64 variantIxs) variantLs
-            defaultL <- newName "default"
-            nextL <- newName "next"
-            let (m, ms') = fromJust (uncons ms)
-            mVariantIx <- emitReg'
-                "found_variant_ix"
-                (extractvalueFromNamed m i64 [0])
-            commitToNewBlock (switch mVariantIx defaultL dests) defaultL
-            v <- genVdt vdt
-            let genCase l dt = do
-                    commitToNewBlock (br nextL) l
-                    genDecisionTree' m ms' tbody dt
-            vs <- zipWithM genCase variantLs variantDts
-            commitToNewBlock (br nextL) nextL
-            emitAnon (phi (zip (v : vs) (defaultL : variantLs)))
-    DecisionLeaf b -> genExpr b
-  where
-    genVdt = \case
-        Just (tv, dt) ->
-            withLocal tv (head ms) (genDecisionTree (tail ms) tbody dt)
-        -- If we fell through the last case, the pattern was nonexhaustive
-        -- and we're in a failure state. Only thing to do now is panic!
-        Nothing -> genAbort $> undef tbody
+genDecisionTree :: Type -> DecisionTree -> Selections Operand -> Gen Operand
+genDecisionTree tbody = \case
+    MonoAst.DSwitch selector cs def -> genDecisionSwitch selector cs def tbody
+    MonoAst.DLeaf l -> genDecisionLeaf l
 
-genDecisionTree'
-    :: Operand
-    -> [Operand]
+genDecisionSwitch
+    :: MonoAst.Access
+    -> Map VariantIx DecisionTree
+    -> DecisionTree
     -> Type
-    -> ([MonoAst.Type], DecisionTree)
+    -> Selections Operand
     -> Gen Operand
-genDecisionTree' matchee stack tbody (ts, dt) = do
+genDecisionSwitch selector cs def tbody selections = do
+    let (variantIxs, variantDts) = unzip (Map.toAscList cs)
+    variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
+    let dests = zip (map litU64 variantIxs) variantLs
+    defaultL <- newName "default"
+    nextL <- newName "next"
+    (m, selections') <- genSelect selector selections
+    mVariantIx <- emitReg' "found_variant_ix" (extractvalueFromNamed m i64 [0])
+    commitToNewBlock (switch mVariantIx defaultL dests) defaultL
+    v <- genDecisionTree tbody def selections'
+    let genCase l dt = do
+            commitToNewBlock (br nextL) l
+            genDecisionTree tbody dt selections'
+    vs <- zipWithM genCase variantLs variantDts
+    commitToNewBlock (br nextL) nextL
+    emitAnon (phi (zip (v : vs) (defaultL : variantLs)))
+
+genDecisionLeaf
+    :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Operand
+genDecisionLeaf (bs, e) selections =
+    flip withLocals (genExpr e) =<< genSelectVarBindings selections bs
+
+genSelect :: Access -> Selections Operand -> Gen (Operand, Selections Operand)
+genSelect = select genAs genSub
+
+genSelectVarBindings
+    :: Selections Operand -> VarBindings -> Gen [(TypedVar, Operand)]
+genSelectVarBindings = selectVarBindings genAs genSub
+
+genAs :: [MonoAst.Type] -> Operand -> Gen Operand
+genAs ts matchee = do
     let tvariant = toLlvmVariantType ts
     let tgeneric = typeOf matchee
     pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
     emit (store matchee pGeneric)
     p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
-    matchee' <- emitReg' "ction" (load p)
-    subs <- mapM
-        (emitReg' "submatchee" . extractvalue matchee' . pure)
-        (take (length ts) [1 ..])
-    genDecisionTree (subs ++ stack) tbody dt
+    emitReg' "ction" (load p)
+
+genSub :: Word32 -> Operand -> Gen Operand
+genSub i matchee = emitReg' "submatchee" (extractvalue matchee (pure (i + 1)))
 
 genCtion :: MonoAst.Ction -> Gen Operand
 genCtion (i, tdef, as) = do
@@ -454,9 +452,6 @@ genBoxGeneric x = do
 
 genMalloc :: Operand -> Gen Operand
 genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
-
-genAbort :: Gen ()
-genAbort = emit (callExtern' "abort" [])
 
 semiExecRetGen :: Gen Operand -> Gen' (Type, Out)
 semiExecRetGen gx = runWriterT $ do
@@ -617,9 +612,6 @@ newName'' s =
 --       hidden builtins or something.
 callExtern :: String -> Type -> [Operand] -> FunInstruction
 callExtern f rt as = WithRetType (callExtern'' f rt as) rt
-
-callExtern' :: String -> [Operand] -> Instruction
-callExtern' f as = callExtern'' f typeUnit as
 
 callExtern'' :: String -> Type -> [Operand] -> Instruction
 callExtern'' f rt as = Call

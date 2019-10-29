@@ -11,6 +11,8 @@ module MonoAst
     , Const(..)
     , VariantIx
     , VariantTypes
+    , Access(..)
+    , VarBindings
     , DecisionTree(..)
     , Ction
     , Expr(..)
@@ -25,8 +27,9 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
-import AnnotAst (VariantIx)
+import Data.Word
 
+import AnnotAst (VariantIx)
 import FreeVars
 import Ast (Const(..), TPrim(..))
 
@@ -43,11 +46,15 @@ data TypedVar = TypedVar String Type
 
 type VariantTypes = [Type]
 
+data Access = Obj | As Access [Type] | Sel Word32 Access
+    deriving (Show, Eq, Ord)
+
+type VarBindings = [(TypedVar, Access)]
+
 data DecisionTree
-    = DecisionTree (Map VariantIx (VariantTypes, DecisionTree))
-                   (Maybe (TypedVar, DecisionTree))
-    | DecisionLeaf Expr
-    deriving (Show)
+    = DLeaf (VarBindings, Expr)
+    | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
+    deriving Show
 
 type Ction = (VariantIx, TConst, [Expr])
 
@@ -88,11 +95,9 @@ fvExpr = \case
 
 fvDecisionTree :: DecisionTree -> Set TypedVar
 fvDecisionTree = \case
-    DecisionTree cs vdt ->
-        Set.unions
-            $ maybe Set.empty (\(v, dt) -> Set.delete v (fvDecisionTree dt)) vdt
-            : map (fvDecisionTree . snd) (Map.elems cs)
-    DecisionLeaf e -> fvExpr e
+    DSwitch _ cs def ->
+        Set.unions $ fvDecisionTree def : map fvDecisionTree (Map.elems cs)
+    DLeaf (bs, e) -> Set.difference (fvExpr e) (Set.fromList (map fst bs))
 
 mainType :: Type
 mainType = TFun (TPrim TUnit) (TPrim TUnit)

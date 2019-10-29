@@ -28,7 +28,6 @@ dependencies:
 - composition
 - mtl
 - lens
-- utility-ht
 - llvm-hs-pure
 - llvm-hs
 - llvm-hs-pretty

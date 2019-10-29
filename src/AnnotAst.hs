@@ -12,6 +12,8 @@ module AnnotAst
     , TypedVar(..)
     , Const(..)
     , VariantIx
+    , Access(..)
+    , VarBindings
     , DecisionTree(..)
     , Ction
     , Expr(..)
@@ -32,11 +34,15 @@ data TypedVar = TypedVar String Type
 
 type VariantIx = Word64
 
+data Access = Obj | As Access [Type] | Sel Word32 Access
+    deriving (Show, Eq, Ord)
+
+type VarBindings = Map TypedVar Access
+
 data DecisionTree
-    = DecisionTree (Map VariantIx ([Type], DecisionTree))
-                   (Maybe (TypedVar, DecisionTree))
-    | DecisionLeaf Expr
-    deriving (Show)
+    = DLeaf (VarBindings, Expr)
+    | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
+    deriving Show
 
 type Ction = (VariantIx, (String, [Type]), [Expr])
 

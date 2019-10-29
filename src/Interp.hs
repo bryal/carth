@@ -4,15 +4,15 @@ module Interp (interpret) where
 
 import Control.Applicative (liftA3)
 import Control.Monad.Reader
-import Data.Bool.HT
 import Data.Functor
 import Data.Map.Lazy (Map)
 import qualified Data.Map.Lazy as Map
 import Data.Maybe
-import Data.List
+import Data.Word
 
 import Misc
 import MonoAst
+import Selections
 
 data Val
     = VConst Const
@@ -23,6 +23,13 @@ data Val
 type Env = Map TypedVar Val
 
 type Eval = ReaderT Env IO
+
+
+instance Show Val where
+    show = \case
+        VConst c -> "VConst " ++ show c ++ ""
+        VFun _ -> "VFun"
+        VConstruction c xs -> "VConstruction " ++ show c ++ " " ++ show xs
 
 interpret :: Program -> IO ()
 interpret p = runEval (evalProgram p)
@@ -67,7 +74,7 @@ eval = \case
     Let defs body -> evalLet defs body
     Match e dt _ -> do
         v <- eval e
-        evalDecisionTree [v] dt
+        evalDecisionTree dt (newSelections v)
     Ction (i, _, as) -> fmap (VConstruction i) (mapM eval as)
 
 evalApp :: Expr -> Expr -> Eval Val
@@ -80,32 +87,45 @@ evalLet defs body = do
     defs' <- evalDefs defs
     withLocals defs' (eval body)
 
--- | Out to in, left to right.
-evalDecisionTree :: [Val] -> DecisionTree -> Eval Val
-evalDecisionTree stack = \case
-    DecisionTree cs default' -> do
-        let
-            (m, ms) = fromMaybe
-                (ice "Stack is empty in evalDecisionTree")
-                (uncons stack)
-        evalDecisionTree' m ms cs >>= \case
-            Just v -> pure v
-            Nothing -> case default' of
-                Just (tv, d) -> withLocal tv m (evalDecisionTree ms d)
-                Nothing ->
-                    ice "default' is Nothing after fail in evalDecisionTree"
-    DecisionLeaf e -> eval e
+evalDecisionTree :: DecisionTree -> Selections Val -> Eval Val
+evalDecisionTree = \case
+    DSwitch selector cs def -> evalDecisionSwitch selector cs def
+    DLeaf l -> evalDecisionLeaf l
 
-evalDecisionTree'
-    :: Val
-    -> [Val]
-    -> Map VariantIx (VariantTypes, DecisionTree)
-    -> Eval (Maybe Val)
-evalDecisionTree' m ms cs = case m of
-    VConstruction ctor xs -> case Map.lookup ctor cs of
-        Just (_, d) -> fmap Just (evalDecisionTree (xs ++ ms) d)
-        Nothing -> pure Nothing
-    _ -> pure Nothing
+evalDecisionSwitch
+    :: Access
+    -> Map VariantIx DecisionTree
+    -> DecisionTree
+    -> Selections Val
+    -> Eval Val
+evalDecisionSwitch selector cs def selections = do
+    (m, selections') <- evalSelect selector selections
+    case m of
+        VConstruction ctor _ ->
+            evalDecisionTree (fromMaybe def (Map.lookup ctor cs)) selections'
+        _ -> ice "not VConstruction in evalDecisionSwitch"
+
+evalDecisionLeaf :: (VarBindings, Expr) -> Selections Val -> Eval Val
+evalDecisionLeaf (bs, e) selections = flip withLocals (eval e)
+    =<< fmap Map.fromList (evalSelectVarBindings selections bs)
+
+evalSelect :: Access -> Selections Val -> Eval (Val, Selections Val)
+evalSelect = select evalAs evalSub
+
+evalSelectVarBindings :: Selections Val -> VarBindings -> Eval [(TypedVar, Val)]
+evalSelectVarBindings = selectVarBindings evalAs evalSub
+
+evalAs :: [MonoAst.Type] -> Val -> Eval Val
+evalAs _ = pure
+
+evalSub :: Word32 -> Val -> Eval Val
+evalSub i = \case
+    v@(VConstruction _ xs) ->
+        let
+            i' = fromIntegral i
+            msg = "i >= length xs in evalSub: " ++ (show i ++ ", " ++ show v)
+        in pure (if i' < length xs then xs !! i' else ice msg)
+    _ -> ice "evalSub of non VConstruction"
 
 lookupEnv :: (String, Type) -> Eval Val
 lookupEnv (x, t) = fmap

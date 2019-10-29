@@ -14,6 +14,7 @@ module Misc
     , both
     , augment
     , insertWith'
+    , if'
     )
 where
 
@@ -84,3 +85,6 @@ augment l = locally l . Map.union
 
 insertWith' :: Ord k => (v -> v) -> k -> v -> Map k v -> Map k v
 insertWith' f = Map.insertWith (f .* flip const)
+
+if' :: Bool -> a -> a -> a
+if' p c a = if p then c else a

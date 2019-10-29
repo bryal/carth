@@ -3,20 +3,18 @@
 
 module Check (typecheck) where
 
+import Prelude hiding (span)
 import Control.Lens
     ((<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Control.Arrow ((>>>))
 import Data.Either.Combinators
 import Data.Bifunctor
-import Data.Foldable
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Maybe
-import Data.Composition
 import qualified Data.Set as Set
 import Data.Set (Set)
 
@@ -29,14 +27,17 @@ import qualified Ast
 import Ast (Id, idstr, scmBody)
 import TypeErr
 import AnnotAst
+import Match
+
 
 data Env = Env
     { _envDefs :: Map String Scheme
     -- | Maps a constructor to its variant index in the type definition it
-    --   constructs, the signature/left-hand-side of the type definition, and
-    --   the types of its parameters
-    , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type])
-    , _envTypeDefs :: Map String ([TVar], [[Type]])
+    --   constructs, the signature/left-hand-side of the type definition, the
+    --   types of its parameters, and the span (number of constructors) of the
+    --   datatype
+    , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
+    , _envTypeDefs :: Map String ([TVar], [(String, [Type])])
     }
 makeLenses ''Env
 
@@ -111,13 +112,14 @@ inferProgram (Ast.Program defs tdefs) = do
     let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
     unify (Expected expectedMainType) (Found mainPos mainT)
     let defs'' = Map.delete "main" defs'
-    pure (Program main (Defs defs'') tdefs')
+    let tdefs'' = fmap (second (map snd)) tdefs'
+    pure (Program main (Defs defs'') (tdefs''))
 
 checkTypeDefs
     :: [Ast.TypeDef]
     -> Infer
-           ( Map String ([TVar], [[Type]])
-           , Map String (VariantIx, (String, [TVar]), [Type])
+           ( Map String ([TVar], [(String, [Type])])
+           , Map String (VariantIx, (String, [TVar]), [Type], Span)
            )
 checkTypeDefs =
     (fmap (second (fmap snd)) .)
@@ -133,16 +135,18 @@ checkTypeDefs =
 checkTypeDef
     :: Ast.TypeDef
     -> Infer
-           ( (String, ([TVar], [[Type]]))
-           , Map String (Id, (VariantIx, (String, [TVar]), [Type]))
+           ( (String, ([TVar], [(String, [Type])]))
+           , Map String (Id, (VariantIx, (String, [TVar]), [Type], Span))
            )
 checkTypeDef (Ast.TypeDef (WithPos _ x) ps (Ast.ConstructorDefs cs)) = do
     let ps' = map TVExplicit ps
-    let cs' = map snd cs
+    let cs' = map (first idstr) cs
+    let cSpan = length cs
     cs''' <- foldM
         (\cs'' (i, (cx, cps)) -> if Map.member (idstr cx) cs''
             then throwError (ConflictingCtorDef cx)
-            else pure (Map.insert (idstr cx) (cx, (i, (x, ps'), cps)) cs'')
+            else pure
+                (Map.insert (idstr cx) (cx, (i, (x, ps'), cps, cSpan)) cs'')
         )
         Map.empty
         (zip [0 ..] cs)
@@ -200,7 +204,7 @@ checkUserSchemes scms = forM_ scms $ \(WithPos p s1@(Forall _ t)) ->
         >>= \s2 -> when (s1 /= s2) (throwError (InvalidUserTypeSig p s1 s2))
 
 infer :: Ast.Expr -> Infer (Type, Expr)
-infer = unpos >>> \case
+infer (WithPos pos e) = case e of
     Ast.Lit l -> pure (litType l, Lit l)
     Ast.Var x -> fmap (\t -> (t, Var (TypedVar (idstr x) t))) (lookupEnv x)
     Ast.App f a -> do
@@ -234,22 +238,29 @@ infer = unpos >>> \case
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
-        dt <- toDecisionTree tmatchee cases'
+        dt <- toDecisionTree' pos tmatchee cases'
         pure (tbody, Match matchee' dt tbody)
     Ast.FunMatch cases -> do
         tpat <- fresh
         (tbody, cases') <- inferCases (Expected tpat) cases
-        dt <- toDecisionTree tpat cases'
+        dt <- toDecisionTree' pos tpat cases'
         let t = TFun tpat tbody
         x <- freshVar
         let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) dt tbody, tbody)
         pure (t, e)
     Ast.Ctor c -> inferExprConstructor c
 
-data Pat
-    = PConstruction VariantIx [Type] [Pat]
-    | PVar String
-    deriving (Show)
+toDecisionTree' :: SrcPos -> Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
+toDecisionTree' pos tpat cases = do
+    -- TODO: Could we do this differently, more efficiently?
+    --
+    -- Match needs to be able to match on the pattern types to generate proper
+    -- error messages for inexhaustive patterns, so apply substitutions.
+    s <- use substs
+    let tpat' = subst s tpat
+    let cases' = map (\(pos, p, e) -> (pos, substPat s p, e)) cases
+    mTypeDefs <- views envTypeDefs (fmap (map fst . snd))
+    lift (lift (toDecisionTree mTypeDefs pos tpat' cases'))
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
@@ -279,12 +290,13 @@ inferPat = \case
     Ast.PVar x -> do
         tv <- fresh'
         let tv' = TVar tv
-        pure (tv', PVar (idstr x), Map.singleton x (Forall Set.empty tv'))
+        let x' = TypedVar (idstr x) tv'
+        pure (tv', PVar x', Map.singleton x (Forall Set.empty tv'))
 
 inferPatConstruction
     :: SrcPos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
 inferPatConstruction pos c cArgs = do
-    (variantIx, tdefLhs, cParams) <- lookupEnvConstructor c
+    (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
     unless (arity == nArgs) (throwError (CtorArityMismatch pos c arity nArgs))
@@ -294,7 +306,8 @@ inferPatConstruction pos c cArgs = do
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
         unify (Expected cParamT) (Found (getPos cArg) cArgT)
-    pure (t, PConstruction variantIx cArgTs cArgs', cArgsVars')
+    let con = Con { variant = variantIx, span = cSpan, argTs = cArgTs }
+    pure (t, PCon con cArgs', cArgsVars')
 
 nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
@@ -302,104 +315,9 @@ nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
         Just (WithPos pos v) -> throwError (ConflictingPatVarDefs pos v)
         Nothing -> pure (Map.union acc ks)
 
--- TODO: Check for exhaustiveness
--- | Build decision tree that matches out -> in, left -> right
---
---   For each variant/constructor, there is a node in the decision tree. When
---   picking a ctor in a column to create a sub-tree, remove all rows in that
---   column not beginning with that ctor, then splice the members of the variant
---   into the matrix.
-toDecisionTree :: Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
-toDecisionTree tpat cs =
-    toDecisionTreeRows tpat [] (map (\(pos, p, e) -> (pos, p, [], e)) cs)
-
-toDecisionTreeRows
-    :: Type -> [Type] -> [(SrcPos, Pat, [Pat], Expr)] -> Infer DecisionTree
-toDecisionTreeRows tpat tpats cases = do
-    varName <- freshVar
-    (ctorCases, varCases) <- foldlM
-        (toDecisionTreeRow tpats varName)
-        (Map.empty, [])
-        cases
-    buildDecisionTree ctorCases (TypedVar varName tpat) (tpats, varCases)
-
--- TODO: Generalize variable patterns to wildcard patterns, and add support for
---       binding a variable to an arbitrary pattern.  E.g. the case `a -> foo a`
---       is equivalent to `a@_ -> foo a`, and e.g. `a@Foo -> bar a` should be
---       allowed.
-toDecisionTreeRow
-    :: [Type]
-    -> String
-    -> ( Map VariantIx ([Type], [(SrcPos, [Pat], Expr)])
-       , [(SrcPos, [Pat], Expr)]
-       )
-    -> (SrcPos, Pat, [Pat], Expr)
-    -> Infer
-           ( Map VariantIx ([Type], [(SrcPos, [Pat], Expr)])
-           , [(SrcPos, [Pat], Expr)]
-           )
-toDecisionTreeRow ts varName (ctorCases, varCases) (pos, col, cols, body) =
-    case col of
-        PConstruction ctor cts ps ->
-            -- Checks if constructor pattern is made redundant by earlier
-            -- variable pattern
-            if isRedundant ps (map (\(_, x, _) -> x) varCases)
-                then throwError (RedundantCase pos)
-                else
-                    let
-                        row' = (pos, ps ++ cols, body)
-                        ts' = cts ++ ts
-                        ctorCases' = insertWith'
-                            (second (row' :))
-                            ctor
-                            (ts', [row'])
-                            ctorCases
-                    in pure (ctorCases', varCases)
-        PVar x ->
-            let
-                body' = substVExpr (x, varName) body
-                varCases' = (pos, cols, body') : varCases
-            in pure (ctorCases, varCases')
-
-isRedundant :: [Pat] -> [[Pat]] -> Bool
-isRedundant ps = any (isRedundant' ps)
-
-isRedundant' :: [Pat] -> [Pat] -> Bool
-isRedundant' = all isRedundant'' .* zip
-
-isRedundant'' :: (Pat, Pat) -> Bool
-isRedundant'' = \case
-    (PConstruction _ _ ps, PConstruction _ _ qs) -> isRedundant' ps qs
-    (PConstruction _ _ _, PVar _) -> False
-    (PVar _, _) -> True
-
-buildDecisionTree
-    :: Map VariantIx ([Type], [(SrcPos, [Pat], Expr)])
-    -> TypedVar
-    -> ([Type], [(SrcPos, [Pat], Expr)])
-    -> Infer DecisionTree
-buildDecisionTree ctorCases varLhs varCases@(_, varCases') = do
-    ctorCases' <- forM ctorCases
-        $ \cs@(ts, _) -> fmap (ts, ) (toDecisionTreeRows' cs)
-    varDecisionTree <- if null varCases'
-        then pure Nothing
-        else fmap (Just . (varLhs, )) (toDecisionTreeRows' varCases)
-    pure (DecisionTree ctorCases' varDecisionTree)
-
-toDecisionTreeRows' :: ([Type], [(SrcPos, [Pat], Expr)]) -> Infer DecisionTree
-toDecisionTreeRows' = \case
-    ([], [(_, [], body)]) -> pure (DecisionLeaf body)
-    -- If constructor or variable pattern is redundant by duplication
-    ([], _ : cs) ->
-        let (pos, _, _) = last cs in throwError (RedundantCase pos)
-    (t : ts, cs) -> toDecisionTreeRows t ts $ flip map cs $ \case
-        (_, [], _) -> ice "ps empty in toDecisionTreeRows'"
-        (pos, p : ps, b) -> (pos, p, ps, b)
-    x -> ice $ "unexpected pattern in toDecisionTreeRows': " ++ show x
-
 inferExprConstructor :: Id -> Infer (Type, Expr)
 inferExprConstructor c = do
-    (variantIx, tdefLhs, cParams) <- lookupEnvConstructor c
+    (variantIx, tdefLhs, cParams, _) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
     cParams'' <- mapM (\t -> fmap (, t) freshVar) cParams'
     let cArgs = map (Var . uncurry TypedVar) cParams''
@@ -416,7 +334,7 @@ instantiateConstructorOfTypeDef (tName, tParams) cParams = do
     let cParams' = map (subst (Map.fromList (zip tParams tVars))) cParams
     pure ((tName, tVars), cParams')
 
-lookupEnvConstructor :: Id -> Infer (VariantIx, (String, [TVar]), [Type])
+lookupEnvConstructor :: Id -> Infer (VariantIx, (String, [TVar]), [Type], Span)
 lookupEnvConstructor (WithPos pos cx) =
     views envCtors (Map.lookup cx)
         >>= maybe (throwError (UndefCtor pos cx)) pure

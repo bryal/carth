@@ -93,17 +93,31 @@ monoMatch e dt tbody =
 
 monoDecisionTree :: An.DecisionTree -> Mono DecisionTree
 monoDecisionTree = \case
-    An.DecisionTree cs vdt -> do
-        cs' <- mapM (bimapM (mapM monotype) monoDecisionTree) cs
-        vdt' <- flip (maybe (pure Nothing)) vdt $ \(An.TypedVar x t, dt) -> do
-            parentInst <- uses defInsts (Map.lookup x)
-            modifying defInsts (Map.delete x)
-            t' <- monotype t
-            dt' <- monoDecisionTree dt
-            maybe (pure ()) (modifying defInsts . Map.insert x) parentInst
-            pure (Just (TypedVar x t', dt'))
-        pure (DecisionTree cs' vdt')
-    An.DecisionLeaf e -> fmap DecisionLeaf (mono e)
+    An.DSwitch obj cs def -> do
+        obj' <- monoAccess obj
+        cs' <- mapM monoDecisionTree cs
+        def' <- monoDecisionTree def
+        pure (DSwitch obj' cs' def')
+    An.DLeaf (bs, e) -> do
+        let bs' = Map.toList bs
+        let ks = map (\((An.TypedVar x _), _) -> x) bs'
+        parentInsts <- uses defInsts (lookups ks)
+        modifying defInsts (deletes ks)
+        bs'' <- mapM
+            (bimapM
+                (\(An.TypedVar x t) -> fmap (TypedVar x) (monotype t))
+                monoAccess
+            )
+            bs'
+        e' <- mono e
+        modifying defInsts (Map.union (Map.fromList parentInsts))
+        pure (DLeaf (bs'', e'))
+
+monoAccess :: An.Access -> Mono Access
+monoAccess = \case
+    An.Obj -> pure Obj
+    An.As a ts -> liftA2 As (monoAccess a) (mapM monotype ts)
+    An.Sel i a -> fmap (Sel i) (monoAccess a)
 
 monoCtion :: An.Ction -> Mono Expr
 monoCtion (i, (tdefName, tdefArgs), as) = do
@@ -167,3 +181,6 @@ lookup' = Map.findWithDefault
 
 lookups :: Ord k => [k] -> Map k v -> [(k, v)]
 lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
+
+deletes :: (Foldable t, Ord k) => t k -> Map k v -> Map k v
+deletes = flip (foldr Map.delete)

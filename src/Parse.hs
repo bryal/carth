@@ -42,7 +42,7 @@ import Data.Void
 import Data.Composition
 import Data.List
 
-import Misc
+import Misc hiding (if')
 import SrcPos
 import Ast
 import NonEmpty
