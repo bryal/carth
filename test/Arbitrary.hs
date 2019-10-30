@@ -55,7 +55,7 @@ instance Arbitrary a => Arbitrary (NonEmpty a) where
 
 arbitraryProgram :: Gen Program
 arbitraryProgram = do
-    defs <- vectorOf' (0, 4) arbitrary
+    defs <- vectorOf' (1, 4) arbitrary
     tdefs <- vectorOf' (0, 4) arbitrary
     pure (Program defs tdefs)
 
@@ -73,8 +73,8 @@ arbitraryConstructorDef = liftA2 (,) arbitrary (vectorOf' (0, 4) arbitrary)
 
 arbitraryExpr' :: Gen Expr'
 arbitraryExpr' = frequency
-    [ (5, fmap Lit arbitrary)
-    , (5, fmap Var arbitrary)
+    [ (7, fmap Lit arbitrary)
+    , (10, fmap Var arbitrary)
     , (2, applyArbitrary2 App)
     , (1, applyArbitrary3 If)
     , (1, applyArbitrary2 Fun)
@@ -87,12 +87,12 @@ arbitraryExpr' = frequency
 
 arbitraryConst :: Gen Const
 arbitraryConst = frequency
-    [ (2, pure Unit)
+    [ (3, pure Unit)
     , (5, fmap Int arbitrary)
     , (5, fmap Double arbitrary)
     , (1, fmap (Str . getPrintableString) arbitrary)
-    , (1, fmap Bool arbitrary)
-    , (1, fmap Char arbitraryChar)
+    , (2, fmap Bool arbitrary)
+    , (2, fmap Char arbitraryChar)
     ]
 
 arbitraryChar :: Gen Char
