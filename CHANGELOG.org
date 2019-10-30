@@ -1,0 +1,13 @@
+* 0.0.2 <2019-10-30>
+  Trying out releases -- this is the first one, more or
+  less. Everything has been in such heavy development until now (and
+  still is really, but it has calmed down slightly), so this feels
+  like the first appropriate moment to make a release.
+
+  Nothing is ready to use yet, of course, but many of the core
+  components are here. We have parsing with megaparsec, Hindley-Milner
+  typechecking, algebraic datatype definitions and pattern matching
+  with exhaustiveness and redundancy checking, closures,
+  interpretation, and LLVM code generation.
+
+  Next up is modules, typeclasses, etc etc.

@@ -1,5 +1,5 @@
 name:                carth
-version:             0.0.1.0
+version:             0.0.2.0
 git:                 https://gitlab.com/JoJoZ/carth
 homepage:            https://carth.jo.zone
 license:             AGPL-3
@@ -9,6 +9,7 @@ copyright:           "2019 Johan Johansson"
 
 extra-source-files:
 - README.org
+- CHANGELOG.org
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
