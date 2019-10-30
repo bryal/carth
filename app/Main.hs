@@ -14,21 +14,13 @@ import qualified AnnotAst
 import qualified MonoAst
 import Check
 import Config
-import Interp
 import Compile
 import Mono
 import qualified Parse
 import Parse (Source)
 
 main :: IO ()
-main = do
-    getConfig >>= \case
-        ModeInterp infile -> interpretFile infile
-        ModeCompile infile cfg -> compileFile infile cfg
-
-interpretFile :: FilePath -> IO ()
-interpretFile f = readFile f >>= \src ->
-    parse' f src >>= typecheck' f src >>= monomorphize' >>= interpret'
+main = uncurry compileFile =<< getConfig
 
 compileFile :: FilePath -> CompileConfig -> IO ()
 compileFile f cfg = do
@@ -63,12 +55,8 @@ monomorphize' p = do
     writeFile "out.mono" (show p')
     pure p'
 
-interpret' :: MonoAst.Program -> IO ()
-interpret' pgm = do
-    interpret pgm
-
 abort :: FilePath -> IO a
 abort f = do
     putStrLn "Error: Aborting due to previous error."
-    putStrLn $ "Error: Could not compile/interpret " ++ f ++ "."
+    putStrLn $ "Error: Could not compile " ++ f ++ "."
     exitFailure

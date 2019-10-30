@@ -38,11 +38,7 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   carth --help
 
   # Help for a specific subcommand
-  carth help interpret
   carth help c
-
-  # Interpret a file
-  carth i examples/test.carth
 
   # Compile and run a program with default output filename
   carth c examples/test.carth
