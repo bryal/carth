@@ -10,11 +10,12 @@ import Ast
 import Parse
 import Arbitrary
 
+
 spec :: Spec
 spec = do
     describe "parse inverse of pretty"
         $ it
-              "Parsing a pretty printed program should return the original program"
+            "Parsing a pretty printed program should return the original program"
         $ withMaxSuccess
               1e4
               (\progAst -> parse "spec" (pretty progAst) == Right progAst)

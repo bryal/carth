@@ -1,18 +1,18 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, DataKinds, FlexibleInstances #-}
 
-module Arbitrary where
+module Arbitrary () where
 
 import Control.Applicative (liftA3, liftA2)
 import Control.Monad
-import qualified Data.Map as Map
 import Test.QuickCheck.Arbitrary
 import Test.QuickCheck.Gen
-import Test.QuickCheck.Modifiers
+import Test.QuickCheck.Modifiers hiding (Small)
 
 import SrcPos
 import Parse
 import Ast
 import NonEmpty
+
 
 instance Arbitrary Program where
     arbitrary = arbitraryProgram
@@ -34,8 +34,11 @@ instance Arbitrary Const where
 instance Arbitrary Pat where
     arbitrary = arbitraryPat
     shrink = shrinkPat
-instance Arbitrary Id where
-    arbitrary = fmap Id arbitrarySmall
+instance Arbitrary (Id Small) where
+    arbitrary = fmap (Id . WithPos dummyPos) arbitrarySmall
+    shrink = shrinkNothing
+instance Arbitrary (Id Big) where
+    arbitrary = fmap (Id . WithPos dummyPos) arbitraryBig
     shrink = shrinkNothing
 instance Arbitrary Scheme where
     arbitrary = applyArbitrary2 Forall
@@ -44,29 +47,29 @@ instance Arbitrary Type where
 instance Arbitrary TVar where
     arbitrary = fmap TVExplicit arbitrary
 instance Arbitrary TPrim where
-    arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool ]
+    arbitrary = elements [TUnit, TInt, TDouble, TChar, TStr, TBool]
 instance Arbitrary a => Arbitrary (NonEmpty a) where
     arbitrary = arbitraryNonEmpty
-    shrink (x :| xs) = [x' :| xs' | (x', xs') <- shrink (x, xs)]
+    shrink (x :| xs) = [ x' :| xs' | (x', xs') <- shrink (x, xs) ]
+
 
 arbitraryProgram :: Gen Program
 arbitraryProgram = do
-    main <- arbitrary
     defs <- vectorOf' (0, 4) arbitrary
     tdefs <- vectorOf' (0, 4) arbitrary
-    pure (Program main defs tdefs)
+    pure (Program defs tdefs)
 
 arbitraryTypeDef :: Gen TypeDef
 arbitraryTypeDef =
-    liftA3 TypeDef arbitraryBig (vectorOf' (0, 4) arbitrary) arbitrary
+    liftA3 TypeDef arbitrary (vectorOf' (0, 4) arbitrary) arbitrary
 
 arbitraryConstructorDefs :: Gen ConstructorDefs
 arbitraryConstructorDefs = fmap
-    (ConstructorDefs . Map.fromList)
+    ConstructorDefs
     (choose (0, 5) >>= flip vectorOf arbitraryConstructorDef)
 
-arbitraryConstructorDef :: Gen (String, [Type])
-arbitraryConstructorDef = liftA2 (,) arbitraryBig (vectorOf' (0, 5) arbitrary)
+arbitraryConstructorDef :: Gen (Id Big, [Type])
+arbitraryConstructorDef = liftA2 (,) arbitrary (vectorOf' (0, 4) arbitrary)
 
 arbitraryExpr' :: Gen Expr'
 arbitraryExpr' = frequency
@@ -79,7 +82,7 @@ arbitraryExpr' = frequency
     , (1, applyArbitrary2 TypeAscr)
     , (1, applyArbitrary2 Match)
     , (1, fmap FunMatch arbitrary)
-    , (5, fmap Constructor arbitraryBig)
+    , (5, fmap Ctor arbitrary)
     ]
 
 arbitraryConst :: Gen Const
@@ -103,8 +106,9 @@ arbitraryChar = oneof
 
 arbitraryPat :: Gen Pat
 arbitraryPat = frequency
-    [ (4, fmap PConstructor arbitraryBig)
-    , (1, liftM2 PConstruction arbitraryBig arbitrary)
+    [ ( 2
+      , liftM2 (PConstruction dummyPos) arbitrary (vectorOf' (0, 4) arbitrary)
+      )
     , (4, fmap PVar arbitrary)
     ]
 
@@ -152,10 +156,8 @@ vectorOf' :: (Int, Int) -> Gen a -> Gen [a]
 vectorOf' r ga = flip vectorOf ga =<< choose r
 
 shrinkProgram :: Program -> [Program]
-shrinkProgram (Program main defs tdefs) =
-    [ Program main' defs' tdefs'
-    | (main', defs', tdefs') <- shrink (main, defs, tdefs)
-    ]
+shrinkProgram (Program defs tdefs) =
+    [ Program defs' tdefs' | (defs', tdefs') <- shrink (defs, tdefs) ]
 
 shrinkTypeDef :: TypeDef -> [TypeDef]
 shrinkTypeDef (TypeDef x tvs cs) = map (uncurry (TypeDef x)) (shrink (tvs, cs))
@@ -178,5 +180,5 @@ shrinkExpr' = \case
 
 shrinkPat :: Pat -> [Pat]
 shrinkPat = \case
-    PConstruction c ps -> PConstructor c : map (PConstruction c) (shrink ps)
+    PConstruction pos c ps -> map (PConstruction pos c) (shrink ps)
     _ -> []
