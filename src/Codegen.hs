@@ -170,7 +170,7 @@ genBuiltins = map
         (mkName "malloc")
         [parameter (mkName "size") i64]
         (LLType.ptr typeUnit)
-    , simpleFunc (mkName "printInt") [parameter (mkName "n") i64] typeUnit
+    , simpleFunc (mkName "print-int") [parameter (mkName "n") i64] typeUnit
     ]
 
 genOuterMain :: Gen' Definition
@@ -300,8 +300,8 @@ genApp :: Expr -> Expr -> Gen Operand
 genApp fe ae = do
     a <- genExpr ae
     case fe of
-        Var (TypedVar "printInt" _) ->
-            emitAnon (callExtern "printInt" typeUnit [a])
+        Var (TypedVar "print-int" _) ->
+            emitAnon (callExtern "print-int" typeUnit [a])
         _ -> do
             closure <- genExpr fe
             app closure a

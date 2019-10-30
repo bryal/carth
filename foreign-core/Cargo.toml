@@ -1,0 +1,14 @@
+[package]
+name = "carth-foreign-core"
+version = "0.1.0"
+authors = ["JoJo <jo@jo.zone>"]
+edition = "2018"
+description = "The foreign part of Carths core"
+homepage = "https://carth.jo.zone"
+repository = "https://gitlab.com/JoJoZ/carth"
+license = "AGPL-3.0"
+
+[dependencies]
+
+[lib]
+crate-type = ["staticlib"]

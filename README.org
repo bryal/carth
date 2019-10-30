@@ -17,9 +17,18 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
 
 * Building
   This project is written in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build
-  system. The external dependencies required are [[https://llvm.org/][LLVM]] version 8. To
-  build the project, simply run ~stack build~. To install (copy the
+  system. The external dependencies required are [[https://llvm.org/][LLVM]] version 9.
+
+  To build the project, simply run ~stack build~. To install (copy the
   binary), run ~stack install~.
+
+  The Carth compiler needs to link with a foreign core library of
+  functions that can't be defined in Carth itself, to do things like
+  input/output and pointer manipulation etc. This library is written
+  in Rust and is located in "foreign-core/". Build with ~cargo build~,
+  and copy the resulting static library from
+  "foreign-core/target/debug/libcarth-foreign-core.a" to
+  "foreign-core/".
 
 * Running
   #+BEGIN_EXAMPLE bash

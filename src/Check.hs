@@ -72,7 +72,7 @@ initEnv = Env
 
 builtinSchemes :: Map String Scheme
 builtinSchemes = Map.fromList
-    [("printInt", Forall Set.empty (TFun (TPrim TInt) (TPrim TUnit)))]
+    [("print-int", Forall Set.empty (TFun (TPrim TInt) (TPrim TUnit)))]
 
 initSt :: St
 initSt = St { _tvCount = 0, _substs = Map.empty }

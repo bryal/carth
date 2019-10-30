@@ -39,7 +39,7 @@ runEval m = runReaderT m builtinValues
 
 builtinValues :: Map TypedVar Val
 builtinValues = Map.fromList
-    [ ( TypedVar "printInt" (TFun (TPrim TInt) (TPrim TUnit))
+    [ ( TypedVar "print-int" (TFun (TPrim TInt) (TPrim TUnit))
       , VFun (\v -> print (unwrapInt v) $> VConst Unit)
       )
     , ( TypedVar "+" (TFun (TPrim TInt) (TFun (TPrim TInt) (TPrim TInt)))

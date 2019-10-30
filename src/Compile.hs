@@ -45,7 +45,13 @@ compileModule cfg m = withHostTargetMachinePIC $ \t -> do
     writeObjectToFile t (File ofile) m
     callProcess
         (cc cfg)
-        ["-o", binfile, ofile, "/home/jojo/Hack/carth/lib/lib.c"]
+        [ "-o"
+        , binfile
+        , ofile
+        , "/home/jojo/Hack/carth/foreign-core/libcarth_foreign_core.a"
+        , "-ldl"
+        , "-lpthread"
+        ]
 
 withHostTargetMachinePIC :: (TargetMachine -> IO a) -> IO a
 withHostTargetMachinePIC f = do
