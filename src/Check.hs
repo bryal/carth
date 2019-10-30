@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings, TemplateHaskell, TupleSections
-  , TypeSynonymInstances, FlexibleInstances, RankNTypes, FlexibleContexts #-}
+  , TypeSynonymInstances, FlexibleInstances, RankNTypes, FlexibleContexts
+  , DataKinds #-}
 
 module Check (typecheck) where
 
@@ -24,7 +25,7 @@ import FreeVars
 import Subst
 import NonEmpty
 import qualified Ast
-import Ast (Id, idstr, scmBody)
+import Ast (Id(..), IdCase(..), idstr, scmBody)
 import TypeErr
 import AnnotAst
 import Match
@@ -104,7 +105,7 @@ inferProgram (Ast.Program defs tdefs) = do
     (_, (WithPos mainPos _)) <- maybe
         (throwError MainNotDefined)
         pure
-        (lookup "main" (map (first unpos) defs))
+        (lookup "main" (map (first idstr) defs))
     (tdefs', ctors) <- checkTypeDefs tdefs
     Defs defs' <-
         augment envTypeDefs tdefs' $ augment envCtors ctors $ inferDefs defs
@@ -136,9 +137,12 @@ checkTypeDef
     :: Ast.TypeDef
     -> Infer
            ( (String, ([TVar], [(String, [Type])]))
-           , Map String (Id, (VariantIx, (String, [TVar]), [Type], Span))
+           , Map
+                 String
+                 (Id Big, (VariantIx, (String, [TVar]), [Type], Span))
            )
-checkTypeDef (Ast.TypeDef (WithPos _ x) ps (Ast.ConstructorDefs cs)) = do
+checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
+    let x = idstr x'
     let ps' = map TVExplicit ps
     let cs' = map (first idstr) cs
     let cSpan = length cs
@@ -284,7 +288,7 @@ inferCase (p, b) = do
     let ppos = getPos p
     pure (Found ppos tp, Found (getPos b) tb, (ppos, p', b'))
 
-inferPat :: Ast.Pat -> Infer (Type, Pat, Map Id Scheme)
+inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id Small) Scheme)
 inferPat = \case
     Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
     Ast.PVar x -> do
@@ -294,7 +298,7 @@ inferPat = \case
         pure (tv', PVar x', Map.singleton x (Forall Set.empty tv'))
 
 inferPatConstruction
-    :: SrcPos -> Id -> [Ast.Pat] -> Infer (Type, Pat, Map Id Scheme)
+    :: SrcPos -> Id Big -> [Ast.Pat] -> Infer (Type, Pat, Map (Id Small) Scheme)
 inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams
@@ -309,13 +313,14 @@ inferPatConstruction pos c cArgs = do
     let con = Con { variant = variantIx, span = cSpan, argTs = cArgTs }
     pure (t, PCon con cArgs', cArgsVars')
 
-nonconflictingPatVarDefs :: [Map Id Scheme] -> Infer (Map Id Scheme)
+nonconflictingPatVarDefs
+    :: [Map (Id Small) Scheme] -> Infer (Map (Id Small) Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
-        Just (WithPos pos v) -> throwError (ConflictingPatVarDefs pos v)
+        Just (Id (WithPos pos v)) -> throwError (ConflictingPatVarDefs pos v)
         Nothing -> pure (Map.union acc ks)
 
-inferExprConstructor :: Id -> Infer (Type, Expr)
+inferExprConstructor :: Id Big -> Infer (Type, Expr)
 inferExprConstructor c = do
     (variantIx, tdefLhs, cParams, _) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
@@ -334,8 +339,9 @@ instantiateConstructorOfTypeDef (tName, tParams) cParams = do
     let cParams' = map (subst (Map.fromList (zip tParams tVars))) cParams
     pure ((tName, tVars), cParams')
 
-lookupEnvConstructor :: Id -> Infer (VariantIx, (String, [TVar]), [Type], Span)
-lookupEnvConstructor (WithPos pos cx) =
+lookupEnvConstructor
+    :: Id Big -> Infer (VariantIx, (String, [TVar]), [Type], Span)
+lookupEnvConstructor (Id (WithPos pos cx)) =
     views envCtors (Map.lookup cx)
         >>= maybe (throwError (UndefCtor pos cx)) pure
 
@@ -348,8 +354,8 @@ litType = \case
     Str _ -> TPrim TStr
     Bool _ -> TPrim TBool
 
-lookupEnv :: Id -> Infer Type
-lookupEnv (WithPos pos x) = views envDefs (Map.lookup x) >>= \case
+lookupEnv :: Id Small -> Infer Type
+lookupEnv (Id (WithPos pos x)) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
     Nothing -> throwError (UndefVar pos x)
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
-           , MultiParamTypeClasses, TemplateHaskell #-}
+           , MultiParamTypeClasses, TemplateHaskell, KindSignatures
+           , DataKinds #-}
 
 module Ast
     ( TVar(..)
@@ -9,7 +10,8 @@ module Ast
     , Scheme(..)
     , scmParams
     , scmBody
-    , Id
+    , IdCase(..)
+    , Id(..)
     , idstr
     , Const(..)
     , Pat(..)
@@ -34,11 +36,13 @@ import SrcPos
 import FreeVars
 import NonEmpty
 
+data IdCase = Big | Small
 
-type Id = WithPos String
+newtype Id (case' :: IdCase) = Id (WithPos String)
+    deriving (Show, Eq, Ord)
 
 data TVar
-    = TVExplicit Id
+    = TVExplicit (Id Small)
     | TVImplicit Int
     deriving (Show, Eq, Ord)
 
@@ -67,8 +71,8 @@ data Scheme = Forall
 makeLenses ''Scheme
 
 data Pat
-    = PConstruction SrcPos Id [Pat]
-    | PVar Id
+    = PConstruction SrcPos (Id Big) [Pat]
+    | PVar (Id Small)
     deriving Show
 
 data Const
@@ -82,25 +86,25 @@ data Const
 
 data Expr'
     = Lit Const
-    | Var Id
+    | Var (Id Small)
     | App Expr Expr
     | If Expr Expr Expr
-    | Fun Id Expr
+    | Fun (Id Small) Expr
     | Let (NonEmpty Def) Expr
     | TypeAscr Expr Type
     | Match Expr (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
-    | Ctor Id
+    | Ctor (Id Big)
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
 
-type Def = (Id, (Maybe (WithPos Scheme), Expr))
+type Def = (Id Small, (Maybe (WithPos Scheme), Expr))
 
-newtype ConstructorDefs = ConstructorDefs [(Id, [Type])]
+newtype ConstructorDefs = ConstructorDefs [(Id Big, [Type])]
     deriving (Show, Eq)
 
-data TypeDef = TypeDef Id [Id] ConstructorDefs
+data TypeDef = TypeDef (Id Big) [Id Small] ConstructorDefs
     deriving (Show, Eq)
 
 data Program = Program [Def] [TypeDef]
@@ -113,11 +117,14 @@ instance Eq Pat where
         (PVar x, PVar x') -> x == x'
         _ -> False
 
-instance FreeVars Def Id where
+instance FreeVars Def (Id Small) where
     freeVars (name, (_, body)) = Set.delete name (freeVars body)
 
-instance FreeVars Expr Id where
+instance FreeVars Expr (Id Small) where
     freeVars = fvExpr
+
+instance HasPos (Id a) where
+    getPos (Id x) = getPos x
 
 instance HasPos Pat where
     getPos = \case
@@ -144,9 +151,11 @@ instance Pretty TPrim where
     pretty' _ = prettyTPrim
 instance Pretty TVar where
     pretty' _ = prettyTVar
+instance Pretty (Id a) where
+    pretty' _ = idstr
 
 
-fvExpr :: Expr -> Set Id
+fvExpr :: Expr -> Set (Id Small)
 fvExpr = unpos >>> \case
     Lit _ -> Set.empty
     Var x -> Set.singleton x
@@ -160,13 +169,13 @@ fvExpr = unpos >>> \case
     FunMatch cs -> fvCases (fromList1 cs)
     Ctor _ -> Set.empty
 
-fvMatch :: Expr -> [(Pat, Expr)] -> Set Id
+fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)
 
-fvCases :: [(Pat, Expr)] -> Set Id
+fvCases :: [(Pat, Expr)] -> Set (Id Small)
 fvCases = Set.unions . map (\(p, e) -> Set.difference (freeVars e) (bvPat p))
 
-bvPat :: Pat -> Set Id
+bvPat :: Pat -> Set (Id Small)
 bvPat = \case
     PConstruction _ _ ps -> Set.unions (map bvPat ps)
     PVar x -> Set.singleton x
@@ -191,9 +200,8 @@ prettyTypeDef d (TypeDef name params constrs) = concat
     [ "(type "
     , if null params
         then pretty name
-        else "(" ++ pretty name ++ spcPretty params ++ ")"
-    , indent (d + 2) ++ pretty' (d + 2) constrs
-    , ")"
+        else "(" ++ pretty name ++ " " ++ spcPretty params ++ ")"
+    , "\n" ++ indent (d + 2) ++ pretty' (d + 2) constrs ++ ")"
     ]
 
 prettyConstructorDefs :: Int -> ConstructorDefs -> String
@@ -264,7 +272,8 @@ prettyExpr' d = \case
 
 prettyPat :: Pat -> String
 prettyPat = \case
-    PConstruction _ c ps -> concat ["(", idstr c, " ", spcPretty ps, ")"]
+    PConstruction _ (Id (WithPos _ c)) ps ->
+        if null ps then c else concat ["(", c, " ", spcPretty ps, ")"]
     PVar v -> idstr v
 
 prettyConst :: Const -> String
@@ -315,5 +324,5 @@ prettyTVar = \case
 spcPretty :: Pretty a => [a] -> String
 spcPretty = unwords . map pretty
 
-idstr :: Id -> String
-idstr = unpos
+idstr :: Id a -> String
+idstr (Id (WithPos _ x)) = x

@@ -55,6 +55,7 @@ library:
   - -Wno-orphans
   - -Wno-missed-specialisations
   - -Wno-all-missed-specialisations
+  - -Wno-unticked-promoted-constructors
 
 executables:
   carth:
@@ -77,6 +78,7 @@ executables:
     - -Wno-orphans
     - -Wno-missed-specialisations
     - -Wno-all-missed-specialisations
+    - -Wno-unticked-promoted-constructors
     dependencies:
     - carth
 

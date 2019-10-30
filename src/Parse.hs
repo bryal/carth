@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections #-}
+{-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds #-}
 
 -- Note: Some parsers are greedy wrt consuming spaces and comments succeding the
 --       item, while others are lazy. You'll have to look at the impl to be
@@ -94,7 +94,7 @@ defTyped = (reserved "define:" *>) . def' (fmap Just scheme)
 def'
     :: Parser (Maybe (WithPos Scheme))
     -> SrcPos
-    -> Parser (Id, (Maybe (WithPos Scheme), Expr))
+    -> Parser (Id Small, (Maybe (WithPos Scheme), Expr))
 def' schemeParser topPos = varDef <|> funDef
   where
     varDef = do
@@ -280,11 +280,11 @@ ns_parens p = choice
         [("(", ")"), ("[", "]")]
     )
 
-big' :: Parser Id
+big' :: Parser (Id Big)
 big' = andSkipSpaceAfter ns_big'
 
-ns_big' :: Parser Id
-ns_big' = withPos ns_big
+ns_big' :: Parser (Id Big)
+ns_big' = fmap Id (withPos ns_big)
 
 big :: Parser String
 big = andSkipSpaceAfter ns_big
@@ -297,11 +297,11 @@ ns_big = try $ do
         then pure s
         else fail "Big identifier must start with an uppercase letter or colon."
 
-small' :: Parser Id
+small' :: Parser (Id Small)
 small' = andSkipSpaceAfter ns_small'
 
-ns_small' :: Parser Id
-ns_small' = withPos $ try $ do
+ns_small' :: Parser (Id Small)
+ns_small' = fmap Id $ withPos $ try $ do
     s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")

@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, FlexibleContexts #-}
+{-# LANGUAGE LambdaCase, FlexibleContexts, DataKinds #-}
 
 module TypeErr (TypeErr(..), prettyErr) where
 
@@ -15,14 +15,14 @@ import Control.Applicative
 data TypeErr
     = MainNotDefined
     | InvalidUserTypeSig SrcPos Scheme Scheme
-    | CtorArityMismatch SrcPos Id Int Int
+    | CtorArityMismatch SrcPos (Id Big) Int Int
     | ConflictingPatVarDefs SrcPos String
     | UndefCtor SrcPos String
     | UndefVar SrcPos String
     | InfType SrcPos Type Type TVar Type
     | UnificationFailed SrcPos Type Type Type Type
-    | ConflictingTypeDef Id
-    | ConflictingCtorDef Id
+    | ConflictingTypeDef (Id Big)
+    | ConflictingCtorDef (Id Big)
     | RedundantCase SrcPos
     | InexhaustivePats SrcPos String
     deriving Show
@@ -60,9 +60,9 @@ prettyErr = \case
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
-    ConflictingTypeDef (WithPos p x) ->
+    ConflictingTypeDef (Id (WithPos p x)) ->
         posd p big $ "Conflicting definitions for type `" ++ x ++ "`."
-    ConflictingCtorDef (WithPos p x) ->
+    ConflictingCtorDef (Id (WithPos p x)) ->
         posd p big $ "Conflicting definitions for constructor `" ++ x ++ "`."
     RedundantCase p -> posd p pat $ "Redundant case in pattern match."
     InexhaustivePats p patStr ->
