@@ -74,7 +74,9 @@ newtype Defs = Defs (Map TypedVar Expr)
 
 type TypeDefs = [(TConst, [VariantTypes])]
 
-data Program = Program Expr Defs TypeDefs
+type Externs = [(String, Type)]
+
+data Program = Program Expr Defs TypeDefs Externs
     deriving (Show)
 
 

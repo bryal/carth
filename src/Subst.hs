@@ -14,8 +14,8 @@ import AnnotAst
 type Subst = Map TVar Type
 
 substProgram :: Subst -> Program -> Program
-substProgram s (Program main (Defs defs) tdefs) =
-    Program (substExpr s main) (Defs (fmap (substDef s) defs)) tdefs
+substProgram s (Program main (Defs defs) tdefs externs) =
+    Program (substExpr s main) (Defs (fmap (substDef s) defs)) tdefs externs
 
 substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = second (substExpr s)

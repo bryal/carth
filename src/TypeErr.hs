@@ -25,6 +25,7 @@ data TypeErr
     | ConflictingCtorDef (Id Big)
     | RedundantCase SrcPos
     | InexhaustivePats SrcPos String
+    | ExternNotMonomorphic (Id Small) TVar
     deriving Show
 
 type Message = String
@@ -70,6 +71,12 @@ prettyErr = \case
             $ "Inexhaustive patterns: "
             ++ patStr
             ++ " not covered."
+    ExternNotMonomorphic name tv -> case tv of
+        TVExplicit (Id (WithPos p tv')) ->
+            posd p tvar
+                $ ("Extern " ++ pretty name ++ " is not monomorphic. ")
+                ++ ("Type variable " ++ tv' ++ " encountered in type signature")
+        TVImplicit _ -> ice "TVImplicit in prettyErr ExternNotMonomorphic"
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
@@ -80,7 +87,8 @@ prettyErr = \case
             <||> wholeLine
     scheme = Parse.ns_scheme <||> wholeLine
     pat = Parse.ns_pat <||> wholeLine
-    var = Parse.var <||> wholeLine
+    var = Parse.ns_small' <||> wholeLine
+    tvar = var
     eConstructor = Parse.eConstructor <||> wholeLine
     big = Parse.ns_big
     wholeLine = many Mega.anySingle

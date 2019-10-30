@@ -48,7 +48,7 @@ compileModule cfg m = withHostTargetMachinePIC $ \t -> do
         [ "-o"
         , binfile
         , ofile
-        , "/home/jojo/Hack/carth/foreign-core/libcarth_foreign_core.a"
+        , "/home/jojo/Hack/carth/foreign-core/target/debug/libcarth_foreign_core.a"
         , "-ldl"
         , "-lpthread"
         ]

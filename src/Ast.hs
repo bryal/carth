@@ -20,6 +20,7 @@ module Ast
     , Def
     , ConstructorDefs(..)
     , TypeDef(..)
+    , Extern(..)
     , Program(..)
     )
 where
@@ -107,7 +108,10 @@ newtype ConstructorDefs = ConstructorDefs [(Id Big, [Type])]
 data TypeDef = TypeDef (Id Big) [Id Small] ConstructorDefs
     deriving (Show, Eq)
 
-data Program = Program [Def] [TypeDef]
+data Extern = Extern (Id Small) Type
+    deriving (Show, Eq)
+
+data Program = Program [Def] [TypeDef] [Extern]
     deriving (Show, Eq)
 
 
@@ -133,6 +137,8 @@ instance HasPos Pat where
 
 instance Pretty Program where
     pretty' = prettyProg
+instance Pretty Extern where
+    pretty' = prettyExtern
 instance Pretty ConstructorDefs where
     pretty' = prettyConstructorDefs
 instance Pretty TypeDef where
@@ -181,7 +187,7 @@ bvPat = \case
     PVar x -> Set.singleton x
 
 prettyProg :: Int -> Program -> String
-prettyProg d (Program defs tdefs) =
+prettyProg d (Program defs tdefs externs) =
     let
         prettyDef = \case
             (name, (Just scm, body)) -> concat
@@ -193,7 +199,11 @@ prettyProg d (Program defs tdefs) =
                 [ indent d ++ "(define " ++ pretty name ++ "\n"
                 , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
                 ]
-    in unlines (map prettyDef defs ++ map pretty tdefs)
+    in unlines (map prettyDef defs ++ map pretty tdefs ++ map pretty externs)
+
+prettyExtern :: Int -> Extern -> String
+prettyExtern _ (Extern name t) =
+    concat ["(extern ", idstr name, " ", pretty t, ")"]
 
 prettyTypeDef :: Int -> TypeDef -> String
 prettyTypeDef d (TypeDef name params constrs) = concat

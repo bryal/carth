@@ -25,10 +25,8 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   The Carth compiler needs to link with a foreign core library of
   functions that can't be defined in Carth itself, to do things like
   input/output and pointer manipulation etc. This library is written
-  in Rust and is located in "foreign-core/". Build with ~cargo build~,
-  and copy the resulting static library from
-  "foreign-core/target/debug/libcarth-foreign-core.a" to
-  "foreign-core/".
+  in Rust and is located in "foreign-core/". Just build with ~cargo
+  build~.
 
 * Running
   #+BEGIN_EXAMPLE bash

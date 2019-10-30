@@ -65,14 +65,10 @@ runInfer' = runExcept . flip runStateT initSt . flip runReaderT initEnv
 
 initEnv :: Env
 initEnv = Env
-    { _envDefs = builtinSchemes
+    { _envDefs = Map.empty
     , _envCtors = Map.empty
     , _envTypeDefs = Map.empty
     }
-
-builtinSchemes :: Map String Scheme
-builtinSchemes = Map.fromList
-    [("print-int", Forall Set.empty (TFun (TPrim TInt) (TPrim TUnit)))]
 
 initSt :: St
 initSt = St { _tvCount = 0, _substs = Map.empty }
@@ -101,20 +97,30 @@ withLocal b = locally envDefs (uncurry Map.insert b)
 -- Inference
 --------------------------------------------------------------------------------
 inferProgram :: Ast.Program -> Infer Program
-inferProgram (Ast.Program defs tdefs) = do
+inferProgram (Ast.Program defs tdefs externs) = do
     (_, (WithPos mainPos _)) <- maybe
         (throwError MainNotDefined)
         pure
         (lookup "main" (map (first idstr) defs))
     (tdefs', ctors) <- checkTypeDefs tdefs
-    Defs defs' <-
-        augment envTypeDefs tdefs' $ augment envCtors ctors $ inferDefs defs
-    let (Forall _ mainT, main) = fromJust (Map.lookup "main" defs')
-    let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
-    unify (Expected expectedMainType) (Found mainPos mainT)
-    let defs'' = Map.delete "main" defs'
-    let tdefs'' = fmap (second (map snd)) tdefs'
-    pure (Program main (Defs defs'') (tdefs''))
+    augment envTypeDefs tdefs' $ augment envCtors ctors $ do
+        externs' <- checkExterns externs
+        let externs'' = fmap (Forall Set.empty) externs'
+        Defs defs' <- augment envDefs externs'' (inferDefs defs)
+        let (Forall _ mainT, main) = fromJust (Map.lookup "main" defs')
+        let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
+        unify (Expected expectedMainType) (Found mainPos mainT)
+        let defs'' = Map.delete "main" defs'
+        let tdefs'' = fmap (second (map snd)) tdefs'
+        pure (Program main (Defs defs'') tdefs'' externs')
+
+checkExterns :: [Ast.Extern] -> Infer (Map String Type)
+checkExterns = fmap Map.fromList . mapM checkExtern
+
+checkExtern :: Ast.Extern -> Infer (String, Type)
+checkExtern (Ast.Extern name t) = case Set.lookupMin (ftv t) of
+    Just tv -> throwError (ExternNotMonomorphic name tv)
+    Nothing -> pure (idstr name, t)
 
 checkTypeDefs
     :: [Ast.TypeDef]

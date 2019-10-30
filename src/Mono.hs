@@ -37,13 +37,16 @@ makeLenses ''Insts
 type Mono = StateT Insts (Reader Env)
 
 monomorphize :: An.Program -> Program
-monomorphize (An.Program main defs tdefs) =
+monomorphize (An.Program main defs tdefs externs) =
     let
         initInsts = Insts Map.empty Set.empty
-        ((defs', main'), Insts _ tdefInsts') =
-            runReader (runStateT (monoLet defs main) initInsts) initEnv
+        run m = runReader (runStateT m initInsts) initEnv
+        ((externs', (defs', main')), Insts _ tdefInsts') = run $ liftA2
+            (,)
+            (mapM (bimapM pure monotype) (Map.toList externs))
+            (monoLet defs main)
         tdefs' = instTypeDefs tdefs tdefInsts'
-    in Program main' defs' tdefs'
+    in Program main' defs' tdefs' externs'
 
 initEnv :: Env
 initEnv = Env { _defs = Map.empty, _tvBinds = Map.empty }

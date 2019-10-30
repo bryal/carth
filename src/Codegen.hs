@@ -64,8 +64,7 @@ data FunInstruction = WithRetType Instruction Type
 --       Update: They are both behind pointers now, right? So we could just have
 --       a single map?
 data Env = Env
-    { _localEnv :: Map TypedVar Operand
-    , _globalEnv :: Map TypedVar Operand
+    { _env :: Map TypedVar Operand
     }
 makeLenses ''Env
 
@@ -104,10 +103,10 @@ instance Pretty Module where
 
 
 codegen :: FilePath -> Program -> EncodeAST Module
-codegen moduleFilePath (Program main (Defs defs) tdefs) = do
+codegen moduleFilePath (Program main (Defs defs) tdefs externs) = do
     tdefs' <- defineDataTypes tdefs
     let defs' = (TypedVar "main" mainType, main) : Map.toList defs
-        genGlobDefs = withGlobDefSigs
+        genGlobDefs = withExternSigs externs $ withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
     globDefs <- runGen' genGlobDefs
@@ -116,7 +115,8 @@ codegen moduleFilePath (Program main (Defs defs) tdefs) = do
         , moduleSourceFileName = fromString moduleFilePath
         , moduleDataLayout = Just cfg_dataLayout
         , moduleTargetTriple = Nothing
-        , moduleDefinitions = tdefs' ++ genBuiltins ++ globDefs
+        , moduleDefinitions =
+            tdefs' ++ genBuiltins ++ genExterns externs ++ globDefs
         }
 
 -- TODO: Consider separating sizeof calculations to a separate pass preceeding
@@ -152,9 +152,7 @@ defineDataTypes tds = do
         pure (TypeDefinition n (Just tmax))
 
 runGen' :: Gen' a -> EncodeAST a
-runGen' g = runReaderT
-    (evalStateT g initSt)
-    Env { _localEnv = Map.empty, _globalEnv = Map.empty }
+runGen' g = runReaderT (evalStateT g initSt) Env { _env = Map.empty }
 
 initSt :: St
 initSt = St
@@ -170,8 +168,28 @@ genBuiltins = map
         (mkName "malloc")
         [parameter (mkName "size") i64]
         (LLType.ptr typeUnit)
-    , simpleFunc (mkName "print-int") [parameter (mkName "n") i64] typeUnit
     ]
+
+genExterns :: [(String, MonoAst.Type)] -> [Definition]
+genExterns = map (uncurry genExtern)
+
+genExtern :: String -> MonoAst.Type -> Definition
+genExtern name t = GlobalDefinition $ GlobalVariable
+    { LLGlob.name = mkName name
+    , LLGlob.linkage = LLLink.External
+    , LLGlob.visibility = LLVis.Default
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.threadLocalMode = Nothing
+    , LLGlob.unnamedAddr = Nothing
+    , LLGlob.isConstant = True
+    , LLGlob.type' = toLlvmType t
+    , LLGlob.addrSpace = LLAddr.AddrSpace 0
+    , LLGlob.initializer = Nothing
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.metadata = []
+    }
 
 genOuterMain :: Gen' Definition
 genOuterMain = do
@@ -289,22 +307,15 @@ genConst = \case
 
 lookupVar :: TypedVar -> Gen Operand
 lookupVar x = do
-    mayLocal <- views localEnv (Map.lookup x)
-    mayGlobPtr <- views globalEnv (Map.lookup x)
-    case (mayLocal, mayGlobPtr) of
-        (Just local, _) -> emitAnon $ load local
-        (Nothing, Just globPtr) -> emitAnon $ load globPtr
-        (Nothing, Nothing) -> ice $ "Undefined variable " ++ show x
+    views env (Map.lookup x) >>= \case
+        Just var -> emitAnon $ load var
+        Nothing -> ice $ "Undefined variable " ++ show x
 
 genApp :: Expr -> Expr -> Gen Operand
 genApp fe ae = do
     a <- genExpr ae
-    case fe of
-        Var (TypedVar "print-int" _) ->
-            emitAnon (callExtern "print-int" typeUnit [a])
-        _ -> do
-            closure <- genExpr fe
-            app closure a
+    closure <- genExpr fe
+    app closure a
 
 app :: Operand -> Operand -> Gen Operand
 app closure arg = do
@@ -522,8 +533,17 @@ parameter p pt = LLGlob.Parameter pt p []
 genSizeof :: Type -> Gen Operand
 genSizeof = fmap litU64' . lift . lift . lift . sizeof
 
+withExternSigs :: MonadReader Env m => [(String, MonoAst.Type)] -> m a -> m a
+withExternSigs = augment env . Map.fromList . map
+    (\(name, t) ->
+        ( TypedVar name t
+        , ConstantOperand
+            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mkName name))
+        )
+    )
+
 withGlobDefSigs :: MonadReader Env m => [(TypedVar, Expr)] -> m a -> m a
-withGlobDefSigs = augment globalEnv . Map.fromList . map
+withGlobDefSigs = augment env . Map.fromList . map
     (\(v@(TypedVar _ t), _) ->
         ( v
         , ConstantOperand
@@ -532,7 +552,7 @@ withGlobDefSigs = augment globalEnv . Map.fromList . map
     )
 
 withDefSigs :: [(TypedVar, Name)] -> Gen a -> Gen a
-withDefSigs = augment localEnv . Map.fromList . map
+withDefSigs = augment env . Map.fromList . map
     (\(v@(TypedVar _ t), n') ->
         (v, LocalReference (LLType.ptr (toLlvmType t)) n')
     )
@@ -550,7 +570,7 @@ withLocal x v gen = do
 -- | Takes a local value, allocates a variable for it, and runs a generator in
 --   the environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
-withVar x v = locally localEnv (Map.insert x v)
+withVar x v = locally env (Map.insert x v)
 
 genVar :: Name -> Type -> Gen Operand -> Gen Operand
 genVar n t gen = do

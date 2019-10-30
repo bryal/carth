@@ -15,7 +15,7 @@ module Parse
     , reserveds
     , ns_scheme
     , ns_pat
-    , var
+    , ns_small'
     , eConstructor
     , ns_expr
     , ns_big
@@ -60,18 +60,25 @@ parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)
 program :: Parser Program
 program = do
     space
-    (defs, typedefs) <- toplevels
+    (defs, typedefs, externs) <- toplevels
     eof
-    pure (Program defs typedefs)
+    pure (Program defs typedefs externs)
 
-toplevels :: Parser ([Def], [TypeDef])
-toplevels = option ([], []) (toplevel >>= flip fmap toplevels)
+toplevels :: Parser ([Def], [TypeDef], [Extern])
+toplevels = option ([], [], []) (toplevel >>= flip fmap toplevels)
 
-toplevel :: Parser (([Def], [TypeDef]) -> ([Def], [TypeDef]))
+toplevel
+    :: Parser (([Def], [TypeDef], [Extern]) -> ([Def], [TypeDef], [Extern]))
 toplevel = do
     topPos <- getSrcPos
     parens $ choice
-        [fmap (second . (:)) typedef, fmap (first . (:)) (def topPos)]
+        [ fmap (\a (as, bs, cs) -> (a : as, bs, cs)) (def topPos)
+        , fmap (\b (as, bs, cs) -> (as, b : bs, cs)) typedef
+        , fmap (\c (as, bs, cs) -> (as, bs, c : cs)) extern
+        ]
+
+extern :: Parser Extern
+extern = reserved "extern" *> liftA2 Extern small' type_
 
 typedef :: Parser TypeDef
 typedef = do
@@ -348,6 +355,7 @@ reserveds =
     , "Fun"
     , "define"
     , "define:"
+    , "extern"
     , "forall"
     , "unit"
     , "true"

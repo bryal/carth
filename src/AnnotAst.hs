@@ -19,6 +19,7 @@ module AnnotAst
     , Expr(..)
     , Defs(..)
     , TypeDefs
+    , Externs
     , Program(..)
     )
 where
@@ -62,5 +63,7 @@ newtype Defs = Defs (Map String (Scheme, Expr))
 
 type TypeDefs = Map String ([TVar], [[Type]])
 
-data Program = Program Expr Defs TypeDefs
+type Externs = Map String Type
+
+data Program = Program Expr Defs TypeDefs Externs
     deriving (Show)
