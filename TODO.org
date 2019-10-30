@@ -64,7 +64,7 @@ the fix etc:
    (define u (isFirst y))
    #+END_SRC
 
-* Algebraic datatypes
+* TODO Algebraic datatypes
   Construction, pattern matching, the whole shebang.
 
 ** DONE Basic definition, construction and pattern matching
@@ -80,8 +80,7 @@ the fix etc:
 
 ** DONE Implement pattern matching w decision trees
    Slower to compile, faster to execute
-** DONE Check patterns for redundancy
-** TODO Check patterns for exhaustiveness
+** DONE Check patterns for redundancy and exhaustiveness
    For a datatype ~(type Foo Bar Baz)~, following are some examples of
    pattern matches and expected results:
 
@@ -91,6 +90,10 @@ the fix etc:
    - ~(match x [xx z] [Bar y])~ :: is exhaustive but redundant, and should produce an error or warning.
 
    Read: /Compiling Pattern Matching to Good Decision Trees/.
+
+*** Complete
+    Made an almost 1:1 implementation of Sestoft's algorithms. It's
+    good.
 
 ** TODO Handle recursive datatypes
    Consider the linked list ~(type (List a) Nil (Cons a (List a)))~,
