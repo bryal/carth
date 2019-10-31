@@ -579,15 +579,15 @@ withDefSigs = augment env . Map.fromList . map
 withLocals :: [(TypedVar, Operand)] -> Gen a -> Gen a
 withLocals = flip (foldr (uncurry withLocal))
 
--- | Takes a local, stack allocated value, and runs a generator in the
---   environment with the variable
+-- | Takes a local value, allocates a variable for it, and runs a generator in
+--   the environment with the variable
 withLocal :: TypedVar -> Operand -> Gen a -> Gen a
 withLocal x v gen = do
     vPtr <- genVar' x (pure v)
     withVar x vPtr gen
 
--- | Takes a local value, allocates a variable for it, and runs a generator in
---   the environment with the variable
+-- | Takes a local, stack allocated value, and runs a generator in the
+--   environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
 withVar x v = locally env (Map.insert x v)
 
