@@ -282,6 +282,13 @@ toLlvmType :: MonoAst.Type -> Type
 toLlvmType = \case
     TPrim tc -> case tc of
         TUnit -> typeUnit
+        TNat8 -> i8
+        TNat16 -> i16
+        TNat32 -> i32
+        TNat -> i64
+        TInt8 -> i8
+        TInt16 -> i16
+        TInt32 -> i32
         TInt -> i64
         TDouble -> double
         TChar -> i32

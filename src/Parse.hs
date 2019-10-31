@@ -262,6 +262,13 @@ ns_tprim = try $ do
     s <- ns_big
     case s of
         "Unit" -> pure TUnit
+        "Nat8" -> pure TNat8
+        "Nat16" -> pure TNat16
+        "Nat32" -> pure TNat32
+        "Nat" -> pure TNat
+        "Int8" -> pure TInt8
+        "Int16" -> pure TInt16
+        "Int32" -> pure TInt32
         "Int" -> pure TInt
         "Double" -> pure TDouble
         "Char" -> pure TChar

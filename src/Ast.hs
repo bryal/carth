@@ -49,6 +49,13 @@ data TVar
 
 data TPrim
     = TUnit
+    | TNat8
+    | TNat16
+    | TNat32
+    | TNat
+    | TInt8
+    | TInt16
+    | TInt32
     | TInt
     | TDouble
     | TChar
@@ -320,6 +327,13 @@ prettyTFun a b =
 prettyTPrim :: TPrim -> String
 prettyTPrim = \case
     TUnit -> "Unit"
+    TNat8 -> "Nat8"
+    TNat16 -> "Nat16"
+    TNat32 -> "Nat32"
+    TNat -> "Nat"
+    TInt8 -> "Int8"
+    TInt16 -> "Int16"
+    TInt32 -> "Int32"
     TInt -> "Int"
     TDouble -> "Double"
     TChar -> "Char"
