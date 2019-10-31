@@ -748,7 +748,7 @@ litI32 :: Int -> LLConst.Constant
 litI32 = LLConst.Int 32 . toInteger
 
 litI8 :: Integral n => n -> LLConst.Constant
-litI8 = LLConst.Int 32 . toInteger
+litI8 = LLConst.Int 8 . toInteger
 
 litBool :: Bool -> LLConst.Constant
 litBool = LLConst.Int 1 . bool 1 0
