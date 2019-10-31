@@ -59,7 +59,6 @@ data TPrim
     | TInt
     | TDouble
     | TChar
-    | TStr
     | TBool
     deriving (Show, Eq, Ord)
 
@@ -339,7 +338,6 @@ prettyTPrim = \case
     TInt -> "Int"
     TDouble -> "Double"
     TChar -> "Char"
-    TStr -> "Str"
     TBool -> "Bool"
 
 prettyTVar :: TVar -> String

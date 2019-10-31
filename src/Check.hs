@@ -12,6 +12,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Either.Combinators
 import Data.Bifunctor
+import Data.Foldable
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -129,15 +130,17 @@ checkTypeDefs
            , Map String (VariantIx, (String, [TVar]), [Type], Span)
            )
 checkTypeDefs =
-    (fmap (second (fmap snd)) .)
-        $ flip foldM (Map.empty, Map.empty)
+    flip foldM (builtinDataTypes, builtinConstructors)
         $ \(tds', csAcc) td@(Ast.TypeDef x _ _) -> do
             when (Map.member (idstr x) tds') (throwError (ConflictingTypeDef x))
             (td', cs) <- checkTypeDef td
-            case listToMaybe (Map.elems (Map.intersection csAcc cs)) of
+            case listToMaybe (Map.elems (Map.intersection cs csAcc)) of
                 Just (cId, _) -> throwError (ConflictingCtorDef cId)
                 Nothing ->
-                    pure (uncurry Map.insert td' tds', Map.union cs csAcc)
+                    pure
+                        ( uncurry Map.insert td' tds'
+                        , Map.union (fmap snd cs) csAcc
+                        )
 
 checkTypeDef
     :: Ast.TypeDef
@@ -161,6 +164,35 @@ checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
         Map.empty
         (zip [0 ..] cs)
     pure ((x, (ps', cs')), cs''')
+
+builtinDataTypes :: Map String ([TVar], [(String, [Type])])
+builtinDataTypes =
+    Map.fromList (map (\(x, ps, cs) -> (x, (ps, cs))) builtinDataTypes')
+
+builtinConstructors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
+builtinConstructors = Map.unions (map builtinConstructors' builtinDataTypes')
+
+builtinConstructors'
+    :: (String, [TVar], [(String, [Type])])
+    -> Map String (VariantIx, (String, [TVar]), [Type], Span)
+builtinConstructors' (x, ps, cs) =
+    let cSpan = length cs
+    in
+        foldl'
+            (\csAcc (i, (cx, cps)) ->
+                Map.insert cx (i, (x, ps), cps, cSpan) csAcc
+            )
+            Map.empty
+            (zip [0 ..] cs)
+
+builtinDataTypes' :: [(String, [TVar], [(String, [Type])])]
+builtinDataTypes' =
+    [ ( "Array"
+      , [TVImplicit 0]
+      , [("Array", [TPtr (TVar (TVImplicit 0)), TPrim TNat])]
+      )
+    , ("Str", [], [("Str", [TConst ("Array", [TPrim TNat8])])])
+    ]
 
 inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
@@ -357,7 +389,7 @@ litType = \case
     Int _ -> TPrim TInt
     Double _ -> TPrim TDouble
     Char _ -> TPrim TChar
-    Str _ -> TPrim TStr
+    Str _ -> TConst ("Str", [])
     Bool _ -> TPrim TBool
 
 lookupEnv :: Id Small -> Infer Type

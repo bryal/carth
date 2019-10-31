@@ -275,7 +275,6 @@ ns_tprim = try $ do
         "Int" -> pure TInt
         "Double" -> pure TDouble
         "Char" -> pure TChar
-        "Str" -> pure TStr
         "Bool" -> pure TBool
         _ -> fail $ "Undefined type constant " ++ s
 

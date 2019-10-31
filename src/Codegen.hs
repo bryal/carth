@@ -80,7 +80,7 @@ type Gen' = StateT St (ReaderT Env EncodeAST)
 -- | The output of generating a function
 data Out = Out
     { _outBlocks :: [BasicBlock]
-    , _outStrings :: [(Name, String)]
+    , _outStrings :: [(Name, Word64, [Word8])]
     , _outFuncs :: [(Name, [TypedVar], TypedVar, Expr)]
     }
 makeLenses ''Out
@@ -292,7 +292,6 @@ toLlvmType = \case
         TInt -> i64
         TDouble -> double
         TChar -> i32
-        TStr -> LLType.ptr i8
         TBool -> typeBool
     TFun a r -> typeStruct
         [ LLType.ptr typeUnit
@@ -309,8 +308,17 @@ genConst = \case
     Char c -> pure $ litI32 (Data.Char.ord c)
     Str s -> do
         var <- newName "strlit"
-        scribe outStrings [(var, s)]
-        pure $ LLConst.GlobalReference (LLType.ptr i8) var
+        let bytes = UTF8.String.encode s
+        let len = fromIntegral (length bytes)
+        let t = ArrayType len i8
+        scribe outStrings [(var, len, bytes)]
+        let llArrayVal = LLConst.GlobalReference (LLType.ptr t) var
+        let ptrVal = LLConst.BitCast llArrayVal (LLType.ptr i8)
+        let arrayVal = litStructOfType
+                ("Array", [TPrim TNat8])
+                [litI64 0, ptrVal, litU64 len]
+        let strVal = litStructOfType ("Str", []) [litI64 0, arrayVal]
+        pure strVal
     Bool b -> pure $ litBool b
 
 lookupVar :: TypedVar -> Gen Operand
@@ -477,15 +485,10 @@ semiExecRetGen gx = runWriterT $ do
     x <- gx
     commitFinalFuncBlock (ret x)
     pure (typeOf x)
+globStrVar :: (Name, Word64, [Word8]) -> Global
+globStrVar (name, len, bytes) =
+    simpleGlobVar name (ArrayType len i8) (LLConst.Array i8 (map litI8 bytes))
 
-globStrVar :: (Name, String) -> Global
-globStrVar (name, str) =
-    let bytes = UTF8.String.encode str
-    in
-        simpleGlobVar
-            name
-            (ArrayType (fromIntegral (length bytes)) i8)
-            (LLConst.Array i8 (map (litI8) bytes))
 
 simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
 simpleFunc = ($ []) .** simpleFunc'
@@ -518,7 +521,10 @@ simpleFunc' n ps rt fnAttrs bs = Function
     }
 
 simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
-simpleGlobVar name t init = GlobalVariable
+simpleGlobVar name t = simpleGlobVar' name t . Just
+
+simpleGlobVar' :: Name -> Type -> Maybe LLConst.Constant -> Global
+simpleGlobVar' name t init = GlobalVariable
     { LLGlob.name = name
     , LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
@@ -528,7 +534,7 @@ simpleGlobVar name t init = GlobalVariable
     , LLGlob.unnamedAddr = Nothing
     , LLGlob.isConstant = True
     , LLGlob.type' = t
-    , LLGlob.initializer = Just init
+    , LLGlob.initializer = init
     , LLGlob.section = Nothing
     , LLGlob.comdat = Nothing
     , LLGlob.alignment = 0
