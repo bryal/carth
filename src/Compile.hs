@@ -29,13 +29,14 @@ defaultCompileConfig = CompileConfig { cc = "cc", outfile = Nothing }
 -- TODO: Verify w LLVM.Analysis.verify :: Module -> IO ()
 -- TODO: CodeGenOpt level
 compile :: FilePath -> CompileConfig -> MonoAst.Program -> IO ()
-compile f cfg pgm = withContext $ \c -> do
-    mod <- runEncodeAST c $ codegen f pgm
+compile f cfg pgm = withContext $ \c -> withHostTargetMachinePIC $ \t -> do
+    layout <- getTargetMachineDataLayout t
+    mod <- runEncodeAST c $ codegen layout f pgm
     writeFile "out.dbgll" (pretty mod)
-    withModuleFromAST c mod (compileModule cfg)
+    withModuleFromAST c mod (compileModule t cfg)
 
-compileModule :: CompileConfig -> Module -> IO ()
-compileModule cfg m = withHostTargetMachinePIC $ \t -> do
+compileModule :: TargetMachine -> CompileConfig -> Module -> IO ()
+compileModule t cfg m = do
     let binfile = fromMaybe "out" (outfile cfg)
         llfile = replaceExtension binfile "ll"
         bcfile = replaceExtension binfile "bc"
@@ -67,19 +68,5 @@ writeLLVMAssemblyToFile' f m = do
     writeLLVMAssemblyToFile (File f) m
 
 withHostTargetMachinePIC :: (TargetMachine -> IO a) -> IO a
-withHostTargetMachinePIC f = do
-    initializeAllTargets
-    trip <- getDefaultTargetTriple
-    (targ, _) <- lookupTarget Nothing trip
-    cpu <- getHostCPUName
-    features <- getHostCPUFeatures
-    withTargetOptions $ \opts -> withTargetMachine
-        targ
-        trip
-        cpu
-        features
-        opts
-        Reloc.PIC
-        CodeModel.Default
-        CodeGenOpt.Aggressive
-        f
+withHostTargetMachinePIC =
+    withHostTargetMachine Reloc.PIC CodeModel.Default CodeGenOpt.None

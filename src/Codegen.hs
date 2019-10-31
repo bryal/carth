@@ -65,6 +65,7 @@ data FunInstruction = WithRetType Instruction Type
 --       a single map?
 data Env = Env
     { _env :: Map TypedVar Operand
+    , _dataLayout :: DataLayout
     }
 makeLenses ''Env
 
@@ -102,18 +103,18 @@ instance Pretty Module where
     pretty' _ = show . Prettyprint.pretty
 
 
-codegen :: FilePath -> Program -> EncodeAST Module
-codegen moduleFilePath (Program main (Defs defs) tdefs externs) = do
-    tdefs' <- defineDataTypes tdefs
+codegen :: DataLayout -> FilePath -> Program -> EncodeAST Module
+codegen layout moduleFilePath (Program main (Defs defs) tdefs externs) = do
+    tdefs' <- defineDataTypes layout tdefs
     let defs' = (TypedVar "main" mainType, main) : Map.toList defs
         genGlobDefs = withExternSigs externs $ withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
-    globDefs <- runGen' genGlobDefs
+    globDefs <- runGen' layout genGlobDefs
     pure Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
         , moduleSourceFileName = fromString moduleFilePath
-        , moduleDataLayout = Just cfg_dataLayout
+        , moduleDataLayout = Just layout
         , moduleTargetTriple = Nothing
         , moduleDefinitions =
             tdefs' ++ genBuiltins ++ genExterns externs ++ globDefs
@@ -136,8 +137,8 @@ codegen moduleFilePath (Program main (Defs defs) tdefs externs) = do
 --   A data-type is a tagged union, and is represented in LLVM as a struct where
 --   the first element is the variant-index as an i64, and the rest of the
 --   elements are the field-types of the largest variant wrt allocation size.
-defineDataTypes :: TypeDefs -> EncodeAST [Definition]
-defineDataTypes tds = do
+defineDataTypes :: DataLayout -> TypeDefs -> EncodeAST [Definition]
+defineDataTypes layout tds = do
     -- Forward declare to allow for recursion and unordered defs
     lhss <- forM tds $ \(tc, _) -> do
         let n = mkName (mangleTConst tc)
@@ -146,13 +147,15 @@ defineDataTypes tds = do
         pure (n, lhs)
     forM (zip lhss tds) $ \((n, lhs), (_, vs)) -> do
         let ts = map toLlvmVariantType vs
-        sizedTs <- mapM (\t -> fmap (, t) (sizeof t)) ts
+        sizedTs <- mapM (\t -> fmap (, t) (sizeof layout t)) ts
         let (_, tmax) = maximum sizedTs
         setNamedType lhs tmax
         pure (TypeDefinition n (Just tmax))
 
-runGen' :: Gen' a -> EncodeAST a
-runGen' g = runReaderT (evalStateT g initSt) Env { _env = Map.empty }
+runGen' :: DataLayout -> Gen' a -> EncodeAST a
+runGen' layout g = runReaderT
+    (evalStateT g initSt)
+    Env { _env = Map.empty, _dataLayout = layout }
 
 initSt :: St
 initSt = St
@@ -545,7 +548,9 @@ parameter :: Name -> Type -> LLGlob.Parameter
 parameter p pt = LLGlob.Parameter pt p []
 
 genSizeof :: Type -> Gen Operand
-genSizeof = fmap litU64' . lift . lift . lift . sizeof
+genSizeof t = do
+    layout <- view dataLayout
+    fmap litU64' (lift (lift (lift (sizeof layout t))))
 
 withExternSigs :: MonadReader Env m => [(String, MonoAst.Type)] -> m a -> m a
 withExternSigs = augment env . Map.fromList . map
@@ -821,10 +826,10 @@ unName = \case
     Name s -> s
     UnName n -> fromString (show n)
 
-sizeof :: Type -> EncodeAST Word64
-sizeof t = do
+sizeof :: DataLayout -> Type -> EncodeAST Word64
+sizeof layout t = do
     t' <- toFFIType t
-    liftIO (withFFIDataLayout cfg_dataLayout $ \dl -> getTypeAllocSize dl t')
+    liftIO (withFFIDataLayout layout $ \dl -> getTypeAllocSize dl t')
 
 -- Note: encodeM requires named-types to be defined in the EncodeAST monad
 --       already, which makes sense as e.g. getTypeAllocSize wouldn't make sense
@@ -834,8 +839,7 @@ sizeof t = do
 toFFIType :: Type -> EncodeAST FFIType
 toFFIType = encodeM
 
-cfg_dataLayout :: DataLayout
-cfg_dataLayout = defaultDataLayout LittleEndian
-
+-- TODO: Use "tailcc" - Tail callable calling convention. It looks like exactly
+--       what I want!
 cfg_callConv :: LLCallConv.CallingConvention
 cfg_callConv = LLCallConv.C
