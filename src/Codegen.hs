@@ -298,6 +298,7 @@ toLlvmType = \case
         [ LLType.ptr typeUnit
         , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
         ]
+    TPtr t -> LLType.ptr (toLlvmType t)
     TConst t -> typeNamed (mangleTConst t)
 
 genConst :: MonoAst.Const -> Gen LLConst.Constant
@@ -802,6 +803,7 @@ mangleType :: MonoAst.Type -> String
 mangleType = \case
     TPrim c -> pretty c
     TFun p r -> mangleTConst ("->", [p, r])
+    TPtr t -> mangleTConst ("*", [t])
     TConst tc -> mangleTConst tc
 
 mangleTConst :: TConst -> String

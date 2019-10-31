@@ -245,7 +245,7 @@ ptype :: Parser Type
 ptype = parens ptype'
 
 ptype' :: Parser Type
-ptype' = tfun <|> tapp
+ptype' = tfun <|> tapp <|> tptr
 
 tapp :: Parser Type
 tapp = liftA2 (TConst .* (,)) big (some type_)
@@ -256,6 +256,9 @@ tfun = do
     t <- type_
     ts <- some type_
     pure (foldr1 TFun (t : ts))
+
+tptr :: Parser Type
+tptr = reserved "Ptr" *> fmap TPtr type_
 
 ns_tprim :: Parser TPrim
 ns_tprim = try $ do

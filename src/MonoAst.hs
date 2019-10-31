@@ -38,6 +38,7 @@ type TConst = (String, [Type])
 data Type
     = TPrim TPrim
     | TFun Type Type
+    | TPtr Type
     | TConst TConst
     deriving (Show, Eq, Ord)
 

@@ -61,6 +61,7 @@ subst s t = case t of
     TVar tv -> fromMaybe t (Map.lookup tv s)
     TPrim _ -> t
     TFun a b -> TFun (subst s a) (subst s b)
+    TPtr a -> TPtr (subst s a)
     TConst (c, ts) -> TConst (c, (map (subst s) ts))
 
 composeSubsts :: Subst -> Subst -> Subst

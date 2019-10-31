@@ -146,38 +146,52 @@ bindTvs :: An.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of
     (An.TVar v, t) -> Map.singleton v t
     (An.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
+    (An.TPtr t0, TPtr t1) -> bindTvs t0 t1
     (An.TPrim _, TPrim _) -> Map.empty
     (An.TConst (_, ts0), TConst (_, ts1)) ->
         Map.unions (zipWith bindTvs ts0 ts1)
     (An.TPrim _, _) -> err
     (An.TFun _ _, _) -> err
+    (An.TPtr _, _) -> err
     (An.TConst _, _) -> err
     where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: An.Type -> Mono Type
-monotype = lift . monotype'
-
-monotype' :: An.Type -> Reader Env Type
-monotype' = \case
+monotype = \case
     An.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
     An.TPrim c -> pure (TPrim c)
-    An.TFun a b -> liftA2 TFun (monotype' a) (monotype' b)
-    An.TConst (c, ts) -> fmap (curry TConst c) (mapM monotype' ts)
+    An.TFun a b -> liftA2 TFun (monotype a) (monotype b)
+    An.TPtr t -> fmap TPtr (monotype t)
+    An.TConst (c, ts) -> do
+        ts' <- mapM monotype ts
+        let tdefInst = (c, ts')
+        modifying tdefInsts (Set.insert tdefInst)
+        pure (TConst tdefInst)
 
 insertInst :: String -> Type -> Expr -> Mono ()
 insertInst x t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
-instTypeDefs :: An.TypeDefs -> Set TConst -> TypeDefs
-instTypeDefs tdefs insts = map
-    (\(x, ts) -> instTypeDef x ts (lookup' (ice "in instTypeDefs") x tdefs))
-    (Set.toList insts)
-  where
-    instTypeDef x ts (tvs, vs) =
-        let
-            vs' = runReader
-                (mapM (mapM monotype') vs)
-                (Env Map.empty (Map.fromList (zip tvs ts)))
-        in ((x, ts), vs')
+-- insts :: Set TConst
+instTypeDefs :: An.TypeDefs -> Mono TypeDefs
+instTypeDefs tdefs = do
+    insts <- uses tdefInsts Set.toList
+    instTypeDefs' tdefs insts
+
+instTypeDefs' :: An.TypeDefs -> [TConst] -> Mono TypeDefs
+instTypeDefs' tdefs = \case
+    [] -> pure []
+    inst : insts -> do
+        oldTdefInsts <- use tdefInsts
+        tdef' <- instTypeDef tdefs inst
+        newTdefInsts <- use tdefInsts
+        let newInsts = Set.difference newTdefInsts oldTdefInsts
+        tdefs' <- instTypeDefs' tdefs (Set.toList newInsts ++ insts)
+        pure (tdef' : tdefs')
+instTypeDef :: An.TypeDefs -> TConst -> Mono (TConst, [VariantTypes])
+instTypeDef tdefs (x, ts) = do
+    let (tvs, vs) = lookup' (ice "lookup' failed in instTypeDef") x tdefs
+    vs' <- augment tvBinds (Map.fromList (zip tvs ts)) (mapM (mapM monotype) vs)
+    pure ((x, ts), vs')
 
 lookup' :: Ord k => v -> k -> Map k v -> v
 lookup' = Map.findWithDefault

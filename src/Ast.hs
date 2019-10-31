@@ -70,6 +70,7 @@ data Type
     | TPrim TPrim
     | TConst TConst
     | TFun Type Type
+    | TPtr Type
     deriving (Show, Eq, Ord)
 
 data Scheme = Forall
@@ -311,6 +312,7 @@ prettyType = \case
     Ast.TVar tv -> pretty tv
     Ast.TPrim c -> pretty c
     Ast.TFun a b -> prettyTFun a b
+    Ast.TPtr t -> "(Ptr " ++ pretty t ++ ")"
     Ast.TConst (c, ts) -> case ts of
         [] -> c
         ts -> concat ["(", c, " ", spcPretty ts, ")"]

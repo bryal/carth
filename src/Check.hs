@@ -440,6 +440,7 @@ ftv = \case
     TVar tv -> Set.singleton tv
     TPrim _ -> Set.empty
     TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
+    TPtr t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
 
 ftvEnv :: Env -> Set TVar
