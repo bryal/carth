@@ -332,8 +332,8 @@ lookupVar x = do
 
 genApp :: Expr -> Expr -> Gen Operand
 genApp fe ae = do
-    a <- genExpr ae
     closure <- genExpr fe
+    a <- genExpr ae
     app closure a
 
 app :: Operand -> Operand -> Gen Operand
