@@ -423,3 +423,21 @@ the fix etc:
   place. Will need to look into what LLVM can do, and what's possible
   on different platforms. Hopefully we won't have to resort to
   trampolining--that seems slow.
+* INACTIVE Prefer somewhat big / wide stdlib
+  Small / bad standard library + good package manager => npm / cargo
+  situation, where everything has sooo many dependencies. Having a dep
+  is not bad per say, but when the numbers completely blow up, like in
+  rust- and javascript-land, things can get messy. The best way to
+  avoid this, I think, is having a standard library that has you
+  covered for most common things.
+
+  Examples of libraries in other ecosystems that should be part of the
+  stdlib: `is-even` in JavaScript, `composition` in Haskell, `rand` in
+  Rust.
+
+  Go seems to have done this relatively well. Their stdlib has
+  everything from JPEG codec, to a webserver. The stdlib shouldn't
+  have everything though, as that will add a bunch of legacy cruft
+  over time, like in Java. Would not be as much of a problem if we're
+  not afraid of releasing new major versions removing deprecated
+  stuff.
