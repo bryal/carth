@@ -1,3 +1,5 @@
 .stack-work/
 carth.cabal
 *~
+examples/out.*
+examples/out
