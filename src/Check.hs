@@ -189,7 +189,7 @@ builtinDataTypes' :: [(String, [TVar], [(String, [Type])])]
 builtinDataTypes' =
     [ ( "Array"
       , [TVImplicit 0]
-      , [("Array", [TPtr (TVar (TVImplicit 0)), TPrim TNat])]
+      , [("Array", [TBox (TVar (TVImplicit 0)), TPrim TNat])]
       )
     , ("Str", [], [("Str", [TConst ("Array", [TPrim TNat8])])])
     ]
@@ -475,7 +475,7 @@ ftv = \case
     TVar tv -> Set.singleton tv
     TPrim _ -> Set.empty
     TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
-    TPtr t -> ftv t
+    TBox t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
 
 ftvEnv :: Env -> Set TVar

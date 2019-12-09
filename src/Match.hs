@@ -111,7 +111,7 @@ missingPat t descr = case t of
         vs <- views tdefs (fromJust . Map.lookup tx)
         missingPat' vs descr
     TFun _ _ -> pure "_"
-    TPtr _ -> pure "_"
+    TBox _ -> pure "_"
 
 missingPat' :: [String] -> Descr -> Match String
 missingPat' vs = \case

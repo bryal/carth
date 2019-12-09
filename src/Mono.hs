@@ -146,13 +146,13 @@ bindTvs :: An.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of
     (An.TVar v, t) -> Map.singleton v t
     (An.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-    (An.TPtr t0, TPtr t1) -> bindTvs t0 t1
+    (An.TBox t0, TBox t1) -> bindTvs t0 t1
     (An.TPrim _, TPrim _) -> Map.empty
     (An.TConst (_, ts0), TConst (_, ts1)) ->
         Map.unions (zipWith bindTvs ts0 ts1)
     (An.TPrim _, _) -> err
     (An.TFun _ _, _) -> err
-    (An.TPtr _, _) -> err
+    (An.TBox _, _) -> err
     (An.TConst _, _) -> err
     where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
@@ -161,7 +161,7 @@ monotype = \case
     An.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
     An.TPrim c -> pure (TPrim c)
     An.TFun a b -> liftA2 TFun (monotype a) (monotype b)
-    An.TPtr t -> fmap TPtr (monotype t)
+    An.TBox t -> fmap TBox (monotype t)
     An.TConst (c, ts) -> do
         ts' <- mapM monotype ts
         let tdefInst = (c, ts')
@@ -171,7 +171,6 @@ monotype = \case
 insertInst :: String -> Type -> Expr -> Mono ()
 insertInst x t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
--- insts :: Set TConst
 instTypeDefs :: An.TypeDefs -> Mono TypeDefs
 instTypeDefs tdefs = do
     insts <- uses tdefInsts Set.toList

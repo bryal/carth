@@ -324,7 +324,7 @@ toLlvmType = \case
         TChar -> i32
         TBool -> typeBool
     TFun a r -> toLlvmClosureType a r
-    TPtr t -> LLType.ptr (toLlvmType t)
+    TBox t -> LLType.ptr (toLlvmType t)
     TConst t -> typeNamed (mangleTConst t)
 
 -- | A `Fun` is a closure, and follows a certain calling convention
@@ -893,7 +893,7 @@ mangleType :: MonoAst.Type -> String
 mangleType = \case
     TPrim c -> pretty c
     TFun p r -> mangleTConst ("->", [p, r])
-    TPtr t -> mangleTConst ("*", [t])
+    TBox t -> mangleTConst ("*", [t])
     TConst tc -> mangleTConst tc
 
 mangleTConst :: TConst -> String
