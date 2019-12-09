@@ -37,6 +37,7 @@ data Con = Con
 
 data Pat
     = PVar TypedVar
+    | PWild
     | PCon Con [Pat]
     deriving Show
 
@@ -142,6 +143,7 @@ match
     -> Match DecisionTree'
 match obj descr ctx work rhs rules = \case
     PVar x -> conjunct (augment descr ctx) (addBind x obj rhs) rules work
+    PWild -> conjunct (augment descr ctx) rhs rules work
     PCon pcon pargs ->
         let
             disjunct' :: Descr -> Match DecisionTree'

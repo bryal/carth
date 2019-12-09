@@ -50,6 +50,7 @@ substAccess s = \case
 
 substPat :: Subst -> Pat -> Pat
 substPat s = \case
+    PWild -> PWild
     PVar (TypedVar x t) -> PVar (TypedVar x (subst s t))
     PCon c ps -> PCon (substCon s c) (map (substPat s) ps)
 

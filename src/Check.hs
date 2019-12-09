@@ -248,6 +248,7 @@ checkUserSchemes scms = forM_ scms $ \(WithPos p s1@(Forall _ t)) ->
 infer :: Ast.Expr -> Infer (Type, Expr)
 infer (WithPos pos e) = case e of
     Ast.Lit l -> pure (litType l, Lit l)
+    Ast.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
     Ast.Var x -> fmap (\t -> (t, Var (TypedVar (idstr x) t))) (lookupEnv x)
     Ast.App f a -> do
         ta <- fresh
@@ -329,11 +330,13 @@ inferCase (p, b) = do
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id Small) Scheme)
 inferPat = \case
     Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
+    Ast.PVar (Id (WithPos _ "_")) -> do
+        tv <- fresh
+        pure (tv, PWild, Map.empty)
     Ast.PVar x -> do
-        tv <- fresh'
-        let tv' = TVar tv
-        let x' = TypedVar (idstr x) tv'
-        pure (tv', PVar x', Map.singleton x (Forall Set.empty tv'))
+        tv <- fresh
+        let x' = TypedVar (idstr x) tv
+        pure (tv, PVar x', Map.singleton x (Forall Set.empty tv))
 
 inferPatConstruction
     :: SrcPos -> Id Big -> [Ast.Pat] -> Infer (Type, Pat, Map (Id Small) Scheme)

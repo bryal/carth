@@ -26,6 +26,7 @@ data TypeErr
     | RedundantCase SrcPos
     | InexhaustivePats SrcPos String
     | ExternNotMonomorphic (Id Small) TVar
+    | FoundHole SrcPos
     deriving Show
 
 type Message = String
@@ -77,6 +78,7 @@ prettyErr = \case
                 $ ("Extern " ++ pretty name ++ " is not monomorphic. ")
                 ++ ("Type variable " ++ tv' ++ " encountered in type signature")
         TVImplicit _ -> ice "TVImplicit in prettyErr ExternNotMonomorphic"
+    FoundHole p -> posd p var $ "Found hole"
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
