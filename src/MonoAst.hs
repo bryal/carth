@@ -29,7 +29,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Word
 
-import AnnotAst (VariantIx)
+import DesugaredAst (VariantIx)
 import FreeVars
 import Ast (Const(..), TPrim(..))
 

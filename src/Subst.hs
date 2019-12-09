@@ -14,8 +14,8 @@ import AnnotAst
 type Subst = Map TVar Type
 
 substProgram :: Subst -> Program -> Program
-substProgram s (Program main (Defs defs) tdefs externs) =
-    Program (substExpr s main) (Defs (fmap (substDef s) defs)) tdefs externs
+substProgram s (Program main defs tdefs externs) =
+    Program (substExpr s main) (fmap (substDef s) defs) tdefs externs
 
 substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = second (substExpr s)
@@ -27,12 +27,12 @@ substExpr s = \case
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
-    Let (Defs defs) body ->
-        Let (Defs (fmap (substDef s) defs)) (substExpr s body)
+    Let defs body -> Let (fmap (substDef s) defs) (substExpr s body)
     Match e dt tbody ->
         Match (substExpr s e) (substDecisionTree s dt) (subst s tbody)
-    Ction (i, (tx, tts), es) ->
-        Ction (i, (tx, map (subst s) tts), map (substExpr s) es)
+    FunMatch dt tp tb ->
+        FunMatch (substDecisionTree s dt) (subst s tp) (subst s tb)
+    Ctor i (tx, tts) ps -> Ctor i (tx, map (subst s) tts) (map (subst s) ps)
 
 substDecisionTree :: Subst -> DecisionTree -> DecisionTree
 substDecisionTree s = \case

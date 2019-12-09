@@ -10,7 +10,7 @@ import Misc
 import Literate
 import qualified TypeErr
 import qualified Ast
-import qualified AnnotAst
+import qualified DesugaredAst
 import qualified MonoAst
 import Check
 import Config
@@ -44,12 +44,12 @@ parse' f src = do
     formatParseErr e =
         let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
-typecheck' :: FilePath -> Source -> Ast.Program -> IO AnnotAst.Program
+typecheck' :: FilePath -> Source -> Ast.Program -> IO DesugaredAst.Program
 typecheck' f src p = case typecheck p of
     Left e -> putStrLn (TypeErr.prettyErr e src) >> abort f
     Right p -> writeFile "out.checked" (show p) $> p
 
-monomorphize' :: AnnotAst.Program -> IO MonoAst.Program
+monomorphize' :: DesugaredAst.Program -> IO MonoAst.Program
 monomorphize' p = do
     let p' = monomorphize p
     writeFile "out.mono" (show p')

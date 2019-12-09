@@ -10,7 +10,6 @@ import Control.Lens
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
-import Data.Either.Combinators
 import Data.Bifunctor
 import Data.Foldable
 import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
@@ -30,7 +29,8 @@ import Ast (Id(..), IdCase(..), idstr, scmBody)
 import TypeErr
 import AnnotAst
 import Match
-
+import Desugar
+import qualified DesugaredAst
 
 data Env = Env
     { _envDefs :: Map String Scheme
@@ -54,15 +54,14 @@ makeLenses ''St
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
 
-typecheck :: Ast.Program -> Either TypeErr Program
-typecheck = runInfer . inferProgram
+typecheck :: Ast.Program -> Either TypeErr DesugaredAst.Program
+typecheck prog = runExcept $ do
+    (inferred, St _ substs) <- runInfer (inferProgram prog)
+    let inferred' = substProgram substs inferred
+    pure (unsugar inferred')
 
-runInfer :: Infer Program -> Either TypeErr Program
-runInfer m =
-    mapRight (\(p, st) -> substProgram (view substs st) p) (runInfer' m)
-
-runInfer' :: Infer a -> Either TypeErr (a, St)
-runInfer' = runExcept . flip runStateT initSt . flip runReaderT initEnv
+runInfer :: Infer a -> Except TypeErr (a, St)
+runInfer m = runStateT (runReaderT m initEnv) initSt
 
 initEnv :: Env
 initEnv = Env
@@ -79,9 +78,6 @@ fresh = fmap TVar fresh'
 
 fresh' :: Infer TVar
 fresh' = fmap TVImplicit fresh''
-
-freshVar :: Infer String
-freshVar = fmap show fresh''
 
 fresh'' :: Infer Int
 fresh'' = tvCount <<+= 1
@@ -107,13 +103,13 @@ inferProgram (Ast.Program defs tdefs externs) = do
     augment envTypeDefs tdefs' $ augment envCtors ctors $ do
         externs' <- checkExterns externs
         let externs'' = fmap (Forall Set.empty) externs'
-        Defs defs' <- augment envDefs externs'' (inferDefs defs)
+        defs' <- augment envDefs externs'' (inferDefs defs)
         let (Forall _ mainT, main) = fromJust (Map.lookup "main" defs')
         let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
         unify (Expected expectedMainType) (Found mainPos mainT)
         let defs'' = Map.delete "main" defs'
         let tdefs'' = fmap (second (map snd)) tdefs'
-        pure (Program main (Defs defs'') tdefs'' externs')
+        pure (Program main defs'' tdefs'' externs')
 
 checkExterns :: [Ast.Extern] -> Infer (Map String Type)
 checkExterns = fmap Map.fromList . mapM checkExtern
@@ -244,7 +240,7 @@ orderDefs = stronglyConnComp . graph
 
 inferDefsComponents :: [SCC Ast.Def] -> Infer Defs
 inferDefsComponents = \case
-    [] -> pure (Defs Map.empty)
+    [] -> pure Map.empty
     (scc : sccs) -> do
         let (idents, rhss) = unzip (flattenSCC scc)
         let (mayscms, bodies) = unzip rhss
@@ -265,10 +261,8 @@ inferDefsComponents = \case
         generalizeds <- mapM generalize ts
         let scms' = zipWith fromMaybe generalizeds mayscms'
         let annotDefs = Map.fromList (zip names (zip scms' bodies'))
-        Defs annotRest <- withLocals
-            (zip names scms')
-            (inferDefsComponents sccs)
-        pure (Defs (Map.union annotRest annotDefs))
+        annotRest <- withLocals (zip names scms') (inferDefsComponents sccs)
+        pure (Map.union annotRest annotDefs)
 
 -- | Verify that user-provided type signature schemes are valid
 checkUserSchemes :: [WithPos Scheme] -> Infer ()
@@ -301,10 +295,10 @@ infer (WithPos pos e) = case e of
         (tb, b') <- withLocal (idstr p, Forall Set.empty tp) (infer b)
         pure (TFun tp tb, Fun (idstr p, tp) (b', tb))
     Ast.Let defs b -> do
-        Defs annotDefs <- inferDefs (fromList1 defs)
+        annotDefs <- inferDefs (fromList1 defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
         (bt, b') <- withLocals' defsScms (infer b)
-        pure (bt, Let (Defs annotDefs) b')
+        pure (bt, Let annotDefs b')
     Ast.TypeAscr x t -> do
         (tx, x') <- infer x
         unify (Expected t) (Found (getPos x) tx)
@@ -318,10 +312,7 @@ infer (WithPos pos e) = case e of
         tpat <- fresh
         (tbody, cases') <- inferCases (Expected tpat) cases
         dt <- toDecisionTree' pos tpat cases'
-        let t = TFun tpat tbody
-        x <- freshVar
-        let e = Fun (x, tpat) (Match (Var (TypedVar x tpat)) dt tbody, tbody)
-        pure (t, e)
+        pure (TFun tpat tbody, FunMatch dt tpat tbody)
     Ast.Ctor c -> inferExprConstructor c
 
 toDecisionTree' :: SrcPos -> Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
@@ -396,13 +387,8 @@ inferExprConstructor :: Id Big -> Infer (Type, Expr)
 inferExprConstructor c = do
     (variantIx, tdefLhs, cParams, _) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
-    cParams'' <- mapM (\t -> fmap (, t) freshVar) cParams'
-    let cArgs = map (Var . uncurry TypedVar) cParams''
-        tInner = TConst tdefInst
-    pure $ foldr
-        (\(p, tp) (tb, b) -> (TFun tp tb, Fun (p, tp) (b, tb)))
-        (tInner, Ction (variantIx, tdefInst, cArgs))
-        cParams''
+    let t = foldr TFun (TConst tdefInst) cParams'
+    pure (t, Ctor variantIx tdefInst cParams')
 
 instantiateConstructorOfTypeDef
     :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])

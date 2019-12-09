@@ -17,8 +17,8 @@ import Data.Set (Set)
 import Data.Bitraversable
 
 import Misc
-import qualified AnnotAst as An
-import AnnotAst (TVar(..), Scheme(..))
+import qualified DesugaredAst as An
+import DesugaredAst (TVar(..), Scheme(..))
 import MonoAst
 
 data Env = Env
@@ -64,7 +64,7 @@ mono = \case
     An.Fun p b -> monoFun p b
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     An.Match e cs tbody -> monoMatch e cs tbody
-    An.Ction c -> monoCtion c
+    An.Ction v inst as -> monoCtion v inst as
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do
@@ -77,7 +77,7 @@ monoFun (p, tp) (b, bt) = do
     pure (Fun (TypedVar p tp') (b', bt'))
 
 monoLet :: An.Defs -> An.Expr -> Mono (Defs, Expr)
-monoLet (An.Defs ds) body = do
+monoLet ds body = do
     let ks = Map.keys ds
     parentInsts <- uses defInsts (lookups ks)
     let newEmptyInsts = (fmap (const Map.empty) ds)
@@ -123,8 +123,8 @@ monoAccess = \case
     An.As a ts -> liftA2 As (monoAccess a) (mapM monotype ts)
     An.Sel i a -> fmap (Sel i) (monoAccess a)
 
-monoCtion :: An.Ction -> Mono Expr
-monoCtion (i, (tdefName, tdefArgs), as) = do
+monoCtion :: VariantIx -> An.TConst -> [An.Expr] -> Mono Expr
+monoCtion i (tdefName, tdefArgs) as = do
     tdefArgs' <- mapM monotype tdefArgs
     let tdefInst = (tdefName, tdefArgs')
     as' <- mapM mono as

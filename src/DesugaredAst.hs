@@ -1,5 +1,4 @@
--- | Type annotated AST as a result of typechecking
-module AnnotAst
+module DesugaredAst
     ( TVar(..)
     , TPrim(..)
     , TConst
@@ -20,20 +19,19 @@ module AnnotAst
 where
 
 import Data.Map.Strict (Map)
-import Data.Word
 
-import Ast (TVar(..), TPrim(..), TConst, Type(..), Scheme(..), Const(..))
-
-
-data TypedVar = TypedVar String Type
-    deriving (Show, Eq, Ord)
-
-type VariantIx = Word64
-
-data Access = Obj | As Access [Type] | Sel Word32 Access
-    deriving (Show, Eq, Ord)
-
-type VarBindings = Map TypedVar Access
+import AnnotAst
+    ( TVar(..)
+    , TPrim(..)
+    , TConst
+    , Type(..)
+    , TypedVar(..)
+    , Scheme(..)
+    , Const(..)
+    , VariantIx
+    , Access(..)
+    , VarBindings
+    )
 
 data DecisionTree
     = DLeaf (VarBindings, Expr)
@@ -48,8 +46,7 @@ data Expr
     | Fun (String, Type) (Expr, Type)
     | Let Defs Expr
     | Match Expr DecisionTree Type
-    | FunMatch DecisionTree Type Type
-    | Ctor VariantIx TConst [Type]
+    | Ction VariantIx TConst [Expr]
     deriving (Show)
 
 type Defs = Map String (Scheme, Expr)
