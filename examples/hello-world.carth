@@ -1,0 +1,15 @@
+(extern display-inline (Fun Str Unit))
+(extern str-append (Fun (Pair Str Str) Str))
+
+(type (Pair a b)
+  (Pair a b))
+
+(define (main _)
+  (display "Hello, world!"))
+
+(define (display s)
+  (display-inline (str-append (Pair s "\n"))))
+
+(define (flip f a b) (f b a))
+(define (after f g a) (f (g a)))
+(define (after2 f g a b) (f (g a b)))

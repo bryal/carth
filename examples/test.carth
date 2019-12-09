@@ -1,4 +1,0 @@
-(extern print-int (Fun Int Unit))
-
-(define (main _)
-  (print-int 123))
