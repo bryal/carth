@@ -129,7 +129,38 @@ checkTypeDefs
            ( Map String ([TVar], [(String, [Type])])
            , Map String (VariantIx, (String, [TVar]), [Type], Span)
            )
-checkTypeDefs =
+checkTypeDefs tdefs = do
+    (tdefs', ctors) <- checkTypeDefsNoConflicting tdefs
+    forM_ (Map.toList tdefs') (assertNoRec tdefs')
+    pure (fmap (second (map snd)) tdefs', ctors)
+  where
+    -- | Check that type definitions are not recursive without indirection and
+    --   that constructors don't refer to undefined types.
+    assertNoRec tds (x, (_, cs)) = assertNoRecCtors tds x Map.empty cs
+    assertNoRecCtors tds x s =
+        mapM_ $ \(cpos, (_, ts)) ->
+            forM_ ts (assertNoRecType tds x cpos . subst s)
+    assertNoRecType tds x cpos = \case
+        TVar _ -> pure ()
+        TPrim _ -> pure ()
+        TConst (y, ts) -> if x == y
+            then throwError (RecTypeDef x cpos)
+            else case Map.lookup y tds of
+                Just (tvs, cs) ->
+                    let substs = Map.fromList (zip tvs ts)
+                    in assertNoRecCtors tds x substs cs
+                Nothing -> throwError (UndefType cpos y)
+        TFun _ _ -> pure ()
+        TBox _ -> pure ()
+
+-- | Check that there are no conflicting type names or constructor names.
+checkTypeDefsNoConflicting
+    :: [Ast.TypeDef]
+    -> Infer
+           ( Map String ([TVar], [(SrcPos, (String, [Type]))])
+           , Map String (VariantIx, (String, [TVar]), [Type], Span)
+           )
+checkTypeDefsNoConflicting =
     flip foldM (builtinDataTypes, builtinConstructors)
         $ \(tds', csAcc) td@(Ast.TypeDef x _ _) -> do
             when (Map.member (idstr x) tds') (throwError (ConflictingTypeDef x))
@@ -145,7 +176,7 @@ checkTypeDefs =
 checkTypeDef
     :: Ast.TypeDef
     -> Infer
-           ( (String, ([TVar], [(String, [Type])]))
+           ( (String, ([TVar], [(SrcPos, (String, [Type]))]))
            , Map
                  String
                  (Id Big, (VariantIx, (String, [TVar]), [Type], Span))
@@ -153,7 +184,7 @@ checkTypeDef
 checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
     let x = idstr x'
     let ps' = map TVExplicit ps
-    let cs' = map (first idstr) cs
+    let cs' = map (\(Id (WithPos p x), ts) -> (p, (x, ts))) cs
     let cSpan = length cs
     cs''' <- foldM
         (\cs'' (i, (cx, cps)) -> if Map.member (idstr cx) cs''
@@ -165,9 +196,9 @@ checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
         (zip [0 ..] cs)
     pure ((x, (ps', cs')), cs''')
 
-builtinDataTypes :: Map String ([TVar], [(String, [Type])])
-builtinDataTypes =
-    Map.fromList (map (\(x, ps, cs) -> (x, (ps, cs))) builtinDataTypes')
+builtinDataTypes :: Map String ([TVar], [(SrcPos, (String, [Type]))])
+builtinDataTypes = Map.fromList
+    (map (\(x, ps, cs) -> (x, (ps, map (dummyPos, ) cs))) builtinDataTypes')
 
 builtinConstructors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
 builtinConstructors = Map.unions (map builtinConstructors' builtinDataTypes')

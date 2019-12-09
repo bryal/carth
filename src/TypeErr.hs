@@ -27,6 +27,8 @@ data TypeErr
     | InexhaustivePats SrcPos String
     | ExternNotMonomorphic (Id Small) TVar
     | FoundHole SrcPos
+    | RecTypeDef String SrcPos
+    | UndefType SrcPos String
     deriving Show
 
 type Message = String
@@ -79,6 +81,12 @@ prettyErr = \case
                 ++ ("Type variable " ++ tv' ++ " encountered in type signature")
         TVImplicit _ -> ice "TVImplicit in prettyErr ExternNotMonomorphic"
     FoundHole p -> posd p var $ "Found hole"
+    RecTypeDef x p ->
+        posd p big
+            $ ("Type `" ++ x ++ "` ")
+            ++ "has infinite size due to recursion without indirection.\n"
+            ++ "Insert a pointer at some point to make it representable."
+    UndefType p x -> posd p big $ "Undefined type `" ++ x ++ "` in constructor"
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
