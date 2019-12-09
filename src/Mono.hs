@@ -59,7 +59,7 @@ mono = \case
         t' <- monotype t
         addDefInst x t'
         pure (Var (TypedVar x t'))
-    An.App f a -> liftA2 App (mono f) (mono a)
+    An.App f a rt -> liftA3 App (mono f) (mono a) (monotype rt)
     An.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     An.Fun p b -> monoFun p b
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)

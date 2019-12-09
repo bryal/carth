@@ -62,7 +62,7 @@ type Ction = (VariantIx, TConst, [Expr])
 data Expr
     = Lit Const
     | Var TypedVar
-    | App Expr Expr
+    | App Expr Expr Type
     | If Expr Expr Expr
     | Fun TypedVar (Expr, Type)
     | Let Defs Expr
@@ -89,7 +89,7 @@ fvExpr :: Expr -> Set TypedVar
 fvExpr = \case
     Lit _ -> Set.empty
     Var x -> Set.singleton x
-    App f a -> fvApp f a
+    App f a _ -> fvApp f a
     If p c a -> fvIf p c a
     Fun p (b, _) -> fvFun p b
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e

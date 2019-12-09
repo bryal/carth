@@ -256,7 +256,7 @@ infer (WithPos pos e) = case e of
         unify (Expected (TFun ta tr)) (Found (getPos f) tf')
         (ta', a') <- infer a
         unify (Expected ta) (Found (getPos a) ta')
-        pure (tr, App f' a')
+        pure (tr, App f' a' tr)
     Ast.If p c a -> do
         (tp, p') <- infer p
         (tc, c') <- infer c

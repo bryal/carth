@@ -1,6 +1,22 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, TemplateHaskell, TupleSections
   , FlexibleContexts #-}
 
+-- | Generation of LLVM IR code from our monomorphic AST.
+--
+--   # On ABI / Calling Conventions
+--
+--   One might think that simply declaring all function definitions and function
+--   calls as being of the same LLVM calling convention (e.g. "ccc") would allow
+--   us to pass arguments and return results as we please, and everything will
+--   be compatible? I sure did, however, that is not the case. To be compatible
+--   with C FFIs, we also have to actually conform to the C calling convention,
+--   which contains a bunch of details about how more complex types should be
+--   passed and returned. Currently, we pass and return simple types by value,
+--   and complex types by reference (param by ref, return via sret param).
+--
+--   See the definition of `passByRef` for up-to-date details about which types
+--   are passed how.
+
 module Codegen (codegen) where
 
 import LLVM.Prelude (ShortByteString)
@@ -8,6 +24,7 @@ import LLVM.AST
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
+import LLVM.AST.ParameterAttribute
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Linkage as LLLink
@@ -43,7 +60,17 @@ import Data.List
 import Data.Composition
 import Control.Applicative
 import Control.Lens
-    (makeLenses, modifying, scribe, (<<+=), use, uses, assign, views, locally)
+    ( makeLenses
+    , modifying
+    , scribe
+    , (<<+=)
+    , view
+    , use
+    , uses
+    , assign
+    , views
+    , locally
+    )
 
 import Misc
 import FreeVars
@@ -59,12 +86,10 @@ type FFIType = Foreign.Ptr.Ptr LLPtrHierarchy.Type
 --   may only produce side effects.
 data FunInstruction = WithRetType Instruction Type
 
--- TODO: Either treat globals and locals separately - Globals behing pointers,
---       locals not - or treat them the same - stack alloc space for locals.
---       Update: They are both behind pointers now, right? So we could just have
---       a single map?
 data Env = Env
-    { _env :: Map TypedVar Operand
+    -- TODO: Allow both locals and stack vars in env, discriminated by an Either
+    --       or something. Could eliminate some wasteful stack-juggling
+    { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
     , _dataLayout :: DataLayout
     }
 makeLenses ''Env
@@ -177,31 +202,17 @@ genExterns :: [(String, MonoAst.Type)] -> [Definition]
 genExterns = map (uncurry genExtern)
 
 genExtern :: String -> MonoAst.Type -> Definition
-genExtern name t = GlobalDefinition $ GlobalVariable
-    { LLGlob.name = mkName name
-    , LLGlob.linkage = LLLink.External
-    , LLGlob.visibility = LLVis.Default
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.threadLocalMode = Nothing
-    , LLGlob.unnamedAddr = Nothing
-    , LLGlob.isConstant = True
-    , LLGlob.type' = toLlvmType t
-    , LLGlob.addrSpace = LLAddr.AddrSpace 0
-    , LLGlob.initializer = Nothing
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.metadata = []
-    }
+genExtern name t =
+    GlobalDefinition $ simpleGlobVar' (mkName name) (toLlvmType t) Nothing
 
 genOuterMain :: Gen' Definition
 genOuterMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    (_, Out basicBlocks _ _) <- semiExecRetGen $ do
+    Out basicBlocks _ _ <- execWriterT $ do
         f <- lookupVar (TypedVar "main" mainType)
-        _ <- app f (ConstantOperand litUnit)
-        pure (ConstantOperand (litI32 0))
+        _ <- app f (ConstantOperand litUnit) typeUnit
+        commitFinalFuncBlock (ret (ConstantOperand (litI32 0)))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
 
 genGlobDef :: (TypedVar, Expr) -> Gen' [Definition]
@@ -214,7 +225,7 @@ genClosureWrappedFunDef :: TypedVar -> TypedVar -> Expr -> Gen' [Global]
 genClosureWrappedFunDef var p body = do
     let name = mangleName var
     fName <- newName'' (unName name `mappend` fromString "_func")
-    (f, gs) <- genFunDef' (fName, [], p, body)
+    (f, gs) <- genFunDef (fName, [], p, body)
     let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
     let capturesType = LLType.ptr typeUnit
     let captures = LLConst.Null capturesType
@@ -222,52 +233,68 @@ genClosureWrappedFunDef var p body = do
     let closureDef = simpleGlobVar name (typeOf closure) closure
     pure (closureDef : f : gs)
 
-genFunDef :: (Name, [TypedVar], TypedVar, Expr) -> Gen' [Global]
-genFunDef = fmap (uncurry (:)) . genFunDef'
-
-genFunDef' :: (Name, [TypedVar], TypedVar, Expr) -> Gen' (Global, [Global])
-genFunDef' (name, fvs, (TypedVar p pt), body) = do
+-- | Generates a function definition
+--
+--   The signature definition, the parameter-loading, and the result return are
+--   all done according to the calling convention.
+genFunDef :: (Name, [TypedVar], TypedVar, Expr) -> Gen' (Global, [Global])
+genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-
-    capturesName <- newName' "captures"
-    let capturesType = LLType.ptr typeUnit
-    let capturesRef = LocalReference capturesType capturesName
-
-    let ptv = TypedVar p pt
-    let pt' = toLlvmType pt
-    p' <- newName' p
-    let pRef = LocalReference pt' p'
-
-    (rt, Out basicBlocks globStrings lambdaFuncs) <- semiExecRetGen
-        (withLocal ptv pRef (genExtractCaptures capturesRef fvs (genExpr body)))
-
+    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
+        (capturesParam, captureLocals) <- genExtractCaptures' fvs
+        let pt' = toLlvmType pt
+        px' <- newName px
+        -- Load params according to calling convention
+        let (withParam, pt'') = if passByRef pt'
+                then (withVar, LLType.ptr pt')
+                else (withLocal, pt')
+        let p = (px', pt'')
+        let pRef = uncurry (flip LocalReference) p
+        result <- withParam ptv pRef (withLocals captureLocals (genExpr body))
+        let rt' = typeOf result
+        let fParams' = [uncurry parameter capturesParam, uncurry parameter p]
+        -- Return result according to calling convention
+        if passByRef rt'
+            then do
+                let out = (mkName "out", LLType.ptr rt')
+                emit (store result (uncurry (flip LocalReference) out))
+                commitFinalFuncBlock retVoid
+                pure (LLType.void, uncurry parameter out : fParams')
+            else do
+                commitFinalFuncBlock (ret result)
+                pure (rt', fParams')
     let ss = map globStrVar globStrings
-    ls <- concat <$> mapM genFunDef lambdaFuncs
-
-    let fParams = [parameter capturesName capturesType, parameter p' pt']
+    ls <- concat <$> mapM (fmap (uncurry (:)) . genFunDef) lambdaFuncs
     let f = simpleFunc name fParams rt basicBlocks
-
     pure (f, ss ++ ls)
 
-genExtractCaptures :: Operand -> [TypedVar] -> Gen a -> Gen a
-genExtractCaptures capturesPtrGeneric fvs ga = if null fvs
-    then ga
-    else do
-        let capturesType = typeCaptures fvs
-        capturesPtr <- emitAnon
-            (bitcast capturesPtrGeneric (LLType.ptr capturesType))
-        captures <- emitAnon (load capturesPtr)
-        captureVals <- mapM
-            (\(TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
-            (zip fvs [0 ..])
-        withLocals (zip fvs captureVals) ga
+genExtractCaptures' :: [TypedVar] -> Gen ((Name, Type), [(TypedVar, Operand)])
+genExtractCaptures' fvs = do
+    capturesName <- newName "captures"
+    let capturesPtrGenericType = LLType.ptr typeUnit
+    let capturesPtrGeneric = LocalReference capturesPtrGenericType capturesName
+    let capturesParam = (capturesName, capturesPtrGenericType)
+    fmap (capturesParam, ) $ if null fvs
+        then pure []
+        else genExtractCaptures capturesPtrGeneric fvs
+
+genExtractCaptures :: Operand -> [TypedVar] -> Gen [(TypedVar, Operand)]
+genExtractCaptures capturesPtrGeneric fvs = do
+    let capturesType = typeCaptures fvs
+    capturesPtr <- emitAnon
+        (bitcast capturesPtrGeneric (LLType.ptr capturesType))
+    captures <- emitAnon (load capturesPtr)
+    captureVals <- mapM
+        (\(TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
+        (zip fvs [0 ..])
+    pure (zip fvs captureVals)
 
 genExpr :: Expr -> Gen Operand
 genExpr = \case
     Lit c -> fmap ConstantOperand (genConst c)
     Var (TypedVar x t) -> lookupVar (TypedVar x t)
-    App f e -> genApp f e
+    App f e rt -> genApp f e rt
     If p c a -> genIf p c a
     Fun p b -> genLambda p b
     Let ds b -> genLet ds b
@@ -296,12 +323,41 @@ toLlvmType = \case
         TDouble -> double
         TChar -> i32
         TBool -> typeBool
-    TFun a r -> typeStruct
-        [ LLType.ptr typeUnit
-        , LLType.ptr (typeClosureFun (toLlvmType a) (toLlvmType r))
-        ]
+    TFun a r -> toLlvmClosureType a r
     TPtr t -> LLType.ptr (toLlvmType t)
     TConst t -> typeNamed (mangleTConst t)
+
+-- | A `Fun` is a closure, and follows a certain calling convention
+--
+--   A closure is represented as a pair where the first element is the pointer
+--   to the structure of captures, and the second element is a pointer to the
+--   actual function, which takes as first parameter the captures-pointer, and
+--   as second parameter the argument.
+--
+--   An argument of a structure-type is passed by reference, to be compatible
+--   with the C calling convention.
+toLlvmClosureType :: MonoAst.Type -> MonoAst.Type -> Type
+toLlvmClosureType a r =
+    typeStruct [LLType.ptr typeUnit, LLType.ptr (toLlvmClosureFunType a r)]
+
+-- The type of the function itself within the closure
+toLlvmClosureFunType :: MonoAst.Type -> MonoAst.Type -> Type
+toLlvmClosureFunType a r =
+    let
+        a' = toLlvmType a
+        a'' = if passByRef a' then LLType.ptr a' else a'
+        r' = toLlvmType r
+    in if passByRef r'
+        then FunctionType
+            { resultType = LLType.void
+            , argumentTypes = [LLType.ptr r', LLType.ptr typeUnit, a'']
+            , isVarArg = False
+            }
+        else FunctionType
+            { resultType = toLlvmType r
+            , argumentTypes = [LLType.ptr typeUnit, a'']
+            , isVarArg = False
+            }
 
 genConst :: MonoAst.Const -> Gen LLConst.Constant
 genConst = \case
@@ -330,17 +386,37 @@ lookupVar x = do
         Just var -> emitAnon $ load var
         Nothing -> ice $ "Undefined variable " ++ show x
 
-genApp :: Expr -> Expr -> Gen Operand
-genApp fe ae = do
+genApp :: Expr -> Expr -> MonoAst.Type -> Gen Operand
+genApp fe ae rt = do
     closure <- genExpr fe
     a <- genExpr ae
-    app closure a
+    app closure a (toLlvmType rt)
 
-app :: Operand -> Operand -> Gen Operand
-app closure arg = do
+app :: Operand -> Operand -> Type -> Gen Operand
+app closure a rt = do
     captures <- emitReg' "captures" (extractvalue closure [0])
     f <- emitReg' "function" (extractvalue closure [1])
-    emitAnon $ call f [captures, arg]
+    a' <- if passByRef (typeOf a) then genStackAllocated' a else pure a
+    let args = [(captures, []), (a', [])]
+    if passByRef rt
+        then do
+            out <- emitReg' "out" (alloca rt)
+            emit'' $ call f ((out, [SRet]) : args)
+            emitAnon (load out)
+        else emitAnon $ call f args
+  where
+    call f as = WithRetType
+        (Call
+            { tailCallKind = Just Tail
+            , callingConvention = cfg_callConv
+            , returnAttributes = []
+            , function = Right f
+            , arguments = as
+            , functionAttributes = []
+            , metadata = []
+            }
+        )
+        (getFunRet (getPointee (typeOf f)))
 
 genIf :: Expr -> Expr -> Expr -> Gen Operand
 genIf pred conseq alt = do
@@ -360,10 +436,9 @@ genIf pred conseq alt = do
 genLet :: Defs -> Expr -> Gen Operand
 genLet (Defs ds) b = do
     let (vs, es) = unzip (Map.toList ds)
-    let (ns, ts) = unzip (map (\(TypedVar n t) -> (n, t)) vs)
+    let ns = map (\(TypedVar n _) -> n) vs
     ns' <- mapM newName ns
-    let ts' = map toLlvmType ts
-    withDefSigs (zip vs ns') (mapM genDef (zip3 ns' ts' es) *> genExpr b)
+    withDefSigs (zip vs ns') (zipWithM genDef ns' es *> genExpr b)
 
 -- TODO: Change global defs to a new type that can be generated by llvm.  As it
 --       is now, global non-function variables can't be straight-forwardly
@@ -371,8 +446,8 @@ genLet (Defs ds) b = do
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genDef :: (Name, Type, Expr) -> Gen Operand
-genDef (n, t, e) = genVar n t (genExpr e)
+genDef :: Name -> Expr -> Gen Operand
+genDef n e = genVar n (genExpr e)
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Operand
 genMatch m dt tbody = do
@@ -459,7 +534,7 @@ genLambda p@(TypedVar px pt) (b, bt) = do
     let fvs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
     captures <- genBoxGeneric =<< genStruct =<< sequence (map lookupVar fvs)
     fname <- newName "lambda_func"
-    let ft = typeClosureFun (toLlvmType pt) (toLlvmType bt)
+    let ft = toLlvmClosureFunType pt bt
     let f = ConstantOperand (LLConst.GlobalReference (LLType.ptr ft) fname)
     scribe outFuncs [(fname, fvs, p, b)]
     genStruct [captures, f]
@@ -483,11 +558,6 @@ genBoxGeneric x = do
 genMalloc :: Operand -> Gen Operand
 genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
 
-semiExecRetGen :: Gen Operand -> Gen' (Type, Out)
-semiExecRetGen gx = runWriterT $ do
-    x <- gx
-    commitFinalFuncBlock (ret x)
-    pure (typeOf x)
 globStrVar :: (Name, Word64, [Word8]) -> Global
 globStrVar (name, len, bytes) =
     simpleGlobVar name (ArrayType len i8) (LLConst.Array i8 (map litI8 bytes))
@@ -591,24 +661,32 @@ withLocal x v gen = do
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
 withVar x v = locally env (Map.insert x v)
 
-genVar :: Name -> Type -> Gen Operand -> Gen Operand
-genVar n t gen = do
-    ptr <- emitReg n (alloca t)
-    val <- gen
-    emit (store val ptr)
-    pure ptr
+genVar :: Name -> Gen Operand -> Gen Operand
+genVar n gen = genStackAllocated n =<< gen
 
 genVar' :: TypedVar -> Gen Operand -> Gen Operand
-genVar' (TypedVar x t) gen = do
+genVar' (TypedVar x _) gen = do
     n <- newName x
-    ptr <- genVar n (toLlvmType t) gen
+    ptr <- genVar n gen
+    pure ptr
+
+genStackAllocated' :: Operand -> Gen Operand
+genStackAllocated' v = flip genStackAllocated v =<< newAnonRegister
+
+genStackAllocated :: Name -> Operand -> Gen Operand
+genStackAllocated n v = do
+    ptr <- emitReg n (alloca (typeOf v))
+    emit (store v ptr)
     pure ptr
 
 emit :: Instruction -> Gen ()
 emit instr = emit' (Do instr)
 
-emit' :: (Named Instruction) -> Gen ()
+emit' :: Named Instruction -> Gen ()
 emit' = modifying currentBlockInstrs . (:)
+
+emit'' :: FunInstruction -> Gen ()
+emit'' (WithRetType instr _) = emit instr
 
 emitReg :: Name -> FunInstruction -> Gen Operand
 emitReg reg (WithRetType instr rt) = do
@@ -677,6 +755,9 @@ br = flip Br []
 ret :: Operand -> Terminator
 ret = flip Ret [] . Just
 
+retVoid :: Terminator
+retVoid = Ret Nothing []
+
 switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
 switch x def cs = Switch x def cs []
 
@@ -723,20 +804,6 @@ phi = \case
     [] -> ice "phi was given empty list of cases"
     cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs []) t
 
-call :: Operand -> [Operand] -> FunInstruction
-call f as = WithRetType
-    (Call
-        { tailCallKind = Just Tail
-        , callingConvention = cfg_callConv
-        , returnAttributes = []
-        , function = Right f
-        , arguments = map (, []) as
-        , functionAttributes = []
-        , metadata = []
-        }
-    )
-    (getFunRet (getPointee (typeOf f)))
-
 alloca :: Type -> FunInstruction
 alloca t = WithRetType (Alloca t Nothing 0 []) (LLType.ptr t)
 
@@ -764,15 +831,27 @@ litDouble = LLConst.Float . LLFloat.Double
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False
 
+-- Seems like just setting the type-field doesn't always do it. Sometimes the
+-- named type is just left off? Happened when generating a string. Add a bitcast
+-- for safe measure.
+litStructOfType :: TConst -> [LLConst.Constant] -> LLConst.Constant
+litStructOfType t xs =
+    let
+        tname = mkName (mangleTConst t)
+        t' = NamedTypeReference tname
+    in LLConst.BitCast
+        (LLConst.Struct (Just (mkName (mangleTConst t))) False xs)
+        t'
+
 litUnit :: LLConst.Constant
 litUnit = litStruct []
 
-typeClosureFun :: Type -> Type -> Type
-typeClosureFun pt rt = FunctionType
-    { resultType = rt
-    , argumentTypes = [LLType.ptr (typeCaptures []), pt]
-    , isVarArg = False
-    }
+passByRef :: Type -> Bool
+passByRef = \case
+    LLType.StructureType _ [] -> False
+    LLType.StructureType _ _ -> True
+    LLType.NamedTypeReference _ -> True
+    _ -> False
 
 typeCaptures :: [TypedVar] -> Type
 typeCaptures = typeStruct . map (\(TypedVar _ t) -> toLlvmType t)

@@ -50,7 +50,7 @@ type Ction = (VariantIx, (String, [Type]), [Expr])
 data Expr
     = Lit Const
     | Var TypedVar
-    | App Expr Expr
+    | App Expr Expr Type
     | If Expr Expr Expr
     | Fun (String, Type) (Expr, Type)
     | Let Defs Expr

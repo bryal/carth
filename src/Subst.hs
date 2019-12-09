@@ -24,7 +24,7 @@ substExpr :: Subst -> Expr -> Expr
 substExpr s = \case
     Lit c -> Lit c
     Var (TypedVar x t) -> Var (TypedVar x (subst s t))
-    App f a -> App (substExpr s f) (substExpr s a)
+    App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
     Let (Defs defs) body ->
