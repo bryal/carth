@@ -29,6 +29,7 @@ data TypeErr
     | FoundHole SrcPos
     | RecTypeDef String SrcPos
     | UndefType SrcPos String
+    | UnboundTVar SrcPos
     deriving Show
 
 type Message = String
@@ -87,6 +88,10 @@ prettyErr = \case
             ++ "has infinite size due to recursion without indirection.\n"
             ++ "Insert a pointer at some point to make it representable."
     UndefType p x -> posd p big $ "Undefined type `" ++ x ++ "` in constructor"
+    UnboundTVar p ->
+        posd p defOrExpr
+            $ "Could not fully infer type of expression.\n"
+            ++ "Type annotations needed."
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the

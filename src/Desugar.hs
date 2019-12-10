@@ -3,7 +3,9 @@
 module Desugar (unsugar) where
 
 import Data.Bifunctor
+import qualified Data.Map as Map
 
+import SrcPos
 import qualified AnnotAst as An
 import DesugaredAst
 
@@ -14,9 +16,9 @@ unsugarDefs :: An.Defs -> Defs
 unsugarDefs = fmap (second unsugarExpr)
 
 unsugarExpr :: An.Expr -> Expr
-unsugarExpr = \case
+unsugarExpr (WithPos _ e) = case e of
     An.Lit c -> Lit c
-    An.Var tv -> Var tv
+    An.Var v -> Var (unsugarTypedVar v)
     An.App f a rt -> App (unsugarExpr f) (unsugarExpr a) rt
     An.If p c a -> If (unsugarExpr p) (unsugarExpr c) (unsugarExpr a)
     An.Fun p b -> Fun p (first unsugarExpr b)
@@ -37,6 +39,9 @@ unsugarExpr = \case
 
 unsugarDecTree :: An.DecisionTree -> DecisionTree
 unsugarDecTree = \case
-    An.DLeaf (bs, e) -> DLeaf (bs, unsugarExpr e)
+    An.DLeaf (bs, e) -> DLeaf (Map.mapKeys unsugarTypedVar bs, unsugarExpr e)
     An.DSwitch a cs def ->
         DSwitch a (fmap unsugarDecTree cs) (unsugarDecTree def)
+
+unsugarTypedVar :: An.TypedVar -> TypedVar
+unsugarTypedVar (An.TypedVar (WithPos _ x) t) = TypedVar x t

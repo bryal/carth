@@ -25,13 +25,16 @@ import AnnotAst
     , TPrim(..)
     , TConst
     , Type(..)
-    , TypedVar(..)
     , Scheme(..)
     , Const(..)
     , VariantIx
     , Access(..)
-    , VarBindings
     )
+
+data TypedVar = TypedVar String Type
+    deriving (Show, Eq, Ord)
+
+type VarBindings = Map TypedVar Access
 
 data DecisionTree
     = DLeaf (VarBindings, Expr)

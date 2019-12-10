@@ -4,10 +4,13 @@ module Check (typecheck) where
 
 import Prelude hiding (span)
 import Control.Monad.Except
+import Control.Monad.Reader
 import Data.Bifunctor
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Maybe
 
 import SrcPos
@@ -28,6 +31,7 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     (tdefs', ctors) <- checkTypeDefs tdefs
     (externs', inferred, substs) <- inferTopDefs tdefs' ctors externs defs
     let substd = substTopDefs substs inferred
+    checkTypeVarsBound substd
     let desugared = unsugar substd
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (uncurry Des.Program desugared tdefs'' externs')
@@ -130,3 +134,64 @@ builtinDataTypes' =
       )
     , ("Str", [], [("Str", [TConst ("Array", [TPrim TNat8])])])
     ]
+
+type Bound = ReaderT (Set TVar) (Except TypeErr) ()
+
+-- TODO: Many of these positions are weird and kind of arbitrary, man. They may
+--       not align with where the type variable is actually detected.
+checkTypeVarsBound :: (An.Expr, An.Defs) -> Except TypeErr ()
+checkTypeVarsBound (main, ds) = runReaderT
+    (boundInExpr main >> boundInDefs ds)
+    Set.empty
+  where
+    boundInDefs :: An.Defs -> Bound
+    boundInDefs = mapM_ boundInDef
+    boundInDef ((An.Forall tvs _), e) =
+        local (Set.union tvs) (boundInExpr e)
+    boundInExpr (WithPos pos e) = case e of
+        An.Lit _ -> pure ()
+        An.Var (An.TypedVar _ t) -> boundInType pos t
+        An.App f a rt -> do
+            boundInExpr f
+            boundInExpr a
+            boundInType pos rt
+        An.If p c a -> do
+            boundInExpr p
+            boundInExpr c
+            boundInExpr a
+        An.Fun (_, pt) (e, et) -> do
+            boundInType pos pt
+            boundInExpr e
+            boundInType pos et
+        An.Let ds e -> do
+            boundInDefs ds
+            boundInExpr e
+        An.Match m dt bt -> do
+            boundInExpr m
+            boundInDecTree dt
+            boundInType pos bt
+        An.FunMatch dt pt bt -> do
+            boundInDecTree dt
+            boundInType pos pt
+            boundInType pos bt
+        An.Ctor _ (_, instTs) ts -> do
+            forM_ instTs (boundInType pos)
+            forM_ ts (boundInType pos)
+    boundInType :: SrcPos -> An.Type -> Bound
+    boundInType pos = \case
+        TVar tv ->
+            ask
+                >>= \bound -> when
+                        (not (Set.member tv bound))
+                        (throwError (UnboundTVar pos))
+        TPrim _ -> pure ()
+        TConst (_, ts) -> forM_ ts (boundInType pos)
+        TFun ft at -> forM_ [ft, at] (boundInType pos)
+        TBox t -> boundInType pos t
+    boundInDecTree = \case
+        An.DLeaf (bs, e) -> do
+            forM_
+                (Map.keys bs)
+                (\(An.TypedVar (WithPos p _) t) -> boundInType p t)
+            boundInExpr e
+        An.DSwitch _ dts dt -> forM_ (dt : Map.elems dts) boundInDecTree

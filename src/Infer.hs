@@ -24,7 +24,7 @@ import NonEmpty
 import qualified Ast
 import Ast (Id(..), IdCase(..), idstr, scmBody)
 import TypeErr
-import AnnotAst
+import AnnotAst hiding (Id)
 import Match
 
 
@@ -142,10 +142,10 @@ checkUserSchemes scms = forM_ scms $ \(WithPos p s1@(Forall _ t)) ->
         >>= \s2 -> when (s1 /= s2) (throwError (InvalidUserTypeSig p s1 s2))
 
 infer :: Ast.Expr -> Infer (Type, Expr)
-infer (WithPos pos e) = case e of
+infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Ast.Lit l -> pure (litType l, Lit l)
     Ast.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
-    Ast.Var x -> fmap (\t -> (t, Var (TypedVar (idstr x) t))) (lookupEnv x)
+    Ast.Var x@(Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
     Ast.App f a -> do
         ta <- fresh
         tr <- fresh
@@ -171,7 +171,7 @@ infer (WithPos pos e) = case e of
         (bt, b') <- withLocals' defsScms (infer b)
         pure (bt, Let annotDefs b')
     Ast.TypeAscr x t -> do
-        (tx, x') <- infer x
+        (tx, WithPos _ x') <- infer x
         unify (Expected t) (Found (getPos x) tx)
         pure (t, x')
     Ast.Match matchee cases -> do
@@ -226,10 +226,9 @@ inferPat = \case
     Ast.PVar (Id (WithPos _ "_")) -> do
         tv <- fresh
         pure (tv, PWild, Map.empty)
-    Ast.PVar x -> do
+    Ast.PVar x@(Id x') -> do
         tv <- fresh
-        let x' = TypedVar (idstr x) tv
-        pure (tv, PVar x', Map.singleton x (Forall Set.empty tv))
+        pure (tv, PVar (TypedVar x' tv), Map.singleton x (Forall Set.empty tv))
 
 inferPatConstruction
     :: SrcPos -> Id Big -> [Ast.Pat] -> Infer (Type, Pat, Map (Id Small) Scheme)
@@ -254,7 +253,7 @@ nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
         Just (Id (WithPos pos v)) -> throwError (ConflictingPatVarDefs pos v)
         Nothing -> pure (Map.union acc ks)
 
-inferExprConstructor :: Id Big -> Infer (Type, Expr)
+inferExprConstructor :: Id Big -> Infer (Type, Expr')
 inferExprConstructor c = do
     (variantIx, tdefLhs, cParams, _) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams

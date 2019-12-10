@@ -20,7 +20,7 @@ substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = second (substExpr s)
 
 substExpr :: Subst -> Expr -> Expr
-substExpr s = \case
+substExpr s (WithPos p e) = WithPos p $ case e of
     Lit c -> Lit c
     Var (TypedVar x t) -> Var (TypedVar x (subst s t))
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)

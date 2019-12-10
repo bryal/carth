@@ -1,10 +1,12 @@
 -- | Type annotated AST as a result of typechecking
 module AnnotAst
-    ( TVar(..)
+    ( WithPos(..)
+    , TVar(..)
     , TPrim(..)
     , TConst
     , Type(..)
     , Scheme(..)
+    , Id
     , TypedVar(..)
     , Const(..)
     , VariantIx
@@ -12,7 +14,8 @@ module AnnotAst
     , Span
     , VarBindings
     , DecisionTree(..)
-    , Expr(..)
+    , Expr
+    , Expr'(..)
     , Defs
     , TypeDefs
     , Ctors
@@ -24,9 +27,12 @@ import Data.Map.Strict (Map)
 import Data.Word
 
 import Ast (TVar(..), TPrim(..), TConst, Type(..), Scheme(..), Const(..))
+import SrcPos
 
 
-data TypedVar = TypedVar String Type
+type Id = WithPos String
+
+data TypedVar = TypedVar Id Type
     deriving (Show, Eq, Ord)
 
 type VariantIx = Word64
@@ -43,7 +49,7 @@ data DecisionTree
     | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
     deriving Show
 
-data Expr
+data Expr'
     = Lit Const
     | Var TypedVar
     | App Expr Expr Type
@@ -54,6 +60,8 @@ data Expr
     | FunMatch DecisionTree Type Type
     | Ctor VariantIx TConst [Type]
     deriving (Show)
+
+type Expr = WithPos Expr'
 
 type Defs = Map String (Scheme, Expr)
 -- type TypeDefs = Map String ([TVar], [[Type]])
