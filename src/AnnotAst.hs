@@ -59,6 +59,8 @@ data Expr'
     | Match Expr DecisionTree Type
     | FunMatch DecisionTree Type Type
     | Ctor VariantIx TConst [Type]
+    | Box Expr
+    | Deref Expr
     deriving (Show)
 
 type Expr = WithPos Expr'

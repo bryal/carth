@@ -50,6 +50,8 @@ data Expr
     | Let Defs Expr
     | Match Expr DecisionTree Type
     | Ction VariantIx TConst [Expr]
+    | Box Expr
+    | Deref Expr
     deriving (Show)
 
 type Defs = Map String (Scheme, Expr)

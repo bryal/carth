@@ -142,8 +142,10 @@ ns_expr = withPos
     bool = do
         b <- (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
         pure (Lit (Bool b))
-    pexpr = ns_parens
-        (choice [funMatch, match, if', fun, let', typeAscr, app])
+    pexpr =
+        ns_parens $ choice
+            [funMatch, match, if', fun, let', typeAscr, box, deref, app]
+
 
 eConstructor :: Parser Expr'
 eConstructor = fmap Ctor ns_big'
@@ -219,6 +221,12 @@ binding = parens (bindingTyped <|> bindingUntyped)
 
 typeAscr :: Parser Expr'
 typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
+
+box :: Parser Expr'
+box = reserved "box" *> fmap Box expr
+
+deref :: Parser Expr'
+deref = reserved "deref" *> fmap Deref expr
 
 scheme :: Parser (WithPos Scheme)
 scheme = andSkipSpaceAfter ns_scheme
@@ -376,6 +384,8 @@ reserveds =
     , "fun"
     , "let"
     , "type"
+    , "box"
+    , "deref"
     ]
 
 otherChar :: Parser Char

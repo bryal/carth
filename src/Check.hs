@@ -177,6 +177,8 @@ checkTypeVarsBound (main, ds) = runReaderT
         An.Ctor _ (_, instTs) ts -> do
             forM_ instTs (boundInType pos)
             forM_ ts (boundInType pos)
+        An.Box e -> boundInExpr e
+        An.Deref e -> boundInExpr e
     boundInType :: SrcPos -> An.Type -> Bound
     boundInType pos = \case
         TVar tv ->

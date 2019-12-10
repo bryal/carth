@@ -21,6 +21,7 @@ import qualified DesugaredAst as An
 import DesugaredAst (TVar(..), Scheme(..))
 import MonoAst
 
+
 data Env = Env
     { _defs :: Map String (Scheme, An.Expr)
     , _tvBinds :: Map TVar Type
@@ -65,6 +66,8 @@ mono = \case
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     An.Match e cs tbody -> monoMatch e cs tbody
     An.Ction v inst as -> monoCtion v inst as
+    An.Box x -> fmap Box (mono x)
+    An.Deref x -> fmap Deref (mono x)
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do

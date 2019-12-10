@@ -36,6 +36,8 @@ unsugarExpr (WithPos _ e) = case e of
             (\(p, pt) (bt, b) -> (TFun pt bt, Fun (p, pt) (b, bt)))
             (TConst inst, Ction v inst args)
             params
+    An.Box e -> Box (unsugarExpr e)
+    An.Deref e -> Deref (unsugarExpr e)
 
 unsugarDecTree :: An.DecisionTree -> DecisionTree
 unsugarDecTree = \case

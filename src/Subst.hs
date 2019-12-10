@@ -32,6 +32,8 @@ substExpr s (WithPos p e) = WithPos p $ case e of
     FunMatch dt tp tb ->
         FunMatch (substDecisionTree s dt) (subst s tp) (subst s tb)
     Ctor i (tx, tts) ps -> Ctor i (tx, map (subst s) tts) (map (subst s) ps)
+    Box e -> Box (substExpr s e)
+    Deref e -> Deref (substExpr s e)
 
 substDecisionTree :: Subst -> DecisionTree -> DecisionTree
 substDecisionTree s = \case

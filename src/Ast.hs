@@ -103,6 +103,8 @@ data Expr'
     | Match Expr (NonEmpty (Pat, Expr))
     | FunMatch (NonEmpty (Pat, Expr))
     | Ctor (Id Big)
+    | Box Expr
+    | Deref Expr
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
@@ -181,6 +183,8 @@ fvExpr = unpos >>> \case
     Match e cs -> fvMatch e (fromList1 cs)
     FunMatch cs -> fvCases (fromList1 cs)
     Ctor _ -> Set.empty
+    Box e -> fvExpr e
+    Deref e -> fvExpr e
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)
@@ -286,6 +290,8 @@ prettyExpr' d = \case
         , ")"
         ]
     Ctor c -> pretty c
+    Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
+    Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
 
 prettyPat :: Pat -> String
 prettyPat = \case

@@ -68,6 +68,8 @@ data Expr
     | Let Defs Expr
     | Match Expr DecisionTree Type
     | Ction Ction
+    | Box Expr
+    | Deref Expr
     deriving (Show)
 
 newtype Defs = Defs (Map TypedVar Expr)
@@ -95,6 +97,8 @@ fvExpr = \case
     Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
     Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
     Ction (_, _, as) -> Set.unions (map fvExpr as)
+    Box e -> fvExpr e
+    Deref e -> fvExpr e
 
 fvDecisionTree :: DecisionTree -> Set TypedVar
 fvDecisionTree = \case

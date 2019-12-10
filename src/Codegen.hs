@@ -300,6 +300,8 @@ genExpr = \case
     Let ds b -> genLet ds b
     Match e cs tbody -> genMatch e cs (toLlvmType tbody)
     Ction c -> genCtion c
+    Box e -> genBox =<< genExpr e
+    Deref e -> emitAnon . load =<< genExpr e
 
 toLlvmDataType :: MonoAst.TConst -> Type
 toLlvmDataType = typeNamed . mangleTConst
@@ -554,6 +556,14 @@ genBoxGeneric x = do
     ptr <- emitAnon (bitcast ptrGeneric (LLType.ptr t))
     emit (store x ptr)
     pure ptrGeneric
+
+genBox :: Operand -> Gen Operand
+genBox x = do
+    let t = typeOf x
+    ptrGeneric <- genHeapAlloc =<< genSizeof t
+    ptr <- emitAnon (bitcast ptrGeneric (LLType.ptr t))
+    emit (store x ptr)
+    pure ptr
 
 genHeapAlloc :: Operand -> Gen Operand
 genHeapAlloc size =

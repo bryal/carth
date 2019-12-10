@@ -185,6 +185,12 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         dt <- toDecisionTree' pos tpat cases'
         pure (TFun tpat tbody, FunMatch dt tpat tbody)
     Ast.Ctor c -> inferExprConstructor c
+    Ast.Box e -> fmap (\(te, e') -> (TBox te, Box e')) (infer e)
+    Ast.Deref e -> do
+        t <- fresh
+        (te, e') <- infer e
+        unify (Expected (TBox t)) (Found (getPos e) te)
+        pure (t, Deref e')
 
 toDecisionTree' :: SrcPos -> Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
 toDecisionTree' pos tpat cases = do
@@ -327,6 +333,7 @@ unify'' = curry $ \case
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unify'' (TVar a) t
     (TFun t1 t2, TFun u1 u2) -> unifys [t1, t2] [u1, u2]
+    (TBox t, TBox u) -> unify'' t u
     (t1, t2) -> throwError (UnificationFailed'' t1 t2)
 
 unifys :: [Type] -> [Type] -> Except UnifyErr'' Subst
