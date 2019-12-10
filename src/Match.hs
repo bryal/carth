@@ -26,8 +26,6 @@ import TypeErr
 import AnnotAst
 
 
-type Span = Int
-
 data Con = Con
     { variant :: VariantIx
     , span :: Span

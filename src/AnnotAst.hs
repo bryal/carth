@@ -9,13 +9,14 @@ module AnnotAst
     , Const(..)
     , VariantIx
     , Access(..)
+    , Span
     , VarBindings
     , DecisionTree(..)
     , Expr(..)
     , Defs
     , TypeDefs
+    , Ctors
     , Externs
-    , Program(..)
     )
 where
 
@@ -32,6 +33,8 @@ type VariantIx = Word64
 
 data Access = Obj | As Access [Type] | Sel Word32 Access
     deriving (Show, Eq, Ord)
+
+type Span = Int
 
 type VarBindings = Map TypedVar Access
 
@@ -53,8 +56,10 @@ data Expr
     deriving (Show)
 
 type Defs = Map String (Scheme, Expr)
-type TypeDefs = Map String ([TVar], [[Type]])
+-- type TypeDefs = Map String ([TVar], [[Type]])
+type TypeDefs = Map String ([TVar], [(String, [Type])])
+type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type
 
-data Program = Program Expr Defs TypeDefs Externs
-    deriving (Show)
+-- data Program = Program Expr Defs TypeDefs Externs
+--     deriving (Show)

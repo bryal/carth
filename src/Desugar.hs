@@ -7,9 +7,8 @@ import Data.Bifunctor
 import qualified AnnotAst as An
 import DesugaredAst
 
-unsugar :: An.Program -> Program
-unsugar (An.Program main ds tds exts) =
-    Program (unsugarExpr main) (unsugarDefs ds) tds exts
+unsugar :: (An.Expr, An.Defs) -> (Expr, Defs)
+unsugar (main, ds) = (unsugarExpr main, unsugarDefs ds)
 
 unsugarDefs :: An.Defs -> Defs
 unsugarDefs = fmap (second unsugarExpr)

@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Subst (Subst, subst, substProgram, substPat, composeSubsts) where
+module Subst (Subst, subst, substTopDefs, substPat, composeSubsts) where
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
@@ -13,9 +13,8 @@ import AnnotAst
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
 
-substProgram :: Subst -> Program -> Program
-substProgram s (Program main defs tdefs externs) =
-    Program (substExpr s main) (fmap (substDef s) defs) tdefs externs
+substTopDefs :: Subst -> (Expr, Defs) -> (Expr, Defs)
+substTopDefs s (main, defs) = (substExpr s main, fmap (substDef s) defs)
 
 substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = second (substExpr s)
