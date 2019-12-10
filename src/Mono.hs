@@ -138,12 +138,16 @@ addDefInst x t1 = do
     use defInsts <&> Map.lookup x >>= \case
         -- If x is not in insts, it's a function parameter. Ignore.
         Nothing -> pure ()
-        Just xInsts -> unless (Map.member t1 xInsts) $ do
+        Just xInsts -> when (not (Map.member t1 xInsts)) $ do
             (Forall _ t2, body) <- views
                 defs
                 (lookup' (ice (x ++ " not in defs")) x)
-            body' <- augment tvBinds (bindTvs t2 t1) (mono body)
-            insertInst x t1 body'
+            _ <- mfix $ \body' -> do
+                -- The instantiation must be in the environment when
+                -- monomorphizing the body, or we may infinitely recurse.
+                insertInst x t1 body'
+                augment tvBinds (bindTvs t2 t1) (mono body)
+            pure ()
 
 bindTvs :: An.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of
