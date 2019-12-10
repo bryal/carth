@@ -193,7 +193,7 @@ genBuiltins :: [Definition]
 genBuiltins = map
     (GlobalDefinition . ($ []))
     [ simpleFunc
-        (mkName "malloc")
+        (mkName "carth_alloc")
         [parameter (mkName "size") i64]
         (LLType.ptr typeUnit)
     ]
@@ -550,13 +550,14 @@ genStruct xs = do
 genBoxGeneric :: Operand -> Gen Operand
 genBoxGeneric x = do
     let t = typeOf x
-    ptrGeneric <- genMalloc =<< genSizeof t
+    ptrGeneric <- genHeapAlloc =<< genSizeof t
     ptr <- emitAnon (bitcast ptrGeneric (LLType.ptr t))
     emit (store x ptr)
     pure ptrGeneric
 
-genMalloc :: Operand -> Gen Operand
-genMalloc size = emitAnon (callExtern "malloc" (LLType.ptr typeUnit) [size])
+genHeapAlloc :: Operand -> Gen Operand
+genHeapAlloc size =
+    emitAnon (callExtern "carth_alloc" (LLType.ptr typeUnit) [size])
 
 globStrVar :: (Name, Word64, [Word8]) -> Global
 globStrVar (name, len, bytes) =
