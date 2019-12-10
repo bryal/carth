@@ -22,7 +22,7 @@ substDef s = second (substExpr s)
 substExpr :: Subst -> Expr -> Expr
 substExpr s (WithPos p e) = WithPos p $ case e of
     Lit c -> Lit c
-    Var (TypedVar x t) -> Var (TypedVar x (subst s t))
+    Var v -> Var (substTypedVar s v)
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
@@ -41,7 +41,7 @@ substDecisionTree s = \case
         (substAccess s obj)
         (fmap (substDecisionTree s) cs)
         (substDecisionTree s def)
-    DLeaf e -> DLeaf (second (substExpr s) e)
+    DLeaf (bs, e) -> DLeaf (Map.mapKeys (substTypedVar s) bs, substExpr s e)
 
 substAccess :: Subst -> Access -> Access
 substAccess s = \case
@@ -52,11 +52,14 @@ substAccess s = \case
 substPat :: Subst -> Pat -> Pat
 substPat s = \case
     PWild -> PWild
-    PVar (TypedVar x t) -> PVar (TypedVar x (subst s t))
+    PVar v -> PVar (substTypedVar s v)
     PCon c ps -> PCon (substCon s c) (map (substPat s) ps)
 
 substCon :: Subst -> Con -> Con
 substCon s (Con ix sp ts) = Con ix sp (map (subst s) ts)
+
+substTypedVar :: Subst -> TypedVar -> TypedVar
+substTypedVar s (TypedVar x t) = TypedVar x (subst s t)
 
 subst :: Subst -> Type -> Type
 subst s t = case t of
