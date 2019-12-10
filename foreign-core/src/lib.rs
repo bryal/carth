@@ -3,6 +3,16 @@
 use std::io::{self, Write};
 use std::{alloc, ptr, slice, str};
 
+macro_rules! def_carth_closure {
+    ($e:expr, $s:ident, $f:ident; $ta:ty, $tr:ty; $a:ident => $b:expr) => {
+        #[export_name = $e]
+        pub static $s: Closure<$ta, $tr> = Closure::new($f);
+        pub extern "C" fn $f(_: Captures, $a: $ta) -> $tr {
+            $b
+        }
+    };
+}
+
 pub type Captures = *const ();
 pub type ClosureFunc<A, B> = extern "C" fn(Captures, A) -> B;
 
@@ -72,19 +82,21 @@ pub extern "C" fn carth_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
-#[export_name = "display-inline"]
-pub static DISPLAY_INLINE: Closure<*const Str, ()> = Closure::new(display_inline_f);
-pub extern "C" fn display_inline_f(_: Captures, s: *const Str) {
-    let s = unsafe { from_carth_str(&*s) };
-    print!("{}", s);
-    io::stdout().flush().ok();
+def_carth_closure! {
+    "display-inline", DISPLAY_INLINE, display_inline;
+    *const Str, (); s => unsafe {
+        let s = from_carth_str(&*s);
+        print!("{}", s);
+        io::stdout().flush().ok();
+    }
 }
 
-#[export_name = "str-append"]
-pub static STR_APPEND: Closure<*const Pair<Str, Str>, Str> = Closure::new(str_append_f);
-pub extern "C" fn str_append_f(_: Captures, pair: *const Pair<Str, Str>) -> Str {
-    let (s1, s2) = unsafe { (from_carth_str(&(*pair).fst), from_carth_str(&(*pair).snd)) };
-    Str::new(s1.to_string() + s2)
+def_carth_closure! {
+    "-str-append", STR_APPEND, str_append;
+    *const Pair<Str, Str>, Str; pair => unsafe {
+        let (s1, s2) = (from_carth_str(&(*pair).fst), from_carth_str(&(*pair).snd));
+        Str::new(s1.to_string() + s2)
+    }
 }
 
 fn from_carth_str(s: &Str) -> &str {
@@ -92,5 +104,26 @@ fn from_carth_str(s: &Str) -> &str {
         let Array { elems, len, .. } = (*s).array;
         let slice = slice::from_raw_parts(elems, len as usize);
         str::from_utf8_unchecked(slice)
+    }
+}
+
+def_carth_closure! {
+    "-add-int", ADD_INT, add_int;
+    *const Pair<i64, i64>, i64; pair => unsafe {
+        (*pair).fst + (*pair).snd
+    }
+}
+
+def_carth_closure! {
+    "-gt-int", GT_INT, gt_int;
+    *const Pair<i64, i64>, bool; pair => unsafe {
+        (*pair).fst > (*pair).snd
+    }
+}
+
+def_carth_closure! {
+    "-eq-int", EQ_INT, eq_int;
+    *const Pair<i64, i64>, bool; pair => unsafe {
+        (*pair).fst == (*pair).snd
     }
 }
