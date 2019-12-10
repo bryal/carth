@@ -1,0 +1,29 @@
+(type (Pair a b)
+  (Pair a b))
+
+(type (List a)
+  Nil
+  (Cons a (Box (List a))))
+
+(define (main _)
+  (for (Cons "foo" (box (Cons "bar" (box (Cons "baz" (box Nil))))))
+       display
+       unit))
+
+(define (display s)
+  (display-inline (str-append s "\n")))
+
+(define (for xs f _)
+  (match xs
+    [Nil unit]
+    [(Cons x xs')
+     ;; TODO: This is broken
+     ;; (seq (f x) (for (deref xs') f))
+     (for (deref xs') f (f x))]))
+
+;; (define (seq a b) b)
+
+(define (str-append s1 s2) (-str-append (Pair s1 s2)))
+
+(extern display-inline (Fun Str Unit))
+(extern -str-append (Fun (Pair Str Str) Str))
