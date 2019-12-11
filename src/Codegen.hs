@@ -140,9 +140,9 @@ instance Typed Val where
 
 
 codegen :: DataLayout -> FilePath -> Program -> EncodeAST Module
-codegen layout moduleFilePath (Program main (Defs defs) tdefs externs) = do
+codegen layout moduleFilePath (Program main defs tdefs externs) = do
     tdefs' <- defineDataTypes layout tdefs
-    let defs' = (TypedVar "main" mainType, main) : Map.toList defs
+    let defs' = (TypedVar "-main" mainType, ([], main)) : Map.toList defs
         genGlobDefs = withExternSigs externs $ withGlobDefSigs
             defs'
             (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
@@ -223,7 +223,7 @@ genOuterMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ <- execWriterT $ do
-        f <- lookupVar (TypedVar "main" mainType)
+        f <- lookupVar (TypedVar "-main" mainType)
         _ <- app f (VLocal (ConstantOperand litUnit)) typeUnit
         commitFinalFuncBlock (ret (ConstantOperand (litI32 0)))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
@@ -234,15 +234,16 @@ genOuterMain = do
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genGlobDef :: (TypedVar, Expr) -> Gen' [Definition]
-genGlobDef (v, e) = case e of
+genGlobDef :: (TypedVar, ([MonoAst.Type], Expr)) -> Gen' [Definition]
+genGlobDef (TypedVar v _, (ts, e)) = case e of
     Fun p (body, _) ->
-        fmap (map GlobalDefinition) (genClosureWrappedFunDef v p body)
+        fmap (map GlobalDefinition) (genClosureWrappedFunDef (v, ts) p body)
     _ -> nyi $ "Global non-function defs: " ++ show e
 
-genClosureWrappedFunDef :: TypedVar -> TypedVar -> Expr -> Gen' [Global]
+genClosureWrappedFunDef
+    :: (String, [MonoAst.Type]) -> TypedVar -> Expr -> Gen' [Global]
 genClosureWrappedFunDef var p body = do
-    let name = mangleName' var
+    let name = mangleName var
     assign lambdaParentFunc (Just name)
     assign outerLambdaN 1
     let fName = mkName (name ++ "_func")
@@ -470,11 +471,11 @@ genIf pred conseq alt = do
     fmap VLocal (emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
 
 genLet :: Defs -> Expr -> Gen Val
-genLet (Defs ds) b = do
+genLet ds b = do
     let (vs, es) = unzip (Map.toList ds)
     ps <- mapM (\(TypedVar n t) -> emitReg' n (alloca (toLlvmType t))) vs
     withVars (zip vs ps) $ do
-        forM_ (zip ps es) $ \(p, e) -> do
+        forM_ (zip ps es) $ \(p, (_, e)) -> do
             x <- getLocal =<< genExpr e
             emit (store x p)
         genExpr b
@@ -681,12 +682,16 @@ withExternSigs = augment env . Map.fromList . map
         )
     )
 
-withGlobDefSigs :: MonadReader Env m => [(TypedVar, Expr)] -> m a -> m a
+withGlobDefSigs
+    :: MonadReader Env m => [(TypedVar, ([MonoAst.Type], Expr))] -> m a -> m a
 withGlobDefSigs = augment env . Map.fromList . map
-    (\(v@(TypedVar _ t), _) ->
+    (\(v@(TypedVar x t), (us, _)) ->
         ( v
         , ConstantOperand
-            (LLConst.GlobalReference (LLType.ptr (toLlvmType t)) (mangleName v))
+            (LLConst.GlobalReference
+                (LLType.ptr (toLlvmType t))
+                (mkName (mangleName (x, us)))
+            )
         )
     )
 
@@ -929,11 +934,13 @@ getMembers = \case
 getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl' (\t i -> getMembers t !! (fromIntegral i))
 
-mangleName :: TypedVar -> Name
-mangleName = mkName . mangleName'
+mangleName :: (String, [MonoAst.Type]) -> String
+mangleName (x, us) = x ++ mangleInst us
 
-mangleName' :: TypedVar -> String
-mangleName' (TypedVar x t) = concat [x, "<", mangleType t, ">"]
+mangleInst :: [MonoAst.Type] -> String
+mangleInst ts = if not (null ts)
+    then "<" ++ intercalate ", " (map mangleType ts) ++ ">"
+    else ""
 
 mangleType :: MonoAst.Type -> String
 mangleType = \case
@@ -943,9 +950,7 @@ mangleType = \case
     TConst tc -> mangleTConst tc
 
 mangleTConst :: TConst -> String
-mangleTConst (c, ts) = if null ts
-    then c
-    else concat [c, "<", intercalate ", " (map mangleType ts), ">"]
+mangleTConst (c, ts) = c ++ mangleInst ts
 
 sizeof :: DataLayout -> Type -> EncodeAST Word64
 sizeof layout t = do

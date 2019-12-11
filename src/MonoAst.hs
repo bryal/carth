@@ -16,7 +16,7 @@ module MonoAst
     , DecisionTree(..)
     , Ction
     , Expr(..)
-    , Defs(..)
+    , Defs
     , TypeDefs
     , Program(..)
     , mainType
@@ -72,11 +72,8 @@ data Expr
     | Deref Expr
     deriving (Show)
 
-newtype Defs = Defs (Map TypedVar Expr)
-    deriving (Show)
-
+type Defs = Map TypedVar ([Type], Expr)
 type TypeDefs = [(TConst, [VariantTypes])]
-
 type Externs = [(String, Type)]
 
 data Program = Program Expr Defs TypeDefs Externs
@@ -94,7 +91,7 @@ fvExpr = \case
     App f a _ -> fvApp f a
     If p c a -> fvIf p c a
     Fun p (b, _) -> fvFun p b
-    Let (Defs bs) e -> fvLet (Map.keysSet bs, Map.elems bs) e
+    Let bs e -> fvLet (Map.keysSet bs, map snd (Map.elems bs)) e
     Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
     Ction (_, _, as) -> Set.unions (map fvExpr as)
     Box e -> fvExpr e

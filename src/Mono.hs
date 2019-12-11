@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections
-           , TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses #-}
+           , TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses
+           , FlexibleContexts#-}
 
 -- | Monomorphization
 module Mono (monomorphize) where
@@ -29,7 +30,7 @@ data Env = Env
 makeLenses ''Env
 
 data Insts = Insts
-    { _defInsts :: Map String (Map Type Expr)
+    { _defInsts :: Map String (Map Type ([Type], Expr))
     , _tdefInsts :: Set TConst
     }
 makeLenses ''Insts
@@ -90,9 +91,9 @@ monoLet ds body = do
     modifying defInsts (Map.union (Map.fromList parentInsts))
     let ds' = Map.fromList $ do
             (name, dInsts) <- dsInsts
-            (t, body) <- Map.toList dInsts
-            pure (TypedVar name t, body)
-    pure (Defs ds', body')
+            (t, (us, body)) <- Map.toList dInsts
+            pure (TypedVar name t, (us, body))
+    pure (ds', body')
 
 monoMatch :: An.Expr -> An.DecisionTree -> An.Type -> Mono Expr
 monoMatch e dt tbody =
@@ -145,9 +146,12 @@ addDefInst x t1 = do
             _ <- mfix $ \body' -> do
                 -- The instantiation must be in the environment when
                 -- monomorphizing the body, or we may infinitely recurse.
-                insertInst x t1 body'
-                augment tvBinds (bindTvs t2 t1) (mono body)
+                let boundTvs = bindTvs t2 t1
+                    instTs = Map.elems boundTvs
+                insertInst x t1 (instTs, body')
+                augment tvBinds boundTvs (mono body)
             pure ()
+    where insertInst x t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
 bindTvs :: An.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of
@@ -174,9 +178,6 @@ monotype = \case
         let tdefInst = (c, ts')
         modifying tdefInsts (Set.insert tdefInst)
         pure (TConst tdefInst)
-
-insertInst :: String -> Type -> Expr -> Mono ()
-insertInst x t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
 instTypeDefs :: An.TypeDefs -> Mono TypeDefs
 instTypeDefs tdefs = do
