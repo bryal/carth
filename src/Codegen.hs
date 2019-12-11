@@ -898,18 +898,19 @@ getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl' (\t i -> getMembers t !! (fromIntegral i))
 
 mangleName :: TypedVar -> Name
-mangleName (TypedVar x t) = mkName (x ++ ":" ++ mangleType t)
+mangleName (TypedVar x t) = mkName (concat [x, "<", mangleType t, ">"])
 
 mangleType :: MonoAst.Type -> String
 mangleType = \case
     TPrim c -> pretty c
-    TFun p r -> mangleTConst ("->", [p, r])
-    TBox t -> mangleTConst ("*", [t])
+    TFun p r -> mangleTConst ("Fun", [p, r])
+    TBox t -> mangleTConst ("Box", [t])
     TConst tc -> mangleTConst tc
 
 mangleTConst :: TConst -> String
-mangleTConst (c, ts) =
-    concat ["(", c, ";", intercalate "," (map mangleType ts), ")"]
+mangleTConst (c, ts) = if null ts
+    then c
+    else concat [c, "<", intercalate ", " (map mangleType ts), ">"]
 
 unName :: Name -> ShortByteString
 unName = \case
