@@ -422,11 +422,24 @@ lookupVar x = do
         Just var -> pure (VVar var)
         Nothing -> ice $ "Undefined variable " ++ show x
 
+-- | Beta-reduction and closure application
 genApp :: Expr -> Expr -> MonoAst.Type -> Gen Val
-genApp fe ae rt = do
-    closure <- genExpr fe
-    a <- genExpr ae
-    app closure a (toLlvmType rt)
+genApp fe ae rt = genApp' (fe, [(ae, rt)])
+  where
+    -- TODO: Could/should the beta-reduction maybe happen in an earlier stage,
+    --       like when desugaring?
+    genApp' = \case
+        (Fun p (b, _), (ae, _) : aes) -> do
+            a <- genExpr ae
+            withVal p a (genApp' (b, aes))
+        (App fe ae rt, aes) -> genApp' (fe, (ae, rt) : aes)
+        (fe, []) -> genExpr fe
+        (fe, aes) -> do
+            closure <- genExpr fe
+            as <- mapM
+                (\(ae, rt) -> fmap (, toLlvmType rt) (genExpr ae))
+                aes
+            foldlM (\f (a, rt) -> app f a rt) closure as
 
 app :: Val -> Val -> Type -> Gen Val
 app closure a rt = do
@@ -541,6 +554,7 @@ genCtion (i, tdef, as) = do
     emit (store s p)
     pure (VVar pGeneric)
 
+-- TODO: Eta-conversion
 -- | A lambda is a pair of a captured environment and a function.  The captured
 --   environment must be on the heap, since the closure value needs to be of
 --   some specific size, regardless of what the closure captures, so that
@@ -607,7 +621,6 @@ genDeref e = genExpr e >>= \case
 globStrVar :: (Name, Word64, [Word8]) -> Global
 globStrVar (name, len, bytes) =
     simpleGlobVar name (ArrayType len i8) (LLConst.Array i8 (map litI8 bytes))
-
 
 simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
 simpleFunc = ($ []) .** simpleFunc'
@@ -712,6 +725,11 @@ withVars = flip (foldr (uncurry withVar))
 --   environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
 withVar x v = locally env (Map.insert x v)
+
+withVal :: TypedVar -> Val -> Gen a -> Gen a
+withVal x v ga = do
+    var <- getVar v
+    withVar x var ga
 
 genVar :: Name -> Gen Operand -> Gen Operand
 genVar n gen = genStackAllocated n =<< gen
