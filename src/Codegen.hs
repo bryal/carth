@@ -19,7 +19,6 @@
 
 module Codegen (codegen) where
 
-import LLVM.Prelude (ShortByteString)
 import LLVM.AST
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
@@ -64,6 +63,7 @@ import Control.Lens
     , modifying
     , scribe
     , (<<+=)
+    , (<<.=)
     , view
     , use
     , uses
@@ -100,6 +100,10 @@ data St = St
     { _currentBlockLabel :: Name
     , _currentBlockInstrs :: [Named Instruction]
     , _registerCount :: Word
+    -- | Keep track of the parent function name so that we can name the
+    --   outermost lambdas of a function definition well.
+    , _lambdaParentFunc :: Maybe String
+    , _outerLambdaN :: Word
     }
 makeLenses ''St
 
@@ -194,6 +198,8 @@ initSt = St
     { _currentBlockLabel = "entry"
     , _currentBlockInstrs = []
     , _registerCount = 0
+    , _lambdaParentFunc = Nothing
+    , _outerLambdaN = 1
     }
 
 genBuiltins :: [Definition]
@@ -236,14 +242,16 @@ genGlobDef (v, e) = case e of
 
 genClosureWrappedFunDef :: TypedVar -> TypedVar -> Expr -> Gen' [Global]
 genClosureWrappedFunDef var p body = do
-    let name = mangleName var
-    fName <- newName'' (unName name `mappend` fromString "_func")
+    let name = mangleName' var
+    assign lambdaParentFunc (Just name)
+    assign outerLambdaN 1
+    let fName = mkName (name ++ "_func")
     (f, gs) <- genFunDef (fName, [], p, body)
     let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
     let capturesType = LLType.ptr typeUnit
     let captures = LLConst.Null capturesType
     let closure = litStruct [captures, fRef]
-    let closureDef = simpleGlobVar name (typeOf closure) closure
+    let closureDef = simpleGlobVar (mkName name) (typeOf closure) closure
     pure (closureDef : f : gs)
 
 -- | Generates a function definition
@@ -305,17 +313,28 @@ genExtractCaptures capturesPtrGeneric fvs = do
     pure (zip fvs captureVals)
 
 genExpr :: Expr -> Gen Val
-genExpr = \case
-    Lit c -> genConst c
-    Var (TypedVar x t) -> lookupVar (TypedVar x t)
-    App f e rt -> genApp f e rt
-    If p c a -> genIf p c a
-    Fun p b -> genLambda p b
-    Let ds b -> genLet ds b
-    Match e cs tbody -> genMatch e cs (toLlvmType tbody)
-    Ction c -> genCtion c
-    Box e -> genBox =<< genExpr e
-    Deref e -> genDeref e
+genExpr expr = do
+    parent <- lambdaParentFunc <<.= Nothing
+    case expr of
+        Lit c -> genConst c
+        Var (TypedVar x t) -> lookupVar (TypedVar x t)
+        App f e rt -> genApp f e rt
+        If p c a -> genIf p c a
+        Fun p b -> assign lambdaParentFunc parent *> genLambda p b
+        Let ds b -> genLet ds b
+        Match e cs tbody -> genMatch e cs (toLlvmType tbody)
+        -- TODO: Currently, the desugar converts a constructor to a construction
+        --       wrapped in a bunch of lambdas. This generates a lot of wasteful
+        --       code. We could be smarter -- keep it as a constructor item until
+        --       now, and then look at how many applications surround it and apply
+        --       them without lambdas, only generating lambdas for the remaining.
+        --
+        --       Another alt. / complement could be to generate named functions for
+        --       constructors and pass them through monomorphization and stuff,
+        --       right?
+        Ction c -> genCtion c
+        Box e -> genBox =<< genExpr e
+        Deref e -> genDeref e
 
 toLlvmDataType :: MonoAst.TConst -> Type
 toLlvmDataType = typeNamed . mangleTConst
@@ -535,7 +554,10 @@ genLambda :: TypedVar -> (Expr, MonoAst.Type) -> Gen Val
 genLambda p@(TypedVar px pt) (b, bt) = do
     let fvs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
     captures <- genBoxGeneric =<< genStruct =<< mapM lookupVar fvs
-    fname <- newName "lambda_func"
+    fname <- use lambdaParentFunc >>= \case
+        Just s ->
+            fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
+        Nothing -> newName "func"
     let ft = toLlvmClosureFunType pt bt
         f = VLocal $ ConstantOperand $ LLConst.GlobalReference
             (LLType.ptr ft)
@@ -548,7 +570,7 @@ genStruct xs = do
     xs' <- mapM getLocal xs
     let t = typeStruct (map typeOf xs')
     fmap VLocal $ foldlM
-        (\s (i, x) -> emitReg' "acc" (insertvalue s x [i]))
+        (\s (i, x) -> emitAnon (insertvalue s x [i]))
         (undef t)
         (zip [0 ..] xs')
 
@@ -746,10 +768,6 @@ newName = lift . newName'
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
 
-newName'' :: ShortByteString -> Gen' Name
-newName'' s =
-    fmap (Name . (mappend s) . fromString . show) (registerCount <<+= 1)
-
 -- TODO: Shouldn't need a return type parameter. Should look at global list of
 --       hidden builtins or something.
 callExtern :: String -> Type -> [Operand] -> FunInstruction
@@ -912,7 +930,10 @@ getIndexed :: Type -> [Word32] -> Type
 getIndexed = foldl' (\t i -> getMembers t !! (fromIntegral i))
 
 mangleName :: TypedVar -> Name
-mangleName (TypedVar x t) = mkName (concat [x, "<", mangleType t, ">"])
+mangleName = mkName . mangleName'
+
+mangleName' :: TypedVar -> String
+mangleName' (TypedVar x t) = concat [x, "<", mangleType t, ">"]
 
 mangleType :: MonoAst.Type -> String
 mangleType = \case
@@ -925,11 +946,6 @@ mangleTConst :: TConst -> String
 mangleTConst (c, ts) = if null ts
     then c
     else concat [c, "<", intercalate ", " (map mangleType ts), ">"]
-
-unName :: Name -> ShortByteString
-unName = \case
-    Name s -> s
-    UnName n -> fromString (show n)
 
 sizeof :: DataLayout -> Type -> EncodeAST Word64
 sizeof layout t = do
