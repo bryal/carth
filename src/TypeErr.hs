@@ -31,6 +31,7 @@ data TypeErr
     | UndefType SrcPos String
     | UnboundTVar SrcPos
     | WrongStartType (WithPos Scheme)
+    | RecursiveVarDef (WithPos String)
     deriving Show
 
 type Message = String
@@ -98,6 +99,9 @@ prettyErr = \case
             $ "Incorrect type of `start`.\n"
             ++ ("Expected: " ++ pretty startType)
             ++ ("\nFound: " ++ pretty s)
+    RecursiveVarDef (WithPos p x) ->
+        posd p var
+            $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the

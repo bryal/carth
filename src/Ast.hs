@@ -23,6 +23,7 @@ module Ast
     , Extern(..)
     , Program(..)
     , startType
+    , isFun
     )
 where
 
@@ -132,7 +133,7 @@ instance Eq Pat where
         _ -> False
 
 instance FreeVars Def (Id Small) where
-    freeVars (name, (_, body)) = Set.delete name (freeVars body)
+    freeVars (_, (_, body)) = freeVars body
 
 instance FreeVars Expr (Id Small) where
     freeVars = fvExpr
@@ -360,3 +361,8 @@ idstr (Id (WithPos _ x)) = x
 
 startType :: Type
 startType = TFun (TPrim TUnit) (TPrim TUnit)
+
+isFun :: Expr -> Bool
+isFun (WithPos _ e) = case e of
+    Fun _ _ -> True
+    _ -> False

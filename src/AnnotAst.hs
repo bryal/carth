@@ -68,10 +68,6 @@ data Expr'
 type Expr = WithPos Expr'
 
 type Defs = Map String (Scheme, Expr)
--- type TypeDefs = Map String ([TVar], [[Type]])
 type TypeDefs = Map String ([TVar], [(String, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type
-
--- data Program = Program Expr Defs TypeDefs Externs
---     deriving (Show)

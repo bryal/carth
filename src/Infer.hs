@@ -9,7 +9,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Bifunctor
-import Data.Graph (SCC(..), flattenSCC, stronglyConnComp)
+import Data.Graph (SCC(..), stronglyConnComp)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Maybe
@@ -22,7 +22,7 @@ import FreeVars
 import Subst
 import NonEmpty
 import qualified Ast
-import Ast (Id(..), IdCase(..), idstr, scmBody)
+import Ast (Id(..), IdCase(..), idstr, scmBody, isFun)
 import TypeErr
 import AnnotAst hiding (Id)
 import Match
@@ -116,7 +116,10 @@ inferDefsComponents :: [SCC Ast.Def] -> Infer Defs
 inferDefsComponents = \case
     [] -> pure Map.empty
     (scc : sccs) -> do
-        let (idents, rhss) = unzip (flattenSCC scc)
+        let (verts, isCyclic) = case scc of
+                AcyclicSCC vert -> ([vert], False)
+                CyclicSCC verts' -> (verts', True)
+        let (idents, rhss) = unzip verts
         let (mayscms, bodies) = unzip rhss
         checkUserSchemes (catMaybes mayscms)
         let mayscms' = map (fmap unpos) mayscms
@@ -125,6 +128,9 @@ inferDefsComponents = \case
         let scms = map
                 (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
                 (zip mayscms' ts)
+        forM_ (zip idents bodies) $ \(Id name, body) ->
+            when (not (isFun body) && isCyclic)
+                $ throwError (RecursiveVarDef name)
         bodies' <-
             withLocals (zip names scms)
             $ forM (zip bodies scms)
