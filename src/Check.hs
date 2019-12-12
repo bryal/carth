@@ -34,7 +34,7 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     checkTypeVarsBound substd
     let desugared = unsugar substd
     let tdefs'' = fmap (second (map snd)) tdefs'
-    pure (uncurry Des.Program desugared tdefs'' externs')
+    pure (Des.Program desugared tdefs'' externs')
 
 checkTypeDefs :: [Ast.TypeDef] -> Except TypeErr (An.TypeDefs, An.Ctors)
 checkTypeDefs tdefs = do
@@ -139,10 +139,8 @@ type Bound = ReaderT (Set TVar) (Except TypeErr) ()
 
 -- TODO: Many of these positions are weird and kind of arbitrary, man. They may
 --       not align with where the type variable is actually detected.
-checkTypeVarsBound :: (An.Expr, An.Defs) -> Except TypeErr ()
-checkTypeVarsBound (main, ds) = runReaderT
-    (boundInExpr main >> boundInDefs ds)
-    Set.empty
+checkTypeVarsBound :: An.Defs -> Except TypeErr ()
+checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
     boundInDefs :: An.Defs -> Bound
     boundInDefs = mapM_ boundInDef

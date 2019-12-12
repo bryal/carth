@@ -9,8 +9,8 @@ import SrcPos
 import qualified AnnotAst as An
 import DesugaredAst
 
-unsugar :: (An.Expr, An.Defs) -> (Expr, Defs)
-unsugar (main, ds) = (unsugarExpr main, unsugarDefs ds)
+unsugar :: An.Defs -> Defs
+unsugar = unsugarDefs
 
 unsugarDefs :: An.Defs -> Defs
 unsugarDefs = fmap (second unsugarExpr)

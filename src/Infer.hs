@@ -57,7 +57,7 @@ inferTopDefs
     -> Ctors
     -> [Ast.Extern]
     -> [Ast.Def]
-    -> Except TypeErr (Externs, (Expr, Defs), Subst)
+    -> Except TypeErr (Externs, Defs, Subst)
 inferTopDefs tdefs ctors externs defs = evalStateT
     (runReaderT inferTopDefs' initEnv)
     initSt
@@ -65,17 +65,20 @@ inferTopDefs tdefs ctors externs defs = evalStateT
     inferTopDefs' = augment envTypeDefs tdefs $ augment envCtors ctors $ do
         externs' <- checkExterns externs
         let externs'' = fmap (Forall Set.empty) externs'
-        defs' <- augment envDefs externs'' (inferDefs defs)
-        (_, (WithPos mainPos _)) <- maybe
-            (throwError MainNotDefined)
-            pure
-            (lookup "main" (map (first idstr) defs))
-        let (Forall _ mainT, main) = defs' Map.! "main"
-        let expectedMainType = TFun (TPrim TUnit) (TPrim TUnit)
-        unify (Expected expectedMainType) (Found mainPos mainT)
-        let defs'' = Map.delete "main" defs'
+        defs' <- checkStartType defs
+        defs'' <- augment envDefs externs'' (inferDefs defs')
         s <- use substs
-        pure (externs', (main, defs''), s)
+        pure (externs', defs'', s)
+    checkStartType :: [Ast.Def] -> Infer [Ast.Def]
+    checkStartType = \case
+        (x@(Id (WithPos _ "start")), (s, b)) : ds ->
+            if s == Nothing || unpos (fromJust s) == startScheme
+                then pure
+                    ((x, (Just (WithPos dummyPos startScheme), b)) : ds)
+                else throwError (WrongStartType (fromJust s))
+        d : ds -> fmap (d :) (checkStartType ds)
+        [] -> throwError StartNotDefined
+    startScheme = Forall Set.empty startType
     initEnv = Env
         { _envDefs = Map.empty
         , _envCtors = Map.empty

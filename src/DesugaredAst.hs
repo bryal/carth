@@ -15,6 +15,7 @@ module DesugaredAst
     , TypeDefs
     , Externs
     , Program(..)
+    , startType
     )
 where
 
@@ -29,6 +30,7 @@ import AnnotAst
     , Const(..)
     , VariantIx
     , Access(..)
+    , startType
     )
 
 data TypedVar = TypedVar String Type
@@ -58,5 +60,5 @@ type Defs = Map String (Scheme, Expr)
 type TypeDefs = Map String ([TVar], [[Type]])
 type Externs = Map String Type
 
-data Program = Program Expr Defs TypeDefs Externs
+data Program = Program Defs TypeDefs Externs
     deriving (Show)

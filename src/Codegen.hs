@@ -140,12 +140,12 @@ instance Typed Val where
 
 
 codegen :: DataLayout -> FilePath -> Program -> EncodeAST Module
-codegen layout moduleFilePath (Program main defs tdefs externs) = do
+codegen layout moduleFilePath (Program defs tdefs externs) = do
     tdefs' <- defineDataTypes layout tdefs
-    let defs' = (TypedVar "-main" mainType, ([], main)) : Map.toList defs
+    let defs' = Map.toList defs
         genGlobDefs = withExternSigs externs $ withGlobDefSigs
             defs'
-            (liftA2 (:) genOuterMain (fmap join (mapM genGlobDef defs')))
+            (liftA2 (:) genMain (fmap join (mapM genGlobDef defs')))
     globDefs <- runGen' layout genGlobDefs
     pure Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
@@ -218,12 +218,12 @@ genExtern :: String -> MonoAst.Type -> Definition
 genExtern name t =
     GlobalDefinition $ simpleGlobVar' (mkName name) (toLlvmType t) Nothing
 
-genOuterMain :: Gen' Definition
-genOuterMain = do
+genMain :: Gen' Definition
+genMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ <- execWriterT $ do
-        f <- lookupVar (TypedVar "-main" mainType)
+        f <- lookupVar (TypedVar "start" startType)
         _ <- app f (VLocal (ConstantOperand litUnit)) typeUnit
         commitFinalFuncBlock (ret (ConstantOperand (litI32 0)))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))

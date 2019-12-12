@@ -19,7 +19,7 @@ module MonoAst
     , Defs
     , TypeDefs
     , Program(..)
-    , mainType
+    , startType
     )
 where
 
@@ -76,7 +76,7 @@ type Defs = Map TypedVar ([Type], Expr)
 type TypeDefs = [(TConst, [VariantTypes])]
 type Externs = [(String, Type)]
 
-data Program = Program Expr Defs TypeDefs Externs
+data Program = Program Defs TypeDefs Externs
     deriving (Show)
 
 
@@ -103,5 +103,5 @@ fvDecisionTree = \case
         Set.unions $ fvDecisionTree def : map fvDecisionTree (Map.elems cs)
     DLeaf (bs, e) -> Set.difference (fvExpr e) (Set.fromList (map fst bs))
 
-mainType :: Type
-mainType = TFun (TPrim TUnit) (TPrim TUnit)
+startType :: Type
+startType = TFun (TPrim TUnit) (TPrim TUnit)

@@ -22,6 +22,7 @@ module Ast
     , TypeDef(..)
     , Extern(..)
     , Program(..)
+    , startType
     )
 where
 
@@ -356,3 +357,6 @@ spcPretty = unwords . map pretty
 
 idstr :: Id a -> String
 idstr (Id (WithPos _ x)) = x
+
+startType :: Type
+startType = TFun (TPrim TUnit) (TPrim TUnit)

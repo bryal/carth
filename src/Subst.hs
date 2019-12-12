@@ -13,8 +13,8 @@ import AnnotAst
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
 
-substTopDefs :: Subst -> (Expr, Defs) -> (Expr, Defs)
-substTopDefs s (main, defs) = (substExpr s main, fmap (substDef s) defs)
+substTopDefs :: Subst -> Defs -> Defs
+substTopDefs s defs = fmap (substDef s) defs
 
 substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = second (substExpr s)

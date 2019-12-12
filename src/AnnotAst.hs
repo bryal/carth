@@ -20,13 +20,15 @@ module AnnotAst
     , TypeDefs
     , Ctors
     , Externs
+    , startType
     )
 where
 
 import Data.Map.Strict (Map)
 import Data.Word
 
-import Ast (TVar(..), TPrim(..), TConst, Type(..), Scheme(..), Const(..))
+import Ast
+    (TVar(..), TPrim(..), TConst, Type(..), Scheme(..), Const(..), startType)
 import SrcPos
 
 

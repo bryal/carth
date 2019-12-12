@@ -5,7 +5,7 @@
   Nil
   (Cons a (Box (List a))))
 
-(define (main _)
+(define (start _)
   (for (Cons "foo" (box (Cons "bar" (box (Cons "baz" (box Nil))))))
        display
        unit))

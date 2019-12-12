@@ -13,7 +13,7 @@ import Data.Functor
 import Control.Applicative
 
 data TypeErr
-    = MainNotDefined
+    = StartNotDefined
     | InvalidUserTypeSig SrcPos Scheme Scheme
     | CtorArityMismatch SrcPos (Id Big) Int Int
     | ConflictingPatVarDefs SrcPos String
@@ -30,13 +30,14 @@ data TypeErr
     | RecTypeDef String SrcPos
     | UndefType SrcPos String
     | UnboundTVar SrcPos
+    | WrongStartType (WithPos Scheme)
     deriving Show
 
 type Message = String
 
 prettyErr :: TypeErr -> Parse.Source -> String
 prettyErr = \case
-    MainNotDefined -> const "Error: main not defined"
+    StartNotDefined -> const "Error: start not defined"
     InvalidUserTypeSig p s1 s2 ->
         posd p scheme
             $ ("Invalid user type signature " ++ pretty s1)
@@ -92,6 +93,11 @@ prettyErr = \case
         posd p defOrExpr
             $ "Could not fully infer type of expression.\n"
             ++ "Type annotations needed."
+    WrongStartType (WithPos p s) ->
+        posd p scheme
+            $ "Incorrect type of `start`.\n"
+            ++ ("Expected: " ++ pretty startType)
+            ++ ("\nFound: " ++ pretty s)
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the

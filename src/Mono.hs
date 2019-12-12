@@ -39,11 +39,11 @@ makeLenses ''Insts
 type Mono = StateT Insts (Reader Env)
 
 monomorphize :: An.Program -> Program
-monomorphize (An.Program main defs tdefs externs) = evalMono $ do
+monomorphize (An.Program defs tdefs externs) = evalMono $ do
     externs' <- mapM (bimapM pure monotype) (Map.toList externs)
-    (defs', main') <- monoLet defs main
+    (defs', _) <- monoLet defs (An.Var (An.TypedVar "start" An.startType))
     tdefs' <- instTypeDefs tdefs
-    pure (Program main' defs' tdefs' externs')
+    pure (Program defs' tdefs' externs')
 
 evalMono :: Mono a -> a
 evalMono ma = runReader (evalStateT ma initInsts) initEnv
