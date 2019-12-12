@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::{alloc, ptr, slice, str};
 
 macro_rules! def_carth_closure {
-    ($e:expr, $s:ident, $f:ident; $ta:ty, $tr:ty; $a:ident => $b:expr) => {
+    ($e:expr, $s:ident, $f:ident; $ta:ty, $tr:ty; $a:pat => $b:expr) => {
         #[export_name = $e]
         pub static $s: Closure<$ta, $tr> = Closure::new($f);
         pub extern "C" fn $f(_: Captures, $a: $ta) -> $tr {
@@ -84,8 +84,8 @@ pub extern "C" fn carth_alloc(size: u64) -> *mut u8 {
 
 def_carth_closure! {
     "display-inline", DISPLAY_INLINE, display_inline;
-    *const Str, (); s => unsafe {
-        let s = from_carth_str(&*s);
+    Str, (); s => {
+        let s = from_carth_str(&s);
         print!("{}", s);
         io::stdout().flush().ok();
     }
@@ -93,37 +93,37 @@ def_carth_closure! {
 
 def_carth_closure! {
     "-str-append", STR_APPEND, str_append;
-    *const Pair<Str, Str>, Str; pair => unsafe {
-        let (s1, s2) = (from_carth_str(&(*pair).fst), from_carth_str(&(*pair).snd));
+    Pair<Str, Str>, Str; Pair { fst, snd, .. } => {
+        let (s1, s2) = (from_carth_str(&fst), from_carth_str(&snd));
         Str::new(s1.to_string() + s2)
     }
 }
 
-fn from_carth_str(s: &Str) -> &str {
+fn from_carth_str<'s>(s: &'s Str) -> &'s str {
     unsafe {
-        let Array { elems, len, .. } = (*s).array;
+        let Array { elems, len, .. } = s.array;
         let slice = slice::from_raw_parts(elems, len as usize);
         str::from_utf8_unchecked(slice)
     }
 }
 
 def_carth_closure! {
-    "-add-int", ADD_INT, add_int;
-    *const Pair<i64, i64>, i64; pair => unsafe {
-        (*pair).fst + (*pair).snd
-    }
+    "add-int", ADD_INT, add_int;
+    Pair<i64, i64>, i64; Pair { fst, snd, .. } => fst + snd
 }
 
 def_carth_closure! {
-    "-gt-int", GT_INT, gt_int;
-    *const Pair<i64, i64>, bool; pair => unsafe {
-        (*pair).fst > (*pair).snd
-    }
+    "gt-int", GT_INT, gt_int;
+    Pair<i64, i64>, bool; Pair { fst, snd, .. } => fst > snd
 }
 
 def_carth_closure! {
-    "-eq-int", EQ_INT, eq_int;
-    *const Pair<i64, i64>, bool; pair => unsafe {
-        (*pair).fst == (*pair).snd
-    }
+    "eq-int", EQ_INT, eq_int;
+    Pair<i64, i64>, bool; Pair { fst, snd, .. } => fst == snd
+}
+
+def_carth_closure! {
+    "show-int", SHOW_INT, show_int;
+    i64, Str; n =>
+        Str::new(n.to_string())
 }

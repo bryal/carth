@@ -301,15 +301,15 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
         px' <- newName px
         -- Load params according to calling convention
         passParamByRef <- passByRef pt'
-        let (withParam, pt'') = if passParamByRef
-                then (withVar, LLType.ptr pt')
-                else (withLocal, pt')
+        let (withParam, pt'', pattrs) = if passParamByRef
+                then (withVar, LLType.ptr pt', [ByVal])
+                else (withLocal, pt', [])
         let pRef = LocalReference pt'' px'
         result <- getLocal
             =<< withParam ptv pRef (withLocals captureLocals (genExpr body))
         let rt' = typeOf result
         let fParams' =
-                [uncurry Parameter capturesParam [], Parameter pt'' px' []]
+                [uncurry Parameter capturesParam [], Parameter pt'' px' pattrs]
         -- Return result according to calling convention
         returnResultByRef <- passByRef rt'
         if returnResultByRef
@@ -482,8 +482,10 @@ app closure a rt = do
     captures <- emitReg' "captures" (extractvalue closure' [0])
     f <- emitReg' "function" (extractvalue closure' [1])
     passArgByRef <- passByRef (typeOf a)
-    a' <- if passArgByRef then getVar a else getLocal a
-    let args = [(captures, []), (a', [])]
+    (a', aattrs) <- if passArgByRef
+        then fmap (, [ByVal]) (getVar a)
+        else fmap (, []) (getLocal a)
+    let args = [(captures, []), (a', aattrs)]
     returnByRef <- passByRef rt
     if returnByRef
         then do

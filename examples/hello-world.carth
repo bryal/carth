@@ -2,16 +2,7 @@
   (Pair a b))
 
 (define (start _)
-  (display "Hello, world!"))
-
-
-(define (display s)
-  ;; TODO: This is broken:
-  ;; (display-inline (id (-str-append (id (Pair s "\n")))))
-  (display-inline (str-append s "\n"))
-  )
-
-;; (define (id x) x)
+  (display-inline (str-append "Hello, world!" "\n")))
 
 (define (str-append s1 s2) (-str-append (Pair s1 s2)))
 
