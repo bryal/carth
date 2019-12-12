@@ -30,6 +30,7 @@ import qualified LLVM.AST.Linkage as LLLink
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
+import LLVM.AST.Global (Parameter)
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.FunctionAttribute as LLFnAttr
@@ -207,7 +208,7 @@ genBuiltins = map
     (GlobalDefinition . ($ []))
     [ simpleFunc
         (mkName "carth_alloc")
-        [parameter (mkName "size") i64]
+        [Parameter i64 (mkName "size") []]
         (LLType.ptr typeUnit)
     ]
 
@@ -264,26 +265,26 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
-        (capturesParam, captureLocals) <- genExtractCaptures' fvs
+        (capturesParam, captureLocals) <- genExtractCaptures fvs
         let pt' = toLlvmType pt
         px' <- newName px
         -- Load params according to calling convention
         let (withParam, pt'') = if passByRef pt'
                 then (withVar, LLType.ptr pt')
                 else (withLocal, pt')
-        let p = (px', pt'')
-        let pRef = uncurry (flip LocalReference) p
+        let pRef = LocalReference pt'' px'
         result <- getLocal
             =<< withParam ptv pRef (withLocals captureLocals (genExpr body))
         let rt' = typeOf result
-        let fParams' = [uncurry parameter capturesParam, uncurry parameter p]
+        let fParams' =
+                [uncurry Parameter capturesParam [], Parameter pt'' px' []]
         -- Return result according to calling convention
         if passByRef rt'
             then do
-                let out = (mkName "out", LLType.ptr rt')
-                emit (store result (uncurry (flip LocalReference) out))
+                let out = (LLType.ptr rt', mkName "out")
+                emit (store result (uncurry LocalReference out))
                 commitFinalFuncBlock retVoid
-                pure (LLType.void, uncurry parameter out : fParams')
+                pure (LLType.void, uncurry Parameter out [SRet] : fParams')
             else do
                 commitFinalFuncBlock (ret result)
                 pure (rt', fParams')
@@ -292,26 +293,23 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
     let f = simpleFunc name fParams rt basicBlocks
     pure (f, ss ++ ls)
 
-genExtractCaptures' :: [TypedVar] -> Gen ((Name, Type), [(TypedVar, Operand)])
-genExtractCaptures' fvs = do
+genExtractCaptures :: [TypedVar] -> Gen ((Type, Name), [(TypedVar, Operand)])
+genExtractCaptures fvs = do
     capturesName <- newName "captures"
     let capturesPtrGenericType = LLType.ptr typeUnit
     let capturesPtrGeneric = LocalReference capturesPtrGenericType capturesName
-    let capturesParam = (capturesName, capturesPtrGenericType)
+    let capturesParam = (capturesPtrGenericType, capturesName)
     fmap (capturesParam, ) $ if null fvs
         then pure []
-        else genExtractCaptures capturesPtrGeneric fvs
-
-genExtractCaptures :: Operand -> [TypedVar] -> Gen [(TypedVar, Operand)]
-genExtractCaptures capturesPtrGeneric fvs = do
-    let capturesType = typeCaptures fvs
-    capturesPtr <- emitAnon
-        (bitcast capturesPtrGeneric (LLType.ptr capturesType))
-    captures <- emitAnon (load capturesPtr)
-    captureVals <- mapM
-        (\(TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
-        (zip fvs [0 ..])
-    pure (zip fvs captureVals)
+        else do
+            let capturesType = typeCaptures fvs
+            capturesPtr <- emitAnon
+                (bitcast capturesPtrGeneric (LLType.ptr capturesType))
+            captures <- emitAnon (load capturesPtr)
+            captureVals <- mapM
+                (\(TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
+                (zip fvs [0 ..])
+            pure (zip fvs captureVals)
 
 genExpr :: Expr -> Gen Val
 genExpr expr = do
@@ -672,9 +670,6 @@ simpleGlobVar' name t init = GlobalVariable
     , LLGlob.alignment = 0
     , LLGlob.metadata = []
     }
-
-parameter :: Name -> Type -> LLGlob.Parameter
-parameter p pt = LLGlob.Parameter pt p []
 
 getVar :: Val -> Gen Operand
 getVar = \case
