@@ -95,7 +95,7 @@ the fix etc:
     Made an almost 1:1 implementation of Sestoft's algorithms. It's
     good.
 
-** TODO Handle recursive datatypes
+** DONE Handle recursive datatypes
    Consider the linked list ~(type (List a) Nil (Cons a (List a)))~,
    how should this type be represented in memory? If we just naively
    represent it as a flat structure without any indirection, it will
@@ -123,8 +123,24 @@ the fix etc:
              point to make `Foo` representable
    #+END_EXAMPLE
 
+*** Completed
+    Decided to go with explicit ~Box~ type and ~box~/~deref~ syntax, at
+    least for now. ~Box~ is a heap-allocated pointer which currently
+    leaks, but should probably be GCd. A datatype definition recursive
+    without ~Box~ indirection will now throw an error.
+
+** TODO Document in reference
 ** NEXT Uninhabited types
    Definition and pattern-matching of.
+* TODO C Calling Convention
+  Gotta implement it more fully. Handle small structs / whatever.
+
+** TODO Fix Call Conv related bugs
+   There's some stuff that doesn't work quite right.
+
+   ~(display-inline (id (str-append (id s) (id "\n"))))~
+
+   This doesn't print properly. Seems to be call conv issue, or alignment.
 * NEXT Typeclasses
 ** Agda style classes w implicit args
    In Haskell, you can only have a single instance of a specific
