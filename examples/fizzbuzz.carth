@@ -7,21 +7,18 @@
 
 (define (start _)
   (for (Cons "foo" (box (Cons "bar" (box (Cons "baz" (box Nil))))))
-       display
-       unit))
+       display))
 
 (define (display s)
   (display-inline (str-append s "\n")))
 
-(define (for xs f _)
+(define (for xs f)
   (match xs
     [Nil unit]
     [(Cons x xs')
-     ;; TODO: This is broken
-     ;; (seq (f x) (for (deref xs') f))
-     (for (deref xs') f (f x))]))
+     (seq (f x) (for (deref xs') f))]))
 
-;; (define (seq a b) b)
+(define (seq a b) b)
 
 (define (str-append s1 s2) (-str-append (Pair s1 s2)))
 

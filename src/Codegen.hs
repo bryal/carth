@@ -455,7 +455,11 @@ app closure a rt = do
   where
     call f as = WithRetType
         (Call
-            { tailCallKind = Just Tail
+            -- NOTE: Just marking all calls as "tail" did not work out
+            --       well. Lotsa segfaults and stuff! Learn more about what
+            --       exactly "tail" does first. Maybe it's only ok to mark calls
+            --       that are actually in tail position as tail calls?
+            { tailCallKind = Nothing
             , callingConvention = cfg_callConv
             , returnAttributes = []
             , function = Right f
@@ -793,7 +797,7 @@ callExtern f rt as = WithRetType (callExtern'' f rt as) rt
 
 callExtern'' :: String -> Type -> [Operand] -> Instruction
 callExtern'' f rt as = Call
-    { tailCallKind = Just Tail
+    { tailCallKind = Nothing
     , callingConvention = cfg_callConv
     , returnAttributes = []
     , function = Right $ ConstantOperand $ LLConst.GlobalReference
@@ -978,7 +982,7 @@ sizeof layout t = do
 toFFIType :: Type -> EncodeAST FFIType
 toFFIType = encodeM
 
--- TODO: Use "tailcc" - Tail callable calling convention. It looks like exactly
---       what I want!
+-- TODO: Try out "tailcc" - Tail callable calling convention. It looks like
+--       exactly what I want!
 cfg_callConv :: LLCallConv.CallingConvention
 cfg_callConv = LLCallConv.C
