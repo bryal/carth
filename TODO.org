@@ -132,15 +132,6 @@ the fix etc:
 ** TODO Document in reference
 ** NEXT Uninhabited types
    Definition and pattern-matching of.
-* TODO C Calling Convention
-  Gotta implement it more fully. Handle small structs / whatever.
-
-** TODO Fix Call Conv related bugs
-   There's some stuff that doesn't work quite right.
-
-   ~(display-inline (id (str-append (id s) (id "\n"))))~
-
-   This doesn't print properly. Seems to be call conv issue, or alignment.
 * NEXT Typeclasses
 ** Agda style classes w implicit args
    In Haskell, you can only have a single instance of a specific
@@ -457,3 +448,9 @@ the fix etc:
   over time, like in Java. Would not be as much of a problem if we're
   not afraid of releasing new major versions removing deprecated
   stuff.
+* INACTIVE Boxing to allow for dynamic linking
+  Boxing vs monomorphization. Boxing results in smaller binary and
+  dynamically-linkable interface,bot results in slower code.
+
+  Maybe monomorphize all package-internal code, and box all
+  public-facing functions?
