@@ -24,6 +24,10 @@ import Data.Map (Map)
 import Data.Composition
 import Control.Monad.Reader
 import Control.Lens (Lens', locally)
+import LLVM.AST.Type (Type)
+import LLVM.AST (Name, Module)
+import LLVM.Pretty ()
+import qualified Data.Text.Prettyprint.Doc as Prettyprint
 
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)
@@ -51,6 +55,13 @@ class Pretty a where
 
 instance Pretty String where
     pretty' _ = id
+
+instance Pretty Type where
+    pretty' _ = show . Prettyprint.pretty
+instance Pretty Name where
+    pretty' _ = show . Prettyprint.pretty
+instance Pretty Module where
+    pretty' _ = show . Prettyprint.pretty
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) = concat

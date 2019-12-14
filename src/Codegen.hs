@@ -41,9 +41,7 @@ import LLVM.Internal.Coding (encodeM)
 import LLVM.Internal.EncodeAST (EncodeAST, defineType)
 import LLVM.Internal.Type (createNamedType, setNamedType)
 import qualified Foreign.Ptr
-import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Codec.Binary.UTF8.String as UTF8.String
-import LLVM.Pretty ()
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
@@ -128,13 +126,6 @@ instance Semigroup Out where
         Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2)
 instance Monoid Out where
     mempty = Out [] [] []
-
-instance Pretty Type where
-    pretty' _ = show . Prettyprint.pretty
-instance Pretty Name where
-    pretty' _ = show . Prettyprint.pretty
-instance Pretty Module where
-    pretty' _ = show . Prettyprint.pretty
 
 instance Typed Val where
     typeOf = \case
@@ -355,15 +346,6 @@ genExpr expr = do
         Fun p b -> assign lambdaParentFunc parent *> genLambda p b
         Let ds b -> genLet ds b
         Match e cs tbody -> genMatch e cs =<< toLlvmType tbody
-        -- TODO: Currently, the desugar converts a constructor to a construction
-        --       wrapped in a bunch of lambdas. This generates a lot of wasteful
-        --       code. We could be smarter -- keep it as a constructor item until
-        --       now, and then look at how many applications surround it and apply
-        --       them without lambdas, only generating lambdas for the remaining.
-        --
-        --       Another alt. / complement could be to generate named functions for
-        --       constructors and pass them through monomorphization and stuff,
-        --       right?
         Ction c -> genCtion c
         Box e -> genBox =<< genExpr e
         Deref e -> genDeref e
