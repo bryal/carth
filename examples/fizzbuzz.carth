@@ -5,13 +5,27 @@
   None
   (Some a))
 
+(type (Lazy a)
+  (Lazy (Fun Unit a)))
+
 (type (Iter a)
-  (Iter (Fun Unit (Maybe (Pair a (Iter a))))))
+  (Iter (Lazy (Maybe (Pair a (Iter a))))))
 
 
-(define (start _)
-  (for (range 0 100)
-       (comp display show-int)))
+(define (start _) (fizzbuzz unit))
+
+(define (fizzbuzz _)
+  (for (range 1 100)
+       (comp display fizzbuzz')))
+
+(define (fizzbuzz' n)
+  (if (and (divisible? n 3) (divisible? n 5))
+      "Fizzbuzz"
+    (if (divisible? n 3)
+        "Fizz"
+      (if (divisible? n 5)
+          "Buzz"
+        (show-int n)))))
 
 (define (display s)
   (display-inline (str-append s "\n")))
@@ -23,23 +37,25 @@
      (seq (f x) (for xs' f))]))
 
 (define (range a b)
-  (if (> a b)
-      (Iter (fun _ None))
-    (Iter (fun _ (Some (Pair a (range (+ a 1) b)))))))
+  (Iter (Lazy (if (> a b)
+                  (fun _ None)
+                (fun _ (Some (Pair a (range (+ a 1) b))))))))
 
-(define next (fun-match [(Iter f) (f unit)]))
-
+(define next (fun-match [(Iter it) (lively it)]))
+(define lively (fun-match [(Lazy f) (f unit)]))
 (define (seq a b) b)
-
 (define (comp f g a) (f (g a)))
+(define (and p q) (if p q false))
+(define (divisible? n m) (= (rem n m) 0))
 
 
 ;;; Extern wrappers
 
 (define (str-append s1 s2) (-str-append (Pair s1 s2)))
 (define (> a b) (gt-int (Pair a b)))
-(define (= a b) (gt-int (Pair a b)))
+(define (= a b) (eq-int (Pair a b)))
 (define (+ a b) (add-int (Pair a b)))
+(define (rem a b) (rem-int (Pair a b)))
 
 
 ;;; Externs
@@ -50,3 +66,4 @@
 (extern gt-int (Fun (Pair Int Int) Bool))
 (extern eq-int (Fun (Pair Int Int) Bool))
 (extern add-int (Fun (Pair Int Int) Int))
+(extern rem-int (Fun (Pair Int Int) Int))
