@@ -41,7 +41,6 @@ import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.Char
-import Data.Bool
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -865,7 +864,7 @@ litI8 :: Integral n => n -> LLConst.Constant
 litI8 = LLConst.Int 8 . toInteger
 
 litBool :: Bool -> LLConst.Constant
-litBool = LLConst.Int 1 . bool 1 0
+litBool b = LLConst.Int 8 $ if b then 1 else 0
 
 litDouble :: Double -> LLConst.Constant
 litDouble = LLConst.Float . LLFloat.Double
@@ -898,7 +897,7 @@ typeStruct :: [Type] -> Type
 typeStruct ts = StructureType { isPacked = False, elementTypes = ts }
 
 typeBool :: Type
-typeBool = i1
+typeBool = i8
 
 typeUnit :: Type
 typeUnit = StructureType { isPacked = False, elementTypes = [] }
