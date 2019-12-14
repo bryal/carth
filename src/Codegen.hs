@@ -307,7 +307,7 @@ genExtractCaptures fvs = do
                 (bitcast capturesPtrGeneric (LLType.ptr capturesType))
             captures <- emitAnon (load capturesPtr)
             captureVals <- mapM
-                (\(TypedVar x _, i) -> emitReg' x (extractvalue captures [i]))
+                (\(TypedVar x _, i) -> emitReg' x =<< extractvalue captures [i])
                 (zip fvs [0 ..])
             pure (zip fvs captureVals)
 
@@ -437,8 +437,8 @@ genApp fe ae rt = genApp' (fe, [(ae, rt)])
 app :: Val -> Val -> Type -> Gen Val
 app closure a rt = do
     closure' <- getLocal closure
-    captures <- emitReg' "captures" (extractvalue closure' [0])
-    f <- emitReg' "function" (extractvalue closure' [1])
+    captures <- emitReg' "captures" =<< extractvalue closure' [0]
+    f <- emitReg' "function" =<< extractvalue closure' [1]
     passArgByRef <- passByRef (typeOf a)
     (a', aattrs) <- if passArgByRef
         then fmap (, [ByVal]) (getVar a)
@@ -520,7 +520,7 @@ genDecisionSwitch selector cs def tbody selections = do
     defaultL <- newName "default"
     nextL <- newName "next"
     (m, selections') <- select genAs genSub selector selections
-    mVariantIx <- emitReg' "found_variant_ix" (extractvalueFromNamed m i64 [0])
+    mVariantIx <- emitReg' "found_variant_ix" =<< extractvalue m [0]
     commitToNewBlock (switch mVariantIx defaultL dests) defaultL
     v <- getLocal =<< genDecisionTree tbody def selections'
     let genCase l dt = do
@@ -544,7 +544,8 @@ genAs ts matchee = do
     emitReg' "ction" (load p)
 
 genSub :: Word32 -> Operand -> Gen Operand
-genSub i matchee = emitReg' "submatchee" (extractvalue matchee (pure (i + 1)))
+genSub i matchee =
+    emitReg' "submatchee" =<< extractvalue matchee (pure (i + 1))
 
 genCtion :: MonoAst.Ction -> Gen Val
 genCtion (i, tdef, as) = do
@@ -808,15 +809,21 @@ bitcast x t = WithRetType (BitCast x t []) t
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstruction
 insertvalue s e is = WithRetType (InsertValue s e is []) (typeOf s)
 
-extractvalue :: Operand -> [Word32] -> FunInstruction
-extractvalue struct is = WithRetType
-    (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
+extractvalue :: Operand -> [Word32] -> Gen FunInstruction
+extractvalue struct is = fmap
+    (WithRetType
+        (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
+    )
     (getIndexed (typeOf struct) is)
-
-extractvalueFromNamed :: Operand -> Type -> [Word32] -> FunInstruction
-extractvalueFromNamed struct t is = WithRetType
-    (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
-    t
+  where
+    getIndexed = foldlM (\t i -> fmap (!! fromIntegral i) (getMembers t))
+    getMembers = \case
+        NamedTypeReference x -> getMembers =<< lift (lookupDataType x)
+        StructureType _ members -> pure members
+        t ->
+            ice
+                $ "Tried to get member types of non-struct type "
+                ++ pretty t
 
 store :: Operand -> Operand -> Instruction
 store srcVal destPtr = Store
@@ -911,14 +918,6 @@ getPointee :: Type -> Type
 getPointee = \case
     LLType.PointerType t _ -> t
     t -> ice $ "Tried to get pointee of non-function type " ++ pretty t
-
-getMembers :: Type -> [Type]
-getMembers = \case
-    StructureType _ members -> members
-    t -> ice $ "Tried to get member types of non-struct type " ++ pretty t
-
-getIndexed :: Type -> [Word32] -> Type
-getIndexed = foldl' (\t i -> getMembers t !! (fromIntegral i))
 
 mangleName :: (String, [MonoAst.Type]) -> String
 mangleName (x, us) = x ++ mangleInst us
