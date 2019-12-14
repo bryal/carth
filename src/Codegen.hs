@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, TemplateHaskell, TupleSections
-  , FlexibleContexts #-}
+           , FlexibleContexts #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
 --
@@ -34,13 +34,6 @@ import LLVM.AST.Global (Parameter)
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.FunctionAttribute as LLFnAttr
-import LLVM.Internal.DataLayout (withFFIDataLayout)
-import LLVM.Internal.FFI.DataLayout (getTypeAllocSize)
-import qualified LLVM.Internal.FFI.PtrHierarchy as LLPtrHierarchy
-import LLVM.Internal.Coding (encodeM)
-import LLVM.Internal.EncodeAST (EncodeAST, defineType)
-import LLVM.Internal.Type (createNamedType, setNamedType)
-import qualified Foreign.Ptr
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.String
 import System.FilePath
@@ -49,8 +42,8 @@ import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.Char
 import Data.Bool
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import qualified Data.Map as Map
+import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Word
 import Data.Foldable
@@ -64,7 +57,6 @@ import Control.Lens
     , scribe
     , (<<+=)
     , (<<.=)
-    , view
     , use
     , uses
     , assign
@@ -79,8 +71,6 @@ import MonoAst hiding (Type, Const)
 import Selections
 
 
-type FFIType = Foreign.Ptr.Ptr LLPtrHierarchy.Type
-
 -- | An instruction that returns a value. The name refers to the fact that a
 --   mathematical function always returns a value, but an imperative procedure
 --   may only produce side effects.
@@ -93,7 +83,6 @@ data Val
 data Env = Env
     { _env :: Map TypedVar Operand  -- ^ Environment of stack allocated variables
     , _dataTypes :: Map Name Type
-    , _dataLayout :: DataLayout
     }
 makeLenses ''Env
 
@@ -108,7 +97,7 @@ data St = St
     }
 makeLenses ''St
 
-type Gen' = StateT St (ReaderT Env EncodeAST)
+type Gen' = StateT St (Reader Env)
 
 -- | The output of generating a function
 data Out = Out
@@ -133,32 +122,35 @@ instance Typed Val where
         VLocal x -> typeOf x
 
 
-codegen :: DataLayout -> FilePath -> Program -> EncodeAST Module
-codegen layout moduleFilePath (Program defs tdefs externs) = do
-    let defs' = Map.toList defs
-    (tdefs', externs', globDefs) <- runGen' layout $ do
-        tdefs'' <- defineDataTypes tdefs
-        withDataTypes tdefs''
-            $ withExternSigs externs
-            $ withGlobDefSigs defs'
-            $ do
-                es <- genExterns externs
-                ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs'))
-                pure (tdefs'', es, ds)
-    pure Module
+codegen :: DataLayout -> FilePath -> Program -> Module
+codegen layout moduleFilePath (Program defs tdefs externs) =
+    let
+        defs' = Map.toList defs
+        (tdefs', externs', globDefs) = runGen' $ do
+            tdefs'' <- defineDataTypes tdefs
+            withDataTypes tdefs''
+                $ withExternSigs externs
+                $ withGlobDefSigs defs'
+                $ do
+                    es <- genExterns externs
+                    ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs'))
+                    pure (tdefs'', es, ds)
+    in Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
         , moduleSourceFileName = fromString moduleFilePath
         , moduleDataLayout = Just layout
         , moduleTargetTriple = Nothing
         , moduleDefinitions = concat
-            [ map (\(n, tmax) -> TypeDefinition n (Just tmax)) tdefs'
+            [ map
+                (\(n, tmax) -> TypeDefinition n (Just tmax))
+                (Map.toList tdefs')
             , genBuiltins
             , externs'
             , globDefs
             ]
         }
   where
-    withDataTypes = augment dataTypes . Map.fromList
+    withDataTypes = augment dataTypes
     withExternSigs es ga = do
         es' <- forM es $ \(name, t) -> do
             t' <- toLlvmType' t
@@ -179,42 +171,27 @@ codegen layout moduleFilePath (Program defs tdefs externs) = do
                 )
         augment env (Map.fromList sigs') ga
 
--- TODO: Consider separating sizeof calculations to a separate pass preceeding
---       Codegen, so that IO/EncodeAST may be limited to a more overviewable and
---       very self-contained module.
---
 -- | Convert data-type definitions from `MonoAst` format to LLVM format, and
---   then both add them to the `EncodeAST` environment so `sizeof` can see them
---   later, and return them as `Definition`s so that they may be exported in the
+--   then return them as `Definition`s so that they may be exported in the
 --   Module AST.
---
---   Note that this method may be inefficient, since we define the data-types
---   twice. The first time manually within this module in order to be able to do
---   `sizeof`, and the second time implicitly within `withModuleFromAST`
---   somewhere when actually compiling the whole module with the LLVM library.
 --
 --   A data-type is a tagged union, and is represented in LLVM as a struct where
 --   the first element is the variant-index as an i64, and the rest of the
 --   elements are the field-types of the largest variant wrt allocation size.
-defineDataTypes :: TypeDefs -> Gen' [(Name, Type)]
+defineDataTypes :: TypeDefs -> Gen' (Map Name Type)
 defineDataTypes tds = do
-    -- Forward declare to allow for recursion and unordered defs
-    lhss <- forM tds $ \(tc, _) -> do
-        let n = mkName (mangleTConst tc)
-        (lhs, n') <- lift (lift (createNamedType n))
-        lift (lift (defineType n n' lhs))
-        pure (n, lhs)
-    forM (zip lhss tds) $ \((n, lhs), (_, vs)) -> do
-        ts <- mapM toLlvmVariantType vs
-        sizedTs <- mapM (\t -> fmap (, t) (sizeof' t)) ts
-        let (_, tmax) = maximum sizedTs
-        lift (lift (setNamedType lhs tmax))
-        pure (n, tmax)
+    mfix $ \tds' ->
+        fmap Map.fromList $ augment dataTypes tds' $ forM tds $ \(tc, vs) -> do
+            let n = mkName (mangleTConst tc)
+            ts <- mapM toLlvmVariantType vs
+            sizedTs <- mapM (\t -> fmap (\s -> (s, t)) (sizeof t)) ts
+            let (_, tmax) = maximum sizedTs
+            pure (n, tmax)
 
-runGen' :: DataLayout -> Gen' a -> EncodeAST a
-runGen' layout g = runReaderT
+runGen' :: Gen' a -> a
+runGen' g = runReader
     (evalStateT g initSt)
-    Env { _env = Map.empty, _dataTypes = Map.empty, _dataLayout = layout }
+    Env { _env = Map.empty, _dataTypes = Map.empty }
 
 initSt :: St
 initSt = St
@@ -634,7 +611,7 @@ genBox' x = do
 
 genHeapAlloc :: Type -> Gen Operand
 genHeapAlloc t = do
-    size <- fmap litU64' (lift (sizeof' t))
+    size <- fmap litU64' (lift (sizeof t))
     emitAnon (callExtern "carth_alloc" (LLType.ptr typeUnit) [size])
 
 genDeref :: Expr -> Gen Val
@@ -911,43 +888,6 @@ litStructOfType t xs =
 litUnit :: LLConst.Constant
 litUnit = litStruct []
 
-passByRef :: Type -> Gen Bool
-passByRef = lift . passByRef'
-
--- TODO: Handle >64bit integers and pointers. Haven't checked the rules for
---       those.
---
--- NOTE: This post is helpful:
---       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
---       Also, official docs:
---       https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
---       particularly section 3.2.3 Parameter Passing (p18).
-passByRef' :: Type -> Gen' Bool
-passByRef' t = case t of
-    NamedTypeReference x -> passByRef' =<< views dataTypes (Map.! x)
-    -- Simple scalar types. They go in registers.
-    VoidType -> pure False
-    IntegerType _ -> pure False
-    PointerType _ _ -> pure False
-    FloatingPointType _ -> pure False
-    -- Functions are not POD (Plain Ol' Data), so they are passed on the stack.
-    FunctionType _ _ _ -> pure True
-    -- TODO: Investigate how exactly SIMD vectors are to be passed when/if we
-    --       ever add support for that in the rest of the compiler.
-    VectorType _ _ -> pure True
-    -- Aggregate types can either be passed on stack or in regs, depending on
-    -- what they contain.
-    StructureType _ us -> do
-        size <- sizeof' t
-        if size > 16 then pure True else fmap or (mapM passByRef' us)
-    ArrayType _ u -> do
-        size <- sizeof' u
-        if size > 16 then pure True else passByRef' u
-    -- N/A
-    MetadataType -> ice "passByRef of MetadataType"
-    LabelType -> ice "passByRef of LabelType"
-    TokenType -> ice "passByRef of TokenType"
-
 typeCaptures :: [TypedVar] -> Gen Type
 typeCaptures = fmap typeStruct . mapM (\(TypedVar _ t) -> toLlvmType t)
 
@@ -999,23 +939,95 @@ mangleType = \case
 mangleTConst :: TConst -> String
 mangleTConst (c, ts) = c ++ mangleInst ts
 
-sizeof' :: Type -> Gen' Word64
-sizeof' t = do
-    layout <- view dataLayout
-    lift (lift (sizeof layout t))
+passByRef :: Type -> Gen Bool
+passByRef = lift . passByRef'
 
-sizeof :: DataLayout -> Type -> EncodeAST Word64
-sizeof layout t = do
-    t' <- toFFIType t
-    liftIO (withFFIDataLayout layout $ \dl -> getTypeAllocSize dl t')
+-- NOTE: This post is helpful:
+--       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
+--       Also, official docs:
+--       https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
+--       particularly section 3.2.3 Parameter Passing (p18).
+passByRef' :: Type -> Gen' Bool
+passByRef' = \case
+    NamedTypeReference x -> passByRef' =<< views dataTypes (Map.! x)
+    -- Simple scalar types. They go in registers.
+    VoidType -> pure False
+    IntegerType _ -> pure False
+    PointerType _ _ -> pure False
+    FloatingPointType _ -> pure False
+    -- Functions are not POD (Plain Ol' Data), so they are passed on the stack.
+    FunctionType _ _ _ -> pure True
+    -- TODO: Investigate how exactly SIMD vectors are to be passed when/if we
+    --       ever add support for that in the rest of the compiler.
+    VectorType _ _ -> pure True
+    -- Aggregate types can either be passed on stack or in regs, depending on
+    -- what they contain.
+    t@(StructureType _ us) -> do
+        size <- sizeof t
+        if size > 16 then pure True else fmap or (mapM passByRef' us)
+    ArrayType _ u -> do
+        size <- sizeof u
+        if size > 16 then pure True else passByRef' u
+    -- N/A
+    MetadataType -> ice "passByRef of MetadataType"
+    LabelType -> ice "passByRef of LabelType"
+    TokenType -> ice "passByRef of TokenType"
 
--- Note: encodeM requires named-types to be defined in the EncodeAST monad
---       already, which makes sense as e.g. getTypeAllocSize wouldn't make sense
---       to run before all types are defined. As such, make sure to define
---       all type-definitions in the EncodeAST monad first via llvm-hs internal
---       functions createNamedType => defineType => setNamedType.
-toFFIType :: Type -> EncodeAST FFIType
-toFFIType = encodeM
+-- TODO: Handle packed
+--
+-- TODO: Handle different data layouts. Check out LLVMs DataLayout class and
+--       impl of `getTypeAllocSize`.
+--       https://llvm.org/doxygen/classllvm_1_1DataLayout.html
+--
+-- | Haskell-native implementation of `sizeof`, in contrast to
+--   `getTypeAllocSize` of `llvm-hs`.
+--
+--   The problem with `getTypeAllocSize` is that it requires an `EncodeAST`
+--   monad and messy manipulations. Specifically, I had some recursive bindings
+--   going on, but to represent them in a monad I needed `mfix`, but `EncodeAST`
+--   didn't have `mfix`!
+--
+--   See the [System V ABI docs](https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf)
+--   for more info.
+sizeof :: Type -> Gen' Word64
+sizeof = \case
+    NamedTypeReference x -> sizeof =<< lookupDataType x
+    IntegerType bits -> pure (fromIntegral (toBytesCeil bits))
+    PointerType _ _ -> pure 8
+    FloatingPointType HalfFP -> pure 2
+    FloatingPointType FloatFP -> pure 4
+    FloatingPointType DoubleFP -> pure 8
+    FloatingPointType FP128FP -> pure 16
+    FloatingPointType X86_FP80FP -> pure 16
+    FloatingPointType PPC_FP128FP -> pure 16
+    StructureType _ us -> foldlM addMember 0 us
+    VectorType n u -> fmap (fromIntegral n *) (sizeof u)
+    ArrayType n u -> fmap (n *) (sizeof u)
+    VoidType -> ice "sizeof VoidType"
+    FunctionType _ _ _ -> ice "sizeof FunctionType"
+    MetadataType -> ice "sizeof MetadataType"
+    LabelType -> ice "sizeof LabelType"
+    TokenType -> ice "sizeof TokenType"
+  where
+    toBytesCeil nbits = div (nbits + 7) 8
+    addMember accSize u = do
+        align <- alignmentof u
+        let padding = align - mod accSize align
+        size <- sizeof u
+        pure (accSize + padding + size)
+
+alignmentof :: Type -> Gen' Word64
+alignmentof = \case
+    NamedTypeReference x -> alignmentof =<< lookupDataType x
+    StructureType _ us -> fmap maximum (traverse alignmentof us)
+    VectorType _ u -> alignmentof u
+    ArrayType _ u -> alignmentof u
+    t -> sizeof t
+
+lookupDataType :: Name -> Gen' Type
+lookupDataType x = views dataTypes (Map.lookup x) >>= \case
+    Just u -> pure u
+    Nothing -> ice $ "Undefined datatype " ++ show x
 
 -- TODO: Try out "tailcc" - Tail callable calling convention. It looks like
 --       exactly what I want!
