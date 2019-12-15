@@ -89,7 +89,7 @@ checkTypeDef
            ( (String, ([TVar], [(SrcPos, (String, [Type]))]))
            , Map
                  String
-                 (Id Big, (VariantIx, (String, [TVar]), [Type], Span))
+                 (Id 'Big, (VariantIx, (String, [TVar]), [Type], Span))
            )
 checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
     let x = idstr x'
@@ -157,13 +157,13 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             boundInExpr p
             boundInExpr c
             boundInExpr a
-        An.Fun (_, pt) (e, et) -> do
+        An.Fun (_, pt) (b, bt) -> do
             boundInType pos pt
-            boundInExpr e
-            boundInType pos et
-        An.Let ds e -> do
-            boundInDefs ds
-            boundInExpr e
+            boundInExpr b
+            boundInType pos bt
+        An.Let lds b -> do
+            boundInDefs lds
+            boundInExpr b
         An.Match m dt bt -> do
             boundInExpr m
             boundInDecTree dt
@@ -175,8 +175,8 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         An.Ctor _ (_, instTs) ts -> do
             forM_ instTs (boundInType pos)
             forM_ ts (boundInType pos)
-        An.Box e -> boundInExpr e
-        An.Deref e -> boundInExpr e
+        An.Box x -> boundInExpr x
+        An.Deref x -> boundInExpr x
     boundInType :: SrcPos -> An.Type -> Bound
     boundInType pos = \case
         TVar tv ->

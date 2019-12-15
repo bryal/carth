@@ -194,12 +194,12 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         dt <- toDecisionTree' pos tpat cases'
         pure (TFun tpat tbody, FunMatch dt tpat tbody)
     Ast.Ctor c -> inferExprConstructor c
-    Ast.Box e -> fmap (\(te, e') -> (TBox te, Box e')) (infer e)
-    Ast.Deref e -> do
+    Ast.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
+    Ast.Deref x -> do
         t <- fresh
-        (te, e') <- infer e
-        unify (Expected (TBox t)) (Found (getPos e) te)
-        pure (t, Deref e')
+        (tx, x') <- infer x
+        unify (Expected (TBox t)) (Found (getPos x) tx)
+        pure (t, Deref x')
 
 toDecisionTree' :: SrcPos -> Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
 toDecisionTree' pos tpat cases = do
@@ -209,7 +209,7 @@ toDecisionTree' pos tpat cases = do
     -- error messages for inexhaustive patterns, so apply substitutions.
     s <- use substs
     let tpat' = subst s tpat
-    let cases' = map (\(pos, p, e) -> (pos, substPat s p, e)) cases
+    let cases' = map (\(cpos, p, e) -> (cpos, substPat s p, e)) cases
     mTypeDefs <- views envTypeDefs (fmap (map fst . snd))
     lift (lift (toDecisionTree mTypeDefs pos tpat' cases'))
 
@@ -235,7 +235,7 @@ inferCase (p, b) = do
     let ppos = getPos p
     pure (Found ppos tp, Found (getPos b) tb, (ppos, p', b'))
 
-inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id Small) Scheme)
+inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id 'Small) Scheme)
 inferPat = \case
     Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
     Ast.PVar (Id (WithPos _ "_")) -> do
@@ -246,7 +246,10 @@ inferPat = \case
         pure (tv, PVar (TypedVar x' tv), Map.singleton x (Forall Set.empty tv))
 
 inferPatConstruction
-    :: SrcPos -> Id Big -> [Ast.Pat] -> Infer (Type, Pat, Map (Id Small) Scheme)
+    :: SrcPos
+    -> Id 'Big
+    -> [Ast.Pat]
+    -> Infer (Type, Pat, Map (Id 'Small) Scheme)
 inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams
@@ -262,13 +265,13 @@ inferPatConstruction pos c cArgs = do
     pure (t, PCon con cArgs', cArgsVars')
 
 nonconflictingPatVarDefs
-    :: [Map (Id Small) Scheme] -> Infer (Map (Id Small) Scheme)
+    :: [Map (Id 'Small) Scheme] -> Infer (Map (Id 'Small) Scheme)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
         Just (Id (WithPos pos v)) -> throwError (ConflictingPatVarDefs pos v)
         Nothing -> pure (Map.union acc ks)
 
-inferExprConstructor :: Id Big -> Infer (Type, Expr')
+inferExprConstructor :: Id 'Big -> Infer (Type, Expr')
 inferExprConstructor c = do
     (variantIx, tdefLhs, cParams, _) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
@@ -283,7 +286,7 @@ instantiateConstructorOfTypeDef (tName, tParams) cParams = do
     pure ((tName, tVars), cParams')
 
 lookupEnvConstructor
-    :: Id Big -> Infer (VariantIx, (String, [TVar]), [Type], Span)
+    :: Id 'Big -> Infer (VariantIx, (String, [TVar]), [Type], Span)
 lookupEnvConstructor (Id (WithPos pos cx)) =
     views envCtors (Map.lookup cx)
         >>= maybe (throwError (UndefCtor pos cx)) pure
@@ -297,7 +300,7 @@ litType = \case
     Str _ -> TConst ("Str", [])
     Bool _ -> TPrim TBool
 
-lookupEnv :: Id Small -> Infer Type
+lookupEnv :: Id 'Small -> Infer Type
 lookupEnv (Id (WithPos pos x)) = views envDefs (Map.lookup x) >>= \case
     Just scm -> instantiate scm
     Nothing -> throwError (UndefVar pos x)

@@ -78,12 +78,12 @@ toDecisionTree
     -> Type
     -> [(SrcPos, Pat, Expr)]
     -> Except TypeErr DecisionTree
-toDecisionTree tds exprPos tpat cases =
+toDecisionTree tds ePos tp cases =
     let
         rules = map (\(pos, p, e) -> (p, (pos, Map.empty, e))) cases
         redundantCases = map (\(pos, _, _) -> pos) cases
     in do
-        let env = Env { _tdefs = tds, _tpat = tpat, _exprPos = exprPos }
+        let env = Env { _tdefs = tds, _tpat = tp, _exprPos = ePos }
         (d, redundantCases') <- runStateT
             (runReaderT (compile rules) env)
             redundantCases

@@ -101,7 +101,7 @@ defTyped = (reserved "define:" *>) . def' (fmap Just scheme)
 def'
     :: Parser (Maybe (WithPos Scheme))
     -> SrcPos
-    -> Parser (Id Small, (Maybe (WithPos Scheme), Expr))
+    -> Parser (Id 'Small, (Maybe (WithPos Scheme), Expr))
 def' schemeParser topPos = varDef <|> funDef
   where
     varDef = do
@@ -113,15 +113,15 @@ def' schemeParser topPos = varDef <|> funDef
         (name, params) <- parens (liftM2 (,) small' (some small'))
         scm <- schemeParser
         body <- expr
-        let fun = foldr (WithPos topPos .* Fun) body params
-        pure (name, (scm, fun))
+        let f = foldr (WithPos topPos .* Fun) body params
+        pure (name, (scm, f))
 
 expr :: Parser Expr
 expr = andSkipSpaceAfter ns_expr
 
 ns_expr :: Parser Expr
 ns_expr = withPos
-    $ choice [unit, charLit, str, bool, var, num, eConstructor, pexpr]
+    $ choice [unit, charLit, str, ebool, var, num, eConstructor, pexpr]
   where
     unit = ns_reserved "unit" $> Lit Unit
     num = do
@@ -139,13 +139,13 @@ ns_expr = withPos
         (between (char '\'') (char '\'') Lexer.charLiteral)
     str =
         fmap (Lit . Str) $ char '"' >> manyTill Lexer.charLiteral (char '"')
-    bool = do
-        b <- (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
-        pure (Lit (Bool b))
+    ebool = fmap (Lit . Bool) bool
     pexpr =
         ns_parens $ choice
             [funMatch, match, if', fun, let', typeAscr, box, deref, app]
 
+bool :: Parser Bool
+bool = (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
 
 eConstructor :: Parser Expr'
 eConstructor = fmap Ctor ns_big'
@@ -190,10 +190,10 @@ app = do
 if' :: Parser Expr'
 if' = do
     reserved "if"
-    pred <- expr
+    pred' <- expr
     conseq <- expr
     alt <- expr
-    pure (If pred conseq alt)
+    pure (If pred' conseq alt)
 
 fun :: Parser Expr'
 fun = do
@@ -304,10 +304,10 @@ ns_parens p = choice
         [("(", ")"), ("[", "]")]
     )
 
-big' :: Parser (Id Big)
+big' :: Parser (Id 'Big)
 big' = andSkipSpaceAfter ns_big'
 
-ns_big' :: Parser (Id Big)
+ns_big' :: Parser (Id 'Big)
 ns_big' = fmap Id (withPos ns_big)
 
 big :: Parser String
@@ -321,10 +321,10 @@ ns_big = try $ do
         then pure s
         else fail "Big identifier must start with an uppercase letter or colon."
 
-small' :: Parser (Id Small)
+small' :: Parser (Id 'Small)
 small' = andSkipSpaceAfter ns_small'
 
-ns_small' :: Parser (Id Small)
+ns_small' :: Parser (Id 'Small)
 ns_small' = fmap Id $ withPos $ try $ do
     s <- identifier
     let c = head s
