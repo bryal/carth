@@ -39,10 +39,10 @@ data TypedVar = TypedVar Id Type
 
 type VariantIx = Word64
 
-data Access = Obj | As Access [Type] | Sel Word32 Access
+data Access = Obj | As Access Span [Type] | Sel Word32 Span Access
     deriving (Show, Eq, Ord)
 
-type Span = Int
+type Span = Integer
 
 type VarBindings = Map TypedVar Access
 
@@ -60,7 +60,7 @@ data Expr'
     | Let Defs Expr
     | Match Expr DecisionTree Type
     | FunMatch DecisionTree Type Type
-    | Ctor VariantIx TConst [Type]
+    | Ctor VariantIx Span TConst [Type]
     | Box Expr
     | Deref Expr
     deriving (Show)

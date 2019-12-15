@@ -11,6 +11,7 @@ module MonoAst
     , Const(..)
     , VariantIx
     , VariantTypes
+    , Span
     , Access(..)
     , VarBindings
     , DecisionTree(..)
@@ -29,7 +30,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Word
 
-import DesugaredAst (VariantIx)
+import DesugaredAst (VariantIx, Span)
 import FreeVars
 import Ast (Const(..), TPrim(..))
 
@@ -47,7 +48,7 @@ data TypedVar = TypedVar String Type
 
 type VariantTypes = [Type]
 
-data Access = Obj | As Access [Type] | Sel Word32 Access
+data Access = Obj | As Access Span [Type] | Sel Word32 Span Access
     deriving (Show, Eq, Ord)
 
 type VarBindings = [(TypedVar, Access)]
@@ -57,7 +58,7 @@ data DecisionTree
     | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
     deriving Show
 
-type Ction = (VariantIx, TConst, [Expr])
+type Ction = (VariantIx, Span, TConst, [Expr])
 
 data Expr
     = Lit Const
@@ -93,7 +94,7 @@ fvExpr = \case
     Fun p (b, _) -> fvFun p b
     Let bs e -> fvLet (Map.keysSet bs, map snd (Map.elems bs)) e
     Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
-    Ction (_, _, as) -> Set.unions (map fvExpr as)
+    Ction (_, _, _, as) -> Set.unions (map fvExpr as)
     Box e -> fvExpr e
     Deref e -> fvExpr e
 

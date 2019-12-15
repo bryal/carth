@@ -27,14 +27,14 @@ unsugarExpr (WithPos _ e) = case e of
     An.FunMatch dt pt bt ->
         let x = "#x"
         in Fun (x, pt) (Match (Var (TypedVar x pt)) (unsugarDecTree dt) bt, bt)
-    An.Ctor v inst ts ->
+    An.Ctor v span' inst ts ->
         let
             xs = map (\n -> "#x" ++ show n) (take (length ts) [0 :: Word ..])
             params = zip xs ts
             args = map (Var . uncurry TypedVar) params
         in snd $ foldr
             (\(p, pt) (bt, b) -> (TFun pt bt, Fun (p, pt) (b, bt)))
-            (TConst inst, Ction v inst args)
+            (TConst inst, Ction v span' inst args)
             params
     An.Box e -> Box (unsugarExpr e)
     An.Deref e -> Deref (unsugarExpr e)

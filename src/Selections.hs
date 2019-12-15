@@ -19,8 +19,8 @@ newSelections x = Map.singleton Obj x
 
 select
     :: (Show a, Monad m)
-    => ([Type] -> a -> m a)
-    -> (Word32 -> a -> m a)
+    => (Span -> [Type] -> a -> m a)
+    -> (Span -> Word32 -> a -> m a)
     -> Access
     -> Selections a
     -> m (a, Selections a)
@@ -29,20 +29,20 @@ select conv sub selector selections = case Map.lookup selector selections of
     Nothing -> do
         (a, selections') <- case selector of
             Obj -> ice "select: Obj not in selections"
-            As x ts -> do
+            As x span' ts -> do
                 (a', s') <- select conv sub x selections
-                a'' <- conv ts a'
+                a'' <- conv span' ts a'
                 pure (a'', s')
-            Sel i x -> do
+            Sel i span' x -> do
                 (a', s') <- select conv sub x selections
-                a'' <- sub i a'
+                a'' <- sub span' i a'
                 pure (a'', s')
         pure (a, Map.insert selector a selections')
 
 selectVarBindings
     :: (Show a, Monad m)
-    => ([Type] -> a -> m a)
-    -> (Word32 -> a -> m a)
+    => (Span -> [Type] -> a -> m a)
+    -> (Span -> Word32 -> a -> m a)
     -> Selections a
     -> VarBindings
     -> m [(TypedVar, a)]

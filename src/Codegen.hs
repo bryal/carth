@@ -182,7 +182,8 @@ defineDataTypes tds = do
     mfix $ \tds' ->
         fmap Map.fromList $ augment dataTypes tds' $ forM tds $ \(tc, vs) -> do
             let n = mkName (mangleTConst tc)
-            ts <- mapM toLlvmVariantType vs
+            let totVariants = length vs
+            ts <- mapM (toLlvmVariantType (fromIntegral totVariants)) vs
             sizedTs <- mapM (\t -> fmap (\s -> (s, t)) (sizeof t)) ts
             let (_, tmax) = maximum sizedTs
             pure (n, tmax)
@@ -329,8 +330,10 @@ genExpr expr = do
 toLlvmDataType :: MonoAst.TConst -> Type
 toLlvmDataType = typeNamed . mangleTConst
 
-toLlvmVariantType :: [MonoAst.Type] -> Gen' Type
-toLlvmVariantType = fmap (typeStruct . (i64 :)) . mapM toLlvmType'
+toLlvmVariantType :: Span -> [MonoAst.Type] -> Gen' Type
+toLlvmVariantType totVariants =
+    fmap (typeStruct . maybe id ((:) . IntegerType) (tagBitWidth totVariants))
+        . mapM toLlvmType'
 
 toLlvmType :: MonoAst.Type -> Gen Type
 toLlvmType = lift . toLlvmType'
@@ -404,8 +407,8 @@ genConst = fmap (VLocal . ConstantOperand) . \case
         let ptrVal = LLConst.BitCast llArrayVal (LLType.ptr i8)
         let arrayVal = litStructOfType
                 ("Array", [TPrim TNat8])
-                [litI64 0, ptrVal, litU64 len]
-        let strVal = litStructOfType ("Str", []) [litI64 0, arrayVal]
+                [ptrVal, litU64 len]
+        let strVal = litStructOfType ("Str", []) [arrayVal]
         pure strVal
     Bool b -> pure $ litBool b
 
@@ -516,12 +519,14 @@ genDecisionSwitch
 genDecisionSwitch selector cs def tbody selections = do
     let (variantIxs, variantDts) = unzip (Map.toAscList cs)
     variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
-    let dests = zip (map litU64 variantIxs) variantLs
     defaultL <- newName "default"
     nextL <- newName "next"
     (m, selections') <- select genAs genSub selector selections
     mVariantIx <- emitReg' "found_variant_ix" =<< extractvalue m [0]
-    commitToNewBlock (switch mVariantIx defaultL dests) defaultL
+    let ixBits = getIntBitWidth (typeOf mVariantIx)
+    let litIxInt = LLConst.Int ixBits . fromIntegral
+    let dests' = zip (map litIxInt variantIxs) variantLs
+    commitToNewBlock (switch mVariantIx defaultL dests') defaultL
     v <- getLocal =<< genDecisionTree tbody def selections'
     let genCase l dt = do
             commitToNewBlock (br nextL) l
@@ -534,29 +539,43 @@ genDecisionLeaf :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Val
 genDecisionLeaf (bs, e) selections =
     flip withLocals (genExpr e) =<< selectVarBindings genAs genSub selections bs
 
-genAs :: [MonoAst.Type] -> Operand -> Gen Operand
-genAs ts matchee = do
-    tvariant <- lift (toLlvmVariantType ts)
+genAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
+genAs totVariants ts matchee = do
+    tvariant <- lift (toLlvmVariantType totVariants ts)
     let tgeneric = typeOf matchee
     pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
     emit (store matchee pGeneric)
     p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
     emitReg' "ction" (load p)
 
-genSub :: Word32 -> Operand -> Gen Operand
-genSub i matchee =
-    emitReg' "submatchee" =<< extractvalue matchee (pure (i + 1))
+genSub :: Span -> Word32 -> Operand -> Gen Operand
+genSub span' i matchee =
+    let tagOffset = if span' > 1 then 1 else 0
+    in emitReg' "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
 
 genCtion :: MonoAst.Ction -> Gen Val
-genCtion (i, tdef, as) = do
+genCtion (i, span', dataType, as) = do
     as' <- mapM genExpr as
-    s <- getLocal =<< genStruct (VLocal (litU64' i) : as')
+    let tag = maybe
+            id
+            ((:) . VLocal . ConstantOperand . flip LLConst.Int (fromIntegral i))
+            (tagBitWidth span')
+    s <- getLocal =<< genStruct (tag as')
     let t = typeOf s
-    let tgeneric = toLlvmDataType tdef
+    let tgeneric = toLlvmDataType dataType
     pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
     p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr t))
     emit (store s p)
     pure (VVar pGeneric)
+
+tagBitWidth :: Span -> Maybe Word32
+tagBitWidth span'
+    | span' <= 2 ^ (0 :: Integer) = Nothing
+    | span' <= 2 ^ (8 :: Integer) = Just 8
+    | span' <= 2 ^ (16 :: Integer) = Just 16
+    | span' <= 2 ^ (32 :: Integer) = Just 32
+    | span' <= 2 ^ (64 :: Integer) = Just 64
+    | otherwise = ice $ "tagBitWidth: span' = " ++ show span'
 
 -- TODO: Eta-conversion
 -- | A lambda is a pair of a captured environment and a function.  The captured
@@ -814,9 +833,14 @@ extractvalue struct is = fmap
     (WithRetType
         (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
     )
-    (getIndexed (typeOf struct) is)
+    (getIndexed (typeOf struct) (map fromIntegral is))
   where
-    getIndexed = foldlM (\t i -> fmap (!! fromIntegral i) (getMembers t))
+    getIndexed = foldlM $ \t i -> getMembers t <&> \us -> if i < length us
+        then us !! i
+        else
+            ice
+            $ "extractvalue: index out of bounds: "
+            ++ (show (typeOf struct) ++ ", " ++ show is)
     getMembers = \case
         NamedTypeReference x -> getMembers =<< lift (lookupDataType x)
         StructureType _ members -> pure members
@@ -918,6 +942,11 @@ getPointee :: Type -> Type
 getPointee = \case
     LLType.PointerType t _ -> t
     t -> ice $ "Tried to get pointee of non-function type " ++ pretty t
+
+getIntBitWidth :: Type -> Word32
+getIntBitWidth = \case
+    LLType.IntegerType w -> w
+    t -> ice $ "Tried to get bit width of non-integer type " ++ pretty t
 
 mangleName :: (String, [MonoAst.Type]) -> String
 mangleName (x, us) = x ++ mangleInst us

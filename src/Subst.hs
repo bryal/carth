@@ -31,7 +31,8 @@ substExpr s (WithPos p e) = WithPos p $ case e of
         Match (substExpr s e) (substDecisionTree s dt) (subst s tbody)
     FunMatch dt tp tb ->
         FunMatch (substDecisionTree s dt) (subst s tp) (subst s tb)
-    Ctor i (tx, tts) ps -> Ctor i (tx, map (subst s) tts) (map (subst s) ps)
+    Ctor i span' (tx, tts) ps ->
+        Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
     Box e -> Box (substExpr s e)
     Deref e -> Deref (substExpr s e)
 
@@ -46,8 +47,8 @@ substDecisionTree s = \case
 substAccess :: Subst -> Access -> Access
 substAccess s = \case
     Obj -> Obj
-    As a ts -> As (substAccess s a) (map (subst s) ts)
-    Sel i a -> Sel i (substAccess s a)
+    As a span' ts -> As (substAccess s a) span' (map (subst s) ts)
+    Sel i span' a -> Sel i span' (substAccess s a)
 
 substPat :: Subst -> Pat -> Pat
 substPat s = \case

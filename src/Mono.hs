@@ -66,7 +66,7 @@ mono = \case
     An.Fun p b -> monoFun p b
     An.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     An.Match e cs tbody -> monoMatch e cs tbody
-    An.Ction v inst as -> monoCtion v inst as
+    An.Ction v span' inst as -> monoCtion v span' inst as
     An.Box x -> fmap Box (mono x)
     An.Deref x -> fmap Deref (mono x)
 
@@ -124,15 +124,16 @@ monoDecisionTree = \case
 monoAccess :: An.Access -> Mono Access
 monoAccess = \case
     An.Obj -> pure Obj
-    An.As a ts -> liftA2 As (monoAccess a) (mapM monotype ts)
-    An.Sel i a -> fmap (Sel i) (monoAccess a)
+    An.As a span' ts ->
+        liftA3 As (monoAccess a) (pure span') (mapM monotype ts)
+    An.Sel i span' a -> fmap (Sel i span') (monoAccess a)
 
-monoCtion :: VariantIx -> An.TConst -> [An.Expr] -> Mono Expr
-monoCtion i (tdefName, tdefArgs) as = do
+monoCtion :: VariantIx -> Span -> An.TConst -> [An.Expr] -> Mono Expr
+monoCtion i span' (tdefName, tdefArgs) as = do
     tdefArgs' <- mapM monotype tdefArgs
     let tdefInst = (tdefName, tdefArgs')
     as' <- mapM mono as
-    pure (Ction (i, tdefInst, as'))
+    pure (Ction (i, span', tdefInst, as'))
 
 addDefInst :: String -> Type -> Mono ()
 addDefInst x t1 = do

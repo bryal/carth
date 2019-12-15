@@ -94,8 +94,8 @@ checkTypeDef
 checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
     let x = idstr x'
     let ps' = map TVExplicit ps
-    let cs' = map (\(Id (WithPos p x), ts) -> (p, (x, ts))) cs
-    let cSpan = length cs
+    let cs' = map (\(Id (WithPos p y), ts) -> (p, (y, ts))) cs
+    let cSpan = fromIntegral (length cs)
     cs''' <- foldM
         (\cs'' (i, (cx, cps)) -> if Map.member (idstr cx) cs''
             then throwError (ConflictingCtorDef cx)
@@ -117,7 +117,7 @@ builtinConstructors'
     :: (String, [TVar], [(String, [Type])])
     -> Map String (VariantIx, (String, [TVar]), [Type], Span)
 builtinConstructors' (x, ps, cs) =
-    let cSpan = length cs
+    let cSpan = fromIntegral (length cs)
     in
         foldl'
             (\csAcc (i, (cx, cps)) ->
@@ -172,7 +172,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             boundInDecTree dt
             boundInType pos pt
             boundInType pos bt
-        An.Ctor _ (_, instTs) ts -> do
+        An.Ctor _ _ (_, instTs) ts -> do
             forM_ instTs (boundInType pos)
             forM_ ts (boundInType pos)
         An.Box x -> boundInExpr x

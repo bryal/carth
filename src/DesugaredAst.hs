@@ -7,6 +7,7 @@ module DesugaredAst
     , TypedVar(..)
     , Const(..)
     , VariantIx
+    , Span
     , Access(..)
     , VarBindings
     , DecisionTree(..)
@@ -29,6 +30,7 @@ import AnnotAst
     , Scheme(..)
     , Const(..)
     , VariantIx
+    , Span
     , Access(..)
     , startType
     )
@@ -51,7 +53,7 @@ data Expr
     | Fun (String, Type) (Expr, Type)
     | Let Defs Expr
     | Match Expr DecisionTree Type
-    | Ction VariantIx TConst [Expr]
+    | Ction VariantIx Span TConst [Expr]
     | Box Expr
     | Deref Expr
     deriving (Show)

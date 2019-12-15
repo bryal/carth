@@ -35,7 +35,6 @@ impl<A, B> Closure<A, B> {
 
 #[repr(C)]
 pub struct Array<A> {
-    _tag: u64,
     elems: *mut A,
     len: u64,
 }
@@ -44,7 +43,6 @@ impl<A> Array<A> {
     fn new(xs: Vec<A>) -> Array<A> {
         let len = xs.len() as u64;
         Array {
-            _tag: 0,
             elems: Box::into_raw(xs.into_boxed_slice()) as *mut A,
             len,
         }
@@ -53,14 +51,12 @@ impl<A> Array<A> {
 
 #[repr(C)]
 pub struct Str {
-    _tag: u64,
     array: Array<u8>,
 }
 
 impl Str {
     fn new(s: String) -> Str {
         Str {
-            _tag: 0,
             array: Array::new(s.into_bytes()),
         }
     }
@@ -68,7 +64,6 @@ impl Str {
 
 #[repr(C)]
 pub struct Pair<A, B> {
-    _tag: u64,
     fst: A,
     snd: B,
 }
@@ -93,7 +88,7 @@ def_carth_closure! {
 
 def_carth_closure! {
     "-str-append", STR_APPEND, str_append;
-    Pair<Str, Str>, Str; Pair { fst, snd, .. } => {
+    Pair<Str, Str>, Str; Pair { fst, snd } => {
         let (s1, s2) = (from_carth_str(&fst), from_carth_str(&snd));
         Str::new(s1.to_string() + s2)
     }
@@ -101,7 +96,7 @@ def_carth_closure! {
 
 fn from_carth_str<'s>(s: &'s Str) -> &'s str {
     unsafe {
-        let Array { elems, len, .. } = s.array;
+        let Array { elems, len } = s.array;
         let slice = slice::from_raw_parts(elems, len as usize);
         str::from_utf8_unchecked(slice)
     }
@@ -109,22 +104,22 @@ fn from_carth_str<'s>(s: &'s Str) -> &'s str {
 
 def_carth_closure! {
     "add-int", ADD_INT, add_int;
-    Pair<i64, i64>, i64; Pair { fst, snd, .. } => fst + snd
+    Pair<i64, i64>, i64; Pair { fst, snd } => fst + snd
 }
 
 def_carth_closure! {
     "rem-int", REM_INT, rem_int;
-    Pair<i64, i64>, i64; Pair { fst, snd, .. } => fst % snd
+    Pair<i64, i64>, i64; Pair { fst, snd } => fst % snd
 }
 
 def_carth_closure! {
     "gt-int", GT_INT, gt_int;
-    Pair<i64, i64>, bool; Pair { fst, snd, .. } => fst > snd
+    Pair<i64, i64>, bool; Pair { fst, snd } => fst > snd
 }
 
 def_carth_closure! {
     "eq-int", EQ_INT, eq_int;
-    Pair<i64, i64>, bool; Pair { fst, snd, .. } => fst == snd
+    Pair<i64, i64>, bool; Pair { fst, snd } => fst == snd
 }
 
 def_carth_closure! {

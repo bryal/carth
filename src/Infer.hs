@@ -273,10 +273,10 @@ nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
 
 inferExprConstructor :: Id 'Big -> Infer (Type, Expr')
 inferExprConstructor c = do
-    (variantIx, tdefLhs, cParams, _) <- lookupEnvConstructor c
+    (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
     let t = foldr TFun (TConst tdefInst) cParams'
-    pure (t, Ctor variantIx tdefInst cParams')
+    pure (t, Ctor variantIx cSpan tdefInst cParams')
 
 instantiateConstructorOfTypeDef
     :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])

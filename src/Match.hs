@@ -155,7 +155,8 @@ match obj descr ctx work rhs rules = \case
                 ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs = args (\i -> Sel i (As obj (argTs pcon)))
+            getoargs =
+                args (\i -> Sel i (span pcon) (As obj (span pcon) (argTs pcon)))
 
             getdargs :: [Descr]
             getdargs = case descr of
@@ -214,7 +215,7 @@ staticMatch pcon = \case
         | otherwise -> No
     Neg cs
         | Set.member pcon cs -> No
-        | span pcon == 1 + Set.size cs -> Yes
+        | span pcon == 1 + fromIntegral (Set.size cs) -> Yes
     _ -> Maybe
 
 addneg :: Con -> Descr -> Descr
