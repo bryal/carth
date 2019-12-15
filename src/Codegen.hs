@@ -1010,7 +1010,7 @@ sizeof = \case
     toBytesCeil nbits = div (nbits + 7) 8
     addMember accSize u = do
         align <- alignmentof u
-        let padding = align - mod accSize align
+        let padding = mod (align - accSize) align
         size <- sizeof u
         pure (accSize + padding + size)
 
