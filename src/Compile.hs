@@ -3,6 +3,7 @@ module Compile (compile, CompileConfig(..), defaultCompileConfig) where
 import LLVM.Context
 import LLVM.Module
 import LLVM.Target
+import LLVM.Analysis
 import Data.Maybe
 import System.FilePath
 import System.Process
@@ -38,10 +39,9 @@ compileModule :: TargetMachine -> CompileConfig -> Module -> IO ()
 compileModule t cfg m = do
     let binfile = fromMaybe "out" (outfile cfg)
         llfile = replaceExtension binfile "ll"
-        bcfile = replaceExtension binfile "bc"
         ofile = replaceExtension binfile "o"
     writeLLVMAssemblyToFile' llfile m
-    writeBitcodeToFile (File bcfile) m
+    verify m
     writeObjectToFile t (File ofile) m
     callProcess
         (cc cfg)
