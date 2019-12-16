@@ -37,7 +37,7 @@ type Id = WithPos String
 data TypedVar = TypedVar Id Type
     deriving (Show, Eq, Ord)
 
-type VariantIx = Word64
+type VariantIx = Integer
 
 data Access = Obj | As Access Span [Type] | Sel Word32 Span Access
     deriving (Show, Eq, Ord)

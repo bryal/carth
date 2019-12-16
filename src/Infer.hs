@@ -238,12 +238,23 @@ inferCase (p, b) = do
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id 'Small) Scheme)
 inferPat = \case
     Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
+    Ast.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
+    Ast.PBool _ b -> pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
     Ast.PVar (Id (WithPos _ "_")) -> do
         tv <- fresh
         pure (tv, PWild, Map.empty)
     Ast.PVar x@(Id x') -> do
         tv <- fresh
         pure (tv, PVar (TypedVar x' tv), Map.singleton x (Forall Set.empty tv))
+  where
+    intToPCon n w = PCon
+        (Con
+            { variant = fromIntegral n
+            , span = 2 ^ (w :: Integer)
+            , argTs = []
+            }
+        )
+        []
 
 inferPatConstruction
     :: SrcPos

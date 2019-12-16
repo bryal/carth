@@ -82,6 +82,8 @@ makeLenses ''Scheme
 
 data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]
+    | PInt SrcPos Int
+    | PBool SrcPos Bool
     | PVar (Id 'Small)
     deriving Show
 
@@ -144,6 +146,8 @@ instance HasPos (Id a) where
 instance HasPos Pat where
     getPos = \case
         PConstruction p _ _ -> p
+        PInt p _ -> p
+        PBool p _ -> p
         PVar v -> getPos v
 
 instance Pretty Program where
@@ -197,6 +201,8 @@ fvCases = Set.unions . map (\(p, e) -> Set.difference (freeVars e) (bvPat p))
 bvPat :: Pat -> Set (Id 'Small)
 bvPat = \case
     PConstruction _ _ ps -> Set.unions (map bvPat ps)
+    PInt _ _ -> Set.empty
+    PBool _ _ -> Set.empty
     PVar x -> Set.singleton x
 
 prettyProg :: Int -> Program -> String
@@ -299,6 +305,8 @@ prettyPat :: Pat -> String
 prettyPat = \case
     PConstruction _ (Id (WithPos _ c)) ps ->
         if null ps then c else concat ["(", c, " ", spcPretty ps, ")"]
+    PInt _ n -> show n
+    PBool _ b -> if b then "true" else "false"
     PVar v -> idstr v
 
 prettyConst :: Const -> String

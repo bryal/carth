@@ -147,6 +147,9 @@ ns_expr = withPos
 bool :: Parser Bool
 bool = (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
 
+int :: Parser Int
+int = Lexer.signed empty Lexer.decimal
+
 eConstructor :: Parser Expr'
 eConstructor = fmap Ctor ns_big'
 
@@ -173,8 +176,10 @@ pat :: Parser Pat
 pat = andSkipSpaceAfter ns_pat
 
 ns_pat :: Parser Pat
-ns_pat = patCtor <|> patCtion <|> patVar
+ns_pat = choice [patInt, patBool, patCtor, patCtion, patVar]
   where
+    patInt = liftA2 PInt getSrcPos int
+    patBool = liftA2 PBool getSrcPos bool
     patCtor = fmap (\x -> PConstruction (getPos x) x []) ns_big'
     patVar = fmap PVar ns_small'
     patCtion = do

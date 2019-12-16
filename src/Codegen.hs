@@ -513,6 +513,8 @@ genLet ds b = do
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Val
 genMatch m dt tbody = do
+    -- TODO: Do we have to convert it to an operand here already? Keeping it as
+    --       Val would probably eliminate a needless stack allocation.
     m' <- getLocal =<< genExpr m
     genDecisionTree tbody dt (newSelections m')
 
@@ -534,9 +536,11 @@ genDecisionSwitch selector cs def tbody selections = do
     defaultL <- newName "default"
     nextL <- newName "next"
     (m, selections') <- select genAs genSub selector selections
-    mVariantIx <- emitReg' "found_variant_ix" =<< extractvalue m [0]
+    mVariantIx <- case typeOf m of
+        IntegerType _ -> pure m
+        _ -> emitReg' "found_variant_ix" =<< extractvalue m [0]
     let ixBits = getIntBitWidth (typeOf mVariantIx)
-    let litIxInt = LLConst.Int ixBits . fromIntegral
+    let litIxInt = LLConst.Int ixBits
     let dests' = zip (map litIxInt variantIxs) variantLs
     commitToNewBlock (switch mVariantIx defaultL dests') defaultL
     let genDecisionTree' dt = do
@@ -573,7 +577,7 @@ genCtion (i, span', dataType, as) = do
     as' <- mapM genExpr as
     let tag = maybe
             id
-            ((:) . VLocal . ConstantOperand . flip LLConst.Int (fromIntegral i))
+            ((:) . VLocal . ConstantOperand . flip LLConst.Int i)
             (tagBitWidth span')
     s <- getLocal =<< genStruct (tag as')
     let t = typeOf s
@@ -835,6 +839,9 @@ switch x def cs = Switch x def cs []
 
 bitcast :: Operand -> Type -> FunInstruction
 bitcast x t = WithRetType (BitCast x t []) t
+
+trunc :: Operand -> Type -> FunInstruction
+trunc x t = WithRetType (Trunc x t []) t
 
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstruction
 insertvalue s e is = WithRetType (InsertValue s e is []) (typeOf s)

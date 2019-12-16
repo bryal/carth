@@ -19,13 +19,17 @@
        (comp display fizzbuzz')))
 
 (define (fizzbuzz' n)
-  (if (and (divisible? n 3) (divisible? n 5))
-      "Fizzbuzz"
-    (if (divisible? n 3)
-        "Fizz"
-      (if (divisible? n 5)
-          "Buzz"
-        (show-int n)))))
+  (match (Pair (divisible? n 3) (divisible? n 5))
+    [(Pair false false) (my-show-int n)]
+    [(Pair true false) "Fizz"]
+    [(Pair false true) "Buzz"]
+    [(Pair true true) "Fizzbuzz"]))
+
+(define my-show-int
+  (fun-match
+    [1 "one"]
+    [2 "two"]
+    [n (show-int n)]))
 
 (define (display s)
   (display-inline (str-append s "\n")))
