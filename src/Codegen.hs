@@ -489,7 +489,7 @@ genIf pred conseq alt = do
     conseqL <- newName "consequent"
     altL <- newName "alternative"
     nextL <- newName "next"
-    predV <- getLocal =<< genExpr pred
+    predV <- emitAnon . flip trunc i1 =<< getLocal =<< genExpr pred
     commitToNewBlock (condbr predV conseqL altL) conseqL
     conseqV <- getLocal =<< genExpr conseq
     fromConseqL <- use currentBlockLabel
