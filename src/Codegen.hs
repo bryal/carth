@@ -539,13 +539,16 @@ genDecisionSwitch selector cs def tbody selections = do
     let litIxInt = LLConst.Int ixBits . fromIntegral
     let dests' = zip (map litIxInt variantIxs) variantLs
     commitToNewBlock (switch mVariantIx defaultL dests') defaultL
-    v <- getLocal =<< genDecisionTree tbody def selections'
+    let genDecisionTree' dt = do
+            u <- genDecisionTree tbody dt selections'
+            liftA2 (,) (getLocal u) (use currentBlockLabel)
+    v <- genDecisionTree' def
     let genCase l dt = do
             commitToNewBlock (br nextL) l
-            genDecisionTree tbody dt selections'
-    vs <- zipWithM ((getLocal <=<) . genCase) variantLs variantDts
+            genDecisionTree' dt
+    vs <- zipWithM genCase variantLs variantDts
     commitToNewBlock (br nextL) nextL
-    fmap VLocal (emitAnon (phi (zip (v : vs) (defaultL : variantLs))))
+    fmap VLocal (emitAnon (phi (v : vs)))
 
 genDecisionLeaf :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Val
 genDecisionLeaf (bs, e) selections =
