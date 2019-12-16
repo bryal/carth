@@ -80,6 +80,8 @@ data Val
     | VLocal Operand
 
 data Env = Env
+    -- TODO: Could operands in env be Val instead? I.e., either stack-allocated
+    --       or local?
     { _env :: Map TypedVar Operand  -- ^ Environment of stack allocated variables
     , _dataTypes :: Map Name Type
     }
@@ -101,7 +103,7 @@ type Gen' = StateT St (Reader Env)
 -- | The output of generating a function
 data Out = Out
     { _outBlocks :: [BasicBlock]
-    , _outStrings :: [(Name, Word64, [Word8])]
+    , _outStrings :: [(Name, String)]
     , _outFuncs :: [(Name, [TypedVar], TypedVar, Expr)]
     }
 makeLenses ''Out
@@ -289,10 +291,28 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
             else do
                 commitFinalFuncBlock (ret result)
                 pure (rt', fParams')
-    let ss = map globStrVar globStrings
+    ss <- mapM globStrVar globStrings
     ls <- concat <$> mapM (fmap (uncurry (:)) . genFunDef) lambdaFuncs
     let f = simpleFunc name fParams rt basicBlocks
-    pure (f, ss ++ ls)
+    pure (f, concat ss ++ ls)
+  where
+    globStrVar (strName, s) = do
+        name_inner <- newName' "strlit_inner"
+        let bytes = UTF8.String.encode s
+            len = fromIntegral (length bytes)
+            tInner = ArrayType len i8
+            defInner = simpleGlobVar
+                name_inner
+                tInner
+                (LLConst.Array i8 (map litI8 bytes))
+            inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
+            ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
+            array = litStructOfType
+                ("Array", [TPrim TNat8])
+                [ptrBytes, litU64 len]
+            str = litStructOfType ("Str", []) [array]
+            defStr = simpleGlobVar strName typeStr str
+        pure [defInner, defStr]
 
 genExtractCaptures :: [TypedVar] -> Gen ((Type, Name), [(TypedVar, Operand)])
 genExtractCaptures fvs = do
@@ -392,25 +412,17 @@ toLlvmClosureFunType a r = do
             }
 
 genConst :: MonoAst.Const -> Gen Val
-genConst = fmap (VLocal . ConstantOperand) . \case
-    Unit -> pure litUnit
-    Int n -> pure $ litI64 n
-    Double x -> pure $ litDouble x
-    Char c -> pure $ litI32 (Data.Char.ord c)
+genConst = \case
+    Unit -> pure (VLocal (ConstantOperand litUnit))
+    Int n -> pure (VLocal (ConstantOperand (litI64 n)))
+    Double x -> pure (VLocal (ConstantOperand (litDouble x)))
+    Char c -> pure (VLocal (ConstantOperand (litI32 (Data.Char.ord c))))
     Str s -> do
         var <- newName "strlit"
-        let bytes = UTF8.String.encode s
-        let len = fromIntegral (length bytes)
-        let t = ArrayType len i8
-        scribe outStrings [(var, len, bytes)]
-        let llArrayVal = LLConst.GlobalReference (LLType.ptr t) var
-        let ptrVal = LLConst.BitCast llArrayVal (LLType.ptr i8)
-        let arrayVal = litStructOfType
-                ("Array", [TPrim TNat8])
-                [ptrVal, litU64 len]
-        let strVal = litStructOfType ("Str", []) [arrayVal]
-        pure strVal
-    Bool b -> pure $ litBool b
+        scribe outStrings [(var, s)]
+        pure $ VVar $ ConstantOperand
+            (LLConst.GlobalReference (LLType.ptr typeStr) var)
+    Bool b -> pure (VLocal (ConstantOperand (litBool b)))
 
 lookupVar :: TypedVar -> Gen Val
 lookupVar x = do
@@ -420,7 +432,7 @@ lookupVar x = do
 
 -- | Beta-reduction and closure application
 genApp :: Expr -> Expr -> MonoAst.Type -> Gen Val
-genApp fe ae rt = genApp' (fe, [(ae, rt)])
+genApp fe' ae' rt' = genApp' (fe', [(ae', rt')])
   where
     -- TODO: Could/should the beta-reduction maybe happen in an earlier stage,
     --       like when desugaring?
@@ -637,10 +649,6 @@ genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
     VVar x -> fmap VVar (emitAnon (load x))
     VLocal x -> pure (VVar x)
-
-globStrVar :: (Name, Word64, [Word8]) -> Global
-globStrVar (name, len, bytes) =
-    simpleGlobVar name (ArrayType len i8) (LLConst.Array i8 (map litI8 bytes))
 
 simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
 simpleFunc = ($ []) .** simpleFunc'
@@ -908,12 +916,7 @@ litStruct = LLConst.Struct Nothing False
 -- for safe measure.
 litStructOfType :: TConst -> [LLConst.Constant] -> LLConst.Constant
 litStructOfType t xs =
-    let
-        tname = mkName (mangleTConst t)
-        t' = NamedTypeReference tname
-    in LLConst.BitCast
-        (LLConst.Struct (Just (mkName (mangleTConst t))) False xs)
-        t'
+    let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
 
 litUnit :: LLConst.Constant
 litUnit = litStruct []
@@ -926,6 +929,9 @@ typeNamed = NamedTypeReference . mkName
 
 typeStruct :: [Type] -> Type
 typeStruct ts = StructureType { isPacked = False, elementTypes = ts }
+
+typeStr :: Type
+typeStr = NamedTypeReference (mkName (mangleTConst ("Str", [])))
 
 typeBool :: Type
 typeBool = i8
