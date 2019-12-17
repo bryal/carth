@@ -22,7 +22,7 @@ import FreeVars
 import Subst
 import NonEmpty
 import qualified Ast
-import Ast (Id(..), IdCase(..), idstr, scmBody, isFun)
+import Ast (Id(..), IdCase(..), idstr, scmBody, isFunLike)
 import TypeErr
 import AnnotAst hiding (Id)
 import Match
@@ -129,7 +129,7 @@ inferDefsComponents = \case
                 (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
                 (zip mayscms' ts)
         forM_ (zip idents bodies) $ \(Id name, body) ->
-            when (not (isFun body) && isCyclic)
+            when (not (isFunLike body) && isCyclic)
                 $ throwError (RecursiveVarDef name)
         bodies' <-
             withLocals (zip names scms)

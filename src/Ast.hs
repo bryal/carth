@@ -23,7 +23,7 @@ module Ast
     , Extern(..)
     , Program(..)
     , startType
-    , isFun
+    , isFunLike
     )
 where
 
@@ -370,7 +370,8 @@ idstr (Id (WithPos _ x)) = x
 startType :: Type
 startType = TFun (TPrim TUnit) (TPrim TUnit)
 
-isFun :: Expr -> Bool
-isFun (WithPos _ e) = case e of
+isFunLike :: Expr -> Bool
+isFunLike (WithPos _ e) = case e of
     Fun _ _ -> True
+    FunMatch _ -> True
     _ -> False
