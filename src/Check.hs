@@ -133,6 +133,10 @@ builtinDataTypes' =
       , [("Array", [TBox (TVar (TVImplicit 0)), TPrim TNat])]
       )
     , ("Str", [], [("Str", [TConst ("Array", [TPrim TNat8])])])
+    , ( "Pair"
+      , [TVImplicit 0, TVImplicit 1]
+      , [("Pair", [TVar (TVImplicit 0), TVar (TVImplicit 1)])]
+      )
     ]
 
 type Bound = ReaderT (Set TVar) (Except TypeErr) ()
