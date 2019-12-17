@@ -28,7 +28,6 @@ where
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
-import Data.Bifunctor
 import Data.Maybe
 import Control.Applicative (liftA2)
 import qualified Text.Megaparsec as Mega
@@ -216,10 +215,7 @@ match = do
     pure (Match e cs)
 
 cases :: Parser (NonEmpty (Pat, Expr))
-cases = some' case'
-
-case' :: Parser (Pat, Expr)
-case' = parens (liftM2 (,) pat expr)
+cases = some' (parens (reserved "case" *> (liftA2 (,) pat expr)))
 
 pat :: Parser Pat
 pat = andSkipSpaceAfter ns_pat
@@ -349,14 +345,8 @@ ns_tvar = fmap TVExplicit ns_small'
 parens :: Parser a -> Parser a
 parens = andSkipSpaceAfter . ns_parens
 
--- Note that () and [] can be used interchangeably, as long as the
--- opening and closing bracket matches.
 ns_parens :: Parser a -> Parser a
-ns_parens p = choice
-    (map
-        (($ p) . uncurry between . bimap symbol string)
-        [("(", ")"), ("[", "]")]
-    )
+ns_parens = between (symbol "(") (string ")")
 
 big' :: Parser (Id 'Big)
 big' = andSkipSpaceAfter ns_big'
@@ -441,6 +431,7 @@ reserveds =
     , "box"
     , "deref"
     , "import"
+    , "case"
     ]
 
 otherChar :: Parser Char

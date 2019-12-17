@@ -8,13 +8,17 @@
 
 (define (fizzbuzz' n)
   (match (Pair (divisible? n 3) (divisible? n 5))
-    [(Pair false false) (my-show-int n)]
-    [(Pair true false) "Fizz"]
-    [(Pair false true) "Buzz"]
-    [(Pair true true) "Fizzbuzz"]))
+    (case (Pair false false)
+          (my-show-int n))
+    (case (Pair true false)
+          "Fizz")
+    (case (Pair false true)
+          "Buzz")
+    (case (Pair true true)
+          "Fizzbuzz")))
 
 (define my-show-int
   (fun-match
-    [1 "one"]
-    [2 "two"]
-    [n (show-int n)]))
+    (case 1 "one")
+    (case 2 "two")
+    (case n (show-int n))))

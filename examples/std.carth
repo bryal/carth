@@ -2,9 +2,9 @@
   (Pair a b))
 
 (define fst
-  (fun-match [(Pair a _) a]))
+  (fun-match (case (Pair a _) a)))
 (define snd
-  (fun-match [(Pair _ b) b]))
+  (fun-match (case (Pair _ b) b)))
 
 (type (Maybe a)
   None
@@ -14,7 +14,7 @@
   (Lazy (Fun Unit a)))
 
 (define lively
-  (fun-match [(Lazy f) (f unit)]))
+  (fun-match (case (Lazy f) (f unit))))
 
 ;;; Math
 
@@ -26,6 +26,10 @@
 (define (+ a b)
   (add-int (Pair a b)))
 
+(extern sub-int (Fun (Pair Int Int) Int))
+(define (- a b)
+  (sub-int (Pair a b)))
+
 (extern eq-int (Fun (Pair Int Int) Bool))
 (define (= a b)
   (eq-int (Pair a b)))
@@ -34,8 +38,13 @@
 (define (> a b)
   (gt-int (Pair a b)))
 
+(define (>= a b)
+  (or (> a b) (= a b)))
+
 (define (and p q)
   (if p q false))
+(define (or p q)
+  (if p true q))
 
 (define (divisible? n m)
   (= (rem n m) 0))
@@ -69,7 +78,7 @@
   (Iter (Lazy (Maybe (Pair a (Iter a))))))
 
 (define next
-  (fun-match [(Iter it) (lively it)]))
+  (fun-match (case (Iter it) (lively it))))
 
 (define (range a b)
   (Iter (Lazy (if (> a b)
@@ -78,6 +87,6 @@
 
 (define (for xs f)
   (match (next xs)
-    [None unit]
-    [(Some (Pair x xs'))
-     (seq (f x) (for xs' f))]))
+    (case None unit)
+    (case (Some (Pair x xs'))
+          (seq (f x) (for xs' f)))))

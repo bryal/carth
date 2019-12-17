@@ -108,6 +108,11 @@ def_carth_closure! {
 }
 
 def_carth_closure! {
+    "sub-int", SUB_INT, sub_int;
+    Pair<i64, i64>, i64; Pair { fst, snd } => fst - snd
+}
+
+def_carth_closure! {
     "rem-int", REM_INT, rem_int;
     Pair<i64, i64>, i64; Pair { fst, snd } => fst % snd
 }
