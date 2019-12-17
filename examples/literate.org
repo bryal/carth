@@ -2,12 +2,18 @@
 
 Literate programming is just really cool!
 
+First we import the standard library.
+
+#+BEGIN_SRC carth
+(import std)
+#+END_SRC
+
 ~carth~ will assume ~tangle~ = ~yes~ by default, but setting it
 explicitly won't hurt.
 
 #+BEGIN_SRC carth :tangle yes
-(define (main _)
-  (printInt (id 1337)))
+(define (start _)
+  (display (id "Literate programming rules!")))
 #+END_SRC
 
 * The ~id~ function
@@ -23,5 +29,5 @@ explicitly won't hurt.
   but as ~tangle~ is ~no~, this source block will be ignored by carth.
 
   #+BEGIN_SRC carth :tangle no
-  (printInt id)
+  (display id)
   #+END_SRC

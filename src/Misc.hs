@@ -15,6 +15,7 @@ module Misc
     , augment
     , insertWith'
     , if'
+    , abort
     )
 where
 
@@ -24,6 +25,7 @@ import Data.Map (Map)
 import Data.Composition
 import Control.Monad.Reader
 import Control.Lens (Lens', locally)
+import System.Exit
 import LLVM.AST.Type (Type)
 import LLVM.AST (Name, Module)
 import LLVM.Pretty ()
@@ -99,3 +101,9 @@ insertWith' f = Map.insertWith (f .* flip const)
 
 if' :: Bool -> a -> a -> a
 if' p c a = if p then c else a
+
+abort :: FilePath -> IO a
+abort f = do
+    putStrLn "Error: Aborting due to previous error."
+    putStrLn $ "Error: Could not compile " ++ f ++ "."
+    exitFailure

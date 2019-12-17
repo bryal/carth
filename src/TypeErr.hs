@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase, FlexibleContexts, DataKinds #-}
 
-module TypeErr (TypeErr(..), prettyErr) where
+module TypeErr (TypeErr(..), printErr) where
 
 import Misc
 import SrcPos
@@ -36,9 +36,9 @@ data TypeErr
 
 type Message = String
 
-prettyErr :: TypeErr -> Parse.Source -> String
-prettyErr = \case
-    StartNotDefined -> const "Error: start not defined"
+printErr :: TypeErr -> IO ()
+printErr = \case
+    StartNotDefined -> putStrLn "Error: start not defined"
     InvalidUserTypeSig p s1 s2 ->
         posd p scheme
             $ ("Invalid user type signature " ++ pretty s1)
@@ -119,10 +119,10 @@ prettyErr = \case
     wholeLine = many Mega.anySingle
     (<||>) pa pb = (Mega.try pa $> ()) <|> (pb $> ())
 
-posd :: SrcPos -> Parse.Parser a -> Message -> Parse.Source -> String
-posd (SrcPos pos@(SourcePos _ lineN colN)) parser msg src =
-    let
-        (lineN', colN') = (unPos lineN, unPos colN)
+posd :: SrcPos -> Parse.Parser a -> Message -> IO ()
+posd (SrcPos pos@(SourcePos f lineN colN)) parser msg = do
+    src <- readFile f
+    let (lineN', colN') = (unPos lineN, unPos colN)
         lines' = lines src
         line = if (lineN' <= length lines')
             then lines' !! (lineN' - 1)
@@ -138,7 +138,7 @@ posd (SrcPos pos@(SourcePos _ lineN colN)) parser msg src =
             (\e -> ice ("posd: msg=|" ++ msg ++ "|,err=|" ++ show e ++ "|"))
             id
             (Parse.parse' (fmap fst (Mega.match parser)) "" rest)
-    in unlines
+    putStrLn $ unlines
         [ sourcePosPretty pos ++ ": Error:"
         , indent pad ++ "|"
         , lineNS ++ " | " ++ line

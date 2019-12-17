@@ -1,10 +1,4 @@
-(type (Pair a b)
-  (Pair a b))
+(import std)
 
 (define (start _)
-  (display-inline (str-append "Hello, world!" "\n")))
-
-(define (str-append s1 s2) (-str-append (Pair s1 s2)))
-
-(extern display-inline (Fun Str Unit))
-(extern -str-append (Fun (Pair Str Str) Str))
+  (display (str-append "Hello, world!" "\n")))

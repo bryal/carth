@@ -1,0 +1,83 @@
+(type (Pair a b)
+  (Pair a b))
+
+(define fst
+  (fun-match [(Pair a _) a]))
+(define snd
+  (fun-match [(Pair _ b) b]))
+
+(type (Maybe a)
+  None
+  (Some a))
+
+(type (Lazy a)
+  (Lazy (Fun Unit a)))
+
+(define lively
+  (fun-match [(Lazy f) (f unit)]))
+
+;;; Math
+
+(extern rem-int (Fun (Pair Int Int) Int))
+(define (rem a b)
+  (rem-int (Pair a b)))
+
+(extern add-int (Fun (Pair Int Int) Int))
+(define (+ a b)
+  (add-int (Pair a b)))
+
+(extern eq-int (Fun (Pair Int Int) Bool))
+(define (= a b)
+  (eq-int (Pair a b)))
+
+(extern gt-int (Fun (Pair Int Int) Bool))
+(define (> a b)
+  (gt-int (Pair a b)))
+
+(define (and p q)
+  (if p q false))
+
+(define (divisible? n m)
+  (= (rem n m) 0))
+
+;;; Strings
+
+(extern show-int (Fun Int Str))
+
+(extern -str-append (Fun (Pair Str Str) Str))
+(define (str-append s1 s2)
+  (-str-append (Pair s1 s2)))
+
+;;; IO
+
+(extern display-inline (Fun Str Unit))
+
+(define (display s)
+  (display-inline (str-append s "\n")))
+
+;;; Function
+
+(define (seq a b)
+  b)
+
+(define (comp f g a)
+  (f (g a)))
+
+;;; Iter
+
+(type (Iter a)
+  (Iter (Lazy (Maybe (Pair a (Iter a))))))
+
+(define next
+  (fun-match [(Iter it) (lively it)]))
+
+(define (range a b)
+  (Iter (Lazy (if (> a b)
+                  (fun _ None)
+                (fun _ (Some (Pair a (range (+ a 1) b))))))))
+
+(define (for xs f)
+  (match (next xs)
+    [None unit]
+    [(Some (Pair x xs'))
+     (seq (f x) (for xs' f))]))

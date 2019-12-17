@@ -33,6 +33,7 @@ dependencies:
 - llvm-hs
 - llvm-hs-pretty
 - filepath
+- directory
 - bytestring
 - utf8-string
 - composition-extra

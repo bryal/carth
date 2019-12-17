@@ -36,46 +36,95 @@ import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import qualified Text.Megaparsec.Char as Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Either.Combinators
 import Data.Void
 import Data.Composition
 import Data.List
+import System.FilePath
+import System.Directory
 
 import Misc hiding (if')
 import SrcPos
 import Ast
 import NonEmpty
+import Literate
 
 type Parser = Parsec Void String
-
 type Source = String
+type Import = String
 
-parse :: FilePath -> Source -> Either String Program
-parse = parse' program
+
+parse :: FilePath -> IO (Either String Program)
+parse filepath = do
+    let (dir, file) = splitFileName filepath
+    let moduleName = dropExtension file
+    r <- withCurrentDirectory
+        dir
+        (parseModule filepath dir moduleName Set.empty [])
+    pure (fmap (\(ds, ts, es) -> Program ds ts es) r)
+
+parseModule
+    :: FilePath
+    -> FilePath
+    -> String
+    -> Set String
+    -> [String]
+    -> IO (Either String ([Def], [TypeDef], [Extern]))
+parseModule filepath dir m visiteds nexts = do
+    let (carthf, orgf) = (addExtension m ".carth", addExtension m ".org")
+    dotCarth <- doesFileExist carthf
+    dotOrg <- doesFileExist orgf
+    (src, f) <- case (dotCarth, dotOrg) of
+        (True, True) -> do
+            putStrLn
+                $ ("Error: File of module " ++ m)
+                ++ " is ambiguous. Both .org and .carth exist."
+            abort filepath
+        (True, False) -> fmap (, carthf) (readFile carthf)
+        (False, True) -> do
+            s <- readFile orgf
+            let s' = untangleOrg s
+            writeFile (addExtension m "untangled") s
+            pure (s', orgf)
+        (False, False) -> do
+            putStrLn $ "Error: No file for module " ++ m ++ " exists."
+            abort filepath
+    let visiteds' = Set.insert m visiteds
+    case parse' toplevels (dir </> f) src of
+        Left e -> pure (Left e)
+        Right (is, ds, ts, es) -> case is ++ nexts of
+            [] -> pure (Right (ds, ts, es))
+            next : nexts' -> do
+                r <- parseModule filepath dir next visiteds' nexts'
+                pure $ fmap
+                    (\(ds', ts', es') -> (ds ++ ds', ts ++ ts', es ++ es'))
+                    r
 
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)
 
-program :: Parser Program
-program = do
+toplevels :: Parser ([Import], [Def], [TypeDef], [Extern])
+toplevels = do
     space
-    (defs, typedefs, externs) <- toplevels
+    r <- option ([], [], [], []) (toplevel >>= flip fmap toplevels)
     eof
-    pure (Program defs typedefs externs)
+    pure r
+  where
+    toplevel = do
+        topPos <- getSrcPos
+        parens $ choice
+            [ fmap (\i (is, ds, ts, es) -> (i : is, ds, ts, es)) import'
+            , fmap
+                (\d (is, ds, ts, es) -> (is, d : ds, ts, es))
+                (def topPos)
+            , fmap (\t (is, ds, ts, es) -> (is, ds, t : ts, es)) typedef
+            , fmap (\e (is, ds, ts, es) -> (is, ds, ts, e : es)) extern
+            ]
 
-toplevels :: Parser ([Def], [TypeDef], [Extern])
-toplevels = option ([], [], []) (toplevel >>= flip fmap toplevels)
-
-toplevel
-    :: Parser (([Def], [TypeDef], [Extern]) -> ([Def], [TypeDef], [Extern]))
-toplevel = do
-    topPos <- getSrcPos
-    parens $ choice
-        [ fmap (\a (as, bs, cs) -> (a : as, bs, cs)) (def topPos)
-        , fmap (\b (as, bs, cs) -> (as, b : bs, cs)) typedef
-        , fmap (\c (as, bs, cs) -> (as, bs, c : cs)) extern
-        ]
+import' :: Parser Import
+import' = reserved "import" *> fmap idstr small'
 
 extern :: Parser Extern
 extern = reserved "extern" *> liftA2 Extern small' type_
@@ -391,6 +440,7 @@ reserveds =
     , "type"
     , "box"
     , "deref"
+    , "import"
     ]
 
 otherChar :: Parser Char
