@@ -67,9 +67,12 @@ inferTopDefs tdefs ctors externs defs = evalStateT
         let externs'' = fmap (Forall Set.empty) externs'
         defs' <- checkStartType defs
         defs'' <- augment envDefs externs'' (inferDefs defs')
+        -- We run this separately from checkStartType to be able to run
+        -- inferDefs first. Being able to check a module for type errors even if
+        -- it won't compile in the end is useful.
+        checkStartDefined defs''
         s <- use substs
         pure (externs', defs'', s)
-    checkStartType :: [Ast.Def] -> Infer [Ast.Def]
     checkStartType = \case
         (x@(Id (WithPos _ "start")), (s, b)) : ds ->
             if s == Nothing || unpos (fromJust s) == startScheme
@@ -77,7 +80,9 @@ inferTopDefs tdefs ctors externs defs = evalStateT
                     ((x, (Just (WithPos dummyPos startScheme), b)) : ds)
                 else throwError (WrongStartType (fromJust s))
         d : ds -> fmap (d :) (checkStartType ds)
-        [] -> throwError StartNotDefined
+        [] -> pure []
+    checkStartDefined ds =
+        when (not (Map.member "start" ds)) (throwError StartNotDefined)
     startScheme = Forall Set.empty startType
     initEnv = Env
         { _envDefs = Map.empty
