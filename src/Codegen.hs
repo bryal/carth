@@ -115,8 +115,9 @@ defineDataTypes tds = do
             let totVariants = length vs
             ts <- mapM (genVariantType (fromIntegral totVariants)) vs
             sizedTs <- mapM (\t -> fmap (\s -> (s, t)) (sizeof t)) ts
-            let (_, tmax) = maximum sizedTs
-            pure (n, tmax)
+            if null sizedTs
+                then ice ("defineDataTypes: sizedTs empty for def " ++ show n)
+                else pure (n, snd (maximum sizedTs))
 
 runGen' :: Gen' a -> a
 runGen' g = runReader

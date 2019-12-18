@@ -171,14 +171,19 @@ sizeof = \case
     toBytesCeil nbits = div (nbits + 7) 8
     addMember accSize u = do
         align <- alignmentof u
-        let padding = mod (align - accSize) align
+        let padding = if align == 0 then 0 else mod (align - accSize) align
         size <- sizeof u
         pure (accSize + padding + size)
 
 alignmentof :: Type -> Gen' Word64
 alignmentof = \case
     NamedTypeReference x -> alignmentof =<< lookupDatatype x
-    StructureType _ us -> fmap maximum (traverse alignmentof us)
+    StructureType _ [] -> pure 0
+    t@(StructureType _ us) -> do
+        as <- traverse alignmentof us
+        if null as
+            then ice ("alignmentof: alignments empty for struct " ++ pretty t)
+            else pure (maximum as)
     VectorType _ u -> alignmentof u
     ArrayType _ u -> alignmentof u
     t -> sizeof t
