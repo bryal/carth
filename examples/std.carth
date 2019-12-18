@@ -3,6 +3,14 @@
 (define snd
   (fun-match (case (Pair _ b) b)))
 
+(define: (undefined x)
+    (forall (a) (Fun Unit a))
+  (undefined x))
+
+(extern -panic (Fun Str Unit))
+(define (panic msg)
+  (seq (-panic msg) (undefined unit)))
+
 (type (Maybe a)
   None
   (Some a))

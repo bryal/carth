@@ -132,3 +132,11 @@ def_carth_closure! {
     i64, Str; n =>
         Str::new(n.to_string())
 }
+
+def_carth_closure! {
+    "-panic", PANIC, panic;
+    Str, (); s => {
+        eprintln!("*** Panic: {}", from_carth_str(&s));
+        std::process::abort()
+    }
+}
