@@ -32,7 +32,7 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     (externs', inferred, substs) <- inferTopDefs tdefs' ctors externs defs
     let substd = substTopDefs substs inferred
     checkTypeVarsBound substd
-    let desugared = unsugar substd
+    let desugared = desugar substd
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Des.Program desugared tdefs'' externs')
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Desugar (unsugar) where
+module Desugar (desugar) where
 
 import Data.Bifunctor
 import qualified Data.Map as Map
@@ -9,24 +9,24 @@ import SrcPos
 import qualified AnnotAst as An
 import DesugaredAst
 
-unsugar :: An.Defs -> Defs
-unsugar = unsugarDefs
+desugar :: An.Defs -> Defs
+desugar = desugarDefs
 
-unsugarDefs :: An.Defs -> Defs
-unsugarDefs = fmap (second unsugarExpr)
+desugarDefs :: An.Defs -> Defs
+desugarDefs = fmap (second desugarExpr)
 
-unsugarExpr :: An.Expr -> Expr
-unsugarExpr (WithPos _ e) = case e of
+desugarExpr :: An.Expr -> Expr
+desugarExpr (WithPos _ e) = case e of
     An.Lit c -> Lit c
-    An.Var v -> Var (unsugarTypedVar v)
-    An.App f a rt -> App (unsugarExpr f) (unsugarExpr a) rt
-    An.If p c a -> If (unsugarExpr p) (unsugarExpr c) (unsugarExpr a)
-    An.Fun p b -> Fun p (first unsugarExpr b)
-    An.Let ds b -> Let (unsugarDefs ds) (unsugarExpr b)
-    An.Match m dt t -> Match (unsugarExpr m) (unsugarDecTree dt) t
+    An.Var v -> Var (desugarTypedVar v)
+    An.App f a rt -> App (desugarExpr f) (desugarExpr a) rt
+    An.If p c a -> If (desugarExpr p) (desugarExpr c) (desugarExpr a)
+    An.Fun p b -> Fun p (first desugarExpr b)
+    An.Let ds b -> Let (desugarDefs ds) (desugarExpr b)
+    An.Match m dt t -> Match (desugarExpr m) (desugarDecTree dt) t
     An.FunMatch dt pt bt ->
         let x = "#x"
-        in Fun (x, pt) (Match (Var (TypedVar x pt)) (unsugarDecTree dt) bt, bt)
+        in Fun (x, pt) (Match (Var (TypedVar x pt)) (desugarDecTree dt) bt, bt)
     An.Ctor v span' inst ts ->
         let
             xs = map (\n -> "#x" ++ show n) (take (length ts) [0 :: Word ..])
@@ -36,14 +36,14 @@ unsugarExpr (WithPos _ e) = case e of
             (\(p, pt) (bt, b) -> (TFun pt bt, Fun (p, pt) (b, bt)))
             (TConst inst, Ction v span' inst args)
             params
-    An.Box e -> Box (unsugarExpr e)
-    An.Deref e -> Deref (unsugarExpr e)
+    An.Box e -> Box (desugarExpr e)
+    An.Deref e -> Deref (desugarExpr e)
 
-unsugarDecTree :: An.DecisionTree -> DecisionTree
-unsugarDecTree = \case
-    An.DLeaf (bs, e) -> DLeaf (Map.mapKeys unsugarTypedVar bs, unsugarExpr e)
+desugarDecTree :: An.DecisionTree -> DecisionTree
+desugarDecTree = \case
+    An.DLeaf (bs, e) -> DLeaf (Map.mapKeys desugarTypedVar bs, desugarExpr e)
     An.DSwitch a cs def ->
-        DSwitch a (fmap unsugarDecTree cs) (unsugarDecTree def)
+        DSwitch a (fmap desugarDecTree cs) (desugarDecTree def)
 
-unsugarTypedVar :: An.TypedVar -> TypedVar
-unsugarTypedVar (An.TypedVar (WithPos _ x) t) = TypedVar x t
+desugarTypedVar :: An.TypedVar -> TypedVar
+desugarTypedVar (An.TypedVar (WithPos _ x) t) = TypedVar x t
