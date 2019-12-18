@@ -190,8 +190,12 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         TBox t -> boundInType pos t
     boundInDecTree = \case
         An.DLeaf (bs, e) -> do
-            forM_
-                (Map.keys bs)
-                (\(An.TypedVar (WithPos p _) t) -> boundInType p t)
+            forM_ (Map.toList bs) $ \(An.TypedVar (WithPos p _) t, a) ->
+                boundInType p t *> boundInAccess p a
             boundInExpr e
         An.DSwitch _ dts dt -> forM_ (dt : Map.elems dts) boundInDecTree
+    boundInAccess pos = \case
+        Des.Obj -> pure ()
+        Des.As a _ ts -> boundInAccess pos a *> forM_ ts (boundInType pos)
+        Des.Sel _ _ a -> boundInAccess pos a
+        Des.ADeref a -> boundInAccess pos a
