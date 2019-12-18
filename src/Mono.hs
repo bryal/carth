@@ -24,7 +24,7 @@ import MonoAst
 
 
 data Env = Env
-    { _defs :: Map String (Scheme, An.Expr)
+    { _envDefs :: Map String (Scheme, An.Expr)
     , _tvBinds :: Map TVar Type
     }
 makeLenses ''Env
@@ -52,7 +52,7 @@ initInsts :: Insts
 initInsts = Insts Map.empty Set.empty
 
 initEnv :: Env
-initEnv = Env { _defs = Map.empty, _tvBinds = Map.empty }
+initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }
 
 mono :: An.Expr -> Mono Expr
 mono = \case
@@ -86,13 +86,13 @@ monoLet ds body = do
     parentInsts <- uses defInsts (lookups ks)
     let newEmptyInsts = (fmap (const Map.empty) ds)
     modifying defInsts (Map.union newEmptyInsts)
-    body' <- augment defs ds (mono body)
+    body' <- augment envDefs ds (mono body)
     dsInsts <- uses defInsts (lookups ks)
     modifying defInsts (Map.union (Map.fromList parentInsts))
     let ds' = Map.fromList $ do
             (name, dInsts) <- dsInsts
-            (t, (us, body)) <- Map.toList dInsts
-            pure (TypedVar name t, (us, body))
+            (t, (us, dbody)) <- Map.toList dInsts
+            pure (TypedVar name t, (us, dbody))
     pure (ds', body')
 
 monoMatch :: An.Expr -> An.DecisionTree -> An.Type -> Mono Expr
@@ -142,17 +142,17 @@ addDefInst x t1 = do
         Nothing -> pure ()
         Just xInsts -> when (not (Map.member t1 xInsts)) $ do
             (Forall _ t2, body) <- views
-                defs
+                envDefs
                 (lookup' (ice (x ++ " not in defs")) x)
             _ <- mfix $ \body' -> do
                 -- The instantiation must be in the environment when
                 -- monomorphizing the body, or we may infinitely recurse.
                 let boundTvs = bindTvs t2 t1
                     instTs = Map.elems boundTvs
-                insertInst x t1 (instTs, body')
+                insertInst t1 (instTs, body')
                 augment tvBinds boundTvs (mono body)
             pure ()
-    where insertInst x t b = modifying defInsts (Map.adjust (Map.insert t b) x)
+    where insertInst t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
 bindTvs :: An.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of

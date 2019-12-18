@@ -3,7 +3,7 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
 
-import LLVM.AST
+import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
@@ -195,7 +195,7 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
-        (capturesParam, captureLocals) <- genExtractCaptures fvs
+        (capturesParam, captureLocals) <- genExtractCaptures
         pt' <- genType pt
         px' <- newName px
         -- Load params according to calling convention
@@ -242,7 +242,7 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
             str = litStructNamed' ("Str", []) [array]
             defStr = simpleGlobVar strName typeStr str
         pure [defInner, defStr]
-    genExtractCaptures fvs = do
+    genExtractCaptures = do
         capturesName <- newName "captures"
         let capturesPtrGenericType = LLType.ptr typeUnit
         let capturesPtrGeneric =
@@ -345,11 +345,11 @@ app closure a rt = do
         (getFunRet (getPointee (typeOf f)))
 
 genIf :: Expr -> Expr -> Expr -> Gen Val
-genIf pred conseq alt = do
+genIf pred' conseq alt = do
     conseqL <- newName "consequent"
     altL <- newName "alternative"
     nextL <- newName "next"
-    predV <- emitAnon . flip trunc i1 =<< getLocal =<< genExpr pred
+    predV <- emitAnon . flip trunc i1 =<< getLocal =<< genExpr pred'
     commitToNewBlock (condbr predV conseqL altL) conseqL
     conseqV <- getLocal =<< genExpr conseq
     fromConseqL <- use currentBlockLabel
