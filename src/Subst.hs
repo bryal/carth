@@ -25,7 +25,6 @@ substExpr s (WithPos p e) = WithPos p $ case e of
     Var v -> Var (substTypedVar s v)
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
-    Fun (p, tp) (b, bt) -> Fun (p, subst s tp) (substExpr s b, subst s bt)
     Let defs body -> Let (fmap (substDef s) defs) (substExpr s body)
     Match e dt tbody ->
         Match (substExpr s e) (substDecisionTree s dt) (subst s tbody)

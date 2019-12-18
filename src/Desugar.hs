@@ -21,7 +21,6 @@ desugarExpr (WithPos _ e) = case e of
     An.Var v -> Var (desugarTypedVar v)
     An.App f a rt -> App (desugarExpr f) (desugarExpr a) rt
     An.If p c a -> If (desugarExpr p) (desugarExpr c) (desugarExpr a)
-    An.Fun p b -> Fun p (first desugarExpr b)
     An.Let ds b -> Let (desugarDefs ds) (desugarExpr b)
     An.Match m dt t -> Match (desugarExpr m) (desugarDecTree dt) t
     An.FunMatch dt pt bt ->

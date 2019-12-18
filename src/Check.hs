@@ -161,10 +161,6 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             boundInExpr p
             boundInExpr c
             boundInExpr a
-        An.Fun (_, pt) (b, bt) -> do
-            boundInType pos pt
-            boundInExpr b
-            boundInType pos bt
         An.Let lds b -> do
             boundInDefs lds
             boundInExpr b
