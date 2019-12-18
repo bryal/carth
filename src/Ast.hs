@@ -102,7 +102,7 @@ data Expr'
     | Var (Id 'Small)
     | App Expr Expr
     | If Expr Expr Expr
-    | Fun (Id 'Small) Expr
+    | Fun Pat Expr
     | Let (NonEmpty Def) Expr
     | TypeAscr Expr Type
     | Match Expr (NonEmpty (Pat, Expr))
@@ -184,7 +184,7 @@ fvExpr = unpos >>> \case
     Var x -> Set.singleton x
     App f a -> fvApp f a
     If p c a -> fvIf p c a
-    Fun p b -> fvFun p b
+    Fun p b -> fvFun' p b
     Let bs e ->
         fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
     TypeAscr e _ -> freeVars e
@@ -193,6 +193,9 @@ fvExpr = unpos >>> \case
     Ctor _ -> Set.empty
     Box e -> fvExpr e
     Deref e -> fvExpr e
+
+fvFun' :: Pat -> Expr -> Set (Id 'Small)
+fvFun' p e = Set.difference (freeVars e) (bvPat p)
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)
@@ -258,15 +261,14 @@ prettyExpr' d = \case
         , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
         , indent (d + 2) ++ pretty' (d + 2) alt ++ ")"
         ]
-    Fun param body ->
-        concat
-            [ "(fun "
-            , idstr param
-            , "\n"
-            , indent (d + 2)
-            , pretty' (d + 2) body
-            , ")"
-            ]
+    Fun param body -> concat
+        [ "(fun ("
+        , prettyPat param
+        , ")\n"
+        , indent (d + 2)
+        , pretty' (d + 2) body
+        , ")"
+        ]
     Let binds body -> concat
         [ "(let ["
         , intercalate1 ("\n" ++ indent (d + 6)) (map1 (prettyDef (d + 6)) binds)

@@ -3,8 +3,7 @@
 module Infer (inferTopDefs) where
 
 import Prelude hiding (span)
-import Control.Lens
-    ((<<+=), assign, makeLenses, over, use, view, views, locally, mapped)
+import Control.Lens ((<<+=), assign, makeLenses, over, use, view, views, mapped)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -175,10 +174,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected (TPrim TBool)) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
-    Ast.Fun p b -> do
-        tp <- fresh
-        (tb, b') <- withLocal (idstr p, Forall Set.empty tp) (infer b)
-        pure (TFun tp tb, Fun (idstr p, tp) (b', tb))
+    Ast.Fun p b -> inferFunMatch pos (pure (p, b))
     Ast.Let defs b -> do
         annotDefs <- inferDefs (fromList1 defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
@@ -193,11 +189,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         (tbody, cases') <- inferCases (Expected tmatchee) cases
         dt <- toDecisionTree' pos tmatchee cases'
         pure (tbody, Match matchee' dt tbody)
-    Ast.FunMatch cases -> do
-        tpat <- fresh
-        (tbody, cases') <- inferCases (Expected tpat) cases
-        dt <- toDecisionTree' pos tpat cases'
-        pure (TFun tpat tbody, FunMatch dt tpat tbody)
+    Ast.FunMatch cases -> inferFunMatch pos cases
     Ast.Ctor c -> inferExprConstructor c
     Ast.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
     Ast.Deref x -> do
@@ -217,6 +209,13 @@ toDecisionTree' pos tpat cases = do
     let cases' = map (\(cpos, p, e) -> (cpos, substPat s p, e)) cases
     mTypeDefs <- views envTypeDefs (fmap (map fst . snd))
     lift (lift (toDecisionTree mTypeDefs pos tpat' cases'))
+
+inferFunMatch :: SrcPos -> NonEmpty (Ast.Pat, Ast.Expr) -> Infer (Type, Expr')
+inferFunMatch pos cases = do
+    tpat <- fresh
+    (tbody, cases') <- inferCases (Expected tpat) cases
+    dt <- toDecisionTree' pos tpat cases'
+    pure (TFun tpat tbody, FunMatch dt tpat tbody)
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
@@ -329,9 +328,6 @@ withLocals = withLocals' . Map.fromList
 
 withLocals' :: Map String Scheme -> Infer a -> Infer a
 withLocals' = augment envDefs
-
-withLocal :: (String, Scheme) -> Infer a -> Infer a
-withLocal b = locally envDefs (uncurry Map.insert b)
 
 unify :: ExpectedType -> FoundType -> Infer ()
 unify (Expected t1) (Found pos t2) = do

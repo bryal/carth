@@ -158,7 +158,7 @@ def' schemeParser topPos = varDef <|> funDef
         body <- expr
         pure (name, (scm, body))
     funDef = do
-        (name, params) <- parens (liftM2 (,) small' (some small'))
+        (name, params) <- parens (liftM2 (,) small' (some pat))
         scm <- schemeParser
         body <- expr
         let f = foldr (WithPos topPos .* Fun) body params
@@ -250,12 +250,9 @@ if' = do
 fun :: Parser Expr'
 fun = do
     reserved "fun"
-    params <- choice
-        [parens (some (withPos small')), fmap (\x -> [x]) (withPos small')]
+    params <- choice [parens (some pat), fmap (pure . PVar) small']
     body <- expr
-    pure $ unpos
-        (foldr (\(WithPos pos p) b -> WithPos pos (Fun p b)) body params)
-
+    pure $ unpos (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
 
 let' :: Parser Expr'
 let' = do

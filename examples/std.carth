@@ -1,7 +1,5 @@
-(define fst
-  (fun-match (case (Pair a _) a)))
-(define snd
-  (fun-match (case (Pair _ b) b)))
+(define (fst (Pair a _)) a)
+(define (snd (Pair _ b)) b)
 
 (define: (undefined x)
     (forall (a) (Fun Unit a))
@@ -82,8 +80,8 @@
 (type (Iter a)
   (Iter (Lazy (Maybe (Pair a (Iter a))))))
 
-(define next
-  (fun-match (case (Iter it) (lively it))))
+(define (next (Iter it)) (lively it))
+(define (next! (Iter it)) (unwrap! (lively it)))
 
 (define (range a b)
   (Iter (Lazy (if (> a b)
