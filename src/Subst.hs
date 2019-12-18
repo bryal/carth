@@ -41,7 +41,11 @@ substDecisionTree s = \case
         (substAccess s obj)
         (fmap (substDecisionTree s) cs)
         (substDecisionTree s def)
-    DLeaf (bs, e) -> DLeaf (Map.mapKeys (substTypedVar s) bs, substExpr s e)
+    DLeaf (bs, e) -> DLeaf
+        ( Map.fromList
+            (map (bimap (substTypedVar s) (substAccess s)) (Map.toList bs))
+        , substExpr s e
+        )
 
 substAccess :: Subst -> Access -> Access
 substAccess s = \case
