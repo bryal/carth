@@ -271,15 +271,15 @@ prettyExpr' d = \case
         , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
         ]
       where
-        prettyDef d = \case
-            (name, (Just scm, body)) -> concat
-                [ "[: " ++ pretty' (d + 3) name ++ "\n"
-                , indent (d + 3) ++ pretty' (d + 3) scm ++ "\n"
-                , indent (d + 1) ++ pretty' (d + 1) body ++ "]"
+        prettyDef d' = \case
+            (name, (Just scm, dbody)) -> concat
+                [ "[: " ++ pretty' (d' + 3) name ++ "\n"
+                , indent (d' + 3) ++ pretty' (d' + 3) scm ++ "\n"
+                , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
                 ]
-            (name, (Nothing, body)) -> concat
-                [ "[" ++ pretty' (d + 1) name ++ "\n"
-                , indent (d + 1) ++ pretty' (d + 1) body ++ "]"
+            (name, (Nothing, dbody)) -> concat
+                [ "[" ++ pretty' (d' + 1) name ++ "\n"
+                , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
                 ]
     TypeAscr e t ->
         concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
@@ -330,7 +330,7 @@ prettyType = \case
     Ast.TBox t -> "(Box " ++ pretty t ++ ")"
     Ast.TConst (c, ts) -> case ts of
         [] -> c
-        ts -> concat ["(", c, " ", spcPretty ts, ")"]
+        _ -> concat ["(", c, " ", spcPretty ts, ")"]
 
 prettyTFun :: Type -> Type -> String
 prettyTFun a b =
