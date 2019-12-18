@@ -127,6 +127,7 @@ monoAccess = \case
     An.As a span' ts ->
         liftA3 As (monoAccess a) (pure span') (mapM monotype ts)
     An.Sel i span' a -> fmap (Sel i span') (monoAccess a)
+    An.ADeref a -> fmap ADeref (monoAccess a)
 
 monoCtion :: VariantIx -> Span -> An.TConst -> [An.Expr] -> Mono Expr
 monoCtion i span' (tdefName, tdefArgs) as = do

@@ -48,7 +48,11 @@ data TypedVar = TypedVar String Type
 
 type VariantTypes = [Type]
 
-data Access = Obj | As Access Span [Type] | Sel Word32 Span Access
+data Access
+    = Obj
+    | As Access Span [Type]
+    | Sel Word32 Span Access
+    | ADeref Access
     deriving (Show, Eq, Ord)
 
 type VarBindings = [(TypedVar, Access)]

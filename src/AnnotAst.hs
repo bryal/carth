@@ -39,7 +39,11 @@ data TypedVar = TypedVar Id Type
 
 type VariantIx = Integer
 
-data Access = Obj | As Access Span [Type] | Sel Word32 Span Access
+data Access
+    = Obj
+    | As Access Span [Type]
+    | Sel Word32 Span Access
+    | ADeref Access
     deriving (Show, Eq, Ord)
 
 type Span = Integer

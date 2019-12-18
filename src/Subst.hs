@@ -49,11 +49,13 @@ substAccess s = \case
     Obj -> Obj
     As a span' ts -> As (substAccess s a) span' (map (subst s) ts)
     Sel i span' a -> Sel i span' (substAccess s a)
+    ADeref a -> ADeref (substAccess s a)
 
 substPat :: Subst -> Pat -> Pat
 substPat s = \case
     PWild -> PWild
     PVar v -> PVar (substTypedVar s v)
+    PBox p -> PBox (substPat s p)
     PCon c ps -> PCon (substCon s c) (map (substPat s) ps)
 
 substCon :: Subst -> Con -> Con

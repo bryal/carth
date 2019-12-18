@@ -85,6 +85,7 @@ data Pat
     | PInt SrcPos Int
     | PBool SrcPos Bool
     | PVar (Id 'Small)
+    | PBox SrcPos Pat
     deriving Show
 
 data Const
@@ -149,6 +150,7 @@ instance HasPos Pat where
         PInt p _ -> p
         PBool p _ -> p
         PVar v -> getPos v
+        PBox p _ -> p
 
 instance Pretty Program where
     pretty' = prettyProg
@@ -204,6 +206,7 @@ bvPat = \case
     PInt _ _ -> Set.empty
     PBool _ _ -> Set.empty
     PVar x -> Set.singleton x
+    PBox _ p -> bvPat p
 
 prettyProg :: Int -> Program -> String
 prettyProg d (Program defs tdefs externs) =
@@ -308,6 +311,7 @@ prettyPat = \case
     PInt _ n -> show n
     PBool _ b -> if b then "true" else "false"
     PVar v -> idstr v
+    PBox _ p -> "(Box " ++ prettyPat p ++ ")"
 
 prettyConst :: Const -> String
 prettyConst = \case

@@ -251,6 +251,9 @@ inferPat = \case
     Ast.PVar x@(Id x') -> do
         tv <- fresh
         pure (tv, PVar (TypedVar x' tv), Map.singleton x (Forall Set.empty tv))
+    Ast.PBox _ p -> do
+        (tp', p', vs) <- inferPat p
+        pure (TBox tp', PBox p', vs)
   where
     intToPCon n w = PCon
         (Con

@@ -37,6 +37,7 @@ data Pat
     = PVar TypedVar
     | PWild
     | PCon Con [Pat]
+    | PBox Pat
     deriving Show
 
 data Descr = Pos Con [Descr] | Neg (Set Con)
@@ -142,6 +143,7 @@ match
 match obj descr ctx work rhs rules = \case
     PVar x -> conjunct (augment descr ctx) (addBind x obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
+    PBox p -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->
         let
             disjunct' :: Descr -> Match DecisionTree'

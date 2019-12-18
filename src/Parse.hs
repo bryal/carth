@@ -221,15 +221,17 @@ pat :: Parser Pat
 pat = andSkipSpaceAfter ns_pat
 
 ns_pat :: Parser Pat
-ns_pat = choice [patInt, patBool, patCtor, patCtion, patVar]
+ns_pat = choice [patInt, patBool, patCtor, patVar, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
     patBool = liftA2 PBool getSrcPos bool
     patCtor = fmap (\x -> PConstruction (getPos x) x []) ns_big'
     patVar = fmap PVar ns_small'
-    patCtion = do
+    ppat = do
         pos <- getSrcPos
-        ns_parens (liftM3 PConstruction (pure pos) big' (some pat))
+        ns_parens (choice [patBox pos, patCtion pos])
+    patBox pos = reserved "Box" *> fmap (PBox pos) pat
+    patCtion pos = liftM3 PConstruction (pure pos) big' (some pat)
 
 app :: Parser Expr'
 app = do

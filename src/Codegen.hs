@@ -395,7 +395,7 @@ genDecisionSwitch selector cs def tbody selections = do
     variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
     defaultL <- newName "default"
     nextL <- newName "next"
-    (m, selections') <- select genAs genSub selector selections
+    (m, selections') <- select selAs selSub selDeref selector selections
     mVariantIx <- case typeOf m of
         IntegerType _ -> pure m
         _ -> emitReg' "found_variant_ix" =<< extractvalue m [0]
@@ -416,10 +416,11 @@ genDecisionSwitch selector cs def tbody selections = do
 
 genDecisionLeaf :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Val
 genDecisionLeaf (bs, e) selections =
-    flip withLocals (genExpr e) =<< selectVarBindings genAs genSub selections bs
+    flip withLocals (genExpr e)
+        =<< selectVarBindings selAs selSub selDeref selections bs
 
-genAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
-genAs totVariants ts matchee = do
+selAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
+selAs totVariants ts matchee = do
     tvariant <- lift (genVariantType totVariants ts)
     let tgeneric = typeOf matchee
     pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
@@ -427,10 +428,13 @@ genAs totVariants ts matchee = do
     p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
     emitReg' "ction" (load p)
 
-genSub :: Span -> Word32 -> Operand -> Gen Operand
-genSub span' i matchee =
+selSub :: Span -> Word32 -> Operand -> Gen Operand
+selSub span' i matchee =
     let tagOffset = if span' > 1 then 1 else 0
     in emitReg' "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
+
+selDeref :: Operand -> Gen Operand
+selDeref x = emitAnon (load x)
 
 genCtion :: MonoAst.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
@@ -505,7 +509,7 @@ genHeapAlloc t = do
 
 genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
-    VVar x -> fmap VVar (emitAnon (load x))
+    VVar x -> fmap VVar (selDeref x)
     VLocal x -> pure (VVar x)
 
 getVar :: Val -> Gen Operand
