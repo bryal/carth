@@ -25,6 +25,7 @@ install-lib: foreign-core
 .PHONY: install-mods
 install-mods: mod-dir
 	cp std/* $(MOD_DIR)/
+	cp LICENSE $(MOD_DIR)/
 
 .PHONY: bin-dir
 bin-dir: carth-dir
