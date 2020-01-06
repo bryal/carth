@@ -1,4 +1,101 @@
-* 0.0.2 <2019-10-30>
+* v0.3.0 <2020-01-07>
+  Make runnable on others systems & impl C calling convention
+
+** Make runnable on others systems
+   Remove hardcoded paths & make the build procedure more general with
+   a Makefile with configurable variables. Now anyone can simple clone
+   the repo and run ~make install~ to get a properly built and working
+   ~carth~!
+
+** Add basic import system
+   Very rudimentary. Not much more fancy than C-style copy-paste
+   ~include~.
+
+   E.g. ~(import std)~ where ~std.carth~ or ~std.org~ is either in the
+   same directory as the file being compiled, or in the global module
+   directory, which is set when compiling Carth and defaults to
+   ~~/.carth/mod~.
+
+** Reimplement foreign-core lib in Rust
+   Also add a bunch of functions to it, like `-str-append`,
+   `display-inline`, `add-int`, `-panic`, and more.
+
+** Link with foreign definitions using the ~extern~ special form
+   E.g. ~(extern -panic (Fun Str Unit))~
+
+** Implement C calling convention
+   Carth functions now follow the C calling convention, passing things
+   by reference and returning via register when appropriate,
+   etc. Interfacing with foreign C/Rust/etc code is now almost trivial!
+
+   According to ABI, bools are now ~i8~ instead of ~i1~.
+
+** Remove interpreter
+   Not much point in keeping it, since it's not compatible with FFI
+   as-is. Maybe we'll reimplement it based on LLVM JIT at some point.
+
+** Allow irrefutable patterns as function parameters
+   E.g. ~(define (fst (Pair a _)) a)~
+
+** Add more primitive integral types
+   ~Nat8~, ~Nat16~, ~Nat32~, ~Nat~, ~Int8~, ~Int16~, ~Int32~.
+
+** Add ~Box~
+   Like the old ~Ptr~, but smarter. Also add the special form ~box~
+   put a value on the heap, and ~deref~ to dereference a box.
+
+   Also allow ~Box~ as a special kind of destructor in patterns. Works
+   as you'd intuitively expect, and dereferences behind the scenes.
+
+** Add some builtin datatypes
+   In Carth syntax:
+   #+BEGIN_SRC carth
+   (type (Array a) (Array (Box a) Nat))
+   (type Str (Str (Array Nat8)))
+   (type (Pair a b) (Pair a b))
+   #+END_SRC
+
+** Generate strings as newly added datatype ~Str~
+
+** Scale datatype tag size by the number of variants
+   - 1 variant => no tag,
+   - 1 to 256 variants => 8-bit tag,
+   - 257 to 65536 variants => 16-bit tag,
+   - etc.
+
+** Check that datatype definitions are not recursive without indirection
+
+** Allow wildcards in patterns
+   They were treated as variables of name ~_~ before, but duplicate
+   variable pattern bindings are not allowed!
+
+** Allow integer and boolean literals in patterns
+
+** Generated better and more readable LLVM
+   - More readable name-mangling.
+   - Perform beta-reduction.
+   - Other minor improvements that add up!
+
+** Rename the user-defined entry-point function ~main~ to ~start~
+   Otherwise we have two ~main~s, and it got messy. Now the
+   codegenerator generates an "outer" ~main~ which does some stuff,
+   and the user defines ~start~.
+
+** Remove ~tail~ modifiers in codegen
+   I thought just marking a call as ~tail~ would do no harm if the
+   call was not in tail recursion, but it did!
+
+** Implement ~sizeof~ ourselves!
+   The previous method that ran in the ~EncodeAST~ monad was messy and
+   stopped working when I needed ~mfix~ for a cyclic binding.
+
+** Verify LLVM module before compiling to catch more errors
+
+** No longer allow square brackets in place of parentheses
+
+** Various bugfixes
+
+* v0.0.2 <2019-10-30>
   Trying out releases -- this is the first one, more or
   less. Everything has been in such heavy development until now (and
   still is really, but it has calmed down slightly), so this feels
