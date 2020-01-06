@@ -27,17 +27,13 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   - Linear types
 
 * Building
-  This project is written in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build
-  system. The external dependencies required are [[https://llvm.org/][LLVM]] version 9.
+  The compiler is writtern in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build system,
+  while the core-library is written in [[https://rust-lang.org][Rust]]. The external dependencies
+  required are [[https://llvm.org/][LLVM]] version 9.
 
-  To build the project, simply run ~stack build~. To install (copy the
-  binary), run ~stack install~.
-
-  The Carth compiler needs to link with a foreign core library of
-  functions that can't be defined in Carth itself, to do things like
-  input/output and pointer manipulation etc. This library is written
-  in Rust and is located in "foreign-core/". Just build with ~cargo
-  build~.
+  To build the project and install the ~carth~ binary, the core
+  library, and the standard library, simply run ~make install~, which
+  defaults to installing everything in ~~/.carth/~.
 
 * Running
   #+BEGIN_EXAMPLE bash
@@ -50,12 +46,12 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   carth help c
 
   # Compile and run a program with default output filename
-  carth c examples/test.carth
+  carth c examples/fizzbuzz.carth
   ./out
 
   # Compile a program with a specific output filename
-  carth c -o examples/test.bin examples/test.carth
-  ./examples/test.bin
+  carth c -o examples/fizzbuzz examples/fizzbuzz.carth
+  ./examples/fizzbuzz
   #+END_EXAMPLE
 
 * License
