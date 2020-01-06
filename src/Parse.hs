@@ -49,6 +49,7 @@ import SrcPos
 import Ast
 import NonEmpty
 import Literate
+import CompiletimeVars
 
 type Parser = Parsec Void String
 type Source = String
@@ -59,9 +60,7 @@ parse :: FilePath -> IO (Either String Program)
 parse filepath = do
     let (dir, file) = splitFileName filepath
     let moduleName = dropExtension file
-    r <- withCurrentDirectory
-        dir
-        (parseModule filepath dir moduleName Set.empty [])
+    r <- parseModule filepath dir moduleName Set.empty []
     pure (fmap (\(ds, ts, es) -> Program ds ts es) r)
 
 parseModule
@@ -72,26 +71,15 @@ parseModule
     -> [String]
     -> IO (Either String ([Def], [TypeDef], [Extern]))
 parseModule filepath dir m visiteds nexts = do
-    let (carthf, orgf) = (addExtension m ".carth", addExtension m ".org")
-    dotCarth <- doesFileExist carthf
-    dotOrg <- doesFileExist orgf
-    (src, f) <- case (dotCarth, dotOrg) of
-        (True, True) -> do
-            putStrLn
-                $ ("Error: File of module " ++ m)
-                ++ " is ambiguous. Both .org and .carth exist."
-            abort filepath
-        (True, False) -> fmap (, carthf) (readFile carthf)
-        (False, True) -> do
-            s <- readFile orgf
-            let s' = untangleOrg s
-            writeFile (addExtension m "untangled") s
-            pure (s', orgf)
-        (False, False) -> do
-            putStrLn $ "Error: No file for module " ++ m ++ " exists."
-            abort filepath
+    (src, f) <- parseModule' dir >>= \case
+        Just x -> pure x
+        Nothing -> parseModule' modDir >>= \case
+            Just x -> pure x
+            Nothing -> do
+                putStrLn ("Error: No file for module " ++ m ++ " exists.")
+                abort filepath
     let visiteds' = Set.insert m visiteds
-    case parse' toplevels (dir </> f) src of
+    case parse' toplevels f src of
         Left e -> pure (Left e)
         Right (is, ds, ts, es) -> case is ++ nexts of
             [] -> pure (Right (ds, ts, es))
@@ -100,6 +88,26 @@ parseModule filepath dir m visiteds nexts = do
                 pure $ fmap
                     (\(ds', ts', es') -> (ds ++ ds', ts ++ ts', es ++ es'))
                     r
+  where
+    parseModule' dir' = do
+        let m' = dir' </> m
+            carthf = addExtension m' ".carth"
+            orgf = addExtension m' ".org"
+        dotCarth <- doesFileExist carthf
+        dotOrg <- doesFileExist orgf
+        case (dotCarth, dotOrg) of
+            (True, True) -> do
+                putStrLn
+                    $ ("Error: File of module " ++ m)
+                    ++ " is ambiguous. Both .org and .carth exist."
+                abort filepath
+            (True, False) -> fmap (Just . (, carthf)) (readFile carthf)
+            (False, True) -> do
+                s <- readFile orgf
+                let s' = untangleOrg s
+                writeFile (addExtension m "untangled") s
+                pure (Just (s', orgf))
+            (False, False) -> pure Nothing
 
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)

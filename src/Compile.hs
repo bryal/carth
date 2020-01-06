@@ -14,6 +14,7 @@ import qualified LLVM.CodeGenOpt as CodeGenOpt
 import Misc
 import qualified MonoAst
 import Codegen
+import CompiletimeVars
 
 -- | Configuration for LLVM compilation and CC linking
 data CompileConfig = CompileConfig
@@ -31,24 +32,27 @@ defaultCompileConfig = CompileConfig { cc = "cc", outfile = Nothing }
 compile :: FilePath -> CompileConfig -> MonoAst.Program -> IO ()
 compile f cfg pgm = withContext $ \c -> withHostTargetMachinePIC $ \t -> do
     layout <- getTargetMachineDataLayout t
+    putStrLn ("   Generating LLVM")
     let mod = codegen layout f pgm
     writeFile "out.dbgll" (pretty mod)
     withModuleFromAST c mod (compileModule t cfg)
 
 compileModule :: TargetMachine -> CompileConfig -> Module -> IO ()
 compileModule t cfg m = do
+    putStrLn ("   Compiling LLVM")
     let binfile = fromMaybe "out" (outfile cfg)
         llfile = replaceExtension binfile "ll"
         ofile = replaceExtension binfile "o"
     writeLLVMAssemblyToFile' llfile m
     verify m
     writeObjectToFile t (File ofile) m
+    putStrLn ("   Linking")
     callProcess
         (cc cfg)
         [ "-o"
         , binfile
         , ofile
-        , "/home/jojo/Hack/carth/foreign-core/target/debug/libcarth_foreign_core.a"
+        , libDir </> "libcarth_foreign_core.a"
         , "-ldl"
         , "-lpthread"
         ]

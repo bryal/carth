@@ -14,14 +14,25 @@ import Config
 import Compile
 import Mono
 import qualified Parse
+import CompiletimeVars
 
 main :: IO ()
 main = uncurry compileFile =<< getConfig
 
 compileFile :: FilePath -> CompileConfig -> IO ()
 compileFile f cfg = do
-    putStrLn ("   Compiling " ++ f ++ "\n")
-    parse f >>= typecheck' f >>= monomorphize' >>= compile f cfg
+    putStrLn ("   Compiling " ++ f ++ "")
+    putStrLn ("     Compiletime variables:")
+    putStrLn ("       lib directory = " ++ libDir)
+    putStrLn ("       mod directory = " ++ modDir)
+    putStrLn ("   Parsing")
+    ast <- parse f
+    putStrLn ("   Typechecking")
+    ann <- typecheck' f ast
+    putStrLn ("   Monomorphizing")
+    mon <- monomorphize' ann
+    compile f cfg mon
+    putStrLn ""
 
 parse :: FilePath -> IO Ast.Program
 parse f = Parse.parse f >>= \case

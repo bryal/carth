@@ -13,6 +13,10 @@
   None
   (Some a))
 
+(define unwrap!
+  (fun-match (case (Some x) x)
+             (case None (panic "unwrap! of None"))))
+
 (type (Lazy a)
   (Lazy (Fun Unit a)))
 
@@ -81,7 +85,7 @@
   (Iter (Lazy (Maybe (Pair a (Iter a))))))
 
 (define (next (Iter it)) (lively it))
-(define (next! (Iter it)) (unwrap! (lively it)))
+(define (next! it) (unwrap! (next it)))
 
 (define (range a b)
   (Iter (Lazy (if (> a b)
@@ -93,3 +97,54 @@
     (case None unit)
     (case (Some (Pair x xs'))
           (seq (f x) (for xs' f)))))
+
+;;; List
+
+(type (List a)
+  (Cons a (Box (List a)))
+  Nil)
+
+(define first
+  (fun-match
+    (case (Cons x _) (Some x))
+    (case Nil None)))
+(define first!
+  (fun-match
+    (case (Cons x _) x)
+    (case Nil (panic "first! of empty list"))))
+
+(define rest
+  (fun-match
+    (case (Cons _ (Box xs)) (Some xs))
+    (case Nil None)))
+(define rest!
+  (fun-match
+    (case (Cons _ (Box xs)) xs)
+    (case Nil (panic "rest! of empty list"))))
+
+(define last
+  (fun-match
+    (case (Cons x (Box Nil)) (Some x))
+    (case (Cons _ (Box xs)) (last xs))
+    (case Nil None)))
+(define last!
+  (fun-match
+    (case (Cons x (Box Nil)) x)
+    (case (Cons _ (Box xs)) (last! xs))
+    (case Nil (panic "last! of empty list"))))
+
+(define init
+  (fun-match
+    (case Nil None)
+    (case xs (Some (init! xs)))))
+(define init!
+  (fun-match
+    (case (Cons _ (Box Nil)) Nil)
+    (case (Cons x (Box xs)) (Cons x (box (init! xs))))
+    (case Nil (panic "init! of empty list"))))
+
+(define: (foldl f acc xs)
+    (forall (a b) (Fun (Fun b a b) b (List a) b))
+  (match xs
+    (case (Cons x (Box xs')) (foldl f (f acc x) xs'))
+    (case Nil acc)))
