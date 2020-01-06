@@ -34,7 +34,7 @@ compile f cfg pgm = withContext $ \c -> withHostTargetMachinePIC $ \t -> do
     layout <- getTargetMachineDataLayout t
     putStrLn ("   Generating LLVM")
     let mod = codegen layout f pgm
-    writeFile "out.dbgll" (pretty mod)
+    writeFile ".dbg.out.dbgll" (pretty mod)
     withModuleFromAST c mod (compileModule t cfg)
 
 compileModule :: TargetMachine -> CompileConfig -> Module -> IO ()
@@ -43,7 +43,7 @@ compileModule t cfg m = do
     let binfile = fromMaybe "out" (outfile cfg)
         llfile = replaceExtension binfile "ll"
         ofile = replaceExtension binfile "o"
-    writeLLVMAssemblyToFile' llfile m
+    writeLLVMAssemblyToFile' (".dbg." ++ llfile) m
     verify m
     writeObjectToFile t (File ofile) m
     putStrLn ("   Linking")
