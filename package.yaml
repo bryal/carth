@@ -2,7 +2,7 @@ name:                carth
 version:             0.0.2.0
 git:                 https://gitlab.com/JoJoZ/carth
 homepage:            https://carth.jo.zone
-license:             AGPL-3
+license:             AGPL-3.0-or-later
 author:              "Johan Johansson"
 maintainer:          "jo@jo.zone"
 copyright:           "2019 Johan Johansson"
