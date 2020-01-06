@@ -318,6 +318,8 @@ the fix etc:
     Implementing a tracing GC would also be a fun challenge, and I'm
     sure it could be fun to try different algorithms etc.
 
+    Look at https://github.com/mkirchner/gc.
+
 **** How it would work
      Basically, instead of calling =malloc=, the alloc function of the
      GC is called. This function keeps track of either the number of
@@ -430,27 +432,41 @@ the fix etc:
   place. Will need to look into what LLVM can do, and what's possible
   on different platforms. Hopefully we won't have to resort to
   trampolining--that seems slow.
-* INACTIVE Prefer somewhat big / wide stdlib
-  Small / bad standard library + good package manager => npm / cargo
-  situation, where everything has sooo many dependencies. Having a dep
-  is not bad per say, but when the numbers completely blow up, like in
-  rust- and javascript-land, things can get messy. The best way to
-  avoid this, I think, is having a standard library that has you
-  covered for most common things.
-
-  Examples of libraries in other ecosystems that should be part of the
-  stdlib: `is-even` in JavaScript, `composition` in Haskell, `rand` in
-  Rust.
-
-  Go seems to have done this relatively well. Their stdlib has
-  everything from JPEG codec, to a webserver. The stdlib shouldn't
-  have everything though, as that will add a bunch of legacy cruft
-  over time, like in Java. Would not be as much of a problem if we're
-  not afraid of releasing new major versions removing deprecated
-  stuff.
 * INACTIVE Boxing to allow for dynamic linking
   Boxing vs monomorphization. Boxing results in smaller binary and
   dynamically-linkable interface,bot results in slower code.
 
   Maybe monomorphize all package-internal code, and box all
   public-facing functions?
+* Standard library (std, stdlib)
+** INACTIVE Prefer somewhat big / wide stdlib
+   Small / bad standard library + good package manager => npm / cargo
+   situation, where everything has sooo many dependencies. Having a dep
+   is not bad per say, but when the numbers completely blow up, like in
+   rust- and javascript-land, things can get messy. The best way to
+   avoid this, I think, is having a standard library that has you
+   covered for most common things.
+
+   Examples of libraries in other ecosystems that should be part of the
+   stdlib: `is-even` in JavaScript, `composition` in Haskell, `rand` in
+   Rust.
+
+   Go seems to have done this relatively well. Their stdlib has
+   everything from JPEG codec, to a webserver. The stdlib shouldn't
+   have everything though, as that will add a bunch of legacy cruft
+   over time, like in Java. Would not be as much of a problem if we're
+   not afraid of releasing new major versions removing deprecated
+   stuff.
+** INACTIVE Concurrency / parallelism primitives
+   Mutex, semaphore, etc.
+
+   Look at how Rust and Haskell do it.
+
+   Also, look at the crate [[https://crates.io/crates/parking_lot][parking_lot]], which does replaces the
+   standard Rust primitives with smarter ones. E.g. the mutex does a
+   small number of spins first, to avoid expensive thread juggling by
+   the OS when the critical section is very short, but resort to the
+   usual process interrupts in case it goes on for longer, to avoid
+   priority inversion which is a problem with spinlocks.
+   https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
+   https://matklad.github.io/2020/01/04/mutexes-are-faster-than-spinlocks.html
