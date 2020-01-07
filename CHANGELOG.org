@@ -17,8 +17,8 @@
    ~~/.carth/mod~.
 
 ** Reimplement foreign-core lib in Rust
-   Also add a bunch of functions to it, like `-str-append`,
-   `display-inline`, `add-int`, `-panic`, and more.
+   Also add a bunch of functions to it, like ~-str-append~,
+   ~display-inline~, ~add-int~, ~-panic~, and more.
 
 ** Link with foreign definitions using the ~extern~ special form
    E.g. ~(extern -panic (Fun Str Unit))~
@@ -77,7 +77,7 @@
    - Other minor improvements that add up!
 
 ** Rename the user-defined entry-point function ~main~ to ~start~
-   Otherwise we have two ~main~s, and it got messy. Now the
+   Otherwise we have two ~main~:s, and it got messy. Now the
    codegenerator generates an "outer" ~main~ which does some stuff,
    and the user defines ~start~.
 
