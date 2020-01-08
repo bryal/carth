@@ -25,6 +25,9 @@ the fix etc:
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
   information floats to the left. Maybe a good idea, maybe
   not. Consider it.
+
+  Look at ML modules.
+
 ** INACTIVE Allow conflicting imports if unambiguous?
    I'm thinking something that would allow the following. It would be
    less annoying than having to qualify everything. Also, gotta think
@@ -129,8 +132,8 @@ the fix etc:
     leaks, but should probably be GCd. A datatype definition recursive
     without ~Box~ indirection will now throw an error.
 
-** TODO Document in reference
-** NEXT Uninhabited types
+** DONE Document in reference
+** TODO Uninhabited types
    Definition and pattern-matching of.
 * NEXT Typeclasses
 ** Agda style classes w implicit args
@@ -190,7 +193,7 @@ the fix etc:
    Probably last update for this section: [[https://old.reddit.com/r/haskell/comments/765ogm/multiple_type_class_instances_for_the_same_type/][this thread]] has convinced me
    that Haskell-/Rust-style typeclasses is the best idea.
 
-* INACTIVE Linear types
+* NEXT Linear types
   Linear types would allow predictable performance and behaviour of
   e.g. IO tasks. Force a single manual file-close or
   buffer-flush. Force a single free for malloc.  Affine types would
@@ -199,7 +202,12 @@ the fix etc:
   modified rather than cloned. Something like: ~fn push(mut v:
   Vec<i32>, x: i32) -> Vec<i32> { v.push(x); v }~ Implemented as maybe
   a wrapper, or an interface?  Maybe like in haskell with lolly
-  operator?  [[http://docs.idris-lang.org/en/latest/reference/uniqueness-types.html][Check out idris Uniqueness Types]]
+  operator?
+
+  Things to consider: Linear arrow vs. `kind` approach or similar?
+
+  Check out Idris Uniqueness types, Linear Haskell's linear arrows,
+  and however Blodwen does it (linear arrows kind of I think).
 
 * NEXT Higher kinded types
 
