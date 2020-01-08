@@ -4,7 +4,7 @@ LIB_DIR=$(CARTH_DIR)/lib
 MOD_DIR=$(CARTH_DIR)/mod
 
 .PHONY: carth-bin
-carth-bin: bin-dir clean-stack
+carth-bin: clean-stack
 	(export CARTH_LIB_DIR=$(LIB_DIR); export CARTH_MOD_DIR=$(MOD_DIR); stack build)
 
 .PHONY: foreign-core
@@ -15,7 +15,7 @@ foreign-core: lib-dir
 install: install-bin install-lib install-mods
 
 .PHONY: install-bin
-install-bin: carth-bin
+install-bin: carth-bin bin-dir
 	stack install --local-bin-path $(BIN_DIR)
 
 .PHONY: install-lib
