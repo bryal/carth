@@ -28,6 +28,7 @@ where
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
+import Data.Maybe
 import Control.Applicative (liftA2)
 import qualified Text.Megaparsec as Mega
 import Text.Megaparsec hiding (parse, match)
@@ -48,7 +49,7 @@ import Misc hiding (if')
 import SrcPos
 import Ast
 import Literate
-import CompiletimeVars
+import EnvVars
 
 type Parser = Parsec Void String
 type Source = String
@@ -70,13 +71,8 @@ parseModule
     -> [String]
     -> IO (Either String ([Def], [TypeDef], [Extern]))
 parseModule filepath dir m visiteds nexts = do
-    (src, f) <- parseModule' dir >>= \case
-        Just x -> pure x
-        Nothing -> parseModule' modDir >>= \case
-            Just x -> pure x
-            Nothing -> do
-                putStrLn ("Error: No file for module " ++ m ++ " exists.")
-                abort filepath
+    modPaths <- fmap (dir :) modulePaths
+    (src, f) <- parseModule' modPaths
     let visiteds' = Set.insert m visiteds
     case parse' toplevels f src of
         Left e -> pure (Left e)
@@ -88,25 +84,27 @@ parseModule filepath dir m visiteds nexts = do
                     (\(ds', ts', es') -> (ds ++ ds', ts ++ ts', es ++ es'))
                     r
   where
-    parseModule' dir' = do
-        let m' = dir' </> m
-            carthf = addExtension m' ".carth"
-            orgf = addExtension m' ".org"
-        dotCarth <- doesFileExist carthf
-        dotOrg <- doesFileExist orgf
-        case (dotCarth, dotOrg) of
-            (True, True) -> do
+    parseModule' modPaths = do
+        let fs = do
+                p <- modPaths
+                let pm = p </> m
+                fmap (addExtension pm) [".carth", ".org"]
+        fs' <- filterM doesFileExist fs
+        f <- case listToMaybe fs' of
+            Nothing -> do
                 putStrLn
-                    $ ("Error: File of module " ++ m)
-                    ++ " is ambiguous. Both .org and .carth exist."
+                    $ ("Error: No file for module " ++ m)
+                    ++ (" exists.\nSearched paths: " ++ show modPaths)
                 abort filepath
-            (True, False) -> fmap (Just . (, carthf)) (readFile carthf)
-            (False, True) -> do
-                s <- readFile orgf
+            Just f' -> pure f'
+        s <- readFile f
+        s' <- if takeExtension f == ".org"
+            then do
                 let s' = untangleOrg s
-                writeFile (addExtension m "untangled") s
-                pure (Just (s', orgf))
-            (False, False) -> pure Nothing
+                writeFile (addExtension m "untangled") s'
+                pure s'
+            else pure s
+        pure (s', f)
 
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)

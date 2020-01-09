@@ -40,7 +40,6 @@ dependencies:
 - prettyprinter
 - process
 - scientific
-- template-haskell
 
 library:
   source-dirs: src

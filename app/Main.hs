@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Data.Functor
+import System.Environment
 
 import Misc
 import qualified TypeErr
@@ -14,7 +15,7 @@ import Config
 import Compile
 import Mono
 import qualified Parse
-import CompiletimeVars
+import EnvVars
 
 main :: IO ()
 main = uncurry compileFile =<< getConfig
@@ -22,9 +23,11 @@ main = uncurry compileFile =<< getConfig
 compileFile :: FilePath -> CompileConfig -> IO ()
 compileFile f cfg = do
     putStrLn ("   Compiling " ++ f ++ "")
-    putStrLn ("     Compiletime variables:")
-    putStrLn ("       lib directory = " ++ libDir)
-    putStrLn ("       mod directory = " ++ modDir)
+    putStrLn ("     Environment variables:")
+    lp <- lookupEnv "LIBRARY_PATH"
+    mp <- modulePaths
+    putStrLn ("       library path = " ++ show lp)
+    putStrLn ("       module paths = " ++ show mp)
     putStrLn ("   Parsing")
     ast <- parse f
     putStrLn ("   Typechecking")

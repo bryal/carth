@@ -1,14 +1,14 @@
-CARTH_DIR=~/.carth
-BIN_DIR=$(CARTH_DIR)/bin
-LIB_DIR=$(CARTH_DIR)/lib
-MOD_DIR=$(CARTH_DIR)/mod
+prefix=~/.carth
+bin_dir=$(prefix)/bin
+lib_dir=$(prefix)/lib
+mod_dir=$(prefix)/mod
 
 .PHONY: carth-bin
 carth-bin: clean-stack
-	(export CARTH_LIB_DIR=$(LIB_DIR); export CARTH_MOD_DIR=$(MOD_DIR); stack build)
+	stack build
 
 .PHONY: foreign-core
-foreign-core: lib-dir
+foreign-core:
 	cd foreign-core; cargo build --release
 
 .PHONY: install
@@ -16,32 +16,27 @@ install: install-bin install-lib install-mods
 
 .PHONY: install-bin
 install-bin: carth-bin bin-dir
-	stack install --local-bin-path $(BIN_DIR)
+	stack install --local-bin-path $(bin_dir)
 
 .PHONY: install-lib
-install-lib: foreign-core
-	cp foreign-core/target/release/libcarth_foreign_core.a $(LIB_DIR)
+install-lib: foreign-core lib-dir
+	cp foreign-core/target/release/libcarth_foreign_core.a $(lib_dir)
 
 .PHONY: install-mods
 install-mods: mod-dir
-	cp std/* $(MOD_DIR)/
-	cp LICENSE $(MOD_DIR)/
+	cp std/* $(mod_dir)/
 
 .PHONY: bin-dir
-bin-dir: carth-dir
-	mkdir -p $(BIN_DIR)
+bin-dir:
+	mkdir -p $(bin_dir)
 
 .PHONY: lib-dir
-lib-dir: carth-dir
-	mkdir -p $(LIB_DIR)
+lib-dir:
+	mkdir -p $(lib_dir)
 
 .PHONY: mod-dir
-mod-dir: carth-dir
-	mkdir -p $(MOD_DIR)
-
-.PHONY: carth-dir
-carth-dir:
-	mkdir -p $(CARTH_DIR)
+mod-dir:
+	mkdir -p $(mod_dir)
 
 .PHONY: clean-stack
 clean-stack:

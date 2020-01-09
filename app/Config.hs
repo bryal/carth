@@ -4,13 +4,15 @@
 --    line options, config files, environment variables, etc.
 module Config (getConfig, ModeConfig) where
 
-import Compile
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
 import Data.List
 import Data.Function
 import Control.Monad
+
+import Compile
+
 
 type ModeConfig = (FilePath, CompileConfig)
 

@@ -17,12 +17,14 @@ module Misc
     , insertWith'
     , if'
     , abort
+    , splitOn
     )
 where
 
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Maybe
 import Data.Composition
 import Control.Monad.Reader
 import Control.Lens (Lens', locally)
@@ -32,6 +34,10 @@ import LLVM.AST.Type (Type)
 import LLVM.AST (Name, Module)
 import LLVM.Pretty ()
 import qualified Data.Text.Prettyprint.Doc as Prettyprint
+import qualified Text.Megaparsec as Mega
+import Text.Megaparsec hiding (parse, match)
+import Text.Megaparsec.Char hiding (space, space1)
+import Data.Void
 
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)
@@ -113,3 +119,9 @@ abort f = do
     putStrLn "Error: Aborting due to previous error."
     putStrLn $ "Error: Could not compile " ++ f ++ "."
     exitFailure
+
+splitOn :: String -> String -> [String]
+splitOn sep = fromMaybe [] . Mega.parseMaybe (splitOn' sep)
+
+splitOn' :: String -> Parsec Void String [String]
+splitOn' sep = sepBy (many (noneOf [':'])) (string sep)

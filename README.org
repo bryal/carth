@@ -27,13 +27,18 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   - Linear types
 
 * Building
-  The compiler is writtern in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build system,
+  The compiler is written in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build system,
   while the core-library is written in [[https://rust-lang.org][Rust]]. The external dependencies
   required are [[https://llvm.org/][LLVM]] version 9.
 
   To build the project and install the ~carth~ binary, the core
   library, and the standard library, simply run ~make install~, which
-  defaults to installing everything in ~~/.carth/~.
+  defaults to installing everything in =~/.carth/=. Then add the
+  directory of the installed core library (default =~/.carth/lib=) to
+  your ~LIBRARY_PATH~ environment variable, so that the compiler can
+  find it for the linking step, and add the directory of the installed
+  standard library (default =~/.carth/mod=) your ~CARTH_MODULE_PATH~
+  environment variable, so that the parser can find all Carth modules.
 
 * Running
   #+BEGIN_EXAMPLE bash
