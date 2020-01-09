@@ -12,6 +12,7 @@ module Misc
     , showChar''
     , showChar'
     , both
+    , secondM
     , augment
     , insertWith'
     , if'
@@ -25,6 +26,7 @@ import Data.Map (Map)
 import Data.Composition
 import Control.Monad.Reader
 import Control.Lens (Lens', locally)
+import Data.Bitraversable
 import System.Exit
 import LLVM.AST.Type (Type)
 import LLVM.AST (Name, Module)
@@ -91,6 +93,10 @@ showChar' c = "'" ++ showChar'' c ++ "'"
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (a0, a1) = (f a0, f a1)
+
+secondM
+    :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
+secondM = bimapM pure
 
 augment
     :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a

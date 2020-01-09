@@ -4,7 +4,7 @@
 --   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
 --   additional checks for exhaustiveness and redundancy described in section
 --   7.4.
-module Match (toDecisionTree, Span, Con(..), Pat(..), MTypeDefs) where
+module Match (toDecisionTree, Span, Con(..), MTypeDefs) where
 
 import Prelude hiding (span)
 import qualified Data.Set as Set
@@ -23,22 +23,11 @@ import Control.Lens (makeLenses, view, views)
 import Misc hiding (augment)
 import SrcPos
 import TypeErr
-import AnnotAst
+import qualified AnnotAst
+import AnnotAst hiding (Expr)
 
 
-data Con = Con
-    { variant :: VariantIx
-    , span :: Span
-    , argTs :: [Type]
-    }
-    deriving Show
-
-data Pat
-    = PVar TypedVar
-    | PWild
-    | PCon Con [Pat]
-    | PBox Pat
-    deriving Show
+type Expr = AnnotAst.Expr DecisionTree
 
 data Descr = Pos Con [Descr] | Neg (Set Con)
     deriving Show
@@ -77,12 +66,12 @@ toDecisionTree
     :: MTypeDefs
     -> SrcPos
     -> Type
-    -> [(SrcPos, Pat, Expr)]
+    -> [(Pat, Expr)]
     -> Except TypeErr DecisionTree
 toDecisionTree tds ePos tp cases =
     let
-        rules = map (\(pos, p, e) -> (p, (pos, Map.empty, e))) cases
-        redundantCases = map (\(pos, _, _) -> pos) cases
+        rules = map (\(WithPos pos p, e) -> (p, (pos, Map.empty, e))) cases
+        redundantCases = map (getPos . fst) cases
     in do
         let env = Env { _tdefs = tds, _tpat = tp, _exprPos = ePos }
         (d, redundantCases') <- runStateT
@@ -91,10 +80,10 @@ toDecisionTree tds ePos tp cases =
         forM_ redundantCases' $ throwError . RedundantCase
         pure (switchify d)
 
-compile :: [(Pat, Rhs)] -> Match DecisionTree'
+compile :: [(Pat', Rhs)] -> Match DecisionTree'
 compile = disjunct (Neg Set.empty)
 
-disjunct :: Descr -> [(Pat, Rhs)] -> Match DecisionTree'
+disjunct :: Descr -> [(Pat', Rhs)] -> Match DecisionTree'
 disjunct descr = \case
     [] -> do
         patStr <- view tpat >>= flip missingPat descr
@@ -137,13 +126,13 @@ match
     -> Ctx
     -> Work
     -> Rhs
-    -> [(Pat, Rhs)]
-    -> Pat
+    -> [(Pat', Rhs)]
+    -> Pat'
     -> Match DecisionTree'
 match obj descr ctx work rhs rules = \case
     PVar x -> conjunct (augment descr ctx) (addBind x obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
-    PBox p -> match (ADeref obj) descr ctx work rhs rules p
+    PBox (WithPos _ p) -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->
         let
             disjunct' :: Descr -> Match DecisionTree'
@@ -175,12 +164,12 @@ match obj descr ctx work rhs rules = \case
                 no <- disjunct' (addneg pcon descr)
                 pure (IfEq obj pcon yes no)
 
-conjunct :: Ctx -> Rhs -> [(Pat, Rhs)] -> Work -> Match DecisionTree'
+conjunct :: Ctx -> Rhs -> [(Pat', Rhs)] -> Work -> Match DecisionTree'
 conjunct ctx rhs@(casePos, binds, e) rules = \case
     [] -> caseReached casePos $> Success (binds, e)
     (work1 : workr) -> case work1 of
         ([], [], []) -> conjunct (norm ctx) rhs rules workr
-        (pat1 : patr, obj1 : objr, descr1 : descrr) ->
+        (WithPos _ pat1 : patr, obj1 : objr, descr1 : descrr) ->
             match obj1 descr1 ctx ((patr, objr, descrr) : workr) rhs rules pat1
         x -> ice $ "unexpected pattern in conjunct: " ++ show x
 

@@ -12,8 +12,12 @@ module AnnotAst
     , VariantIx
     , Access(..)
     , Span
-    , VarBindings
+    , Con(..)
+    , Pat'(..)
+    , Pat
+    , Cases(..)
     , DecisionTree(..)
+    , VarBindings
     , Expr
     , Expr'(..)
     , Defs
@@ -48,29 +52,47 @@ data Access
 
 type Span = Integer
 
-type VarBindings = Map TypedVar Access
+data Con = Con
+    { variant :: VariantIx
+    , span :: Span
+    , argTs :: [Type]
+    }
+    deriving Show
+
+data Pat'
+    = PVar TypedVar
+    | PWild
+    | PCon Con [Pat]
+    | PBox Pat
+    deriving Show
+type Pat = WithPos Pat'
+
+newtype Cases = Cases [(Pat, Expr Cases)]
+    deriving Show
 
 data DecisionTree
-    = DLeaf (VarBindings, Expr)
+    = DLeaf (VarBindings, Expr DecisionTree)
     | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
     deriving Show
 
-data Expr'
+type VarBindings = Map TypedVar Access
+
+data Expr' m
     = Lit Const
     | Var TypedVar
-    | App Expr Expr Type
-    | If Expr Expr Expr
-    | Let Defs Expr
-    | Match Expr DecisionTree Type
-    | FunMatch DecisionTree Type Type
+    | App (Expr m) (Expr m) Type
+    | If (Expr m) (Expr m) (Expr m)
+    | Let (Defs m) (Expr m)
+    | Match (Expr m) m Type Type
+    | FunMatch m Type Type
     | Ctor VariantIx Span TConst [Type]
-    | Box Expr
-    | Deref Expr
+    | Box (Expr m)
+    | Deref (Expr m)
     deriving (Show)
 
-type Expr = WithPos Expr'
+type Expr m = WithPos (Expr' m)
 
-type Defs = Map String (Scheme, Expr)
+type Defs m = Map String (Scheme, Expr m)
 type TypeDefs = Map String ([TVar], [(String, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type

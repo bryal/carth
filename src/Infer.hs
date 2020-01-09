@@ -23,9 +23,13 @@ import NonEmpty
 import qualified Ast
 import Ast (Id(..), IdCase(..), idstr, scmBody, isFunLike)
 import TypeErr
-import AnnotAst hiding (Id)
-import Match
+import qualified AnnotAst
+import AnnotAst hiding (Expr, Expr', Defs, Id)
 
+
+type Expr' = AnnotAst.Expr' Cases
+type Expr = AnnotAst.Expr Cases
+type Defs = AnnotAst.Defs Cases
 
 newtype ExpectedType = Expected Type
 data FoundType = Found SrcPos Type
@@ -37,7 +41,6 @@ data Env = Env
     --   types of its parameters, and the span (number of constructors) of the
     --   datatype
     , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
-    , _envTypeDefs :: Map String ([TVar], [(String, [Type])])
     }
 makeLenses ''Env
 
@@ -52,16 +55,15 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
 
 inferTopDefs
-    :: TypeDefs
-    -> Ctors
+    :: Ctors
     -> [Ast.Extern]
     -> [Ast.Def]
     -> Except TypeErr (Externs, Defs, Subst)
-inferTopDefs tdefs ctors externs defs = evalStateT
+inferTopDefs ctors externs defs = evalStateT
     (runReaderT inferTopDefs' initEnv)
     initSt
   where
-    inferTopDefs' = augment envTypeDefs tdefs $ augment envCtors ctors $ do
+    inferTopDefs' = augment envCtors ctors $ do
         externs' <- checkExterns externs
         let externs'' = fmap (Forall Set.empty) externs'
         defs' <- checkStartType defs
@@ -83,11 +85,7 @@ inferTopDefs tdefs ctors externs defs = evalStateT
     checkStartDefined ds =
         when (not (Map.member "start" ds)) (throwError StartNotDefined)
     startScheme = Forall Set.empty startType
-    initEnv = Env
-        { _envDefs = Map.empty
-        , _envCtors = Map.empty
-        , _envTypeDefs = Map.empty
-        }
+    initEnv = Env { _envDefs = Map.empty, _envCtors = Map.empty }
     initSt = St { _tvCount = 0, _substs = Map.empty }
 
 -- TODO: Check that the types of the externs are valid more than just not
@@ -174,7 +172,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected (TPrim TBool)) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
-    Ast.Fun p b -> inferFunMatch pos (pure (p, b))
+    Ast.Fun p b -> inferFunMatch (pure (p, b))
     Ast.Let defs b -> do
         annotDefs <- inferDefs (fromList1 defs)
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
@@ -187,9 +185,8 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
-        dt <- toDecisionTree' pos tmatchee cases'
-        pure (tbody, Match matchee' dt tbody)
-    Ast.FunMatch cases -> inferFunMatch pos cases
+        pure (tbody, Match matchee' cases' tmatchee tbody)
+    Ast.FunMatch cases -> inferFunMatch cases
     Ast.Ctor c -> inferExprConstructor c
     Ast.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
     Ast.Deref x -> do
@@ -198,62 +195,55 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected (TBox t)) (Found (getPos x) tx)
         pure (t, Deref x')
 
-toDecisionTree' :: SrcPos -> Type -> [(SrcPos, Pat, Expr)] -> Infer DecisionTree
-toDecisionTree' pos tpat cases = do
-    -- TODO: Could we do this differently, more efficiently?
-    --
-    -- Match needs to be able to match on the pattern types to generate proper
-    -- error messages for inexhaustive patterns, so apply substitutions.
-    s <- use substs
-    let tpat' = subst s tpat
-    let cases' = map (\(cpos, p, e) -> (cpos, substPat s p, e)) cases
-    mTypeDefs <- views envTypeDefs (fmap (map fst . snd))
-    lift (lift (toDecisionTree mTypeDefs pos tpat' cases'))
-
-inferFunMatch :: SrcPos -> NonEmpty (Ast.Pat, Ast.Expr) -> Infer (Type, Expr')
-inferFunMatch pos cases = do
+inferFunMatch :: NonEmpty (Ast.Pat, Ast.Expr) -> Infer (Type, Expr')
+inferFunMatch cases = do
     tpat <- fresh
     (tbody, cases') <- inferCases (Expected tpat) cases
-    dt <- toDecisionTree' pos tpat cases'
-    pure (TFun tpat tbody, FunMatch dt tpat tbody)
+    pure (TFun tpat tbody, FunMatch cases' tpat tbody)
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
 inferCases
     :: ExpectedType -- Type of matchee. Expected type of pattern.
     -> NonEmpty (Ast.Pat, Ast.Expr)
-    -> Infer (Type, [(SrcPos, Pat, Expr)])
+    -> Infer (Type, Cases)
 inferCases tmatchee cases = do
     (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase (fromList1 cases))
     forM_ tpats (unify tmatchee)
     tbody <- fresh
     forM_ tbodies (unify (Expected tbody))
-    pure (tbody, cases')
+    pure (tbody, Cases cases')
 
-inferCase
-    :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (SrcPos, Pat, Expr))
+inferCase :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
     let pvs' = Map.mapKeys Ast.idstr pvs
     (tb, b') <- withLocals' pvs' (infer b)
-    let ppos = getPos p
-    pure (Found ppos tp, Found (getPos b) tb, (ppos, p', b'))
+    pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
 inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id 'Small) Scheme)
-inferPat = \case
-    Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
-    Ast.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
-    Ast.PBool _ b -> pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
-    Ast.PVar (Id (WithPos _ "_")) -> do
-        tv <- fresh
-        pure (tv, PWild, Map.empty)
-    Ast.PVar x@(Id x') -> do
-        tv <- fresh
-        pure (tv, PVar (TypedVar x' tv), Map.singleton x (Forall Set.empty tv))
-    Ast.PBox _ p -> do
-        (tp', p', vs) <- inferPat p
-        pure (TBox tp', PBox p', vs)
+inferPat pat = fmap
+    (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss))
+    (inferPat' pat)
   where
+    inferPat' = \case
+        Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
+        Ast.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
+        Ast.PBool _ b ->
+            pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
+        Ast.PVar (Id (WithPos _ "_")) -> do
+            tv <- fresh
+            pure (tv, PWild, Map.empty)
+        Ast.PVar x@(Id x') -> do
+            tv <- fresh
+            pure
+                ( tv
+                , PVar (TypedVar x' tv)
+                , Map.singleton x (Forall Set.empty tv)
+                )
+        Ast.PBox _ p -> do
+            (tp', p', vs) <- inferPat p
+            pure (TBox tp', PBox p', vs)
     intToPCon n w = PCon
         (Con
             { variant = fromIntegral n
@@ -267,7 +257,7 @@ inferPatConstruction
     :: SrcPos
     -> Id 'Big
     -> [Ast.Pat]
-    -> Infer (Type, Pat, Map (Id 'Small) Scheme)
+    -> Infer (Type, Pat', Map (Id 'Small) Scheme)
 inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams

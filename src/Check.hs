@@ -6,13 +6,16 @@ import Prelude hiding (span)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Bifunctor
+import Data.Bitraversable
 import Data.Foldable
+import Control.Applicative
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Maybe
 
+import Misc
 import SrcPos
 import Subst
 import qualified Ast
@@ -29,10 +32,12 @@ import qualified DesugaredAst as Des
 typecheck :: Ast.Program -> Either TypeErr Des.Program
 typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     (tdefs', ctors) <- checkTypeDefs tdefs
-    (externs', inferred, substs) <- inferTopDefs tdefs' ctors externs defs
+    (externs', inferred, substs) <- inferTopDefs ctors externs defs
     let substd = substTopDefs substs inferred
     checkTypeVarsBound substd
-    let desugared = desugar substd
+    let mTypeDefs = fmap (map fst . snd) tdefs'
+    checked <- checkPatternMatches mTypeDefs substd
+    let desugared = desugar checked
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Des.Program desugared tdefs'' externs')
 
@@ -143,10 +148,10 @@ type Bound = ReaderT (Set TVar) (Except TypeErr) ()
 
 -- TODO: Many of these positions are weird and kind of arbitrary, man. They may
 --       not align with where the type variable is actually detected.
-checkTypeVarsBound :: An.Defs -> Except TypeErr ()
+checkTypeVarsBound :: An.Defs An.Cases -> Except TypeErr ()
 checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
-    boundInDefs :: An.Defs -> Bound
+    boundInDefs :: An.Defs An.Cases -> Bound
     boundInDefs = mapM_ boundInDef
     boundInDef ((An.Forall tvs _), e) =
         local (Set.union tvs) (boundInExpr e)
@@ -164,12 +169,13 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         An.Let lds b -> do
             boundInDefs lds
             boundInExpr b
-        An.Match m dt bt -> do
+        An.Match m cs tp tb -> do
             boundInExpr m
-            boundInDecTree dt
-            boundInType pos bt
-        An.FunMatch dt pt bt -> do
-            boundInDecTree dt
+            boundInCases cs
+            boundInType pos tp
+            boundInType pos tb
+        An.FunMatch cs pt bt -> do
+            boundInCases cs
             boundInType pos pt
             boundInType pos bt
         An.Ctor _ _ (_, instTs) ts -> do
@@ -179,23 +185,47 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         An.Deref x -> boundInExpr x
     boundInType :: SrcPos -> An.Type -> Bound
     boundInType pos = \case
-        TVar tv ->
-            ask
-                >>= \bound -> when
-                        (not (Set.member tv bound))
-                        (throwError (UnboundTVar pos))
+        TVar tv -> do
+            bound <- ask
+            when (not (Set.member tv bound)) (throwError (UnboundTVar pos))
         TPrim _ -> pure ()
         TConst (_, ts) -> forM_ ts (boundInType pos)
         TFun ft at -> forM_ [ft, at] (boundInType pos)
         TBox t -> boundInType pos t
-    boundInDecTree = \case
-        An.DLeaf (bs, e) -> do
-            forM_ (Map.toList bs) $ \(An.TypedVar (WithPos p _) t, a) ->
-                boundInType p t *> boundInAccess p a
-            boundInExpr e
-        An.DSwitch _ dts dt -> forM_ (dt : Map.elems dts) boundInDecTree
-    boundInAccess pos = \case
-        Des.Obj -> pure ()
-        Des.As a _ ts -> boundInAccess pos a *> forM_ ts (boundInType pos)
-        Des.Sel _ _ a -> boundInAccess pos a
-        Des.ADeref a -> boundInAccess pos a
+    boundInCases (An.Cases cs) = forM_ cs (bimapM boundInPat boundInExpr)
+    boundInPat (WithPos pos pat) = case pat of
+        An.PVar (An.TypedVar _ t) -> boundInType pos t
+        An.PWild -> pure ()
+        An.PCon con ps -> boundInCon pos con *> forM_ ps boundInPat
+        An.PBox p -> boundInPat p
+    boundInCon pos (Con _ _ ts) = forM_ ts (boundInType pos)
+
+checkPatternMatches
+    :: MTypeDefs -> An.Defs An.Cases -> Except TypeErr (An.Defs An.DecisionTree)
+checkPatternMatches tdefs = checkMsDefs
+  where
+    checkMsDefs = mapM checkMsDef
+    checkMsDef = bimapM pure checkMsExpr
+    checkMsExpr
+        :: An.Expr An.Cases -> Except TypeErr (An.Expr An.DecisionTree)
+    checkMsExpr (WithPos pos e) = fmap (WithPos pos) $ case e of
+        An.Lit c -> pure (An.Lit c)
+        An.Var v -> pure (An.Var v)
+        An.App f a tr ->
+            liftA3 An.App (checkMsExpr f) (checkMsExpr a) (pure tr)
+        An.If p c a ->
+            liftA3 An.If (checkMsExpr p) (checkMsExpr c) (checkMsExpr a)
+        An.Let lds b -> liftA2 An.Let (checkMsDefs lds) (checkMsExpr b)
+        An.Match m cs tp tb -> do
+            m' <- checkMsExpr m
+            dt <- toDecisionTree' pos tp cs
+            pure (An.Match m' dt tp tb)
+        An.FunMatch cs tp tb -> fmap
+            (\dt -> An.FunMatch dt tp tb)
+            (toDecisionTree' pos tp cs)
+        An.Ctor v s tc ts -> pure (An.Ctor v s tc ts)
+        An.Box x -> fmap An.Box (checkMsExpr x)
+        An.Deref x -> fmap An.Deref (checkMsExpr x)
+    toDecisionTree' pos tp (An.Cases cs) = do
+        cs' <- mapM (secondM checkMsExpr) cs
+        toDecisionTree tdefs pos tp cs'

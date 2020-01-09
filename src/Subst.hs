@@ -7,8 +7,12 @@ import Data.Map.Strict (Map)
 import Data.Bifunctor
 import Data.Maybe
 
-import Match
-import AnnotAst
+import qualified AnnotAst as An
+import AnnotAst hiding (Defs, Expr)
+
+
+type Defs = An.Defs Cases
+type Expr = An.Expr Cases
 
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
@@ -26,36 +30,19 @@ substExpr s (WithPos p e) = WithPos p $ case e of
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Let defs body -> Let (fmap (substDef s) defs) (substExpr s body)
-    Match e dt tbody ->
-        Match (substExpr s e) (substDecisionTree s dt) (subst s tbody)
-    FunMatch dt tp tb ->
-        FunMatch (substDecisionTree s dt) (subst s tp) (subst s tb)
+    Match e cs tp tbody ->
+        Match (substExpr s e) (substCases s cs) (subst s tp) (subst s tbody)
+    FunMatch cs tp tb -> FunMatch (substCases s cs) (subst s tp) (subst s tb)
     Ctor i span' (tx, tts) ps ->
         Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
     Box e -> Box (substExpr s e)
     Deref e -> Deref (substExpr s e)
 
-substDecisionTree :: Subst -> DecisionTree -> DecisionTree
-substDecisionTree s = \case
-    DSwitch obj cs def -> DSwitch
-        (substAccess s obj)
-        (fmap (substDecisionTree s) cs)
-        (substDecisionTree s def)
-    DLeaf (bs, e) -> DLeaf
-        ( Map.fromList
-            (map (bimap (substTypedVar s) (substAccess s)) (Map.toList bs))
-        , substExpr s e
-        )
-
-substAccess :: Subst -> Access -> Access
-substAccess s = \case
-    Obj -> Obj
-    As a span' ts -> As (substAccess s a) span' (map (subst s) ts)
-    Sel i span' a -> Sel i span' (substAccess s a)
-    ADeref a -> ADeref (substAccess s a)
+substCases :: Subst -> Cases -> Cases
+substCases s (Cases cs) = Cases (map (bimap (substPat s) (substExpr s)) cs)
 
 substPat :: Subst -> Pat -> Pat
-substPat s = \case
+substPat s (WithPos pos pat) = WithPos pos $ case pat of
     PWild -> PWild
     PVar v -> PVar (substTypedVar s v)
     PBox p -> PBox (substPat s p)

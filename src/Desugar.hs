@@ -9,20 +9,24 @@ import SrcPos
 import qualified AnnotAst as An
 import DesugaredAst
 
-desugar :: An.Defs -> Defs
+
+type ADefs = An.Defs An.DecisionTree
+type AExpr = An.Expr An.DecisionTree
+
+desugar :: ADefs -> Defs
 desugar = desugarDefs
 
-desugarDefs :: An.Defs -> Defs
+desugarDefs :: ADefs -> Defs
 desugarDefs = fmap (second desugarExpr)
 
-desugarExpr :: An.Expr -> Expr
+desugarExpr :: AExpr -> Expr
 desugarExpr (WithPos _ e) = case e of
     An.Lit c -> Lit c
     An.Var v -> Var (desugarTypedVar v)
     An.App f a rt -> App (desugarExpr f) (desugarExpr a) rt
     An.If p c a -> If (desugarExpr p) (desugarExpr c) (desugarExpr a)
     An.Let ds b -> Let (desugarDefs ds) (desugarExpr b)
-    An.Match m dt t -> Match (desugarExpr m) (desugarDecTree dt) t
+    An.Match m dt _ tb -> Match (desugarExpr m) (desugarDecTree dt) tb
     An.FunMatch dt pt bt ->
         let x = "#x"
         in Fun (x, pt) (Match (Var (TypedVar x pt)) (desugarDecTree dt) bt, bt)
