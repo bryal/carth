@@ -56,6 +56,7 @@ data Expr
     | Ction VariantIx Span TConst [Expr]
     | Box Expr
     | Deref Expr
+    | Absurd Type
     deriving (Show)
 
 type Defs = Map String (Scheme, Expr)

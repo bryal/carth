@@ -276,6 +276,7 @@ genExpr expr = do
         Ction c -> genCtion c
         Box e -> genBox =<< genExpr e
         Deref e -> genDeref e
+        Absurd t -> fmap (VLocal . undef) (genType t)
 
 genConst :: MonoAst.Const -> Gen Val
 genConst = \case

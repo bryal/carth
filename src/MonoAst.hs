@@ -75,6 +75,7 @@ data Expr
     | Ction Ction
     | Box Expr
     | Deref Expr
+    | Absurd Type
     deriving (Show)
 
 type Defs = Map TypedVar ([Type], Expr)
@@ -101,6 +102,7 @@ fvExpr = \case
     Ction (_, _, _, as) -> Set.unions (map fvExpr as)
     Box e -> fvExpr e
     Deref e -> fvExpr e
+    Absurd _ -> Set.empty
 
 fvDecisionTree :: DecisionTree -> Set TypedVar
 fvDecisionTree = \case

@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections
            , TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses
-           , FlexibleContexts#-}
+           , FlexibleContexts #-}
 
 -- | Monomorphization
 module Mono (monomorphize) where
@@ -69,6 +69,7 @@ mono = \case
     An.Ction v span' inst as -> monoCtion v span' inst as
     An.Box x -> fmap Box (mono x)
     An.Deref x -> fmap Deref (mono x)
+    An.Absurd t -> fmap Absurd (monotype t)
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do

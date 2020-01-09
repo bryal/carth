@@ -88,6 +88,7 @@ data Expr' m
     | Ctor VariantIx Span TConst [Type]
     | Box (Expr m)
     | Deref (Expr m)
+    | Absurd Type
     deriving (Show)
 
 type Expr m = WithPos (Expr' m)

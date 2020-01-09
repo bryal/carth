@@ -1,5 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 
+-- TODO: Let's get rid of this module. It wasn't a good idea after all.
+
 module Desugar (desugar) where
 
 import Data.Bifunctor
@@ -41,6 +43,7 @@ desugarExpr (WithPos _ e) = case e of
             params
     An.Box e -> Box (desugarExpr e)
     An.Deref e -> Deref (desugarExpr e)
+    An.Absurd t -> Absurd t
 
 desugarDecTree :: An.DecisionTree -> DecisionTree
 desugarDecTree = \case

@@ -183,6 +183,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             forM_ ts (boundInType pos)
         An.Box x -> boundInExpr x
         An.Deref x -> boundInExpr x
+        An.Absurd t -> boundInType pos t
     boundInType :: SrcPos -> An.Type -> Bound
     boundInType pos = \case
         TVar tv -> do
@@ -218,14 +219,14 @@ checkPatternMatches tdefs = checkMsDefs
         An.Let lds b -> liftA2 An.Let (checkMsDefs lds) (checkMsExpr b)
         An.Match m cs tp tb -> do
             m' <- checkMsExpr m
-            dt <- toDecisionTree' pos tp cs
-            pure (An.Match m' dt tp tb)
-        An.FunMatch cs tp tb -> fmap
-            (\dt -> An.FunMatch dt tp tb)
-            (toDecisionTree' pos tp cs)
+            toDecisionTree' pos tp cs tb (An.Match m')
+        An.FunMatch cs tp tb -> toDecisionTree' pos tp cs tb An.FunMatch
         An.Ctor v s tc ts -> pure (An.Ctor v s tc ts)
         An.Box x -> fmap An.Box (checkMsExpr x)
         An.Deref x -> fmap An.Deref (checkMsExpr x)
-    toDecisionTree' pos tp (An.Cases cs) = do
+        An.Absurd t -> pure (An.Absurd t)
+    toDecisionTree' pos tp (An.Cases cs) tb f = do
         cs' <- mapM (secondM checkMsExpr) cs
-        toDecisionTree tdefs pos tp cs'
+        case runExceptT (toDecisionTree tdefs pos tp cs') of
+            Nothing -> pure (An.Absurd tb)
+            Just e -> fmap (\dt -> f dt tp tb) (liftEither e)

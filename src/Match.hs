@@ -52,7 +52,7 @@ type RedundantCases = [SrcPos]
 data Env = Env { _tdefs :: MTypeDefs, _tpat :: Type, _exprPos :: SrcPos }
 makeLenses ''Env
 
-type Match = ReaderT Env (StateT RedundantCases (Except TypeErr))
+type Match = ReaderT Env (StateT RedundantCases (ExceptT TypeErr Maybe))
 
 
 instance Eq Con where
@@ -67,7 +67,7 @@ toDecisionTree
     -> SrcPos
     -> Type
     -> [(Pat, Expr)]
-    -> Except TypeErr DecisionTree
+    -> ExceptT TypeErr Maybe DecisionTree
 toDecisionTree tds ePos tp cases =
     let
         rules = map (\(WithPos pos p, e) -> (p, (pos, Map.empty, e))) cases
@@ -93,17 +93,18 @@ disjunct descr = \case
 
 missingPat :: Type -> Descr -> Match String
 missingPat t descr = case t of
-    TVar _ -> pure "_"
-    TPrim _ -> pure "_"
+    TVar _ -> underscore
+    TPrim _ -> underscore
     TConst (tx, _) -> do
         vs <- views tdefs (fromJust . Map.lookup tx)
         missingPat' vs descr
-    TFun _ _ -> pure "_"
-    TBox _ -> pure "_"
+    TFun _ _ -> underscore
+    TBox _ -> underscore
+    where underscore = pure ("_ (" ++ pretty t ++ ")")
 
 missingPat' :: [String] -> Descr -> Match String
 missingPat' vs = \case
-    Neg cs -> pure $ head $ Map.elems
+    Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
         (Map.withoutKeys (allVariants vs) (Set.map variant cs))
     Pos con dargs ->
         let
