@@ -28,7 +28,6 @@ where
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
-import Data.Maybe
 import Control.Applicative (liftA2)
 import qualified Text.Megaparsec as Mega
 import Text.Megaparsec hiding (parse, match)
@@ -43,11 +42,11 @@ import Data.Composition
 import Data.List
 import System.FilePath
 import System.Directory
+import qualified Data.List.NonEmpty as NonEmpty
 
 import Misc hiding (if')
 import SrcPos
 import Ast
-import NonEmpty
 import Literate
 import CompiletimeVars
 
@@ -222,8 +221,8 @@ match = do
     cs <- cases
     pure (Match e cs)
 
-cases :: Parser (NonEmpty (Pat, Expr))
-cases = some' (parens (reserved "case" *> (liftA2 (,) pat expr)))
+cases :: Parser [(Pat, Expr)]
+cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
 
 pat :: Parser Pat
 pat = andSkipSpaceAfter ns_pat
@@ -265,7 +264,7 @@ fun = do
 let' :: Parser Expr'
 let' = do
     reserved "let"
-    bindings <- parens (some' binding)
+    bindings <- parens (many binding)
     body <- expr
     pure (Let bindings body)
 
@@ -389,7 +388,8 @@ identifier :: Parser String
 identifier = do
     name <- ident
     if elem name reserveds
-        then unexpected (Label (toList1 ("reserved word " ++ show name)))
+        then unexpected
+            (Label (NonEmpty.fromList ("reserved word " ++ show name)))
         else pure name
 
 ident :: Parser String
@@ -449,9 +449,6 @@ otherChar = satisfy
         , not (elem c "\"-+")
         ]
     )
-
-some' :: Parser a -> Parser (NonEmpty a)
-some' = fmap (fromJust . nonEmpty) . some
 
 -- | Spaces, line comments, and block comments
 space :: Parser ()

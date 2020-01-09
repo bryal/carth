@@ -37,7 +37,6 @@ import Control.Arrow ((>>>))
 import Misc
 import SrcPos
 import FreeVars
-import NonEmpty
 
 data IdCase = Big | Small
 
@@ -103,10 +102,10 @@ data Expr'
     | App Expr Expr
     | If Expr Expr Expr
     | Fun Pat Expr
-    | Let (NonEmpty Def) Expr
+    | Let [Def] Expr
     | TypeAscr Expr Type
-    | Match Expr (NonEmpty (Pat, Expr))
-    | FunMatch (NonEmpty (Pat, Expr))
+    | Match Expr [(Pat, Expr)]
+    | FunMatch [(Pat, Expr)]
     | Ctor (Id 'Big)
     | Box Expr
     | Deref Expr
@@ -185,11 +184,10 @@ fvExpr = unpos >>> \case
     App f a -> fvApp f a
     If p c a -> fvIf p c a
     Fun p b -> fvFun' p b
-    Let bs e ->
-        fvLet (Set.fromList (fromList1 (map1 fst bs)), map1 (snd . snd) bs) e
+    Let bs e -> fvLet (Set.fromList (map fst bs), map (snd . snd) bs) e
     TypeAscr e _ -> freeVars e
-    Match e cs -> fvMatch e (fromList1 cs)
-    FunMatch cs -> fvCases (fromList1 cs)
+    Match e cs -> fvMatch e cs
+    FunMatch cs -> fvCases cs
     Ctor _ -> Set.empty
     Box e -> fvExpr e
     Deref e -> fvExpr e
@@ -271,7 +269,7 @@ prettyExpr' d = \case
         ]
     Let binds body -> concat
         [ "(let ["
-        , intercalate1 ("\n" ++ indent (d + 6)) (map1 (prettyDef (d + 6)) binds)
+        , intercalate ("\n" ++ indent (d + 6)) (map (prettyDef (d + 6)) binds)
         , "]\n"
         , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
         ]
@@ -290,16 +288,16 @@ prettyExpr' d = \case
         concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
     Match e cs -> concat
         [ "(match " ++ pretty' (d + 7) e
-        , precalate1
+        , precalate
             ("\n" ++ indent (d + 2))
-            (map1 (prettyBracketPair (d + 2)) cs)
+            (map (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
     FunMatch cs -> concat
         [ "(fun-match"
-        , precalate1
+        , precalate
             ("\n" ++ indent (d + 2))
-            (map1 (prettyBracketPair (d + 2)) cs)
+            (map (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
     Ctor c -> pretty c

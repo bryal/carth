@@ -19,7 +19,6 @@ import Misc
 import SrcPos
 import FreeVars
 import Subst
-import NonEmpty
 import qualified Ast
 import Ast (Id(..), IdCase(..), idstr, scmBody, isFunLike)
 import TypeErr
@@ -174,7 +173,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (tc, If p' c' a')
     Ast.Fun p b -> inferFunMatch (pure (p, b))
     Ast.Let defs b -> do
-        annotDefs <- inferDefs (fromList1 defs)
+        annotDefs <- inferDefs defs
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
         (bt, b') <- withLocals' defsScms (infer b)
         pure (bt, Let annotDefs b')
@@ -195,7 +194,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected (TBox t)) (Found (getPos x) tx)
         pure (t, Deref x')
 
-inferFunMatch :: NonEmpty (Ast.Pat, Ast.Expr) -> Infer (Type, Expr')
+inferFunMatch :: [(Ast.Pat, Ast.Expr)] -> Infer (Type, Expr')
 inferFunMatch cases = do
     tpat <- fresh
     (tbody, cases') <- inferCases (Expected tpat) cases
@@ -205,10 +204,10 @@ inferFunMatch cases = do
 --   the same type.
 inferCases
     :: ExpectedType -- Type of matchee. Expected type of pattern.
-    -> NonEmpty (Ast.Pat, Ast.Expr)
+    -> [(Ast.Pat, Ast.Expr)]
     -> Infer (Type, Cases)
 inferCases tmatchee cases = do
-    (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase (fromList1 cases))
+    (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase cases)
     forM_ tpats (unify tmatchee)
     tbody <- fresh
     forM_ tbodies (unify (Expected tbody))
