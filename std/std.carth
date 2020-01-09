@@ -154,6 +154,19 @@
 (define (cons x xs)
   (Cons (box (Pair x xs))))
 
+(define (list1 x)
+  (cons x Nil))
+(define (list2 x0 x1)
+  (cons x0 (list1 x1)))
+(define (list3 x0 x1 x2)
+  (cons x0 (list2 x1 x2)))
+(define (list4 x0 x1 x2 x3)
+  (cons x0 (list3 x1 x2 x3)))
+(define (list5 x0 x1 x2 x3 x4)
+  (cons x0 (list4 x1 x2 x3 x4)))
+(define (list6 x0 x1 x2 x3 x4 x5)
+  (cons x0 (list5 x1 x2 x3 x4 x5)))
+
 (define: (foldl f acc xs)
     (forall (a b) (Fun (Fun b a b) b (List a) b))
   (match xs
