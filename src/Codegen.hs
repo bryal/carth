@@ -17,7 +17,6 @@ import System.FilePath
 import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
-import qualified Data.Char
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -283,7 +282,6 @@ genConst = \case
     Unit -> pure (VLocal litUnit)
     Int n -> pure (VLocal (litI64 n))
     Double x -> pure (VLocal (litDouble x))
-    Char c -> pure (VLocal (litI32 (Data.Char.ord c)))
     Str s -> do
         var <- newName "strlit"
         scribe outStrings [(var, s)]
@@ -569,7 +567,6 @@ genType' = \case
         TInt32 -> i32
         TInt -> i64
         TDouble -> double
-        TChar -> i32
         TBool -> typeBool
     TFun a r -> genClosureType a r
     TBox t -> fmap LLType.ptr (genType' t)

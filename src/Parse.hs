@@ -175,8 +175,7 @@ expr :: Parser Expr
 expr = andSkipSpaceAfter ns_expr
 
 ns_expr :: Parser Expr
-ns_expr = withPos
-    $ choice [unit, charLit, str, ebool, var, num, eConstructor, pexpr]
+ns_expr = withPos $ choice [unit, str, ebool, var, num, eConstructor, pexpr]
   where
     unit = ns_reserved "unit" $> Lit Unit
     num = do
@@ -189,11 +188,9 @@ ns_expr = withPos
                 (\x -> Double (if neg then -x else x))
                 a
         pure (Lit e)
-    charLit = fmap
-        (Lit . Char)
-        (between (char '\'') (char '\'') Lexer.charLiteral)
-    str =
-        fmap (Lit . Str) $ char '"' >> manyTill Lexer.charLiteral (char '"')
+    str = fmap (Lit . Str) $ char '"' >> manyTill
+        Lexer.charLiteral
+        (char '"')
     ebool = fmap (Lit . Bool) bool
     pexpr =
         ns_parens $ choice
@@ -338,7 +335,6 @@ ns_tprim = try $ do
         "Int32" -> pure TInt32
         "Int" -> pure TInt
         "Double" -> pure TDouble
-        "Char" -> pure TChar
         "Bool" -> pure TBool
         _ -> fail $ "Undefined type constant " ++ s
 

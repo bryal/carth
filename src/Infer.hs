@@ -299,7 +299,6 @@ litType = \case
     Unit -> TPrim TUnit
     Int _ -> TPrim TInt
     Double _ -> TPrim TDouble
-    Char _ -> TPrim TChar
     Str _ -> TConst ("Str", [])
     Bool _ -> TPrim TBool
 

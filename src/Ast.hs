@@ -59,7 +59,6 @@ data TPrim
     | TInt32
     | TInt
     | TDouble
-    | TChar
     | TBool
     deriving (Show, Eq, Ord)
 
@@ -91,7 +90,6 @@ data Const
     = Unit
     | Int Int
     | Double Double
-    | Char Char
     | Str String
     | Bool Bool
     deriving (Show, Eq)
@@ -318,7 +316,6 @@ prettyConst = \case
     Unit -> "unit"
     Int n -> show n
     Double x -> show x
-    Char c -> showChar' c
     Str s -> '"' : (s >>= showChar'') ++ "\""
     Bool b -> if b then "true" else "false"
 
@@ -357,7 +354,6 @@ prettyTPrim = \case
     TInt32 -> "Int32"
     TInt -> "Int"
     TDouble -> "Double"
-    TChar -> "Char"
     TBool -> "Bool"
 
 prettyTVar :: TVar -> String
