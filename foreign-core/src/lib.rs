@@ -77,6 +77,12 @@ pub extern "C" fn carth_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
+#[no_mangle]
+pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
+    let (s1, s2) = (from_carth_str(&s1), from_carth_str(&s2));
+    s1 == s2
+}
+
 def_carth_closure! {
     "display-inline", DISPLAY_INLINE, display_inline;
     Str, (); s => {

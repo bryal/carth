@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | Type annotated AST as a result of typechecking
 module AnnotAst
     ( WithPos(..)
@@ -10,6 +12,7 @@ module AnnotAst
     , TypedVar(..)
     , Const(..)
     , VariantIx
+    , Variant(..)
     , Span
     , Con(..)
     , Pat'(..)
@@ -41,8 +44,11 @@ type VariantIx = Integer
 
 type Span = Integer
 
+data Variant = VariantIx VariantIx | VariantStr String
+    deriving (Show, Eq, Ord)
+
 data Con = Con
-    { variant :: VariantIx
+    { variant :: Variant
     , span :: Span
     , argTs :: [Type]
     }

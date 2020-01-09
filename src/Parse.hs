@@ -175,7 +175,7 @@ expr :: Parser Expr
 expr = andSkipSpaceAfter ns_expr
 
 ns_expr :: Parser Expr
-ns_expr = withPos $ choice [unit, str, ebool, var, num, eConstructor, pexpr]
+ns_expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
   where
     unit = ns_reserved "unit" $> Lit Unit
     num = do
@@ -188,9 +188,7 @@ ns_expr = withPos $ choice [unit, str, ebool, var, num, eConstructor, pexpr]
                 (\x -> Double (if neg then -x else x))
                 a
         pure (Lit e)
-    str = fmap (Lit . Str) $ char '"' >> manyTill
-        Lexer.charLiteral
-        (char '"')
+    estr = fmap (Lit . Str) str
     ebool = fmap (Lit . Bool) bool
     pexpr =
         ns_parens $ choice
@@ -198,6 +196,9 @@ ns_expr = withPos $ choice [unit, str, ebool, var, num, eConstructor, pexpr]
 
 bool :: Parser Bool
 bool = (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
+
+str :: Parser String
+str = char '"' >> manyTill Lexer.charLiteral (char '"')
 
 int :: Parser Int
 int = Lexer.signed empty Lexer.decimal
@@ -225,10 +226,11 @@ pat :: Parser Pat
 pat = andSkipSpaceAfter ns_pat
 
 ns_pat :: Parser Pat
-ns_pat = choice [patInt, patBool, patCtor, patVar, ppat]
+ns_pat = choice [patInt, patBool, patStr, patCtor, patVar, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
     patBool = liftA2 PBool getSrcPos bool
+    patStr = liftA2 PStr getSrcPos str
     patCtor = fmap (\x -> PConstruction (getPos x) x []) ns_big'
     patVar = fmap PVar ns_small'
     ppat = do

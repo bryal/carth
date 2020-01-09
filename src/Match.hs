@@ -24,7 +24,7 @@ import Misc hiding (augment)
 import SrcPos
 import TypeErr
 import qualified AnnotAst as An
-import AnnotAst (Pat, Pat'(..))
+import AnnotAst (Pat, Pat'(..), Variant(..))
 import DesugaredAst
 
 
@@ -87,31 +87,36 @@ missingPat :: Type -> Descr -> Match String
 missingPat t descr = case t of
     TVar _ -> underscore
     TPrim _ -> underscore
+    TConst ("Str", _) -> underscore
     TConst (tx, _) -> do
         vs <- views tdefs (fromJust . Map.lookup tx)
         missingPat' vs descr
     TFun _ _ -> underscore
     TBox _ -> underscore
-    where underscore = pure ("_ (" ++ pretty t ++ ")")
+    where underscore = pure ("_:" ++ pretty t ++ "")
 
 missingPat' :: [String] -> Descr -> Match String
-missingPat' vs = \case
-    Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
-        (Map.withoutKeys (allVariants vs) (Set.map variant cs))
-    Pos con dargs ->
-        let
-            i = fromIntegral (variant con)
-            s = if i < length vs
-                then vs !! i
-                else ice "variant >= type number of variants in missingPat'"
-        in if null dargs
-            then pure s
-            else do
-                ps <- zipWithM missingPat (argTs con) dargs
-                pure ("(" ++ s ++ precalate " " ps ++ ")")
-
-allVariants :: [String] -> Map VariantIx String
-allVariants = Map.fromList . zip [0 ..]
+missingPat' vs =
+    let
+        allVariants = Map.fromList (zip [0 ..] vs)
+        variant' = \case
+            Con (VariantIx v) _ _ -> v
+            Con (VariantStr _) _ _ -> ice "variant' of Con VariantStr"
+    in \case
+        Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
+            (Map.withoutKeys allVariants (Set.map variant' cs))
+        Pos (Con (VariantStr _) _ _) _ -> ice "missingPat' of Con VariantStr"
+        Pos (Con (VariantIx v) _ argTs') dargs ->
+            let
+                i = fromIntegral v
+                s = if i < length vs
+                    then vs !! i
+                    else ice "variant >= type number of variants in missingPat'"
+            in if null dargs
+                then pure s
+                else do
+                    ps <- zipWithM missingPat argTs' dargs
+                    pure ("(" ++ s ++ precalate " " ps ++ ")")
 
 match
     :: Access
@@ -195,13 +200,13 @@ augment descr = \case
     (con, args) : rest -> (con, descr : args) : rest
 
 staticMatch :: Con -> Descr -> Answer
-staticMatch pcon = \case
-    Pos c _
+staticMatch = curry $ \case
+    (pcon, Pos c _)
         | pcon == c -> Yes
         | otherwise -> No
-    Neg cs
-        | Set.member pcon cs -> No
-        | span pcon == 1 + fromIntegral (Set.size cs) -> Yes
+    (pcon, Neg cs) | Set.member pcon cs -> No
+    (Con (VariantIx _) span' _, Neg cs)
+        | span' == 1 + fromIntegral (Set.size cs) -> Yes
     _ -> Maybe
 
 addneg :: Con -> Descr -> Descr
@@ -212,14 +217,18 @@ addneg con = \case
 switchify :: DecisionTree' -> DecisionTree
 switchify = \case
     Success e -> DLeaf e
-    d@(IfEq obj _ _ _) -> uncurry (DSwitch obj) (switchify' obj [] d)
-
-switchify'
-    :: Access
-    -> [(VariantIx, DecisionTree)]
-    -> DecisionTree'
-    -> (Map VariantIx DecisionTree, DecisionTree)
-switchify' obj rules = \case
-    IfEq obj' con d0 d1 | obj == obj' ->
-        switchify' obj ((variant con, switchify d0) : rules) d1
-    rule -> (Map.fromList rules, switchify rule)
+    d@(IfEq obj (Con (VariantIx _) _ _) _ _) ->
+        uncurry (DSwitch obj) (switchifyIx obj [] d)
+    d@(IfEq obj (Con (VariantStr _) _ _) _ _) ->
+        uncurry (DSwitchStr obj) (switchifyStr obj [] d)
+  where
+    switchifyIx obj rules = \case
+        IfEq obj' con d0 d1 | obj == obj' -> case variant con of
+            VariantIx v -> switchifyIx obj ((v, switchify d0) : rules) d1
+            VariantStr _ -> ice "VariantStr in switchifyIx"
+        rule -> (Map.fromList rules, switchify rule)
+    switchifyStr obj rules = \case
+        IfEq obj' con d0 d1 | obj == obj' -> case variant con of
+            VariantStr v -> switchifyStr obj ((v, switchify d0) : rules) d1
+            VariantIx _ -> ice "VariantIx in switchifyIx"
+        rule -> (Map.fromList rules, switchify rule)

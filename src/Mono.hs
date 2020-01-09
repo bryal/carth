@@ -102,11 +102,8 @@ monoMatch e dt tbody =
 
 monoDecisionTree :: An.DecisionTree -> Mono DecisionTree
 monoDecisionTree = \case
-    An.DSwitch obj cs def -> do
-        obj' <- monoAccess obj
-        cs' <- mapM monoDecisionTree cs
-        def' <- monoDecisionTree def
-        pure (DSwitch obj' cs' def')
+    An.DSwitch obj cs def -> monoDecisionSwitch obj cs def DSwitch
+    An.DSwitchStr obj cs def -> monoDecisionSwitch obj cs def DSwitchStr
     An.DLeaf (bs, e) -> do
         let bs' = Map.toList bs
         let ks = map (\((An.TypedVar x _), _) -> x) bs'
@@ -121,6 +118,12 @@ monoDecisionTree = \case
         e' <- mono e
         modifying defInsts (Map.union (Map.fromList parentInsts))
         pure (DLeaf (bs'', e'))
+  where
+    monoDecisionSwitch obj cs def f = do
+        obj' <- monoAccess obj
+        cs' <- mapM monoDecisionTree cs
+        def' <- monoDecisionTree def
+        pure (f obj' cs' def')
 
 monoAccess :: An.Access -> Mono Access
 monoAccess = \case

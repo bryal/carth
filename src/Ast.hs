@@ -82,6 +82,7 @@ data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]
     | PInt SrcPos Int
     | PBool SrcPos Bool
+    | PStr SrcPos String
     | PVar (Id 'Small)
     | PBox SrcPos Pat
     deriving Show
@@ -146,6 +147,7 @@ instance HasPos Pat where
         PConstruction p _ _ -> p
         PInt p _ -> p
         PBool p _ -> p
+        PStr p _ -> p
         PVar v -> getPos v
         PBox p _ -> p
 
@@ -204,6 +206,7 @@ bvPat = \case
     PConstruction _ _ ps -> Set.unions (map bvPat ps)
     PInt _ _ -> Set.empty
     PBool _ _ -> Set.empty
+    PStr _ _ -> Set.empty
     PVar x -> Set.singleton x
     PBox _ p -> bvPat p
 
@@ -308,6 +311,7 @@ prettyPat = \case
         if null ps then c else concat ["(", c, " ", spcPretty ps, ")"]
     PInt _ n -> show n
     PBool _ b -> if b then "true" else "false"
+    PStr _ s -> prettyStr s
     PVar v -> idstr v
     PBox _ p -> "(Box " ++ prettyPat p ++ ")"
 
@@ -316,8 +320,11 @@ prettyConst = \case
     Unit -> "unit"
     Int n -> show n
     Double x -> show x
-    Str s -> '"' : (s >>= showChar'') ++ "\""
+    Str s -> prettyStr s
     Bool b -> if b then "true" else "false"
+
+prettyStr :: String -> String
+prettyStr s = '"' : (s >>= showChar'') ++ "\""
 
 prettyScheme :: Scheme -> String
 prettyScheme (Forall ps t) =

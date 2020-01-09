@@ -226,6 +226,11 @@ inferPat pat = fmap
         Ast.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
         Ast.PBool _ b ->
             pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
+        Ast.PStr _ s ->
+            let
+                span' = ice "span of Con with VariantStr"
+                p = PCon (Con (VariantStr s) span' []) []
+            in pure (typeStr, p, Map.empty)
         Ast.PVar (Id (WithPos _ "_")) -> do
             tv <- fresh
             pure (tv, PWild, Map.empty)
@@ -241,7 +246,7 @@ inferPat pat = fmap
             pure (TBox tp', PBox p', vs)
     intToPCon n w = PCon
         (Con
-            { variant = fromIntegral n
+            { variant = VariantIx (fromIntegral n)
             , span = 2 ^ (w :: Integer)
             , argTs = []
             }
@@ -264,7 +269,11 @@ inferPatConstruction pos c cArgs = do
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
         unify (Expected cParamT) (Found (getPos cArg) cArgT)
-    let con = Con { variant = variantIx, span = cSpan, argTs = cArgTs }
+    let con = Con
+            { variant = VariantIx variantIx
+            , span = cSpan
+            , argTs = cArgTs
+            }
     pure (t, PCon con cArgs', cArgsVars')
 
 nonconflictingPatVarDefs
@@ -299,8 +308,11 @@ litType = \case
     Unit -> TPrim TUnit
     Int _ -> TPrim TInt
     Double _ -> TPrim TDouble
-    Str _ -> TConst ("Str", [])
+    Str _ -> typeStr
     Bool _ -> TPrim TBool
+
+typeStr :: Type
+typeStr = TConst ("Str", [])
 
 lookupEnv :: Id 'Small -> Infer Type
 lookupEnv (Id (WithPos pos x)) = views envDefs (Map.lookup x) >>= \case

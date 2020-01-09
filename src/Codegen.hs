@@ -21,6 +21,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Word
+import Data.Maybe
 import Data.Foldable
 import Data.List
 import Data.Functor
@@ -134,11 +135,19 @@ initSt = St
 
 genBuiltins :: [Definition]
 genBuiltins = map
-    (GlobalDefinition . ($ []))
-    [ simpleFunc
-        (mkName "carth_alloc")
-        [Parameter i64 (mkName "size") []]
-        (LLType.ptr typeUnit)
+    (\(x, (ps, tr)) -> GlobalDefinition (simpleFunc (mkName x) ps tr []))
+    (Map.toList builtins)
+
+builtins :: Map String ([Parameter], Type)
+builtins = Map.fromList
+    [ ("carth_alloc", ([Parameter i64 (mkName "size") []], LLType.ptr typeUnit))
+    , ( "carth_str_eq"
+      , ( [ Parameter typeStr (mkName "s1") []
+          , Parameter typeStr (mkName "s2") []
+          ]
+        , typeBool
+        )
+      )
     ]
 
 genExterns :: [(String, MonoAst.Type)] -> Gen' [Definition]
@@ -282,12 +291,15 @@ genConst = \case
     Unit -> pure (VLocal litUnit)
     Int n -> pure (VLocal (litI64 n))
     Double x -> pure (VLocal (litDouble x))
-    Str s -> do
-        var <- newName "strlit"
-        scribe outStrings [(var, s)]
-        pure $ VVar $ ConstantOperand
-            (LLConst.GlobalReference (LLType.ptr typeStr) var)
+    Str s -> genStrLit s
     Bool b -> pure (VLocal (litBool b))
+
+genStrLit :: String -> Gen Val
+genStrLit s = do
+    var <- newName "strlit"
+    scribe outStrings [(var, s)]
+    pure $ VVar $ ConstantOperand
+        (LLConst.GlobalReference (LLType.ptr typeStr) var)
 
 -- | Beta-reduction and closure application
 genApp :: Expr -> Expr -> MonoAst.Type -> Gen Val
@@ -345,15 +357,20 @@ app closure a rt = do
 
 genIf :: Expr -> Expr -> Expr -> Gen Val
 genIf pred' conseq alt = do
+    predV <- genExpr pred'
+    genCondBr predV (genExpr conseq) (genExpr alt)
+
+genCondBr :: Val -> Gen Val -> Gen Val -> Gen Val
+genCondBr predV genConseq genAlt = do
+    predV' <- emitAnon . flip trunc i1 =<< getLocal predV
     conseqL <- newName "consequent"
     altL <- newName "alternative"
     nextL <- newName "next"
-    predV <- emitAnon . flip trunc i1 =<< getLocal =<< genExpr pred'
-    commitToNewBlock (condbr predV conseqL altL) conseqL
-    conseqV <- getLocal =<< genExpr conseq
+    commitToNewBlock (condbr predV' conseqL altL) conseqL
+    conseqV <- getLocal =<< genConseq
     fromConseqL <- use currentBlockLabel
     commitToNewBlock (br nextL) altL
-    altV <- getLocal =<< genExpr alt
+    altV <- getLocal =<< genAlt
     fromAltL <- use currentBlockLabel
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
@@ -379,17 +396,20 @@ genMatch m dt tbody = do
 
 genDecisionTree :: Type -> DecisionTree -> Selections Operand -> Gen Val
 genDecisionTree tbody = \case
-    MonoAst.DSwitch selector cs def -> genDecisionSwitch selector cs def tbody
     MonoAst.DLeaf l -> genDecisionLeaf l
+    MonoAst.DSwitch selector cs def ->
+        genDecisionSwitchIx selector cs def tbody
+    MonoAst.DSwitchStr selector cs def ->
+        genDecisionSwitchStr selector cs def tbody
 
-genDecisionSwitch
+genDecisionSwitchIx
     :: MonoAst.Access
     -> Map VariantIx DecisionTree
     -> DecisionTree
     -> Type
     -> Selections Operand
     -> Gen Val
-genDecisionSwitch selector cs def tbody selections = do
+genDecisionSwitchIx selector cs def tbody selections = do
     let (variantIxs, variantDts) = unzip (Map.toAscList cs)
     variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
     defaultL <- newName "default"
@@ -412,6 +432,26 @@ genDecisionSwitch selector cs def tbody selections = do
     vs <- zipWithM genCase variantLs variantDts
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnon (phi (v : vs)))
+
+genDecisionSwitchStr
+    :: MonoAst.Access
+    -> Map String DecisionTree
+    -> DecisionTree
+    -> Type
+    -> Selections Operand
+    -> Gen Val
+genDecisionSwitchStr selector cs def tbody selections = do
+    (matchee, selections') <- select selAs selSub selDeref selector selections
+    let cs' = Map.toAscList cs
+    let genCase :: (String, DecisionTree) -> Gen Val -> Gen (Gen Val)
+        genCase (s, dt) next = do
+            s' <- genStrLit s
+            isMatch <- genStrEq (VLocal matchee) s'
+            -- Do some wrapping to preserve effect/Gen order
+            pure (genCondBr isMatch (genDT dt) next)
+        genDT dt = genDecisionTree tbody dt selections'
+    f <- foldrM genCase (genDT def) cs'
+    f
 
 genDecisionLeaf :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Val
 genDecisionLeaf (bs, e) selections = do
@@ -504,12 +544,19 @@ genBox' x = do
 genHeapAlloc :: Type -> Gen Operand
 genHeapAlloc t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnon (callExtern "carth_alloc" (LLType.ptr typeUnit) [size])
+    emitAnon (callExtern "carth_alloc" [size])
 
 genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
     VVar x -> fmap VVar (selDeref x)
     VLocal x -> pure (VVar x)
+
+genStrEq :: Val -> Val -> Gen Val
+genStrEq s1 s2 = do
+    s1' <- getLocal s1
+    s2' <- getLocal s2
+    b <- emitAnon (callExtern "carth_str_eq" [s1', s2'])
+    pure (VLocal b)
 
 getVar :: Val -> Gen Operand
 getVar = \case
@@ -658,20 +705,24 @@ newName = lift . newName'
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
 
--- TODO: Shouldn't need a return type parameter. Should look at global list of
---       hidden builtins or something.
-callExtern :: String -> Type -> [Operand] -> FunInstruction
-callExtern f rt as = flip WithRetType rt $ Call
-    { tailCallKind = Nothing
-    , callingConvention = cfg_callConv
-    , returnAttributes = []
-    , function = Right $ ConstantOperand $ LLConst.GlobalReference
-        (LLType.ptr (FunctionType rt (map typeOf as) False))
-        (mkName f)
-    , arguments = map (, []) as
-    , functionAttributes = []
-    , metadata = []
-    }
+callExtern :: String -> [Operand] -> FunInstruction
+callExtern f as =
+    let
+        (_, tr) = fromMaybe
+            (ice $ "callExtern on '" ++ f ++ "' not in builtins")
+            (Map.lookup f builtins)
+    in
+        flip WithRetType tr $ Call
+            { tailCallKind = Nothing
+            , callingConvention = cfg_callConv
+            , returnAttributes = []
+            , function = Right $ ConstantOperand $ LLConst.GlobalReference
+                (LLType.ptr (FunctionType tr (map typeOf as) False))
+                (mkName f)
+            , arguments = map (, []) as
+            , functionAttributes = []
+            , metadata = []
+            }
 
 undef :: Type -> Operand
 undef = ConstantOperand . LLConst.Undef

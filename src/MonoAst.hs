@@ -60,6 +60,7 @@ type VarBindings = [(TypedVar, Access)]
 data DecisionTree
     = DLeaf (VarBindings, Expr)
     | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
+    | DSwitchStr Access (Map String DecisionTree) DecisionTree
     deriving Show
 
 type Ction = (VariantIx, Span, TConst, [Expr])
@@ -106,9 +107,12 @@ fvExpr = \case
 
 fvDecisionTree :: DecisionTree -> Set TypedVar
 fvDecisionTree = \case
-    DSwitch _ cs def ->
-        Set.unions $ fvDecisionTree def : map fvDecisionTree (Map.elems cs)
     DLeaf (bs, e) -> Set.difference (fvExpr e) (Set.fromList (map fst bs))
+    DSwitch _ cs def -> fvDSwitch (Map.elems cs) def
+    DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
+  where
+    fvDSwitch es def =
+        Set.unions $ fvDecisionTree def : map fvDecisionTree es
 
 startType :: Type
 startType = TFun (TPrim TUnit) (TPrim TUnit)
