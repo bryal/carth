@@ -1,3 +1,22 @@
+* v0.3.1 <2020-01-10>
+  Pattern match on strings and uninhabited types
+
+  - String literals may be used as patterns, which generates to
+    string-equality tests with the matchee.
+  - Uninhabited types may be pattern matched on, which is absurd and
+    can be used to imply anything.
+  - Character literals are removed, as there is not actually any good
+    canonical definition of what a character should be. Is it a
+    codepoint? An ASCII byte? A grapheme cluster? To avoid ambiguity
+    and possible confusion I simply removed it completely.
+  - ~undefined~ now panics instead of recursing until stack-overflow.
+  - Various updates to the standard library.
+  - Environment variables of library path to search for core in, and
+    module path to search for modules in are now read at runtime
+    instead of when Carth is compiled. This is more dynamic, and will
+    probably play better with Guix in the future.
+  - Change license to AGPL version 3 *or later*
+
 * v0.3.0 <2020-01-07>
   Make runnable on others systems & impl C calling convention
 

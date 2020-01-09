@@ -1,6 +1,6 @@
 [package]
 name = "carth-foreign-core"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["JoJo <jo@jo.zone>"]
 edition = "2018"
 description = "The foreign part of Carths core"
