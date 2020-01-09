@@ -67,7 +67,7 @@ the fix etc:
    (define u (isFirst y))
    #+END_SRC
 
-* TODO Algebraic datatypes
+* DONE Algebraic datatypes
   Construction, pattern matching, the whole shebang.
 
 ** DONE Basic definition, construction and pattern matching
@@ -133,7 +133,7 @@ the fix etc:
     without ~Box~ indirection will now throw an error.
 
 ** DONE Document in reference
-** TODO Uninhabited types
+** DONE Uninhabited types
    Definition and pattern-matching of.
 * NEXT Typeclasses
 ** Agda style classes w implicit args
