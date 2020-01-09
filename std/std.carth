@@ -156,3 +156,9 @@
   (match xs
     (case (Cons x (Box xs')) (foldl f (f acc x) xs'))
     (case Nil acc)))
+
+(type Void)
+
+(define: void-elim
+    (forall (a) (Fun Void a))
+  (fun-match))
