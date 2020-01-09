@@ -109,36 +109,36 @@
 ;;; List
 
 (type (List a)
-  (Cons a (Box (List a)))
+  (Cons (Box (Pair a (List a))))
   Nil)
 
 (define first
   (fun-match
-    (case (Cons x _) (Some x))
+    (case (Cons (Box (Pair x _))) (Some x))
     (case Nil None)))
 (define first!
   (fun-match
-    (case (Cons x _) x)
+    (case (Cons (Box (Pair x _))) x)
     (case Nil (panic "first! of empty list"))))
 
 (define rest
   (fun-match
-    (case (Cons _ (Box xs)) (Some xs))
+    (case (Cons (Box (Pair _ xs))) (Some xs))
     (case Nil None)))
 (define rest!
   (fun-match
-    (case (Cons _ (Box xs)) xs)
+    (case (Cons (Box (Pair _ xs))) xs)
     (case Nil (panic "rest! of empty list"))))
 
 (define last
   (fun-match
-    (case (Cons x (Box Nil)) (Some x))
-    (case (Cons _ (Box xs)) (last xs))
+    (case (Cons (Box (Pair x Nil))) (Some x))
+    (case (Cons (Box (Pair _ xs))) (last xs))
     (case Nil None)))
 (define last!
   (fun-match
-    (case (Cons x (Box Nil)) x)
-    (case (Cons _ (Box xs)) (last! xs))
+    (case (Cons (Box (Pair x Nil))) x)
+    (case (Cons (Box (Pair _ xs))) (last! xs))
     (case Nil (panic "last! of empty list"))))
 
 (define init
@@ -147,14 +147,17 @@
     (case xs (Some (init! xs)))))
 (define init!
   (fun-match
-    (case (Cons _ (Box Nil)) Nil)
-    (case (Cons x (Box xs)) (Cons x (box (init! xs))))
+    (case (Cons (Box (Pair _ Nil))) Nil)
+    (case (Cons (Box (Pair x xs))) (cons x (init! xs)))
     (case Nil (panic "init! of empty list"))))
+
+(define (cons x xs)
+  (Cons (box (Pair x xs))))
 
 (define: (foldl f acc xs)
     (forall (a b) (Fun (Fun b a b) b (List a) b))
   (match xs
-    (case (Cons x (Box xs')) (foldl f (f acc x) xs'))
+    (case (Cons (Box (Pair x xs'))) (foldl f (f acc x) xs'))
     (case Nil acc)))
 
 (type Void)
