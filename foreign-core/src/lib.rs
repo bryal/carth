@@ -113,6 +113,16 @@ def_carth_closure! {
 }
 
 def_carth_closure! {
+    "mul-int", MUL_INT, mul_int;
+    Pair<i64, i64>, i64; Pair { fst, snd } => fst * snd
+}
+
+def_carth_closure! {
+    "div-int", DIV_INT, div_int;
+    Pair<i64, i64>, i64; Pair { fst, snd } => fst / snd
+}
+
+def_carth_closure! {
     "rem-int", REM_INT, rem_int;
     Pair<i64, i64>, i64; Pair { fst, snd } => fst % snd
 }

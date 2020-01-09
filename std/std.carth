@@ -37,6 +37,14 @@
 (define (- a b)
   (sub-int (Pair a b)))
 
+(extern mul-int (Fun (Pair Int Int) Int))
+(define (* a b)
+  (mul-int (Pair a b)))
+
+(extern div-int (Fun (Pair Int Int) Int))
+(define (/ a b)
+  (div-int (Pair a b)))
+
 (extern eq-int (Fun (Pair Int Int) Bool))
 (define (= a b)
   (eq-int (Pair a b)))
