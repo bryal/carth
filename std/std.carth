@@ -3,7 +3,7 @@
 
 (define: (undefined x)
     (forall (a) (Fun Unit a))
-  (undefined x))
+  (panic "undefined"))
 
 (extern -panic (Fun Str Unit))
 (define (panic msg)
