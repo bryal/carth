@@ -10,14 +10,11 @@ module AnnotAst
     , TypedVar(..)
     , Const(..)
     , VariantIx
-    , Access(..)
     , Span
     , Con(..)
     , Pat'(..)
     , Pat
-    , Cases(..)
-    , DecisionTree(..)
-    , VarBindings
+    , Cases
     , Expr
     , Expr'(..)
     , Defs
@@ -29,7 +26,6 @@ module AnnotAst
 where
 
 import Data.Map.Strict (Map)
-import Data.Word
 
 import Ast
     (TVar(..), TPrim(..), TConst, Type(..), Scheme(..), Const(..), startType)
@@ -42,13 +38,6 @@ data TypedVar = TypedVar Id Type
     deriving (Show, Eq, Ord)
 
 type VariantIx = Integer
-
-data Access
-    = Obj
-    | As Access Span [Type]
-    | Sel Word32 Span Access
-    | ADeref Access
-    deriving (Show, Eq, Ord)
 
 type Span = Integer
 
@@ -67,33 +56,30 @@ data Pat'
     deriving Show
 type Pat = WithPos Pat'
 
-newtype Cases = Cases [(Pat, Expr Cases)]
-    deriving Show
+type Cases = [(Pat, Expr)]
 
-data DecisionTree
-    = DLeaf (VarBindings, Expr DecisionTree)
-    | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
-    deriving Show
-
-type VarBindings = Map TypedVar Access
-
-data Expr' m
+data Expr'
     = Lit Const
     | Var TypedVar
-    | App (Expr m) (Expr m) Type
-    | If (Expr m) (Expr m) (Expr m)
-    | Let (Defs m) (Expr m)
-    | Match (Expr m) m Type Type
-    | FunMatch m Type Type
+    | App Expr Expr Type
+    | If Expr Expr Expr
+    | Let Defs Expr
+    | FunMatch Cases Type Type
     | Ctor VariantIx Span TConst [Type]
-    | Box (Expr m)
-    | Deref (Expr m)
-    | Absurd Type
-    deriving (Show)
+    | Box Expr
+    | Deref Expr
+    deriving Show
 
-type Expr m = WithPos (Expr' m)
+type Expr = WithPos Expr'
 
-type Defs m = Map String (Scheme, Expr m)
+type Defs = Map String (Scheme, Expr)
 type TypeDefs = Map String ([TVar], [(String, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type
+
+
+instance Eq Con where
+    (==) (Con c1 _ _) (Con c2 _ _) = c1 == c2
+
+instance Ord Con where
+    compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2

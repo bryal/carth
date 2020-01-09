@@ -416,9 +416,9 @@ genDecisionSwitch selector cs def tbody selections = do
     fmap VLocal (emitAnon (phi (v : vs)))
 
 genDecisionLeaf :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Val
-genDecisionLeaf (bs, e) selections =
-    flip withLocals (genExpr e)
-        =<< selectVarBindings selAs selSub selDeref selections bs
+genDecisionLeaf (bs, e) selections = do
+    bs' <- selectVarBindings selAs selSub selDeref selections bs
+    withLocals bs' (genExpr e)
 
 selAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do

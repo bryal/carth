@@ -22,13 +22,8 @@ import Subst
 import qualified Ast
 import Ast (Id(..), IdCase(..), idstr, scmBody, isFunLike)
 import TypeErr
-import qualified AnnotAst
-import AnnotAst hiding (Expr, Expr', Defs, Id)
+import AnnotAst hiding (Id)
 
-
-type Expr' = AnnotAst.Expr' Cases
-type Expr = AnnotAst.Expr Cases
-type Defs = AnnotAst.Defs Cases
 
 newtype ExpectedType = Expected Type
 data FoundType = Found SrcPos Type
@@ -184,7 +179,8 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
-        pure (tbody, Match matchee' cases' tmatchee tbody)
+        let f = WithPos pos (FunMatch cases' tmatchee tbody)
+        pure (tbody, App f matchee' tbody)
     Ast.FunMatch cases -> inferFunMatch cases
     Ast.Ctor c -> inferExprConstructor c
     Ast.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
@@ -211,7 +207,7 @@ inferCases tmatchee cases = do
     forM_ tpats (unify tmatchee)
     tbody <- fresh
     forM_ tbodies (unify (Expected tbody))
-    pure (tbody, Cases cases')
+    pure (tbody, cases')
 
 inferCase :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
 inferCase (p, b) = do

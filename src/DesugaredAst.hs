@@ -8,6 +8,7 @@ module DesugaredAst
     , Const(..)
     , VariantIx
     , Span
+    , Con(..)
     , Access(..)
     , VarBindings
     , DecisionTree(..)
@@ -21,6 +22,7 @@ module DesugaredAst
 where
 
 import Data.Map.Strict (Map)
+import Data.Word
 
 import AnnotAst
     ( TVar(..)
@@ -31,11 +33,18 @@ import AnnotAst
     , Const(..)
     , VariantIx
     , Span
-    , Access(..)
+    , Con(..)
     , startType
     )
 
 data TypedVar = TypedVar String Type
+    deriving (Show, Eq, Ord)
+
+data Access
+    = Obj
+    | As Access Span [Type]
+    | Sel Word32 Span Access
+    | ADeref Access
     deriving (Show, Eq, Ord)
 
 type VarBindings = Map TypedVar Access

@@ -4,7 +4,7 @@
 --   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
 --   additional checks for exhaustiveness and redundancy described in section
 --   7.4.
-module Match (toDecisionTree, Span, Con(..), MTypeDefs) where
+module Match (toDecisionTree, Span, Con(..), Access(..), MTypeDefs) where
 
 import Prelude hiding (span)
 import qualified Data.Set as Set
@@ -23,11 +23,10 @@ import Control.Lens (makeLenses, view, views)
 import Misc hiding (augment)
 import SrcPos
 import TypeErr
-import qualified AnnotAst
-import AnnotAst hiding (Expr)
+import qualified AnnotAst as An
+import AnnotAst (Pat, Pat'(..))
+import DesugaredAst
 
-
-type Expr = AnnotAst.Expr DecisionTree
 
 data Descr = Pos Con [Descr] | Neg (Set Con)
     deriving Show
@@ -53,13 +52,6 @@ data Env = Env { _tdefs :: MTypeDefs, _tpat :: Type, _exprPos :: SrcPos }
 makeLenses ''Env
 
 type Match = ReaderT Env (StateT RedundantCases (ExceptT TypeErr Maybe))
-
-
-instance Eq Con where
-    (==) (Con c1 _ _) (Con c2 _ _) = c1 == c2
-
-instance Ord Con where
-    compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
 
 
 toDecisionTree
@@ -131,7 +123,9 @@ match
     -> Pat'
     -> Match DecisionTree'
 match obj descr ctx work rhs rules = \case
-    PVar x -> conjunct (augment descr ctx) (addBind x obj rhs) rules work
+    PVar (An.TypedVar (An.WithPos _ x) tx) ->
+        let x' = TypedVar x tx
+        in conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
     PBox (WithPos _ p) -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->

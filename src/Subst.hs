@@ -7,12 +7,8 @@ import Data.Map.Strict (Map)
 import Data.Bifunctor
 import Data.Maybe
 
-import qualified AnnotAst as An
-import AnnotAst hiding (Defs, Expr)
+import AnnotAst
 
-
-type Defs = An.Defs Cases
-type Expr = An.Expr Cases
 
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
@@ -24,23 +20,20 @@ substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
 substDef s = second (substExpr s)
 
 substExpr :: Subst -> Expr -> Expr
-substExpr s (WithPos p e) = WithPos p $ case e of
+substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     Lit c -> Lit c
     Var v -> Var (substTypedVar s v)
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Let defs body -> Let (fmap (substDef s) defs) (substExpr s body)
-    Match e cs tp tbody ->
-        Match (substExpr s e) (substCases s cs) (subst s tp) (subst s tbody)
     FunMatch cs tp tb -> FunMatch (substCases s cs) (subst s tp) (subst s tb)
     Ctor i span' (tx, tts) ps ->
         Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
     Box e -> Box (substExpr s e)
     Deref e -> Deref (substExpr s e)
-    Absurd t -> Absurd (subst s t)
 
 substCases :: Subst -> Cases -> Cases
-substCases s (Cases cs) = Cases (map (bimap (substPat s) (substExpr s)) cs)
+substCases s cs = map (bimap (substPat s) (substExpr s)) cs
 
 substPat :: Subst -> Pat -> Pat
 substPat s (WithPos pos pat) = WithPos pos $ case pat of
