@@ -4,7 +4,7 @@ lib_dir=$(prefix)/lib
 mod_dir=$(prefix)/mod
 
 .PHONY: carth-bin
-carth-bin: clean-stack
+carth-bin:
 	stack build
 
 .PHONY: foreign-core
@@ -38,6 +38,6 @@ lib-dir:
 mod-dir:
 	mkdir -p $(mod_dir)
 
-.PHONY: clean-stack
-clean-stack:
+.PHONY: clean
+clean:
 	stack clean
