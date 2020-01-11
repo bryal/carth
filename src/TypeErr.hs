@@ -32,6 +32,7 @@ data TypeErr
     | UnboundTVar SrcPos
     | WrongStartType (WithPos Scheme)
     | RecursiveVarDef (WithPos String)
+    | TypeInstArityMismatch SrcPos String Int Int
     deriving Show
 
 type Message = String
@@ -89,7 +90,7 @@ printErr = \case
             $ ("Type `" ++ x ++ "` ")
             ++ "has infinite size due to recursion without indirection.\n"
             ++ "Insert a pointer at some point to make it representable."
-    UndefType p x -> posd p big $ "Undefined type `" ++ x ++ "` in constructor"
+    UndefType p x -> posd p big $ "Undefined type `" ++ x ++ "`."
     UnboundTVar p ->
         posd p defOrExpr
             $ "Could not fully infer type of expression.\n"
@@ -102,6 +103,11 @@ printErr = \case
     RecursiveVarDef (WithPos p x) ->
         posd p var
             $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
+    TypeInstArityMismatch p t expected found ->
+        posd p tokenTree
+            $ ("Arity mismatch for instantiation of type `" ++ pretty t)
+            ++ ("`.\nExpected " ++ show expected)
+            ++ (", found " ++ show found)
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
@@ -117,6 +123,7 @@ printErr = \case
     eConstructor = Parse.eConstructor <||> wholeLine
     big = Parse.ns_big
     wholeLine = many Mega.anySingle
+    tokenTree = Parse.ns_tokenTree
     (<||>) pa pb = (Mega.try pa $> ()) <|> (pb $> ())
 
 posd :: SrcPos -> Parse.Parser a -> Message -> IO ()

@@ -22,6 +22,7 @@ module Parse
     , ns_parens
     , def
     , getSrcPos
+    , ns_tokenTree
     )
 where
 
@@ -109,6 +110,13 @@ parseModule filepath dir m visiteds nexts = do
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)
 
+-- | For use in TypeErr to get the length of the tokentree to draw a squiggly
+--   line under it.
+ns_tokenTree :: Parser ()
+ns_tokenTree = choice
+    [str $> (), num $> (), ident $> (), ns_parens (many tokenTree) $> ()]
+    where tokenTree = andSkipSpaceAfter ns_tokenTree
+
 toplevels :: Parser ([Import], [Def], [TypeDef], [Extern])
 toplevels = do
     space
@@ -176,21 +184,21 @@ ns_expr :: Parser Expr
 ns_expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
   where
     unit = ns_reserved "unit" $> Lit Unit
-    num = do
-        neg <- option False (char '-' $> True)
-        a <- eitherP
-            (try (Lexer.decimal <* notFollowedBy (char '.')))
-            Lexer.float
-        let e = either
-                (\n -> Int (if neg then -n else n))
-                (\x -> Double (if neg then -x else x))
-                a
-        pure (Lit e)
     estr = fmap (Lit . Str) str
     ebool = fmap (Lit . Bool) bool
     pexpr =
         ns_parens $ choice
             [funMatch, match, if', fun, let', typeAscr, box, deref, app]
+
+num :: Parser Expr'
+num = do
+    neg <- option False (char '-' $> True)
+    a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
+    let e = either
+            (\n -> Int (if neg then -n else n))
+            (\x -> Double (if neg then -x else x))
+            a
+    pure (Lit e)
 
 bool :: Parser Bool
 bool = (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)

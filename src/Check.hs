@@ -42,9 +42,27 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
 checkTypeDefs :: [Ast.TypeDef] -> Except TypeErr (An.TypeDefs, An.Ctors)
 checkTypeDefs tdefs = do
     (tdefs', ctors) <- checkTypeDefsNoConflicting tdefs
-    forM_ (Map.toList tdefs') (assertNoRec tdefs')
-    pure (fmap (second (map snd)) tdefs', ctors)
+    let tdefs'' = fmap (second (map snd)) tdefs'
+    forM_ (Map.toList tdefs')
+        $ \tdef -> checkTConstsDefs tdefs'' tdef *> assertNoRec tdefs' tdef
+    pure (tdefs'', ctors)
   where
+    -- | Check that constructurs don't refer to undefined types and that TConsts
+    --   are of correct arity.
+    checkTConstsDefs tds (_, (_, cs)) = forM_ cs (checkTConstsCtor tds)
+    checkTConstsCtor tds (cpos, (_, ts)) = forM_ ts (checkType tds cpos)
+    checkType tds cpos = \case
+        TVar _ -> pure ()
+        TPrim _ -> pure ()
+        TConst tc -> checkTConst tds cpos tc
+        TFun f a -> checkType tds cpos f *> checkType tds cpos a
+        TBox t -> checkType tds cpos t
+    checkTConst tds cpos (x, inst) = case Map.lookup x tds of
+        Just (tvs, _) -> do
+            let (expectedN, foundN) = (length tvs, length inst)
+            when (not (expectedN == foundN)) $ throwError
+                (TypeInstArityMismatch cpos x expectedN foundN)
+        Nothing -> throwError (UndefType cpos x)
     -- | Check that type definitions are not recursive without indirection and
     --   that constructors don't refer to undefined types.
     assertNoRec tds (x, (_, cs)) = assertNoRecCtors tds x Map.empty cs
@@ -54,13 +72,11 @@ checkTypeDefs tdefs = do
     assertNoRecType tds x cpos = \case
         TVar _ -> pure ()
         TPrim _ -> pure ()
-        TConst (y, ts) -> if x == y
-            then throwError (RecTypeDef x cpos)
-            else case Map.lookup y tds of
-                Just (tvs, cs) ->
-                    let substs = Map.fromList (zip tvs ts)
-                    in assertNoRecCtors tds x substs cs
-                Nothing -> throwError (UndefType cpos y)
+        TConst (y, ts) -> do
+            when (x == y) $ throwError (RecTypeDef x cpos)
+            let (tvs, cs) = tds Map.! y
+            let substs = Map.fromList (zip tvs ts)
+            assertNoRecCtors tds x substs cs
         TFun _ _ -> pure ()
         TBox _ -> pure ()
 
