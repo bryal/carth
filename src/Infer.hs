@@ -93,8 +93,16 @@ checkExterns = fmap Map.fromList . mapM checkExtern
 
 inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
+    checkNoDuplicateDefs defs
     let ordered = orderDefs defs
     inferDefsComponents ordered
+  where
+    checkNoDuplicateDefs = checkNoDuplicateDefs' Set.empty
+    checkNoDuplicateDefs' already = \case
+        (Id (WithPos p x), _) : ds -> if Set.member x already
+            then throwError (ConflictingVarDef p x)
+            else checkNoDuplicateDefs' (Set.insert x already) ds
+        [] -> pure ()
 
 -- For unification to work properly with mutually recursive functions,
 -- we need to create a dependency graph of non-recursive /

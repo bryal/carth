@@ -96,10 +96,15 @@
 ;;     (Fun Int List)
 ;;   (undefined unit))
 
-;; Duplicate definition
-;; TODO: This is not an error, but should be
+;; Conflicting definitions for variable
+;; a)
 ;; (define foo +)
 ;; (define foo -)
+;; b)
+;; (define foo
+;;   (let ((a 1)
+;;         (a 2))
+;;     a))
 
 ;; Helpers
 (type (Wrap a) (Wrap a))

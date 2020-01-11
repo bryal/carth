@@ -35,6 +35,7 @@ data TypeErr
     | WrongStartType (WithPos Scheme)
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int
+    | ConflictingVarDef SrcPos String
     deriving Show
 
 type Message = String
@@ -110,6 +111,8 @@ printErr = \case
             $ ("Arity mismatch for instantiation of type `" ++ pretty t)
             ++ ("`.\nExpected " ++ show expected)
             ++ (", found " ++ show found)
+    ConflictingVarDef p x ->
+        posd p tokenTree $ "Conflicting definitions for variable `" ++ x ++ "`."
   where
     -- | Used to handle that the position of the generated nested lambdas of a
     --   definition of the form `(define (foo a b ...) ...)` is set to the
