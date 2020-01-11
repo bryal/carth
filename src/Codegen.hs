@@ -30,6 +30,7 @@ import Control.Lens
     (modifying, scribe, (<<+=), (<<.=), use, uses, assign, views, locally)
 
 import Misc
+import PrettyAst ()
 import FreeVars
 import qualified MonoAst
 import MonoAst hiding (Type, Const)

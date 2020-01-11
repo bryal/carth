@@ -2,15 +2,17 @@
 
 module TypeErr (TypeErr(..), printErr) where
 
-import Misc
-import SrcPos
-import Ast
-import qualified Parse
-
 import qualified Text.Megaparsec as Mega
 import Text.Megaparsec.Pos
 import Data.Functor
 import Control.Applicative
+
+import Misc
+import SrcPos
+import Ast
+import PrettyAst ()
+import qualified Parse
+
 
 data TypeErr
     = StartNotDefined
