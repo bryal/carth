@@ -23,7 +23,6 @@ description:         Please see the README on GitHub at <https://github.com/brya
 dependencies:
 - base
 - megaparsec
-- QuickCheck
 - containers
 - mtl
 - microlens-platform
@@ -92,3 +91,4 @@ tests:
     - carth
     - hspec
     - hspec-discover
+    - QuickCheck
