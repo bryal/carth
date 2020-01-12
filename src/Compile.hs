@@ -1,53 +1,42 @@
-module Compile (compile, CompileConfig(..), defaultCompileConfig) where
+module Compile (compile) where
 
+import Control.Monad
 import LLVM.Context
 import LLVM.Module
 import LLVM.Target
 import LLVM.Analysis
-import Data.Maybe
 import System.FilePath
 import System.Process
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 
+import Config
 import qualified MonoAst
 import Codegen
 
--- | Configuration for LLVM compilation and CC linking
-data CompileConfig = CompileConfig
-    -- | Path to C compiler to use for linking and compiling ".c" files
-    { cc :: FilePath
-    -- | Filepath to write the output item to. If none is supplied, a default
-    --   name of "out" with the appropriate extension will be used.
-    , outfile :: Maybe FilePath }
 
-defaultCompileConfig :: CompileConfig
-defaultCompileConfig = CompileConfig { cc = "cc", outfile = Nothing }
-
--- TODO: Verify w LLVM.Analysis.verify :: Module -> IO ()
 -- TODO: CodeGenOpt level
-compile :: FilePath -> CompileConfig -> MonoAst.Program -> IO ()
+compile :: FilePath -> Config -> MonoAst.Program -> IO ()
 compile f cfg pgm = withContext $ \c -> withHostTargetMachinePIC $ \t -> do
     layout <- getTargetMachineDataLayout t
     putStrLn ("   Generating LLVM")
     let mod' = codegen layout f pgm
     withModuleFromAST c mod' (compileModule t cfg)
 
-compileModule :: TargetMachine -> CompileConfig -> Module -> IO ()
+compileModule :: TargetMachine -> Config -> Module -> IO ()
 compileModule t cfg m = do
-    putStrLn ("   Compiling LLVM")
-    let binfile = fromMaybe "out" (outfile cfg)
-        llfile = replaceExtension binfile "ll"
-        ofile = replaceExtension binfile "o"
-    writeLLVMAssemblyToFile' (".dbg." ++ llfile) m
+    putStrLn ("   Assembling LLVM")
+    let exefile = outfile cfg
+        ofile = replaceExtension exefile "o"
+    when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" m
     verify m
     writeObjectToFile t (File ofile) m
     putStrLn ("   Linking")
     callProcess
         (cc cfg)
         [ "-o"
-        , binfile
+        , exefile
         , ofile
         , "-l:libcarth_foreign_core.a"
         , "-ldl"
