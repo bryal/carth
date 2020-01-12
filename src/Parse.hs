@@ -30,6 +30,7 @@ where
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
+import Data.Bifunctor
 import Data.Maybe
 import Control.Applicative (liftA2)
 import qualified Text.Megaparsec as Mega
@@ -39,15 +40,13 @@ import qualified Text.Megaparsec.Char as Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Either.Combinators
 import Data.Void
-import Data.Composition
 import Data.List
 import System.FilePath
 import System.Directory
 import qualified Data.List.NonEmpty as NonEmpty
 
-import Misc hiding (if')
+import Misc
 import SrcPos
 import Ast
 import Literate
@@ -109,7 +108,7 @@ parseModule filepath dir m visiteds nexts = do
         pure (s', f)
 
 parse' :: Parser a -> FilePath -> Source -> Either String a
-parse' p name src = mapLeft errorBundlePretty (Mega.parse p name src)
+parse' p name src = first errorBundlePretty (Mega.parse p name src)
 
 -- | For use in TypeErr to get the length of the tokentree to draw a squiggly
 --   line under it.

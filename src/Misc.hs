@@ -14,10 +14,10 @@ module Misc
     , both
     , secondM
     , augment
-    , insertWith'
-    , if'
     , abort
     , splitOn
+    , (.*)
+    , (.**)
     )
 where
 
@@ -25,7 +25,6 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
-import Data.Composition
 import Control.Monad.Reader
 import Control.Lens (Lens', locally)
 import Data.Bitraversable
@@ -108,11 +107,12 @@ augment
     :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
 augment l = locally l . Map.union
 
-insertWith' :: Ord k => (v -> v) -> k -> v -> Map k v -> Map k v
-insertWith' f = Map.insertWith (f .* flip const)
 
-if' :: Bool -> a -> a -> a
-if' p c a = if p then c else a
+(.*) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
+(.*) = (.) . (.)
+
+(.**) :: (d -> e) -> (a -> b -> c -> d) -> a -> b -> c -> e
+(.**) = (.) . (.*)
 
 abort :: FilePath -> IO a
 abort f = do

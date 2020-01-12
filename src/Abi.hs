@@ -39,7 +39,6 @@ import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Word
 import Data.Foldable
-import Data.Composition
 import Control.Lens (views)
 
 import Misc

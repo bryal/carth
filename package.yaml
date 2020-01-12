@@ -23,10 +23,8 @@ description:         Please see the README on GitLab at <https://gitlab.com/JoJo
 dependencies:
 - base
 - megaparsec
-- either
 - QuickCheck
 - containers
-- composition
 - mtl
 - lens
 - llvm-hs-pure
@@ -36,10 +34,8 @@ dependencies:
 - directory
 - bytestring
 - utf8-string
-- composition-extra
 - prettyprinter
 - process
-- scientific
 
 library:
   source-dirs: src
@@ -96,4 +92,3 @@ tests:
     - carth
     - hspec
     - hspec-discover
-    - megaparsec
