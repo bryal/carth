@@ -97,7 +97,10 @@ abort f = do
     exitFailure
 
 splitOn :: String -> String -> [String]
-splitOn sep = fromMaybe [] . Mega.parseMaybe (splitOn' sep)
-
-splitOn' :: String -> Parsec Void String [String]
-splitOn' sep = sepBy (many (noneOf [':'])) (string sep)
+splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
+  where
+    splitOn' :: Parsec Void String [String]
+    splitOn' = do
+        as <- many (try (manyTill anySingle (try (string sep))))
+        a <- many anySingle
+        pure $ (as ++) $ if not (null a) then [a] else []
