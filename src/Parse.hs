@@ -12,6 +12,7 @@ module Parse
     , Source
     , parse
     , parse'
+    , toplevels
     , reserveds
     , ns_scheme
     , ns_pat
