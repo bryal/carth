@@ -26,8 +26,7 @@ import Data.Foldable
 import Data.List
 import Data.Functor
 import Control.Applicative
-import Control.Lens
-    (modifying, scribe, (<<+=), (<<.=), use, uses, assign, views, locally)
+import Lens.Micro.Platform (modifying, use, assign, to, view)
 
 import Misc
 import PrettyAst ()
@@ -273,7 +272,7 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
 
 genExpr :: Expr -> Gen Val
 genExpr expr = do
-    parent <- lambdaParentFunc <<.= Nothing
+    parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> genConst c
         Var (TypedVar x t) -> lookupVar (TypedVar x t)
@@ -692,7 +691,7 @@ commitFinalFuncBlock t = commitToNewBlock
 commitToNewBlock :: Terminator -> Name -> Gen ()
 commitToNewBlock t l = do
     n <- use currentBlockLabel
-    is <- uses currentBlockInstrs reverse
+    is <- use (currentBlockInstrs . to reverse)
     scribe outBlocks [BasicBlock n is (Do t)]
     assign currentBlockLabel l
     assign currentBlockInstrs []
@@ -886,6 +885,6 @@ mangleTConst (c, ts) = c ++ mangleInst ts
 
 lookupVar :: TypedVar -> Gen Val
 lookupVar x = do
-    views env (Map.lookup x) >>= \case
+    view (env . to (Map.lookup x)) >>= \case
         Just var -> pure (VVar var)
         Nothing -> ice $ "Undefined variable " ++ show x

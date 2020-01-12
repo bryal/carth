@@ -18,7 +18,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Except
 import Data.Word
-import Control.Lens (makeLenses, view, views)
+import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc hiding (augment)
 import SrcPos
@@ -89,7 +89,7 @@ missingPat t descr = case t of
     TPrim _ -> underscore
     TConst ("Str", _) -> underscore
     TConst (tx, _) -> do
-        vs <- views tdefs (fromJust . Map.lookup tx)
+        vs <- view (tdefs . to (fromJust . Map.lookup tx))
         missingPat' vs descr
     TFun _ _ -> underscore
     TBox _ -> underscore

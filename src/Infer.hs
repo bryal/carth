@@ -3,7 +3,7 @@
 module Infer (inferTopDefs) where
 
 import Prelude hiding (span)
-import Control.Lens ((<<+=), assign, makeLenses, over, use, view, views, mapped)
+import Lens.Micro.Platform (assign, makeLenses, over, use, view, mapped, to)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -302,7 +302,7 @@ instantiateConstructorOfTypeDef (tName, tParams) cParams = do
 lookupEnvConstructor
     :: Id 'Big -> Infer (VariantIx, (String, [TVar]), [Type], Span)
 lookupEnvConstructor (Id (WithPos pos cx)) =
-    views envCtors (Map.lookup cx)
+    view (envCtors . to (Map.lookup cx))
         >>= maybe (throwError (UndefCtor pos cx)) pure
 
 litType :: Const -> Type
@@ -317,7 +317,7 @@ typeStr :: Type
 typeStr = TConst ("Str", [])
 
 lookupEnv :: Id 'Small -> Infer Type
-lookupEnv (Id (WithPos pos x)) = views envDefs (Map.lookup x) >>= \case
+lookupEnv (Id (WithPos pos x)) = view (envDefs . to (Map.lookup x)) >>= \case
     Just scm -> instantiate scm
     Nothing -> throwError (UndefVar pos x)
 

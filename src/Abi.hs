@@ -39,7 +39,7 @@ import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Word
 import Data.Foldable
-import Control.Lens (views)
+import Lens.Micro.Platform (view, to)
 
 import Misc
 import MonoAst (Span)
@@ -107,7 +107,7 @@ passByRef = lift . passByRef'
 --       particularly section 3.2.3 Parameter Passing (p18).
 passByRef' :: Type -> Gen' Bool
 passByRef' = \case
-    NamedTypeReference x -> passByRef' =<< views dataTypes (Map.! x)
+    NamedTypeReference x -> passByRef' =<< view (dataTypes . to (Map.! x))
     -- Simple scalar types. They go in registers.
     VoidType -> pure False
     IntegerType _ -> pure False

@@ -6,7 +6,7 @@
 module Mono (monomorphize) where
 
 import Control.Applicative (liftA2, liftA3)
-import Control.Lens (makeLenses, views, use, uses, modifying)
+import Lens.Micro.Platform (makeLenses, view, use, modifying, to)
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Functor
@@ -73,7 +73,7 @@ mono = \case
 
 monoFun :: (String, An.Type) -> (An.Expr, An.Type) -> Mono Expr
 monoFun (p, tp) (b, bt) = do
-    parentInst <- uses defInsts (Map.lookup p)
+    parentInst <- use (defInsts . to (Map.lookup p))
     modifying defInsts (Map.delete p)
     tp' <- monotype tp
     b' <- mono b
@@ -84,11 +84,11 @@ monoFun (p, tp) (b, bt) = do
 monoLet :: An.Defs -> An.Expr -> Mono (Defs, Expr)
 monoLet ds body = do
     let ks = Map.keys ds
-    parentInsts <- uses defInsts (lookups ks)
+    parentInsts <- use (defInsts . to (lookups ks))
     let newEmptyInsts = (fmap (const Map.empty) ds)
     modifying defInsts (Map.union newEmptyInsts)
     body' <- augment envDefs ds (mono body)
-    dsInsts <- uses defInsts (lookups ks)
+    dsInsts <- use (defInsts . to (lookups ks))
     modifying defInsts (Map.union (Map.fromList parentInsts))
     let ds' = Map.fromList $ do
             (name, dInsts) <- dsInsts
@@ -107,7 +107,7 @@ monoDecisionTree = \case
     An.DLeaf (bs, e) -> do
         let bs' = Map.toList bs
         let ks = map (\((An.TypedVar x _), _) -> x) bs'
-        parentInsts <- uses defInsts (lookups ks)
+        parentInsts <- use (defInsts . to (lookups ks))
         modifying defInsts (deletes ks)
         bs'' <- mapM
             (bimapM
@@ -146,9 +146,8 @@ addDefInst x t1 = do
         -- If x is not in insts, it's a function parameter. Ignore.
         Nothing -> pure ()
         Just xInsts -> when (not (Map.member t1 xInsts)) $ do
-            (Forall _ t2, body) <- views
-                envDefs
-                (lookup' (ice (x ++ " not in defs")) x)
+            (Forall _ t2, body) <- view
+                (envDefs . to (lookup' (ice (x ++ " not in defs")) x))
             _ <- mfix $ \body' -> do
                 -- The instantiation must be in the environment when
                 -- monomorphizing the body, or we may infinitely recurse.
@@ -175,7 +174,8 @@ bindTvs a b = case (a, b) of
 
 monotype :: An.Type -> Mono Type
 monotype = \case
-    An.TVar v -> views tvBinds (lookup' (ice (show v ++ " not in tvBinds")) v)
+    An.TVar v ->
+        view (tvBinds . to (lookup' (ice (show v ++ " not in tvBinds")) v))
     An.TPrim c -> pure (TPrim c)
     An.TFun a b -> liftA2 TFun (monotype a) (monotype b)
     An.TBox t -> fmap TBox (monotype t)
@@ -187,7 +187,7 @@ monotype = \case
 
 instTypeDefs :: An.TypeDefs -> Mono TypeDefs
 instTypeDefs tdefs = do
-    insts <- uses tdefInsts Set.toList
+    insts <- use (tdefInsts . to Set.toList)
     instTypeDefs' tdefs insts
 
 instTypeDefs' :: An.TypeDefs -> [TConst] -> Mono TypeDefs

@@ -10,7 +10,10 @@ module Misc
     , indent
     , both
     , secondM
+    , locally
     , augment
+    , scribe
+    , (<<+=)
     , abort
     , splitOn
     , (.*)
@@ -23,7 +26,9 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
 import Control.Monad.Reader
-import Control.Lens (Lens', locally)
+import Control.Monad.Writer
+import Control.Monad.State
+import Lens.Micro.Platform (Lens, Lens', over, set, use, modifying)
 import Data.Bitraversable
 import System.Exit
 import LLVM.AST.Type (Type)
@@ -79,10 +84,18 @@ secondM
     :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
 
+locally :: MonadReader s m => Lens' s a -> (a -> a) -> m r -> m r
+locally l f = local (over l f)
+
 augment
     :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
 augment l = locally l . Map.union
 
+scribe :: (MonadWriter t m, Monoid s) => Lens s t a b -> b -> m ()
+scribe l b = tell (set l b mempty)
+
+(<<+=) :: (MonadState s m, Num a) => Lens' s a -> a -> m a
+(<<+=) l n = use l <* modifying l (+ n)
 
 (.*) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.*) = (.) . (.)

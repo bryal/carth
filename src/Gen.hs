@@ -26,7 +26,7 @@ import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Control.Lens (makeLenses, views)
+import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc
 import MonoAst hiding (Type, Const)
@@ -72,6 +72,6 @@ instance Monoid Out where
 
 
 lookupDatatype :: Name -> Gen' Type
-lookupDatatype x = views dataTypes (Map.lookup x) >>= \case
+lookupDatatype x = view (dataTypes . to (Map.lookup x)) >>= \case
     Just u -> pure u
     Nothing -> ice $ "Undefined datatype " ++ show x

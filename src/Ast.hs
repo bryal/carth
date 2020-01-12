@@ -29,7 +29,7 @@ where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Control.Lens (makeLenses)
+import Lens.Micro.Platform (makeLenses)
 import Control.Arrow ((>>>))
 
 import SrcPos
