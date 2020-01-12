@@ -36,8 +36,12 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     checkTypeVarsBound substd
     let mTypeDefs = fmap (map fst . snd) tdefs'
     desugared <- compileDecisionTreesAndDesugar mTypeDefs substd
+    checkStartDefined desugared
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Des.Program desugared tdefs'' externs')
+  where
+    checkStartDefined ds =
+        when (not (Map.member "start" ds)) (throwError StartNotDefined)
 
 checkTypeDefs :: [Ast.TypeDef] -> Except TypeErr (An.TypeDefs, An.Ctors)
 checkTypeDefs tdefs = do
