@@ -4,7 +4,6 @@ module Misc
     ( ice
     , nyi
     , precalate
-    , prettyPrint
     , pretty
     , Pretty(..)
     , indent
@@ -31,10 +30,6 @@ import Control.Monad.State
 import Lens.Micro.Platform (Lens, Lens', over, set, use, modifying)
 import Data.Bitraversable
 import System.Exit
-import LLVM.AST.Type (Type)
-import LLVM.AST (Name, Module)
-import LLVM.Pretty ()
-import qualified Data.Text.Prettyprint.Doc as Prettyprint
 import qualified Text.Megaparsec as Mega
 import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
@@ -53,26 +48,12 @@ precalate prefix = \case
     [] -> []
     xs -> prefix ++ intercalate prefix xs
 
--- Pretty printing
-prettyPrint :: Pretty a => a -> IO ()
-prettyPrint = putStrLn . pretty
-
 pretty :: Pretty a => a -> String
 pretty = pretty' 0
 
 -- Pretty print starting at some indentation depth
 class Pretty a where
     pretty' :: Int -> a -> String
-
-instance Pretty String where
-    pretty' _ = id
-
-instance Pretty Type where
-    pretty' _ = show . Prettyprint.pretty
-instance Pretty Name where
-    pretty' _ = show . Prettyprint.pretty
-instance Pretty Module where
-    pretty' _ = show . Prettyprint.pretty
 
 indent :: Int -> String
 indent = flip replicate ' '

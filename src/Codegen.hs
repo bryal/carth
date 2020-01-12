@@ -768,9 +768,7 @@ extractvalue struct is = fmap
         NamedTypeReference x -> getMembers =<< lift (lookupDatatype x)
         StructureType _ members -> pure members
         t ->
-            ice
-                $ "Tried to get member types of non-struct type "
-                ++ pretty t
+            ice $ "Tried to get member types of non-struct type " ++ show t
 
 store :: Operand -> Operand -> Instruction
 store srcVal destPtr = Store
@@ -853,17 +851,17 @@ typeUnit = StructureType { isPacked = False, elementTypes = [] }
 getFunRet :: Type -> Type
 getFunRet = \case
     FunctionType rt _ _ -> rt
-    t -> ice $ "Tried to get return type of non-function type " ++ pretty t
+    t -> ice $ "Tried to get return type of non-function type " ++ show t
 
 getPointee :: Type -> Type
 getPointee = \case
     LLType.PointerType t _ -> t
-    t -> ice $ "Tried to get pointee of non-function type " ++ pretty t
+    t -> ice $ "Tried to get pointee of non-function type " ++ show t
 
 getIntBitWidth :: Type -> Word32
 getIntBitWidth = \case
     LLType.IntegerType w -> w
-    t -> ice $ "Tried to get bit width of non-integer type " ++ pretty t
+    t -> ice $ "Tried to get bit width of non-integer type " ++ show t
 
 mangleName :: (String, [MonoAst.Type]) -> String
 mangleName (x, us) = x ++ mangleInst us

@@ -28,12 +28,10 @@ dependencies:
 - microlens-platform
 - llvm-hs-pure
 - llvm-hs
-- llvm-hs-pretty
 - filepath
 - directory
 - bytestring
 - utf8-string
-- prettyprinter
 - process
 
 library:

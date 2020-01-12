@@ -108,7 +108,7 @@ printErr = \case
             $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
     TypeInstArityMismatch p t expected found ->
         posd p tokenTree
-            $ ("Arity mismatch for instantiation of type `" ++ pretty t)
+            $ ("Arity mismatch for instantiation of type `" ++ t)
             ++ ("`.\nExpected " ++ show expected)
             ++ (", found " ++ show found)
     ConflictingVarDef p x ->

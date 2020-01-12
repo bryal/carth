@@ -181,7 +181,7 @@ alignmentof = \case
     t@(StructureType _ us) -> do
         as <- traverse alignmentof us
         if null as
-            then ice ("alignmentof: alignments empty for struct " ++ pretty t)
+            then ice ("alignmentof: alignments empty for struct " ++ show t)
             else pure (maximum as)
     VectorType _ u -> alignmentof u
     ArrayType _ u -> alignmentof u

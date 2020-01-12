@@ -11,7 +11,6 @@ import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 
-import Misc
 import qualified MonoAst
 import Codegen
 
@@ -33,7 +32,6 @@ compile f cfg pgm = withContext $ \c -> withHostTargetMachinePIC $ \t -> do
     layout <- getTargetMachineDataLayout t
     putStrLn ("   Generating LLVM")
     let mod' = codegen layout f pgm
-    writeFile ".dbg.out.dbgll" (pretty mod')
     withModuleFromAST c mod' (compileModule t cfg)
 
 compileModule :: TargetMachine -> CompileConfig -> Module -> IO ()
@@ -56,8 +54,8 @@ compileModule t cfg m = do
         , "-lpthread"
         ]
 
--- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing, so this
---   is a workaround.
+-- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing, so
+--   this is a workaround.
 --
 --   If the file was previously 100 lines of data, and the new LLVM-assembly is
 --   70 lines, the first 70 lines will be overwritten, but the remaining 30 will
