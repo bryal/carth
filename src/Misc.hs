@@ -7,10 +7,7 @@ module Misc
     , prettyPrint
     , pretty
     , Pretty(..)
-    , prettyBracketPair
     , indent
-    , showChar''
-    , showChar'
     , both
     , secondM
     , augment
@@ -72,29 +69,8 @@ instance Pretty Name where
 instance Pretty Module where
     pretty' _ = show . Prettyprint.pretty
 
-prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
-prettyBracketPair d (a, b) = concat
-    ["[", pretty' (d + 1) a, "\n", indent (d + 1), pretty' (d + 1) b, "]"]
-
 indent :: Int -> String
 indent = flip replicate ' '
-
-showChar'' :: Char -> String
-showChar'' = \case
-    '\0' -> "\\0"
-    '\a' -> "\\a"
-    '\b' -> "\\b"
-    '\t' -> "\\t"
-    '\n' -> "\\n"
-    '\v' -> "\\v"
-    '\f' -> "\\f"
-    '\r' -> "\\r"
-    '\\' -> "\\\\"
-    '\"' -> "\\\""
-    c -> [c]
-
-showChar' :: Char -> String
-showChar' c = "'" ++ showChar'' c ++ "'"
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (a0, a1) = (f a0, f a1)

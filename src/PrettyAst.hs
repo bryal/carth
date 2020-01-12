@@ -132,6 +132,10 @@ prettyExpr' d = \case
     Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
     Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
 
+prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
+prettyBracketPair d (a, b) = concat
+    ["[", pretty' (d + 1) a, "\n", indent (d + 1), pretty' (d + 1) b, "]"]
+
 prettyPat :: Pat -> String
 prettyPat = \case
     PConstruction _ (Id (WithPos _ c)) ps ->
@@ -151,7 +155,20 @@ prettyConst = \case
     Bool b -> if b then "true" else "false"
 
 prettyStr :: String -> String
-prettyStr s = '"' : (s >>= showChar'') ++ "\""
+prettyStr s = '"' : (s >>= showChar) ++ "\""
+  where
+    showChar = \case
+        '\0' -> "\\0"
+        '\a' -> "\\a"
+        '\b' -> "\\b"
+        '\t' -> "\\t"
+        '\n' -> "\\n"
+        '\v' -> "\\v"
+        '\f' -> "\\f"
+        '\r' -> "\\r"
+        '\\' -> "\\\\"
+        '\"' -> "\\\""
+        c -> [c]
 
 prettyScheme :: Scheme -> String
 prettyScheme (Forall ps t) =
