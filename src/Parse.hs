@@ -107,13 +107,12 @@ parseTokenTreeOrRest = parse' tokenTreeOrRest ""
   where
     tokenTreeOrRest =
         fmap fst (Mega.match (ns_tokenTree <|> (restOfInput $> ())))
-    ns_tokenTree =
-        choice
-            [ str $> ()
-            , num $> ()
-            , ident $> ()
-            , ns_parens (many tokenTree) $> ()
-            ]
+    ns_tokenTree = choice
+        [ ns_strlit $> ()
+        , ns_num $> ()
+        , ns_ident $> ()
+        , ns_parens (many tokenTree) $> ()
+        ]
     tokenTree = andSkipSpaceAfter ns_tokenTree
     restOfInput = many Mega.anySingle
 
@@ -178,20 +177,44 @@ def' schemeParser topPos = varDef <|> funDef
         pure (name, (scm, f))
 
 expr :: Parser Expr
-expr = andSkipSpaceAfter ns_expr
-
-ns_expr :: Parser Expr
-ns_expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
+expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
   where
-    unit = ns_reserved "unit" $> Lit Unit
-    estr = fmap (Lit . Str) str
+    unit = reserved "unit" $> Lit Unit
+    estr = fmap (Lit . Str) strlit
     ebool = fmap (Lit . Bool) bool
+    eConstructor = fmap Ctor big'
+    var = fmap Var small'
     pexpr =
-        ns_parens $ choice
+        parens $ choice
             [funMatch, match, if', fun, let', typeAscr, box, deref, app]
+    funMatch = reserved "fun-match" *> fmap FunMatch cases
+    match = reserved "match" *> liftA2 Match expr cases
+    cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
+    if' = reserved "if" *> liftM3 If expr expr expr
+    fun = do
+        reserved "fun"
+        params <- choice [parens (some pat), fmap (pure . PVar) small']
+        body <- expr
+        pure $ unpos
+            (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
+    let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
+    binding = parens (bindingTyped <|> bindingUntyped)
+    bindingTyped = reserved ":"
+        *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
+    bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
+    typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
+    box = reserved "box" *> fmap Box expr
+    deref = reserved "deref" *> fmap Deref expr
+    app = do
+        rator <- expr
+        rands <- some expr
+        pure (unpos (foldl' (WithPos (getPos rator) .* App) rator rands))
 
 num :: Parser Expr'
-num = do
+num = andSkipSpaceAfter ns_num
+
+ns_num :: Parser Expr'
+ns_num = do
     neg <- option False (char '-' $> True)
     a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
     let e = either
@@ -201,156 +224,72 @@ num = do
     pure (Lit e)
 
 bool :: Parser Bool
-bool = (ns_reserved "true" $> True) <|> (ns_reserved "false" $> False)
+bool = (reserved "true" $> True) <|> (reserved "false" $> False)
 
-str :: Parser String
-str = char '"' >> manyTill Lexer.charLiteral (char '"')
+strlit :: Parser String
+strlit = andSkipSpaceAfter ns_strlit
 
-int :: Parser Int
-int = Lexer.signed empty Lexer.decimal
-
-eConstructor :: Parser Expr'
-eConstructor = fmap Ctor ns_big'
-
-var :: Parser Expr'
-var = fmap Var ns_small'
-
-funMatch :: Parser Expr'
-funMatch = reserved "fun-match" *> fmap FunMatch cases
-
-match :: Parser Expr'
-match = do
-    reserved "match"
-    e <- expr
-    cs <- cases
-    pure (Match e cs)
-
-cases :: Parser [(Pat, Expr)]
-cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
+ns_strlit :: Parser String
+ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
 pat :: Parser Pat
-pat = andSkipSpaceAfter ns_pat
-
-ns_pat :: Parser Pat
-ns_pat = choice [patInt, patBool, patStr, patCtor, patVar, ppat]
+pat = choice [patInt, patBool, patStr, patCtor, patVar, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
+    int = andSkipSpaceAfter (Lexer.signed empty Lexer.decimal)
     patBool = liftA2 PBool getSrcPos bool
-    patStr = liftA2 PStr getSrcPos str
-    patCtor = fmap (\x -> PConstruction (getPos x) x []) ns_big'
-    patVar = fmap PVar ns_small'
+    patStr = liftA2 PStr getSrcPos strlit
+    patCtor = fmap (\x -> PConstruction (getPos x) x []) big'
+    patVar = fmap PVar small'
     ppat = do
         pos <- getSrcPos
-        ns_parens (choice [patBox pos, patCtion pos])
+        parens (choice [patBox pos, patCtion pos])
     patBox pos = reserved "Box" *> fmap (PBox pos) pat
     patCtion pos = liftM3 PConstruction (pure pos) big' (some pat)
 
-app :: Parser Expr'
-app = do
-    rator <- expr
-    rands <- some expr
-    pure (unpos (foldl' (WithPos (getPos rator) .* App) rator rands))
-
-if' :: Parser Expr'
-if' = do
-    reserved "if"
-    pred' <- expr
-    conseq <- expr
-    alt <- expr
-    pure (If pred' conseq alt)
-
-fun :: Parser Expr'
-fun = do
-    reserved "fun"
-    params <- choice [parens (some pat), fmap (pure . PVar) small']
-    body <- expr
-    pure $ unpos (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
-
-let' :: Parser Expr'
-let' = do
-    reserved "let"
-    bindings <- parens (many binding)
-    body <- expr
-    pure (Let bindings body)
-
-binding :: Parser Def
-binding = parens (bindingTyped <|> bindingUntyped)
-  where
-    bindingTyped = reserved ":"
-        *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
-    bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
-
-typeAscr :: Parser Expr'
-typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
-
-box :: Parser Expr'
-box = reserved "box" *> fmap Box expr
-
-deref :: Parser Expr'
-deref = reserved "deref" *> fmap Deref expr
-
 scheme :: Parser (WithPos Scheme)
-scheme = andSkipSpaceAfter ns_scheme
-
-ns_scheme :: Parser (WithPos Scheme)
-ns_scheme =
-    withPos $ wrap ns_nonptype <|> (ns_parens (universal <|> wrap ptype'))
+scheme = withPos $ wrap nonptype <|> (parens (universal <|> wrap ptype))
   where
     wrap = fmap (Forall Set.empty)
     universal = reserved "forall" *> liftA2 Forall tvars type_
     tvars = parens (fmap Set.fromList (many tvar))
 
 type_ :: Parser Type
-type_ = nonptype <|> ptype
+type_ = nonptype <|> parens ptype
 
 nonptype :: Parser Type
-nonptype = andSkipSpaceAfter ns_nonptype
-
-ns_nonptype :: Parser Type
-ns_nonptype = choice
-    [fmap TPrim ns_tprim, fmap TVar ns_tvar, fmap (TConst . (, [])) ns_big]
+nonptype = choice
+    [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, [])) big]
+  where
+    tprim = try $ do
+        s <- big
+        case s of
+            "Unit" -> pure TUnit
+            "Nat8" -> pure TNat8
+            "Nat16" -> pure TNat16
+            "Nat32" -> pure TNat32
+            "Nat" -> pure TNat
+            "Int8" -> pure TInt8
+            "Int16" -> pure TInt16
+            "Int32" -> pure TInt32
+            "Int" -> pure TInt
+            "Double" -> pure TDouble
+            "Bool" -> pure TBool
+            _ -> fail $ "Undefined type constant " ++ s
 
 ptype :: Parser Type
-ptype = parens ptype'
-
-ptype' :: Parser Type
-ptype' = tfun <|> tbox <|> tapp
-
-tapp :: Parser Type
-tapp = liftA2 (TConst .* (,)) big (some type_)
-
-tfun :: Parser Type
-tfun = do
-    reserved "Fun"
-    t <- type_
-    ts <- some type_
-    pure (foldr1 TFun (t : ts))
-
-tbox :: Parser Type
-tbox = reserved "Box" *> fmap TBox type_
-
-ns_tprim :: Parser TPrim
-ns_tprim = try $ do
-    s <- ns_big
-    case s of
-        "Unit" -> pure TUnit
-        "Nat8" -> pure TNat8
-        "Nat16" -> pure TNat16
-        "Nat32" -> pure TNat32
-        "Nat" -> pure TNat
-        "Int8" -> pure TInt8
-        "Int16" -> pure TInt16
-        "Int32" -> pure TInt32
-        "Int" -> pure TInt
-        "Double" -> pure TDouble
-        "Bool" -> pure TBool
-        _ -> fail $ "Undefined type constant " ++ s
+ptype = choice [tfun, tbox, tapp]
+  where
+    tfun = do
+        reserved "Fun"
+        t <- type_
+        ts <- some type_
+        pure (foldr1 TFun (t : ts))
+    tbox = reserved "Box" *> fmap TBox type_
+    tapp = liftA2 (TConst .* (,)) big (some type_)
 
 tvar :: Parser TVar
-tvar = andSkipSpaceAfter ns_tvar
-
-ns_tvar :: Parser TVar
-ns_tvar = fmap TVExplicit ns_small'
+tvar = fmap TVExplicit small'
 
 parens :: Parser a -> Parser a
 parens = andSkipSpaceAfter . ns_parens
@@ -359,16 +298,10 @@ ns_parens :: Parser a -> Parser a
 ns_parens = between (symbol "(") (string ")")
 
 big' :: Parser (Id 'Big)
-big' = andSkipSpaceAfter ns_big'
-
-ns_big' :: Parser (Id 'Big)
-ns_big' = fmap Id (withPos ns_big)
+big' = fmap Id (withPos big)
 
 big :: Parser String
-big = andSkipSpaceAfter ns_big
-
-ns_big :: Parser String
-ns_big = try $ do
+big = try $ do
     s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")
@@ -376,10 +309,7 @@ ns_big = try $ do
         else fail "Big identifier must start with an uppercase letter or colon."
 
 small' :: Parser (Id 'Small)
-small' = andSkipSpaceAfter ns_small'
-
-ns_small' :: Parser (Id 'Small)
-ns_small' = fmap Id $ withPos $ try $ do
+small' = fmap Id $ withPos $ try $ do
     s <- identifier
     let c = head s
     if (isUpper c || [c] == ":")
@@ -397,20 +327,21 @@ identifier = do
         else pure name
 
 ident :: Parser String
-ident = label "identifier" $ liftA2 (:) identStart (many identLetter)
+ident = andSkipSpaceAfter ns_ident
 
-identStart :: Parser Char
-identStart =
-    choice [letterChar, otherChar, try (oneOf "-+" <* notFollowedBy digitChar)]
-
-identLetter :: Parser Char
-identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
+ns_ident :: Parser String
+ns_ident = label "identifier" $ liftA2 (:) identStart (many identLetter)
+  where
+    identStart =
+        choice
+            [ letterChar
+            , otherChar
+            , try (oneOf "-+" <* notFollowedBy digitChar)
+            ]
+    identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
 
 reserved :: String -> Parser ()
-reserved = andSkipSpaceAfter . ns_reserved
-
-ns_reserved :: String -> Parser ()
-ns_reserved x = do
+reserved x = do
     if not (elem x reserveds)
         then ice ("`" ++ x ++ "` is not a reserved word")
         else label ("reserved word " ++ x) (try (mfilter (== x) ident)) $> ()
