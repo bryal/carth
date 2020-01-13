@@ -12,18 +12,8 @@ module Parse
     , Source
     , parse
     , parse'
+    , parseTokenTreeOrRest
     , toplevels
-    , reserveds
-    , ns_scheme
-    , ns_pat
-    , ns_small'
-    , eConstructor
-    , ns_expr
-    , ns_big
-    , ns_parens
-    , def
-    , getSrcPos
-    , ns_tokenTree
     )
 where
 
@@ -110,12 +100,22 @@ parseModule filepath dir m visiteds nexts = do
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = first errorBundlePretty (Mega.parse p name src)
 
--- | For use in TypeErr to get the length of the tokentree to draw a squiggly
---   line under it.
-ns_tokenTree :: Parser ()
-ns_tokenTree = choice
-    [str $> (), num $> (), ident $> (), ns_parens (many tokenTree) $> ()]
-    where tokenTree = andSkipSpaceAfter ns_tokenTree
+-- | For use in module TypeErr to get the length of the tokentree to draw a
+--   squiggly line under it.
+parseTokenTreeOrRest :: Source -> Either String String
+parseTokenTreeOrRest = parse' tokenTreeOrRest ""
+  where
+    tokenTreeOrRest =
+        fmap fst (Mega.match (ns_tokenTree <|> (restOfInput $> ())))
+    ns_tokenTree =
+        choice
+            [ str $> ()
+            , num $> ()
+            , ident $> ()
+            , ns_parens (many tokenTree) $> ()
+            ]
+    tokenTree = andSkipSpaceAfter ns_tokenTree
+    restOfInput = many Mega.anySingle
 
 toplevels :: Parser ([Import], [Def], [TypeDef], [Extern])
 toplevels = do

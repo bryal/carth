@@ -17,7 +17,6 @@ newtype SrcPos = SrcPos SourcePos
 
 data WithPos a = WithPos SrcPos a
 
-
 class HasPos a where
     getPos :: a -> SrcPos
 
