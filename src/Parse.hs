@@ -109,8 +109,8 @@ parseTokenTreeOrRest = parse' tokenTreeOrRest ""
         fmap fst (Mega.match (ns_tokenTree <|> (restOfInput $> ())))
     ns_tokenTree = choice
         [ ns_strlit $> ()
-        , ns_num $> ()
         , ns_ident $> ()
+        , ns_num $> ()
         , ns_parens (many tokenTree) $> ()
         ]
     tokenTree = andSkipSpaceAfter ns_tokenTree
