@@ -31,7 +31,7 @@ import qualified DesugaredAst as Des
 typecheck :: Ast.Program -> Either TypeErr Des.Program
 typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     (tdefs', ctors) <- checkTypeDefs tdefs
-    (externs', inferred, substs) <- inferTopDefs ctors externs defs
+    (externs', inferred, substs) <- inferTopDefs tdefs' ctors externs defs
     let substd = substTopDefs substs inferred
     checkTypeVarsBound substd
     let mTypeDefs = fmap (map fst . snd) tdefs'
@@ -54,19 +54,7 @@ checkTypeDefs tdefs = do
     -- | Check that constructurs don't refer to undefined types and that TConsts
     --   are of correct arity.
     checkTConstsDefs tds (_, (_, cs)) = forM_ cs (checkTConstsCtor tds)
-    checkTConstsCtor tds (cpos, (_, ts)) = forM_ ts (checkType tds cpos)
-    checkType tds cpos = \case
-        TVar _ -> pure ()
-        TPrim _ -> pure ()
-        TConst tc -> checkTConst tds cpos tc
-        TFun f a -> checkType tds cpos f *> checkType tds cpos a
-        TBox t -> checkType tds cpos t
-    checkTConst tds cpos (x, inst) = case Map.lookup x tds of
-        Just (tvs, _) -> do
-            let (expectedN, foundN) = (length tvs, length inst)
-            when (not (expectedN == foundN)) $ throwError
-                (TypeInstArityMismatch cpos x expectedN foundN)
-        Nothing -> throwError (UndefType cpos x)
+    checkTConstsCtor tds (cpos, (_, ts)) = forM_ ts (checkType' tds cpos)
     -- | Check that type definitions are not recursive without indirection and
     --   that constructors don't refer to undefined types.
     assertNoRec tds (x, (_, cs)) = assertNoRecCtors tds x Map.empty cs

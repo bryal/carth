@@ -1,9 +1,10 @@
 {-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts #-}
 
-module Infer (inferTopDefs) where
+module Infer (inferTopDefs, checkType') where
 
 import Prelude hiding (span)
 import Lens.Micro.Platform (assign, makeLenses, over, use, view, mapped, to)
+import Control.Applicative hiding (Const(..))
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -29,7 +30,8 @@ newtype ExpectedType = Expected Type
 data FoundType = Found SrcPos Type
 
 data Env = Env
-    { _envDefs :: Map String Scheme
+    { _envTypeDefs :: TypeDefs
+    , _envDefs :: Map String Scheme
     -- | Maps a constructor to its variant index in the type definition it
     --   constructs, the signature/left-hand-side of the type definition, the
     --   types of its parameters, and the span (number of constructors) of the
@@ -49,15 +51,22 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
 
 inferTopDefs
-    :: Ctors
+    :: TypeDefs
+    -> Ctors
     -> [Ast.Extern]
     -> [Ast.Def]
     -> Except TypeErr (Externs, Defs, Subst)
-inferTopDefs ctors externs defs = evalStateT
-    (runReaderT inferTopDefs' initEnv)
-    initSt
+inferTopDefs tdefs ctors externs defs =
+    let
+        initEnv = Env
+            { _envTypeDefs = tdefs
+            , _envDefs = Map.empty
+            , _envCtors = ctors
+            }
+        initSt = St { _tvCount = 0, _substs = Map.empty }
+    in evalStateT (runReaderT inferTopDefs' initEnv) initSt
   where
-    inferTopDefs' = augment envCtors ctors $ do
+    inferTopDefs' = do
         externs' <- checkExterns externs
         let externs'' = fmap (Forall Set.empty) externs'
         defs' <- checkStartType defs
@@ -73,17 +82,39 @@ inferTopDefs ctors externs defs = evalStateT
         d : ds -> fmap (d :) (checkStartType ds)
         [] -> pure []
     startScheme = Forall Set.empty startType
-    initEnv = Env { _envDefs = Map.empty, _envCtors = Map.empty }
-    initSt = St { _tvCount = 0, _substs = Map.empty }
 
 -- TODO: Check that the types of the externs are valid more than just not
 --       containing type vars. E.g., they may not refer to undefined types, duh.
 checkExterns :: [Ast.Extern] -> Infer Externs
 checkExterns = fmap Map.fromList . mapM checkExtern
   where
-    checkExtern (Ast.Extern name t) = case Set.lookupMin (ftv t) of
-        Just tv -> throwError (ExternNotMonomorphic name tv)
-        Nothing -> pure (idstr name, t)
+    checkExtern (Ast.Extern name t) = do
+        t' <- checkType (getPos name) t
+        case Set.lookupMin (ftv t') of
+            Just tv -> throwError (ExternNotMonomorphic name tv)
+            Nothing -> pure (idstr name, t')
+
+checkType :: SrcPos -> Ast.Type -> Infer Type
+checkType pos t = do
+    tds <- view envTypeDefs
+    lift (lift (checkType' tds pos t))
+
+checkType' :: TypeDefs -> SrcPos -> Ast.Type -> Except TypeErr Type
+checkType' tds pos = \case
+    TVar v -> pure (TVar v)
+    TPrim p -> pure (TPrim p)
+    TConst tc -> fmap TConst (checkTConst tc)
+    TFun f a -> liftA2 TFun (checkType' tds pos f) (checkType' tds pos a)
+    TBox t -> fmap TBox (checkType' tds pos t)
+  where
+    checkTConst (x, inst) = case Map.lookup x tds of
+        Just (tvs, _) -> do
+            let (expectedN, foundN) = (length tvs, length inst)
+            if (expectedN == foundN)
+                then pure (x, inst)
+                else throwError
+                    (TypeInstArityMismatch pos x expectedN foundN)
+        Nothing -> throwError (UndefType pos x)
 
 inferDefs :: [Ast.Def] -> Infer Defs
 inferDefs defs = do
