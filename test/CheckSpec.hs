@@ -48,7 +48,8 @@ pExternNotMonomorphic = "(extern foo (Fun a Int))"
 pFoundHole = "(define foo _)"
 pRecTypeDef = "(type Foo (Foo Foo))"
 pUndefType_a = "(type Foo (Foo Bar))"
-pUndefType_b = "(define: (foo x) (Fun Int Foo) (foo x))"
+pUndefType_b = "(extern foo (Fun Int Foo))"
+pUndefType_c = "(define: (foo x) (Fun Int Foo) (foo x))"
 pUnboundTVar = unlines
     [ "(define (seq a b) b)"
     , "(define (undef a) (undef a))"
@@ -147,8 +148,13 @@ spec = do
             $ \case
                 Right (Left (UndefType{})) -> True
                 _ -> False
-        it "detects references to undefined types, in var defs"
+        it "detects references to undefined types, in extern decls"
             $ shouldSatisfy (typecheck' pUndefType_b)
+            $ \case
+                Right (Left (UndefType{})) -> True
+                _ -> False
+        it "detects references to undefined types, in var defs"
+            $ shouldSatisfy (typecheck' pUndefType_c)
             $ \case
                 Right (Left (UndefType{})) -> True
                 _ -> False
