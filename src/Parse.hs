@@ -106,7 +106,7 @@ parseTokenTreeOrRest :: Source -> Either String String
 parseTokenTreeOrRest = parse' tokenTreeOrRest ""
   where
     tokenTreeOrRest =
-        fmap fst (Mega.match (ns_tokenTree <|> (restOfInput $> ())))
+        fmap fst (Mega.match (try ns_tokenTree <|> (restOfInput $> ())))
     ns_tokenTree = choice
         [ ns_strlit $> ()
         , ns_ident $> ()
