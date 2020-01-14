@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, TemplateHaskell #-}
 
 -- | Type annotated AST as a result of typechecking
 module AnnotAst
@@ -8,6 +8,8 @@ module AnnotAst
     , TConst
     , Type(..)
     , Scheme(..)
+    , scmParams
+    , scmBody
     , Id
     , TypedVar(..)
     , Const(..)
@@ -28,12 +30,29 @@ module AnnotAst
     )
 where
 
+import Data.Set (Set)
 import Data.Map.Strict (Map)
+import Lens.Micro.Platform (makeLenses)
 
-import Ast
-    (TVar(..), TPrim(..), TConst, Type(..), Scheme(..), Const(..), startType)
+import Ast (TVar(..), TPrim(..), Const(..))
 import SrcPos
 
+
+type TConst = (String, [Type])
+
+data Type
+    = TVar TVar
+    | TPrim TPrim
+    | TConst TConst
+    | TFun Type Type
+    | TBox Type
+    deriving (Show, Eq, Ord)
+
+data Scheme = Forall
+    { _scmParams :: (Set TVar)
+    , _scmBody :: Type
+    } deriving (Show, Eq)
+makeLenses ''Scheme
 
 type Id = WithPos String
 
@@ -79,7 +98,7 @@ data Expr'
 type Expr = WithPos Expr'
 
 type Defs = Map String (Scheme, Expr)
-type TypeDefs = Map String ([TVar], [(String, [Type])])
+type TypeDefs = Map String ([TVar], [(Id, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type
 
@@ -89,3 +108,7 @@ instance Eq Con where
 
 instance Ord Con where
     compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
+
+
+startType :: Type
+startType = TFun (TPrim TUnit) (TPrim TUnit)

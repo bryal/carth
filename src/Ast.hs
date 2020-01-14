@@ -1,6 +1,5 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
-           , MultiParamTypeClasses, TemplateHaskell, KindSignatures
-           , DataKinds #-}
+           , MultiParamTypeClasses, KindSignatures, DataKinds #-}
 
 module Ast
     ( TVar(..)
@@ -8,8 +7,6 @@ module Ast
     , TConst
     , Type(..)
     , Scheme(..)
-    , scmParams
-    , scmBody
     , IdCase(..)
     , Id(..)
     , idstr
@@ -22,14 +19,13 @@ module Ast
     , TypeDef(..)
     , Extern(..)
     , Program(..)
-    , startType
     , isFunLike
+    , startType
     )
 where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Lens.Micro.Platform (makeLenses)
 import Control.Arrow ((>>>))
 
 import SrcPos
@@ -62,6 +58,9 @@ data TPrim
 
 type TConst = (String, [Type])
 
+-- TODO: Now that AnnotAst.Type is not just an alias to Ast.Type, it makes sense
+--       to add SrcPos-itions to Ast.Type! Would simplify / improve error
+--       messages quite a bit.
 data Type
     = TVar TVar
     | TPrim TPrim
@@ -70,11 +69,8 @@ data Type
     | TBox Type
     deriving (Show, Eq, Ord)
 
-data Scheme = Forall
-    { _scmParams :: (Set TVar)
-    , _scmBody :: Type
-    } deriving (Show, Eq)
-makeLenses ''Scheme
+data Scheme = Forall SrcPos (Set TVar) Type
+     deriving (Show, Eq)
 
 data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]
@@ -110,7 +106,7 @@ data Expr'
 
 type Expr = WithPos Expr'
 
-type Def = (Id 'Small, (Maybe (WithPos Scheme), Expr))
+type Def = (Id 'Small, (Maybe Scheme, Expr))
 
 newtype ConstructorDefs = ConstructorDefs [(Id 'Big, [Type])]
     deriving (Show, Eq)

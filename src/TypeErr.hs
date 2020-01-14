@@ -6,30 +6,31 @@ import Text.Megaparsec (SourcePos(..), unPos)
 
 import Misc
 import SrcPos
-import Ast
-import PrettyAst ()
+import qualified Ast
+import AnnotAst
+import Pretty
 import Parse
 
 
 data TypeErr
     = StartNotDefined
     | InvalidUserTypeSig SrcPos Scheme Scheme
-    | CtorArityMismatch SrcPos (Id 'Big) Int Int
+    | CtorArityMismatch SrcPos String Int Int
     | ConflictingPatVarDefs SrcPos String
     | UndefCtor SrcPos String
     | UndefVar SrcPos String
     | InfType SrcPos Type Type TVar Type
     | UnificationFailed SrcPos Type Type Type Type
-    | ConflictingTypeDef (Id 'Big)
-    | ConflictingCtorDef (Id 'Big)
+    | ConflictingTypeDef SrcPos String
+    | ConflictingCtorDef SrcPos String
     | RedundantCase SrcPos
     | InexhaustivePats SrcPos String
-    | ExternNotMonomorphic (Id 'Small) TVar
+    | ExternNotMonomorphic (Ast.Id 'Ast.Small) TVar
     | FoundHole SrcPos
     | RecTypeDef String SrcPos
     | UndefType SrcPos String
     | UnboundTVar SrcPos
-    | WrongStartType (WithPos Scheme)
+    | WrongStartType SrcPos Ast.Scheme
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
@@ -46,7 +47,7 @@ printErr = \case
             ++ (", expected " ++ pretty s2)
     CtorArityMismatch p c arity nArgs ->
         posd p
-            $ ("Arity mismatch for constructor `" ++ pretty c)
+            $ ("Arity mismatch for constructor `" ++ c)
             ++ ("` in pattern.\nExpected " ++ show arity)
             ++ (", found " ++ show nArgs)
     ConflictingPatVarDefs p v ->
@@ -67,15 +68,15 @@ printErr = \case
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
-    ConflictingTypeDef (Id (WithPos p x)) ->
+    ConflictingTypeDef p x ->
         posd p $ "Conflicting definitions for type `" ++ x ++ "`."
-    ConflictingCtorDef (Id (WithPos p x)) ->
+    ConflictingCtorDef p x ->
         posd p $ "Conflicting definitions for constructor `" ++ x ++ "`."
     RedundantCase p -> posd p $ "Redundant case in pattern match."
     InexhaustivePats p patStr ->
         posd p $ "Inexhaustive patterns: " ++ patStr ++ " not covered."
     ExternNotMonomorphic name tv -> case tv of
-        TVExplicit (Id (WithPos p tv')) ->
+        TVExplicit (Ast.Id (WithPos p tv')) ->
             posd p
                 $ ("Extern " ++ pretty name ++ " is not monomorphic. ")
                 ++ ("Type variable " ++ tv' ++ " encountered in type signature")
@@ -91,7 +92,7 @@ printErr = \case
         posd p
             $ "Could not fully infer type of expression.\n"
             ++ "Type annotations needed."
-    WrongStartType (WithPos p s) ->
+    WrongStartType p s ->
         posd p
             $ "Incorrect type of `start`.\n"
             ++ ("Expected: " ++ pretty startType)

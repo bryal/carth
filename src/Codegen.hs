@@ -29,7 +29,7 @@ import Control.Applicative
 import Lens.Micro.Platform (modifying, use, assign, to, view)
 
 import Misc
-import PrettyAst ()
+import Pretty
 import FreeVars
 import qualified MonoAst
 import MonoAst hiding (Type, Const)

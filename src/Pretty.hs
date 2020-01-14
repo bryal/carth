@@ -1,44 +1,61 @@
 {-# LANGUAGE LambdaCase #-}
 
-module PrettyAst () where
+module Pretty (pretty, Pretty(..)) where
 
+import Prelude hiding (showChar)
 import Data.List
 import Data.Bifunctor
 import qualified Data.Set as Set
+import Data.Set (Set)
 
 import Misc
 import SrcPos
-import Ast
+import qualified Ast
+import qualified AnnotAst as An
 
 
-instance Pretty Program where
+-- Pretty print starting at some indentation depth
+class Pretty a where
+    pretty' :: Int -> a -> String
+
+pretty :: Pretty a => a -> String
+pretty = pretty' 0
+
+spcPretty :: Pretty a => [a] -> String
+spcPretty = unwords . map pretty
+
+
+instance Pretty a => Pretty (WithPos a) where
+    pretty' d = pretty' d . unpos
+
+
+instance Pretty Ast.Program where
     pretty' = prettyProg
-instance Pretty Extern where
+instance Pretty Ast.Extern where
     pretty' = prettyExtern
-instance Pretty ConstructorDefs where
+instance Pretty Ast.ConstructorDefs where
     pretty' = prettyConstructorDefs
-instance Pretty TypeDef where
+instance Pretty Ast.TypeDef where
     pretty' = prettyTypeDef
-instance Pretty Expr' where
+instance Pretty Ast.Expr' where
     pretty' = prettyExpr'
-instance Pretty Pat where
+instance Pretty Ast.Pat where
     pretty' _ = prettyPat
-instance Pretty Const where
+instance Pretty Ast.Const where
     pretty' _ = prettyConst
-instance Pretty Scheme where
-    pretty' _ = prettyScheme
-instance Pretty Type where
+instance Pretty Ast.Scheme where
+    pretty' _ (Ast.Forall _ ps t) = prettyScheme ps t
+instance Pretty Ast.Type where
     pretty' _ = prettyType
-instance Pretty TPrim where
+instance Pretty Ast.TPrim where
     pretty' _ = prettyTPrim
-instance Pretty TVar where
+instance Pretty Ast.TVar where
     pretty' _ = prettyTVar
-instance Pretty (Id a) where
-    pretty' _ = idstr
+instance Pretty (Ast.Id a) where
+    pretty' _ = Ast.idstr
 
-
-prettyProg :: Int -> Program -> String
-prettyProg d (Program defs tdefs externs) =
+prettyProg :: Int -> Ast.Program -> String
+prettyProg d (Ast.Program defs tdefs externs) =
     let
         prettyDef = \case
             (name, (Just scm, body)) -> concat
@@ -52,12 +69,12 @@ prettyProg d (Program defs tdefs externs) =
                 ]
     in unlines (map prettyDef defs ++ map pretty tdefs ++ map pretty externs)
 
-prettyExtern :: Int -> Extern -> String
-prettyExtern _ (Extern name t) =
-    concat ["(extern ", idstr name, " ", pretty t, ")"]
+prettyExtern :: Int -> Ast.Extern -> String
+prettyExtern _ (Ast.Extern name t) =
+    concat ["(extern ", Ast.idstr name, " ", pretty t, ")"]
 
-prettyTypeDef :: Int -> TypeDef -> String
-prettyTypeDef d (TypeDef name params constrs) = concat
+prettyTypeDef :: Int -> Ast.TypeDef -> String
+prettyTypeDef d (Ast.TypeDef name params constrs) = concat
     [ "(type "
     , if null params
         then pretty name
@@ -65,8 +82,8 @@ prettyTypeDef d (TypeDef name params constrs) = concat
     , "\n" ++ indent (d + 2) ++ pretty' (d + 2) constrs ++ ")"
     ]
 
-prettyConstructorDefs :: Int -> ConstructorDefs -> String
-prettyConstructorDefs d (ConstructorDefs cs) = intercalate
+prettyConstructorDefs :: Int -> Ast.ConstructorDefs -> String
+prettyConstructorDefs d (Ast.ConstructorDefs cs) = intercalate
     ("\n" ++ indent d)
     (map prettyConstrDef cs)
   where
@@ -74,20 +91,20 @@ prettyConstructorDefs d (ConstructorDefs cs) = intercalate
         (c, []) -> pretty c
         (c, ts) -> concat ["(", pretty c, " ", spcPretty ts, ")"]
 
-prettyExpr' :: Int -> Expr' -> String
+prettyExpr' :: Int -> Ast.Expr' -> String
 prettyExpr' d = \case
-    Lit l -> pretty l
-    Var v -> idstr v
-    App f x -> concat
+    Ast.Lit l -> pretty l
+    Ast.Var v -> Ast.idstr v
+    Ast.App f x -> concat
         [ "(" ++ pretty' (d + 1) f ++ "\n"
         , indent (d + 1) ++ pretty' (d + 1) x ++ ")"
         ]
-    If pred' cons alt -> concat
+    Ast.If pred' cons alt -> concat
         [ "(if " ++ pretty' (d + 4) pred' ++ "\n"
         , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
         , indent (d + 2) ++ pretty' (d + 2) alt ++ ")"
         ]
-    Fun param body -> concat
+    Ast.Fun param body -> concat
         [ "(fun ("
         , prettyPat param
         , ")\n"
@@ -95,7 +112,7 @@ prettyExpr' d = \case
         , pretty' (d + 2) body
         , ")"
         ]
-    Let binds body -> concat
+    Ast.Let binds body -> concat
         [ "(let ["
         , intercalate ("\n" ++ indent (d + 6)) (map (prettyDef (d + 6)) binds)
         , "]\n"
@@ -112,47 +129,47 @@ prettyExpr' d = \case
                 [ "[" ++ pretty' (d' + 1) name ++ "\n"
                 , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
                 ]
-    TypeAscr e t ->
+    Ast.TypeAscr e t ->
         concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
-    Match e cs -> concat
+    Ast.Match e cs -> concat
         [ "(match " ++ pretty' (d + 7) e
         , precalate
             ("\n" ++ indent (d + 2))
             (map (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
-    FunMatch cs -> concat
+    Ast.FunMatch cs -> concat
         [ "(fun-match"
         , precalate
             ("\n" ++ indent (d + 2))
             (map (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
-    Ctor c -> pretty c
-    Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
-    Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
+    Ast.Ctor c -> pretty c
+    Ast.Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
+    Ast.Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) = concat
     ["[", pretty' (d + 1) a, "\n", indent (d + 1), pretty' (d + 1) b, "]"]
 
-prettyPat :: Pat -> String
+prettyPat :: Ast.Pat -> String
 prettyPat = \case
-    PConstruction _ (Id (WithPos _ c)) ps ->
+    Ast.PConstruction _ (Ast.Id (WithPos _ c)) ps ->
         if null ps then c else concat ["(", c, " ", spcPretty ps, ")"]
-    PInt _ n -> show n
-    PBool _ b -> if b then "true" else "false"
-    PStr _ s -> prettyStr s
-    PVar v -> idstr v
-    PBox _ p -> "(Box " ++ prettyPat p ++ ")"
+    Ast.PInt _ n -> show n
+    Ast.PBool _ b -> if b then "true" else "false"
+    Ast.PStr _ s -> prettyStr s
+    Ast.PVar v -> Ast.idstr v
+    Ast.PBox _ p -> "(Box " ++ prettyPat p ++ ")"
 
-prettyConst :: Const -> String
+prettyConst :: Ast.Const -> String
 prettyConst = \case
-    Unit -> "unit"
-    Int n -> show n
-    Double x -> show x
-    Str s -> prettyStr s
-    Bool b -> if b then "true" else "false"
+    Ast.Unit -> "unit"
+    Ast.Int n -> show n
+    Ast.Double x -> show x
+    Ast.Str s -> prettyStr s
+    Ast.Bool b -> if b then "true" else "false"
 
 prettyStr :: String -> String
 prettyStr s = '"' : (s >>= showChar) ++ "\""
@@ -170,47 +187,73 @@ prettyStr s = '"' : (s >>= showChar) ++ "\""
         '\"' -> "\\\""
         c -> [c]
 
-prettyScheme :: Scheme -> String
-prettyScheme (Forall ps t) =
+prettyScheme :: (Pretty p, Pretty t) => Set p -> t -> String
+prettyScheme ps t =
     concat ["(forall [" ++ spcPretty (Set.toList ps) ++ "] ", pretty t ++ ")"]
 
-prettyType :: Type -> String
+prettyType :: Ast.Type -> String
 prettyType = \case
     Ast.TVar tv -> pretty tv
     Ast.TPrim c -> pretty c
     Ast.TFun a b -> prettyTFun a b
-    Ast.TBox t -> "(Box " ++ pretty t ++ ")"
-    Ast.TConst (c, ts) -> case ts of
-        [] -> c
-        _ -> concat ["(", c, " ", spcPretty ts, ")"]
+    Ast.TBox t -> prettyTBox t
+    Ast.TConst tc -> prettyTConst tc
 
-prettyTFun :: Type -> Type -> String
+prettyTConst :: Pretty t => (String, [t]) -> String
+prettyTConst (c, ts) = case ts of
+    [] -> c
+    _ -> concat ["(", c, " ", spcPretty ts, ")"]
+
+prettyTBox :: Pretty t => t -> String
+prettyTBox t = "(Box " ++ pretty t ++ ")"
+
+prettyTFun :: Ast.Type -> Ast.Type -> String
 prettyTFun a b =
     let
         (bParams, bBody) = f b
         f = \case
-            TFun a' b' -> first (a' :) (f b')
+            Ast.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
     in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
-prettyTPrim :: TPrim -> String
+prettyTPrim :: Ast.TPrim -> String
 prettyTPrim = \case
-    TUnit -> "Unit"
-    TNat8 -> "Nat8"
-    TNat16 -> "Nat16"
-    TNat32 -> "Nat32"
-    TNat -> "Nat"
-    TInt8 -> "Int8"
-    TInt16 -> "Int16"
-    TInt32 -> "Int32"
-    TInt -> "Int"
-    TDouble -> "Double"
-    TBool -> "Bool"
+    Ast.TUnit -> "Unit"
+    Ast.TNat8 -> "Nat8"
+    Ast.TNat16 -> "Nat16"
+    Ast.TNat32 -> "Nat32"
+    Ast.TNat -> "Nat"
+    Ast.TInt8 -> "Int8"
+    Ast.TInt16 -> "Int16"
+    Ast.TInt32 -> "Int32"
+    Ast.TInt -> "Int"
+    Ast.TDouble -> "Double"
+    Ast.TBool -> "Bool"
 
-prettyTVar :: TVar -> String
+prettyTVar :: Ast.TVar -> String
 prettyTVar = \case
-    TVExplicit v -> idstr v
-    TVImplicit n -> "#" ++ show n
+    Ast.TVExplicit v -> Ast.idstr v
+    Ast.TVImplicit n -> "#" ++ show n
 
-spcPretty :: Pretty a => [a] -> String
-spcPretty = unwords . map pretty
+
+instance Pretty An.Scheme where
+    pretty' _ (An.Forall ps t) = prettyScheme ps t
+instance Pretty An.Type where
+    pretty' _ = prettyAnType
+
+prettyAnType :: An.Type -> String
+prettyAnType = \case
+    An.TVar tv -> pretty tv
+    An.TPrim c -> pretty c
+    An.TFun a b -> prettyAnTFun a b
+    An.TBox t -> prettyTBox t
+    An.TConst tc -> prettyTConst tc
+
+prettyAnTFun :: An.Type -> An.Type -> String
+prettyAnTFun a b =
+    let
+        (bParams, bBody) = f b
+        f = \case
+            An.TFun a' b' -> first (a' :) (f b')
+            t -> ([], t)
+    in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]

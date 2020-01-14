@@ -5,6 +5,7 @@ module Check (typecheck) where
 import Prelude hiding (span)
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State.Strict
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Foldable
@@ -13,13 +14,12 @@ import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Data.Maybe
 
 import Misc
 import SrcPos
 import Subst
 import qualified Ast
-import Ast (Id(..), IdCase(..), idstr, Type(..), TVar(..), TPrim(..))
+import Ast (Id(..), IdCase(..), TVar(..), TPrim(..), idstr)
 import TypeErr
 import AnnotAst (VariantIx)
 import qualified AnnotAst as An
@@ -34,7 +34,7 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     (externs', inferred, substs) <- inferTopDefs tdefs' ctors externs defs
     let substd = substTopDefs substs inferred
     checkTypeVarsBound substd
-    let mTypeDefs = fmap (map fst . snd) tdefs'
+    let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
     desugared <- compileDecisionTreesAndDesugar mTypeDefs substd
     checkStartDefined desugared
     let tdefs'' = fmap (second (map snd)) tdefs'
@@ -43,112 +43,95 @@ typecheck (Ast.Program defs tdefs externs) = runExcept $ do
     checkStartDefined ds =
         when (not (Map.member "start" ds)) (throwError StartNotDefined)
 
+type CheckTypeDefs a
+    = ReaderT
+          (Map String Int)
+          (StateT (An.TypeDefs, An.Ctors) (Except TypeErr))
+          a
+
 checkTypeDefs :: [Ast.TypeDef] -> Except TypeErr (An.TypeDefs, An.Ctors)
 checkTypeDefs tdefs = do
-    (tdefs', ctors) <- checkTypeDefsNoConflicting tdefs
-    let tdefs'' = fmap (second (map snd)) tdefs'
-    forM_ (Map.toList tdefs')
-        $ \tdef -> checkTConstsDefs tdefs'' tdef *> assertNoRec tdefs' tdef
-    pure (tdefs'', ctors)
-  where
-    -- | Check that constructurs don't refer to undefined types and that TConsts
-    --   are of correct arity.
-    checkTConstsDefs tds (_, (_, cs)) = forM_ cs (checkTConstsCtor tds)
-    checkTConstsCtor tds (cpos, (_, ts)) = forM_ ts (checkType' tds cpos)
-    -- | Check that type definitions are not recursive without indirection and
-    --   that constructors don't refer to undefined types.
-    assertNoRec tds (x, (_, cs)) = assertNoRecCtors tds x Map.empty cs
-    assertNoRecCtors tds x s =
-        mapM_ $ \(cpos, (_, ts)) ->
-            forM_ ts (assertNoRecType tds x cpos . subst s)
-    assertNoRecType tds x cpos = \case
-        TVar _ -> pure ()
-        TPrim _ -> pure ()
-        TConst (y, ts) -> do
-            when (x == y) $ throwError (RecTypeDef x cpos)
-            let (tvs, cs) = tds Map.! y
-            let substs = Map.fromList (zip tvs ts)
-            assertNoRecCtors tds x substs cs
-        TFun _ _ -> pure ()
-        TBox _ -> pure ()
+    let tdefsParams =
+            Map.union (fmap (length . fst) builtinDataTypes) $ Map.fromList
+                (map (\(Ast.TypeDef x ps _) -> (idstr x, length ps)) tdefs)
+    (tdefs', ctors) <- execStateT
+        (runReaderT (forM_ tdefs checkTypeDef) tdefsParams)
+        (builtinDataTypes, builtinConstructors)
+    forM_ (Map.toList tdefs') (assertNoRec tdefs')
+    pure (tdefs', ctors)
 
--- | Check that there are no conflicting type names or constructor names.
-checkTypeDefsNoConflicting
-    :: [Ast.TypeDef]
-    -> Except
-           TypeErr
-           ( Map String ([TVar], [(SrcPos, (String, [Type]))])
-           , Map String (VariantIx, (String, [TVar]), [Type], Span)
-           )
-checkTypeDefsNoConflicting =
-    flip foldM (builtinDataTypes, builtinConstructors)
-        $ \(tds', csAcc) td@(Ast.TypeDef x _ _) -> do
-            when (Map.member (idstr x) tds') (throwError (ConflictingTypeDef x))
-            (td', cs) <- checkTypeDef td
-            case listToMaybe (Map.elems (Map.intersection cs csAcc)) of
-                Just (cId, _) -> throwError (ConflictingCtorDef cId)
-                Nothing ->
-                    pure
-                        ( uncurry Map.insert td' tds'
-                        , Map.union (fmap snd cs) csAcc
-                        )
-
-checkTypeDef
-    :: Ast.TypeDef
-    -> Except
-           TypeErr
-           ( (String, ([TVar], [(SrcPos, (String, [Type]))]))
-           , Map
-                 String
-                 (Id 'Big, (VariantIx, (String, [TVar]), [Type], Span))
-           )
-checkTypeDef (Ast.TypeDef x' ps (Ast.ConstructorDefs cs)) = do
-    let x = idstr x'
+checkTypeDef :: Ast.TypeDef -> CheckTypeDefs ()
+checkTypeDef (Ast.TypeDef (Ast.Id (WithPos xpos x)) ps cs) = do
+    tAlreadyDefined <- gets (Map.member x . fst)
+    when tAlreadyDefined (throwError (ConflictingTypeDef xpos x))
     let ps' = map TVExplicit ps
-    let cs' = map (\(Id (WithPos p y), ts) -> (p, (y, ts))) cs
-    let cSpan = fromIntegral (length cs)
-    cs''' <- foldM
-        (\cs'' (i, (cx, cps)) -> if Map.member (idstr cx) cs''
-            then throwError (ConflictingCtorDef cx)
-            else pure
-                (Map.insert (idstr cx) (cx, (i, (x, ps'), cps, cSpan)) cs'')
-        )
-        Map.empty
-        (zip [0 ..] cs)
-    pure ((x, (ps', cs')), cs''')
+    cs' <- checkCtors (x, ps') cs
+    modify (first (Map.insert x (ps', cs')))
 
-builtinDataTypes :: Map String ([TVar], [(SrcPos, (String, [Type]))])
-builtinDataTypes = Map.fromList
-    (map (\(x, ps, cs) -> (x, (ps, map (dummyPos, ) cs))) builtinDataTypes')
+checkCtors
+    :: (String, [TVar])
+    -> Ast.ConstructorDefs
+    -> CheckTypeDefs [(An.Id, [An.Type])]
+checkCtors parent (Ast.ConstructorDefs cs) =
+    let cspan = fromIntegral (length cs)
+    in mapM (checkCtor cspan) (zip [0 ..] cs)
+  where
+    checkCtor cspan (i, (Id c'@(WithPos pos c), ts)) = do
+        cAlreadyDefined <- gets (Map.member c . snd)
+        when cAlreadyDefined (throwError (ConflictingCtorDef pos c))
+        ts' <- mapM checkType ts
+        modify (second (Map.insert c (i, parent, ts', cspan)))
+        pure (c', ts')
+    checkType t =
+        ask >>= \tdefs -> checkType' (\x -> Map.lookup x tdefs) pos t
 
-builtinConstructors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
+builtinDataTypes :: An.TypeDefs
+builtinDataTypes = Map.fromList $ map
+    (\(x, ps, cs) -> (x, (ps, map (first (WithPos dummyPos)) cs)))
+    builtinDataTypes'
+
+builtinConstructors :: An.Ctors
 builtinConstructors = Map.unions (map builtinConstructors' builtinDataTypes')
+  where
+    builtinConstructors' (x, ps, cs) =
+        let cSpan = fromIntegral (length cs)
+        in
+            foldl'
+                (\csAcc (i, (cx, cps)) ->
+                    Map.insert cx (i, (x, ps), cps, cSpan) csAcc
+                )
+                Map.empty
+                (zip [0 ..] cs)
 
-builtinConstructors'
-    :: (String, [TVar], [(String, [Type])])
-    -> Map String (VariantIx, (String, [TVar]), [Type], Span)
-builtinConstructors' (x, ps, cs) =
-    let cSpan = fromIntegral (length cs)
-    in
-        foldl'
-            (\csAcc (i, (cx, cps)) ->
-                Map.insert cx (i, (x, ps), cps, cSpan) csAcc
-            )
-            Map.empty
-            (zip [0 ..] cs)
-
-builtinDataTypes' :: [(String, [TVar], [(String, [Type])])]
+builtinDataTypes' :: [(String, [TVar], [(String, [An.Type])])]
 builtinDataTypes' =
     [ ( "Array"
       , [TVImplicit 0]
-      , [("Array", [TBox (TVar (TVImplicit 0)), TPrim TNat])]
+      , [("Array", [An.TBox (An.TVar (TVImplicit 0)), An.TPrim TNat])]
       )
-    , ("Str", [], [("Str", [TConst ("Array", [TPrim TNat8])])])
+    , ("Str", [], [("Str", [An.TConst ("Array", [An.TPrim TNat8])])])
     , ( "Pair"
       , [TVImplicit 0, TVImplicit 1]
-      , [("Pair", [TVar (TVImplicit 0), TVar (TVImplicit 1)])]
+      , [("Pair", [An.TVar (TVImplicit 0), An.TVar (TVImplicit 1)])]
       )
     ]
+
+assertNoRec
+    :: An.TypeDefs
+    -> (String, ([TVar], [(An.Id, [An.Type])]))
+    -> Except TypeErr ()
+assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
+  where
+    assertNoRec' cs s =
+        forM_ cs $ \(WithPos cpos _, cts) ->
+            forM_ cts (assertNoRecType cpos . subst s)
+    assertNoRecType cpos = \case
+        An.TConst (y, ts) -> do
+            when (x == y) $ throwError (RecTypeDef x cpos)
+            let (tvs, cs) = tdefs' Map.! y
+            let substs = Map.fromList (zip tvs ts)
+            assertNoRec' cs substs
+        _ -> pure ()
 
 type Bound = ReaderT (Set TVar) (Except TypeErr) ()
 
@@ -186,13 +169,13 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         An.Deref x -> boundInExpr x
     boundInType :: SrcPos -> An.Type -> Bound
     boundInType pos = \case
-        TVar tv -> do
+        An.TVar tv -> do
             bound <- ask
             when (not (Set.member tv bound)) (throwError (UnboundTVar pos))
-        TPrim _ -> pure ()
-        TConst (_, ts) -> forM_ ts (boundInType pos)
-        TFun ft at -> forM_ [ft, at] (boundInType pos)
-        TBox t -> boundInType pos t
+        An.TPrim _ -> pure ()
+        An.TConst (_, ts) -> forM_ ts (boundInType pos)
+        An.TFun ft at -> forM_ [ft, at] (boundInType pos)
+        An.TBox t -> boundInType pos t
     boundInCases cs = forM_ cs (bimapM boundInPat boundInExpr)
     boundInPat (WithPos pos pat) = case pat of
         An.PVar (An.TypedVar _ t) -> boundInType pos t
@@ -208,7 +191,7 @@ compileDecisionTreesAndDesugar tdefs = compDefs
     compDefs = mapM compDef
     compDef = bimapM pure compExpr
     compExpr :: An.Expr -> Except TypeErr Des.Expr
-    compExpr (WithPos pos e) = case e of
+    compExpr (WithPos pos expr) = case expr of
         An.Lit c -> pure (Des.Lit c)
         An.Var (An.TypedVar (WithPos _ x) t) ->
             pure (Des.Var (Des.TypedVar x t))
@@ -233,8 +216,10 @@ compileDecisionTreesAndDesugar tdefs = compDefs
                 params = zip xs ts
                 args = map (Des.Var . uncurry Des.TypedVar) params
             in pure $ snd $ foldr
-                (\(p, pt) (bt, b) -> (TFun pt bt, Des.Fun (p, pt) (b, bt)))
-                (TConst inst, Des.Ction v span' inst args)
+                (\(p, pt) (bt, b) ->
+                    (An.TFun pt bt, Des.Fun (p, pt) (b, bt))
+                )
+                (An.TConst inst, Des.Ction v span' inst args)
                 params
         An.Box x -> fmap Des.Box (compExpr x)
         An.Deref x -> fmap Des.Deref (compExpr x)

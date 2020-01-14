@@ -153,15 +153,15 @@ def :: SrcPos -> Parser Def
 def topPos = defUntyped topPos <|> defTyped topPos
 
 defUntyped :: SrcPos -> Parser Def
-defUntyped = (reserved "define" *>) . def' (pure Nothing)
+defUntyped pos = reserved "define" *> def' (pure Nothing) pos
 
 defTyped :: SrcPos -> Parser Def
-defTyped = (reserved "define:" *>) . def' (fmap Just scheme)
+defTyped pos = reserved "define:" *> def' (fmap Just scheme) pos
 
 def'
-    :: Parser (Maybe (WithPos Scheme))
+    :: Parser (Maybe Scheme)
     -> SrcPos
-    -> Parser (Id 'Small, (Maybe (WithPos Scheme), Expr))
+    -> Parser (Id 'Small, (Maybe Scheme, Expr))
 def' schemeParser topPos = varDef <|> funDef
   where
     varDef = do
@@ -247,12 +247,13 @@ pat = choice [patInt, patBool, patStr, patCtor, patVar, ppat]
     patBox pos = reserved "Box" *> fmap (PBox pos) pat
     patCtion pos = liftM3 PConstruction (pure pos) big' (some pat)
 
-scheme :: Parser (WithPos Scheme)
-scheme = withPos $ wrap nonptype <|> (parens (universal <|> wrap ptype))
-  where
-    wrap = fmap (Forall Set.empty)
-    universal = reserved "forall" *> liftA2 Forall tvars type_
-    tvars = parens (fmap Set.fromList (many tvar))
+scheme :: Parser Scheme
+scheme = do
+    pos <- getSrcPos
+    let wrap = fmap (Forall pos Set.empty)
+        universal = reserved "forall" *> liftA2 (Forall pos) tvars type_
+        tvars = parens (fmap Set.fromList (many tvar))
+    wrap nonptype <|> (parens (universal <|> wrap ptype))
 
 type_ :: Parser Type
 type_ = nonptype <|> parens ptype

@@ -6,6 +6,7 @@ import System.Environment
 import Control.Monad
 
 import Misc
+import Pretty
 import qualified TypeErr
 import qualified Ast
 import qualified DesugaredAst

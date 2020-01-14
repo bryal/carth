@@ -21,7 +21,7 @@ import SrcPos
 import FreeVars
 import Subst
 import qualified Ast
-import Ast (Id(..), IdCase(..), idstr, scmBody, isFunLike)
+import Ast (Id(..), IdCase(..), idstr, isFunLike)
 import TypeErr
 import AnnotAst hiding (Id)
 
@@ -69,19 +69,9 @@ inferTopDefs tdefs ctors externs defs =
     inferTopDefs' = do
         externs' <- checkExterns externs
         let externs'' = fmap (Forall Set.empty) externs'
-        defs' <- checkStartType defs
-        defs'' <- augment envDefs externs'' (inferDefs defs')
+        defs'' <- augment envDefs externs'' (inferDefs defs)
         s <- use substs
         pure (externs', defs'', s)
-    checkStartType = \case
-        (x@(Id (WithPos _ "start")), (s, b)) : ds ->
-            if s == Nothing || unpos (fromJust s) == startScheme
-                then pure
-                    ((x, (Just (WithPos dummyPos startScheme), b)) : ds)
-                else throwError (WrongStartType (fromJust s))
-        d : ds -> fmap (d :) (checkStartType ds)
-        [] -> pure []
-    startScheme = Forall Set.empty startType
 
 -- TODO: Check that the types of the externs are valid more than just not
 --       containing type vars. E.g., they may not refer to undefined types, duh.
@@ -97,21 +87,29 @@ checkExterns = fmap Map.fromList . mapM checkExtern
 checkType :: SrcPos -> Ast.Type -> Infer Type
 checkType pos t = do
     tds <- view envTypeDefs
-    lift (lift (checkType' tds pos t))
+    checkType' (\x -> fmap (length . fst) (Map.lookup x tds)) pos t
 
-checkType' :: TypeDefs -> SrcPos -> Ast.Type -> Except TypeErr Type
-checkType' tds pos = \case
-    TVar v -> pure (TVar v)
-    TPrim p -> pure (TPrim p)
-    TConst tc -> fmap TConst (checkTConst tc)
-    TFun f a -> liftA2 TFun (checkType' tds pos f) (checkType' tds pos a)
-    TBox t -> fmap TBox (checkType' tds pos t)
+checkType'
+    :: MonadError TypeErr m
+    => (String -> Maybe Int)
+    -> SrcPos
+    -> Ast.Type
+    -> m Type
+checkType' tdefsParams pos = checkType''
   where
-    checkTConst (x, inst) = case Map.lookup x tds of
-        Just (tvs, _) -> do
-            let (expectedN, foundN) = (length tvs, length inst)
+    checkType'' = \case
+        Ast.TVar v -> pure (TVar v)
+        Ast.TPrim p -> pure (TPrim p)
+        Ast.TConst tc -> fmap TConst (checkTConst tc)
+        Ast.TFun f a -> liftA2 TFun (checkType'' f) (checkType'' a)
+        Ast.TBox t -> fmap TBox (checkType'' t)
+    checkTConst (x, inst) = case tdefsParams x of
+        Just expectedN -> do
+            let foundN = length inst
             if (expectedN == foundN)
-                then pure (x, inst)
+                then do
+                    inst' <- mapM checkType'' inst
+                    pure (x, inst')
                 else throwError
                     (TypeInstArityMismatch pos x expectedN foundN)
         Nothing -> throwError (UndefType pos x)
@@ -150,9 +148,8 @@ inferDefsComponents = \case
                 CyclicSCC verts' -> (verts', True)
         let (idents, rhss) = unzip verts
         let (mayscms, bodies) = unzip rhss
-        checkUserSchemes (catMaybes mayscms)
-        let mayscms' = map (fmap unpos) mayscms
         let names = map idstr idents
+        mayscms' <- mapM checkScheme (zip names mayscms)
         ts <- replicateM (length names) fresh
         let scms = map
                 (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
@@ -174,10 +171,20 @@ inferDefsComponents = \case
         pure (Map.union annotRest annotDefs)
 
 -- | Verify that user-provided type signature schemes are valid
-checkUserSchemes :: [WithPos Scheme] -> Infer ()
-checkUserSchemes scms = forM_ scms $ \(WithPos p s1@(Forall _ t)) ->
-    generalize t
-        >>= \s2 -> when (s1 /= s2) (throwError (InvalidUserTypeSig p s1 s2))
+checkScheme :: (String, Maybe Ast.Scheme) -> Infer (Maybe Scheme)
+checkScheme = \case
+    ("start", Nothing) -> pure (Just (Forall Set.empty startType))
+    ("start", Just s@(Ast.Forall pos vs t))
+        | Set.size vs /= 0 || t /= Ast.startType -> throwError
+            (WrongStartType pos s)
+    (_, Nothing) -> pure Nothing
+    (_, Just (Ast.Forall pos vs t)) -> do
+        t' <- checkType pos t
+        let s1 = Forall vs t'
+        s2 <- generalize t'
+        if (s1 == s2)
+            then pure (Just s1)
+            else throwError (InvalidUserTypeSig pos s1 s2)
 
 infer :: Ast.Expr -> Infer (Type, Expr)
 infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
@@ -207,8 +214,9 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (bt, Let annotDefs b')
     Ast.TypeAscr x t -> do
         (tx, WithPos _ x') <- infer x
-        unify (Expected t) (Found (getPos x) tx)
-        pure (t, x')
+        t' <- checkType pos t
+        unify (Expected t') (Found (getPos x) tx)
+        pure (t', x')
     Ast.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
@@ -295,7 +303,9 @@ inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
-    unless (arity == nArgs) (throwError (CtorArityMismatch pos c arity nArgs))
+    unless
+        (arity == nArgs)
+        (throwError (CtorArityMismatch pos (idstr c) arity nArgs))
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
     let t = TConst tdefInst
     (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)

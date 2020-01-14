@@ -21,6 +21,7 @@ import Data.Word
 import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc hiding (augment)
+import Pretty
 import SrcPos
 import TypeErr
 import qualified AnnotAst as An

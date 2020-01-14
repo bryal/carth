@@ -10,7 +10,6 @@ where
 
 import Text.Megaparsec.Pos
 
-import Misc
 
 newtype SrcPos = SrcPos SourcePos
     deriving (Show, Eq)
@@ -27,8 +26,6 @@ instance Eq a => Eq (WithPos a) where
     (WithPos _ a) == (WithPos _ b) = a == b
 instance Ord a => Ord (WithPos a) where
     compare (WithPos _ a) (WithPos _ b) = compare a b
-instance Pretty a => Pretty (WithPos a) where
-    pretty' d = pretty' d . unpos
 
 instance HasPos (WithPos a) where
     getPos (WithPos p _) = p

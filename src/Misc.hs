@@ -4,8 +4,6 @@ module Misc
     ( ice
     , nyi
     , precalate
-    , pretty
-    , Pretty(..)
     , indent
     , both
     , secondM
@@ -47,13 +45,6 @@ precalate :: [a] -> [[a]] -> [a]
 precalate prefix = \case
     [] -> []
     xs -> prefix ++ intercalate prefix xs
-
-pretty :: Pretty a => a -> String
-pretty = pretty' 0
-
--- Pretty print starting at some indentation depth
-class Pretty a where
-    pretty' :: Int -> a -> String
 
 indent :: Int -> String
 indent = flip replicate ' '
