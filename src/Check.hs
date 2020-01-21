@@ -19,9 +19,8 @@ import Misc
 import SrcPos
 import Subst
 import qualified Ast
-import Ast (Id(..), IdCase(..), TVar(..), TPrim(..), idstr)
+import Ast (Id(..), TVar(..), TPrim(..), idstr)
 import TypeErr
-import AnnotAst (VariantIx)
 import qualified AnnotAst as An
 import Match
 import Infer
@@ -79,10 +78,10 @@ checkCtors parent (Ast.ConstructorDefs cs) =
     checkCtor cspan (i, (Id c'@(WithPos pos c), ts)) = do
         cAlreadyDefined <- gets (Map.member c . snd)
         when cAlreadyDefined (throwError (ConflictingCtorDef pos c))
-        ts' <- mapM checkType ts
+        ts' <- mapM (checkType pos) ts
         modify (second (Map.insert c (i, parent, ts', cspan)))
         pure (c', ts')
-    checkType t =
+    checkType pos t =
         ask >>= \tdefs -> checkType' (\x -> Map.lookup x tdefs) pos t
 
 builtinDataTypes :: An.TypeDefs
