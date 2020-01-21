@@ -462,9 +462,11 @@ selAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do
     tvariant <- lift (genVariantType totVariants ts)
     let tgeneric = typeOf matchee
-    pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
+    pGeneric <- emitReg' "ction_ptr_nominal" (alloca tgeneric)
     emit (store matchee pGeneric)
-    p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr tvariant))
+    p <- emitReg'
+        "ction_ptr_structural"
+        (bitcast pGeneric (LLType.ptr tvariant))
     emitReg' "ction" (load p)
 
 selSub :: Span -> Word32 -> Operand -> Gen Operand
@@ -485,8 +487,8 @@ genCtion (i, span', dataType, as) = do
     s <- getLocal =<< genStruct (tag as')
     let t = typeOf s
     let tgeneric = genDatatypeRef dataType
-    pGeneric <- emitReg' "ction_ptr_generic" (alloca tgeneric)
-    p <- emitReg' "ction_ptr" (bitcast pGeneric (LLType.ptr t))
+    pGeneric <- emitReg' "ction_ptr_nominal" (alloca tgeneric)
+    p <- emitReg' "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
     emit (store s p)
     pure (VVar pGeneric)
 
