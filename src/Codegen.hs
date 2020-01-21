@@ -505,8 +505,10 @@ genCtion (i, span', dataType, as) = do
 --   the environment, then the body of the function is run.
 genLambda :: TypedVar -> (Expr, MonoAst.Type) -> Gen Val
 genLambda p@(TypedVar px pt) (b, bt) = do
-    let fvs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
-    captures <- genBoxGeneric =<< genStruct =<< mapM lookupVar fvs
+    let fvXs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
+    captures <- if null fvXs
+        then pure (VLocal (undef (LLType.ptr typeUnit)))
+        else genBoxGeneric =<< genStruct =<< mapM lookupVar fvXs
     fname <- use lambdaParentFunc >>= \case
         Just s ->
             fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
@@ -516,7 +518,7 @@ genLambda p@(TypedVar px pt) (b, bt) = do
         f = VLocal $ ConstantOperand $ LLConst.GlobalReference
             (LLType.ptr ft)
             fname
-    scribe outFuncs [(fname, fvs, p, b)]
+    scribe outFuncs [(fname, fvXs, p, b)]
     genStruct [captures, f]
 
 genStruct :: [Val] -> Gen Val
