@@ -8,6 +8,7 @@ module Misc
     , both
     , secondM
     , locally
+    , locallySet
     , augment
     , scribe
     , (<<+=)
@@ -55,6 +56,9 @@ both f (a0, a1) = (f a0, f a1)
 secondM
     :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
+
+locallySet :: MonadReader s m => Lens' s a -> a -> m r -> m r
+locallySet l = locally l . const
 
 locally :: MonadReader s m => Lens' s a -> (a -> a) -> m r -> m r
 locally l f = local (over l f)
