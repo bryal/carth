@@ -410,3 +410,19 @@ the fix etc:
    priority inversion which is a problem with spinlocks.
    https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
    https://matklad.github.io/2020/01/04/mutexes-are-faster-than-spinlocks.html
+* NEXT "Global" memoization
+  Add a special function for "memoized application" that acts like the
+  application function (in Haskell, ($) :: (a -> b) -> a -> b), the
+  difference being that it stores the result in a global, hidden Map
+  from function pointers and arguments to results. The user can then
+  selectively memoize certain functions (or even just certain
+  applications of the function), and not others -- the wise choice
+  would be to not memoize cheap functions, but do memoize computation
+  heavy functions. This is perfectly legal if the language is
+  completely pure, as there can be no side-effects that are not
+  repeated properly yada yada.
+
+  An alternative could be that the user can mark a function definition
+  as memoized, and then it's always memoized, not just certain
+  applications. Also, there could then be a unique Map for each such
+  function.
