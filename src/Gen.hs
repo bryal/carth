@@ -16,6 +16,7 @@ module Gen
     , Env(..)
     , env
     , dataTypes
+    , srcPos
     , lookupDatatype
     )
 where
@@ -29,14 +30,16 @@ import Data.Map (Map)
 import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc
+import SrcPos
 import MonoAst hiding (Type, Const)
 
 
 data Env = Env
     -- TODO: Could operands in env be Val instead? I.e., either stack-allocated
     --       or local?
-    { _env :: Map TypedVar Operand  -- ^ Environment of stack allocated variables
+    { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
     , _dataTypes :: Map Name Type
+    , _srcPos :: Maybe SrcPos
     }
 makeLenses ''Env
 
@@ -53,7 +56,8 @@ makeLenses ''St
 
 type Gen' = StateT St (Reader Env)
 
--- | The output of generating a function
+-- | The output of generating a function. Dependencies of stuff within the
+--   function that must be generated at the top-level.
 data Out = Out
     { _outBlocks :: [BasicBlock]
     , _outStrings :: [(Name, String)]

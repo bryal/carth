@@ -85,6 +85,20 @@ tests:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -Weverything
+    - -Werror
+    - -Wno-safe
+    - -Wno-unsafe
+    - -Wno-missing-import-lists
+    - -Wno-missing-exported-signatures
+    - -Wno-missing-local-signatures
+    - -Wno-monomorphism-restriction
+    - -Wno-implicit-prelude
+    - -Wno-name-shadowing
+    - -Wno-orphans
+    - -Wno-missed-specialisations
+    - -Wno-all-missed-specialisations
+    - -Wno-unticked-promoted-constructors
     dependencies:
     - carth
     - hspec

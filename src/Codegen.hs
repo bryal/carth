@@ -38,10 +38,12 @@ import Gen
 import Abi
 
 
+type Instr = InstructionMetadata -> Instruction
+
 -- | An instruction that returns a value. The name refers to the fact that a
 --   mathematical function always returns a value, but an imperative procedure
 --   may only produce side effects.
-data FunInstruction = WithRetType Instruction Type
+data FunInstr = WithRetType Instr Type
 
 data Val
     = VVar Operand
@@ -57,6 +59,16 @@ codegen :: DataLayout -> FilePath -> Program -> Module
 codegen layout moduleFilePath (Program defs tdefs externs) =
     let
         defs' = Map.toList defs
+        initEnv =
+            Env { _env = Map.empty, _dataTypes = Map.empty, _srcPos = Nothing }
+        initSt = St
+            { _currentBlockLabel = "entry"
+            , _currentBlockInstrs = []
+            , _registerCount = 0
+            , _lambdaParentFunc = Nothing
+            , _outerLambdaN = 1
+            }
+        runGen' g = runReader (evalStateT g initSt) initEnv
         (tdefs', externs', globDefs) = runGen' $ do
             tdefs'' <- defineDataTypes tdefs
             withDataTypes tdefs''
@@ -118,20 +130,6 @@ defineDataTypes tds = do
             if null sizedTs
                 then ice ("defineDataTypes: sizedTs empty for def " ++ show n)
                 else pure (n, snd (maximum sizedTs))
-
-runGen' :: Gen' a -> a
-runGen' g = runReader
-    (evalStateT g initSt)
-    Env { _env = Map.empty, _dataTypes = Map.empty }
-
-initSt :: St
-initSt = St
-    { _currentBlockLabel = "entry"
-    , _currentBlockInstrs = []
-    , _registerCount = 0
-    , _lambdaParentFunc = Nothing
-    , _outerLambdaN = 1
-    }
 
 genBuiltins :: [Definition]
 genBuiltins = map
@@ -222,14 +220,14 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
         if returnResultByRef
             then do
                 let out = (LLType.ptr rt', mkName "out")
-                emit (store result (uncurry LocalReference out))
+                emitDo (store result (uncurry LocalReference out))
                 commitFinalFuncBlock retVoid
                 pure (LLType.void, uncurry Parameter out [SRet] : fParams')
             else do
                 commitFinalFuncBlock (ret result)
                 pure (rt', fParams')
     ss <- mapM globStrVar globStrings
-    ls <- concat <$> mapM (fmap (uncurry (:)) . genFunDef) lambdaFuncs
+    ls <- fmap concat (mapM (fmap (uncurry (:)) . genFunDef) lambdaFuncs)
     let f = simpleFunc name fParams rt basicBlocks
     pure (f, concat ss ++ ls)
   where
@@ -260,12 +258,12 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
             then pure []
             else do
                 capturesType <- genCapturesType fvs
-                capturesPtr <- emitAnon
+                capturesPtr <- emitAnonReg
                     (bitcast capturesPtrGeneric (LLType.ptr capturesType))
-                captures <- emitAnon (load capturesPtr)
+                captures <- emitAnonReg (load capturesPtr)
                 captureVals <- mapM
                     (\(TypedVar x _, i) ->
-                        emitReg' x =<< extractvalue captures [i]
+                        emitReg x =<< extractvalue captures [i]
                     )
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
@@ -323,8 +321,8 @@ genApp fe' ae' rt' = genApp' (fe', [(ae', rt')])
 app :: Val -> Val -> Type -> Gen Val
 app closure a rt = do
     closure' <- getLocal closure
-    captures <- emitReg' "captures" =<< extractvalue closure' [0]
-    f <- emitReg' "function" =<< extractvalue closure' [1]
+    captures <- emitReg "captures" =<< extractvalue closure' [0]
+    f <- emitReg "function" =<< extractvalue closure' [1]
     passArgByRef <- passByRef (typeOf a)
     (a', aattrs) <- if passArgByRef
         then fmap (, [ByVal]) (getVar a)
@@ -333,27 +331,26 @@ app closure a rt = do
     returnByRef <- passByRef rt
     if returnByRef
         then do
-            out <- emitReg' "out" (alloca rt)
-            emit'' $ call f ((out, [SRet]) : args)
+            out <- emitReg "out" (alloca rt)
+            emitDo $ callVoid f ((out, [SRet]) : args)
             pure (VVar out)
-        else fmap VLocal (emitAnon (call f args))
+        else fmap VLocal (emitAnonReg (call f args))
   where
-    call f as = WithRetType
-        (Call
-            -- NOTE: Just marking all calls as "tail" did not work out
-            --       well. Lotsa segfaults and stuff! Learn more about what
-            --       exactly "tail" does first. Maybe it's only ok to mark calls
-            --       that are actually in tail position as tail calls?
-            { tailCallKind = Nothing
-            , callingConvention = cfg_callConv
-            , returnAttributes = []
-            , function = Right f
-            , arguments = as
-            , functionAttributes = []
-            , metadata = []
-            }
-        )
-        (getFunRet (getPointee (typeOf f)))
+    call f as =
+        WithRetType (callVoid f as) (getFunRet (getPointee (typeOf f)))
+    callVoid f as meta = Call
+        -- NOTE: Just marking all calls as "tail" did not work out
+        --       well. Lotsa segfaults and stuff! Learn more about what
+        --       exactly "tail" does first. Maybe it's only ok to mark calls
+        --       that are actually in tail position as tail calls?
+        { tailCallKind = Nothing
+        , callingConvention = cfg_callConv
+        , returnAttributes = []
+        , function = Right f
+        , arguments = as
+        , functionAttributes = []
+        , metadata = meta
+        }
 
 genIf :: Expr -> Expr -> Expr -> Gen Val
 genIf pred' conseq alt = do
@@ -362,7 +359,7 @@ genIf pred' conseq alt = do
 
 genCondBr :: Val -> Gen Val -> Gen Val -> Gen Val
 genCondBr predV genConseq genAlt = do
-    predV' <- emitAnon . flip trunc i1 =<< getLocal predV
+    predV' <- emitAnonReg . flip trunc i1 =<< getLocal predV
     conseqL <- newName "consequent"
     altL <- newName "alternative"
     nextL <- newName "next"
@@ -373,18 +370,18 @@ genCondBr predV genConseq genAlt = do
     altV <- getLocal =<< genAlt
     fromAltL <- use currentBlockLabel
     commitToNewBlock (br nextL) nextL
-    fmap VLocal (emitAnon (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
+    fmap VLocal (emitAnonReg (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
 
 genLet :: Defs -> Expr -> Gen Val
 genLet ds b = do
     let (vs, es) = unzip (Map.toList ds)
     ps <- forM vs $ \(TypedVar n t) -> do
         t' <- genType t
-        emitReg' n (alloca t')
+        emitReg n (alloca t')
     withVars (zip vs ps) $ do
         forM_ (zip ps es) $ \(p, (_, e)) -> do
             x <- getLocal =<< genExpr e
-            emit (store x p)
+            emitDo (store x p)
         genExpr b
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Val
@@ -417,7 +414,7 @@ genDecisionSwitchIx selector cs def tbody selections = do
     (m, selections') <- select selAs selSub selDeref selector selections
     mVariantIx <- case typeOf m of
         IntegerType _ -> pure m
-        _ -> emitReg' "found_variant_ix" =<< extractvalue m [0]
+        _ -> emitReg "found_variant_ix" =<< extractvalue m [0]
     let ixBits = getIntBitWidth (typeOf mVariantIx)
     let litIxInt = LLConst.Int ixBits
     let dests' = zip (map litIxInt variantIxs) variantLs
@@ -431,7 +428,7 @@ genDecisionSwitchIx selector cs def tbody selections = do
             genDecisionTree' dt
     vs <- zipWithM genCase variantLs variantDts
     commitToNewBlock (br nextL) nextL
-    fmap VLocal (emitAnon (phi (v : vs)))
+    fmap VLocal (emitAnonReg (phi (v : vs)))
 
 genDecisionSwitchStr
     :: MonoAst.Access
@@ -462,20 +459,18 @@ selAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do
     tvariant <- lift (genVariantType totVariants ts)
     let tgeneric = typeOf matchee
-    pGeneric <- emitReg' "ction_ptr_nominal" (alloca tgeneric)
-    emit (store matchee pGeneric)
-    p <- emitReg'
-        "ction_ptr_structural"
-        (bitcast pGeneric (LLType.ptr tvariant))
-    emitReg' "ction" (load p)
+    pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
+    emitDo (store matchee pGeneric)
+    p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr tvariant))
+    emitReg "ction" (load p)
 
 selSub :: Span -> Word32 -> Operand -> Gen Operand
 selSub span' i matchee =
     let tagOffset = if span' > 1 then 1 else 0
-    in emitReg' "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
+    in emitReg "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
 
 selDeref :: Operand -> Gen Operand
-selDeref x = emitAnon (load x)
+selDeref x = emitAnonReg (load x)
 
 genCtion :: MonoAst.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
@@ -487,9 +482,9 @@ genCtion (i, span', dataType, as) = do
     s <- getLocal =<< genStruct (tag as')
     let t = typeOf s
     let tgeneric = genDatatypeRef dataType
-    pGeneric <- emitReg' "ction_ptr_nominal" (alloca tgeneric)
-    p <- emitReg' "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
-    emit (store s p)
+    pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
+    p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
+    emitDo (store s p)
     pure (VVar pGeneric)
 
 -- TODO: Eta-conversion
@@ -526,7 +521,7 @@ genStruct xs = do
     xs' <- mapM getLocal xs
     let t = typeStruct (map typeOf xs')
     fmap VLocal $ foldlM
-        (\s (i, x) -> emitAnon (insertvalue s x [i]))
+        (\s (i, x) -> emitAnonReg (insertvalue s x [i]))
         (undef t)
         (zip [0 ..] xs')
 
@@ -540,15 +535,15 @@ genBox' :: Val -> Gen (Val, Val)
 genBox' x = do
     let t = typeOf x
     ptrGeneric <- genHeapAlloc t
-    ptr <- emitAnon (bitcast ptrGeneric (LLType.ptr t))
+    ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr t))
     x' <- getLocal x
-    emit (store x' ptr)
+    emitDo (store x' ptr)
     pure (VLocal ptr, VLocal ptrGeneric)
 
 genHeapAlloc :: Type -> Gen Operand
 genHeapAlloc t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnon (callExtern "carth_alloc" [size])
+    emitAnonReg (callExtern "carth_alloc" [size])
 
 genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
@@ -559,7 +554,7 @@ genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 = do
     s1' <- getLocal s1
     s2' <- getLocal s2
-    b <- emitAnon (callExtern "carth_str_eq" [s1', s2'])
+    b <- emitAnonReg (callExtern "carth_str_eq" [s1', s2'])
     pure (VLocal b)
 
 getVar :: Val -> Gen Operand
@@ -569,7 +564,7 @@ getVar = \case
 
 getLocal :: Val -> Gen Operand
 getLocal = \case
-    VVar x -> emitAnon (load x)
+    VVar x -> emitAnonReg (load x)
     VLocal x -> pure x
 
 withLocals :: [(TypedVar, Operand)] -> Gen a -> Gen a
@@ -597,8 +592,8 @@ withVal x v ga = do
 
 genStackAllocated :: Operand -> Gen Operand
 genStackAllocated v = do
-    ptr <- emitAnon (alloca (typeOf v))
-    emit (store v ptr)
+    ptr <- emitAnonReg (alloca (typeOf v))
+    emitDo (store v ptr)
     pure ptr
 
 genType :: MonoAst.Type -> Gen Type
@@ -667,25 +662,31 @@ genVariantType totVariants =
     fmap (typeStruct . maybe id ((:) . IntegerType) (tagBitWidth totVariants))
         . mapM genType'
 
-emit :: Instruction -> Gen ()
-emit instr = emit' (Do instr)
+emitDo :: Instr -> Gen ()
+emitNamedReg :: Name -> FunInstr -> Gen Operand
+(emitDo, emitNamedReg) =
+    ( emit' Do
+    , \reg (WithRetType instr rt) ->
+        emit' (reg :=) instr $> LocalReference rt reg
+    )
+  where
+    emit' nameInstruction instr = do
+        pos <- view srcPos
+        meta <- case pos of
+            Just _p -> do
+                -- TODO:
+                --   loc <- genSrcPos p
+                --   pure [("dbg", loc)]
+                pure []
+            Nothing -> pure []
+        modifying currentBlockInstrs (nameInstruction (instr meta) :)
 
-emit' :: Named Instruction -> Gen ()
-emit' = modifying currentBlockInstrs . (:)
+emitReg :: String -> FunInstr -> Gen Operand
+emitReg s instr = newName s >>= flip emitNamedReg instr
 
-emit'' :: FunInstruction -> Gen ()
-emit'' (WithRetType instr _) = emit instr
-
-emitReg :: Name -> FunInstruction -> Gen Operand
-emitReg reg (WithRetType instr rt) = do
-    emit' (reg := instr)
-    pure (LocalReference rt reg)
-
-emitReg' :: String -> FunInstruction -> Gen Operand
-emitReg' s instr = newName s >>= flip emitReg instr
-
-emitAnon :: FunInstruction -> Gen Operand
-emitAnon instr = newAnonRegister >>= flip emitReg instr
+emitAnonReg :: FunInstr -> Gen Operand
+emitAnonReg instr = newAnonRegister >>= flip emitNamedReg instr
+    where newAnonRegister = fmap UnName (registerCount <<+= 1)
 
 commitFinalFuncBlock :: Terminator -> Gen ()
 commitFinalFuncBlock t = commitToNewBlock
@@ -700,23 +701,20 @@ commitToNewBlock t l = do
     assign currentBlockLabel l
     assign currentBlockInstrs []
 
-newAnonRegister :: Gen Name
-newAnonRegister = fmap UnName (registerCount <<+= 1)
-
 newName :: String -> Gen Name
 newName = lift . newName'
 
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
 
-callExtern :: String -> [Operand] -> FunInstruction
+callExtern :: String -> [Operand] -> FunInstr
 callExtern f as =
     let
         (_, tr) = fromMaybe
             (ice $ "callExtern on '" ++ f ++ "' not in builtins")
             (Map.lookup f builtins)
     in
-        flip WithRetType tr $ Call
+        flip WithRetType tr $ \meta -> Call
             { tailCallKind = Nothing
             , callingConvention = cfg_callConv
             , returnAttributes = []
@@ -725,7 +723,7 @@ callExtern f as =
                 (mkName f)
             , arguments = map (, []) as
             , functionAttributes = []
-            , metadata = []
+            , metadata = meta
             }
 
 undef :: Type -> Operand
@@ -746,20 +744,18 @@ retVoid = Ret Nothing []
 switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
 switch x def cs = Switch x def cs []
 
-bitcast :: Operand -> Type -> FunInstruction
-bitcast x t = WithRetType (BitCast x t []) t
+bitcast :: Operand -> Type -> FunInstr
+bitcast x t = WithRetType (BitCast x t) t
 
-trunc :: Operand -> Type -> FunInstruction
-trunc x t = WithRetType (Trunc x t []) t
+trunc :: Operand -> Type -> FunInstr
+trunc x t = WithRetType (Trunc x t) t
 
-insertvalue :: Operand -> Operand -> [Word32] -> FunInstruction
-insertvalue s e is = WithRetType (InsertValue s e is []) (typeOf s)
+insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
+insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)
 
-extractvalue :: Operand -> [Word32] -> Gen FunInstruction
+extractvalue :: Operand -> [Word32] -> Gen FunInstr
 extractvalue struct is = fmap
-    (WithRetType
-        (ExtractValue { aggregate = struct, indices' = is, metadata = [] })
-    )
+    (WithRetType (ExtractValue struct is))
     (getIndexed (typeOf struct) (map fromIntegral is))
   where
     getIndexed = foldlM $ \t i -> getMembers t <&> \us -> if i < length us
@@ -774,35 +770,35 @@ extractvalue struct is = fmap
         t ->
             ice $ "Tried to get member types of non-struct type " ++ show t
 
-store :: Operand -> Operand -> Instruction
-store srcVal destPtr = Store
+store :: Operand -> Operand -> Instr
+store srcVal destPtr meta = Store
     { volatile = False
     , address = destPtr
     , value = srcVal
     , maybeAtomicity = Nothing
     , alignment = 0
-    , metadata = []
+    , metadata = meta
     }
 
-load :: Operand -> FunInstruction
+load :: Operand -> FunInstr
 load p = WithRetType
-    (Load
+    (\meta -> Load
         { volatile = False
         , address = p
         , maybeAtomicity = Nothing
         , alignment = 0
-        , metadata = []
+        , metadata = meta
         }
     )
     (getPointee (typeOf p))
 
-phi :: [(Operand, Name)] -> FunInstruction
+phi :: [(Operand, Name)] -> FunInstr
 phi = \case
     [] -> ice "phi was given empty list of cases"
-    cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs []) t
+    cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs) t
 
-alloca :: Type -> FunInstruction
-alloca t = WithRetType (Alloca t Nothing 0 []) (LLType.ptr t)
+alloca :: Type -> FunInstr
+alloca t = WithRetType (Alloca t Nothing 0) (LLType.ptr t)
 
 litI64 :: Int -> Operand
 litI64 = ConstantOperand . litI64'
