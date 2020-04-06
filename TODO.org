@@ -426,3 +426,9 @@ the fix etc:
   as memoized, and then it's always memoized, not just certain
   applications. Also, there could then be a unique Map for each such
   function.
+* NEXT Recursive ~let~ a mistake?
+  Some guy on the internet said recursive let by default was a serious
+  design mistake of Haskell. It think they may be right. It's easy to
+  accidentally cause infinite loops in Haskell due to that. Shadowing
+  by default would make more sense, then having a special form of
+  ~let~ for recursive bindings, say, ~let-rec~.
