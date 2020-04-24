@@ -372,12 +372,6 @@ the fix etc:
   place. Will need to look into what LLVM can do, and what's possible
   on different platforms. Hopefully we won't have to resort to
   trampolining--that seems slow.
-* INACTIVE Boxing to allow for dynamic linking
-  Boxing vs monomorphization. Boxing results in smaller binary and
-  dynamically-linkable interface,bot results in slower code.
-
-  Maybe monomorphize all package-internal code, and box all
-  public-facing functions?
 * Standard library (std, stdlib)
 ** INACTIVE Prefer somewhat big / wide stdlib
    Small / bad standard library + good package manager => npm / cargo
@@ -432,3 +426,33 @@ the fix etc:
   accidentally cause infinite loops in Haskell due to that. Shadowing
   by default would make more sense, then having a special form of
   ~let~ for recursive bindings, say, ~let-rec~.
+* INACTIVE Async I/O
+  Zig seems to have a smart solution that doesn't require a separate
+  `async` version of the standard library, unlike Rust with
+  `async-std`.
+
+  https://ziglang.org/download/0.6.0/release-notes.html#Async-IO
+
+  Also look at how Haskell does it. It's probably smart.
+
+* INACTIVE Boxing to allow for dynamic linking
+  Boxing vs monomorphization. Boxing results in smaller binary and
+  dynamically-linkable interface,bot results in slower code.
+
+  Maybe monomorphize all package-internal code, and box all
+  public-facing functions?
+
+* NEXT Public polymorphic functions in compiled library
+  Keywords: boxing, dynamic linking
+
+  When compiling a library, especially a dynamically linked one, how
+  do we allow the export of polymorphic functions? We can't really use
+  monomorphization, as we can't predict which types there should be
+  instantiations for. Boxing would solve this problem and result in a
+  smaller binary, but the code would most likely be slower, and the
+  FFI would become more complicated.
+
+  Maybe monomorphize all package-internal code, and require boxing for
+  all public-facing polymorphic functions? Should require some keyword
+  or special form, like `boxed`, to make it clear when the FFI will be
+  affected.

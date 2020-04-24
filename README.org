@@ -60,7 +60,8 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   #+END_EXAMPLE
 
 * License
-  Carth is licensed under the AGPL, version 3 or later. See [[./LICENSE][LICENSE]].
+  Carth is released under the AGPL license, version 3 or later. See
+  [[./LICENSE][LICENSE]].
 
   Note that by default, all programs written in Carth will have to be
   distributed under the AGPLv3 license as well, as not just the
