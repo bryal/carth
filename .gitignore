@@ -1,6 +1,6 @@
 .stack-work/
 carth.cabal
 *~
-examples/out.*
-examples/out
 .dbg.*
+/examples/*
+!/examples/*.carth
