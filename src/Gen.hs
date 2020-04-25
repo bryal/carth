@@ -39,7 +39,7 @@ data Env = Env
     --       or local?
     { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
     , _dataTypes :: Map Name Type
-    , _srcPos :: Maybe SrcPos
+    , _srcPos :: SrcPos
     }
 makeLenses ''Env
 

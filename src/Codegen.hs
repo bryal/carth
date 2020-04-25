@@ -59,8 +59,11 @@ codegen :: DataLayout -> FilePath -> Program -> Module
 codegen layout moduleFilePath (Program defs tdefs externs) =
     let
         defs' = Map.toList defs
-        initEnv =
-            Env { _env = Map.empty, _dataTypes = Map.empty, _srcPos = Nothing }
+        initEnv = Env
+            { _env = Map.empty
+            , _dataTypes = Map.empty
+            , _srcPos = ice "Read Env.srcPos before it's been set"
+            }
         initSt = St
             { _currentBlockLabel = "entry"
             , _currentBlockInstrs = []
@@ -172,25 +175,30 @@ genMain = do
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
 genGlobDef :: (TypedVar, ([Monomorphic.Type], Expr)) -> Gen' [Definition]
-genGlobDef (TypedVar v _, (ts, (Expr _ e))) = case e of
-    Fun p (body, _) ->
-        fmap (map GlobalDefinition) (genClosureWrappedFunDef (v, ts) p body)
-    _ -> nyi $ "Global non-function defs: " ++ show e
-
-genClosureWrappedFunDef
-    :: (String, [Monomorphic.Type]) -> TypedVar -> Expr -> Gen' [Global]
-genClosureWrappedFunDef var p body = do
-    let name = mangleName var
-    assign lambdaParentFunc (Just name)
-    assign outerLambdaN 1
-    let fName = mkName (name ++ "_func")
-    (f, gs) <- genFunDef (fName, [], p, body)
-    let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
-    let capturesType = LLType.ptr typeUnit
-    let captures = LLConst.Null capturesType
-    let closure = litStruct' [captures, fRef]
-    let closureDef = simpleGlobVar (mkName name) (typeOf closure) closure
-    pure (closureDef : f : gs)
+genGlobDef (TypedVar v _, (ts, (Expr maybePos e))) =
+    let
+        pos = fromMaybe
+            (ice "rhs expr doesn't have srcpos in genGlobDef")
+            maybePos
+    in
+        case e of
+            Fun p (body, _) -> do
+                let var = (v, ts)
+                let name = mangleName var
+                assign lambdaParentFunc (Just name)
+                assign outerLambdaN 1
+                let fName = mkName (name ++ "_func")
+                (f, gs) <- locallySet srcPos pos
+                    $ genFunDef (fName, [], p, body)
+                let fRef =
+                        LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
+                let capturesType = LLType.ptr typeUnit
+                let captures = LLConst.Null capturesType
+                let closure = litStruct' [captures, fRef]
+                let closureDef =
+                        simpleGlobVar (mkName name) (typeOf closure) closure
+                pure (map GlobalDefinition (closureDef : f : gs))
+            _ -> nyi $ "Global non-function defs: " ++ show e
 
 -- | Generates a function definition
 --
@@ -269,7 +277,7 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
                 pure (zip fvs captureVals)
 
 genExpr :: Expr -> Gen Val
-genExpr (Expr _ expr) = do
+genExpr (Expr pos expr) = locally srcPos (flip fromMaybe pos) $ do
     parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> genConst c
@@ -672,14 +680,11 @@ emitNamedReg :: Name -> FunInstr -> Gen Operand
     )
   where
     emit' nameInstruction instr = do
-        pos <- view srcPos
-        meta <- case pos of
-            Just _p -> do
-                -- TODO:
+        _pos <- view srcPos
+        meta <- -- TODO:
                 --   loc <- genSrcPos p
                 --   pure [("dbg", loc)]
                 pure []
-            Nothing -> pure []
         modifying currentBlockInstrs (nameInstruction (instr meta) :)
 
 emitReg :: String -> FunInstr -> Gen Operand
