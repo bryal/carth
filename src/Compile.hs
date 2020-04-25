@@ -12,12 +12,12 @@ import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 
 import Config
-import qualified MonoAst
+import qualified Monomorphic
 import Codegen
 
 
 -- TODO: CodeGenOpt level
-compile :: FilePath -> Config -> MonoAst.Program -> IO ()
+compile :: FilePath -> Config -> Monomorphic.Program -> IO ()
 compile f cfg pgm = withContext $ \c -> withHostTargetMachinePIC $ \t -> do
     layout <- getTargetMachineDataLayout t
     putStrLn ("   Generating LLVM")

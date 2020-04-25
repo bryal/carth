@@ -4,8 +4,8 @@ module CheckSpec where
 
 import Test.Hspec
 
-import qualified Ast
-import qualified DesugaredAst as Des
+import qualified Parsed
+import qualified Checked
 import Parse
 import Check
 import TypeErr
@@ -63,7 +63,6 @@ pConflictingVarDef_b = "(define foo (let ((a 1) (a 2)) a))"
 
 spec :: Spec
 spec = do
-    let startDef = "(define (start _) unit)"
     describe "typecheck" $ do
         it "detects when start is not defined"
             $ shouldSatisfy (typecheck' pStartNotDefined)
@@ -189,7 +188,7 @@ spec = do
                 Right (Left (ConflictingVarDef{})) -> True
                 _ -> False
 
-typecheck' :: String -> Either String (Either TypeErr Des.Program)
+typecheck' :: String -> Either String (Either TypeErr Checked.Program)
 typecheck' =
-    fmap (\(_, ds, tds, es) -> typecheck (Ast.Program ds tds es))
+    fmap (\(_, ds, tds, es) -> typecheck (Parsed.Program ds tds es))
         . parse' toplevels "TEST"

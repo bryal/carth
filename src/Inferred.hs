@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase, TemplateHaskell #-}
 
 -- | Type annotated AST as a result of typechecking
-module AnnotAst
+module Inferred
     ( WithPos(..)
     , TVar(..)
     , TPrim(..)
@@ -34,7 +34,7 @@ import Data.Set (Set)
 import Data.Map.Strict (Map)
 import Lens.Micro.Platform (makeLenses)
 
-import Ast (TVar(..), TPrim(..), Const(..))
+import Parsed (TVar(..), TPrim(..), Const(..))
 import SrcPos
 
 

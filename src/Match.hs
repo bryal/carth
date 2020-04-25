@@ -24,9 +24,9 @@ import Misc hiding (augment)
 import Pretty
 import SrcPos
 import TypeErr
-import qualified AnnotAst as An
-import AnnotAst (Pat, Pat'(..), Variant(..))
-import DesugaredAst
+import qualified Inferred
+import Inferred (Pat, Pat'(..), Variant(..))
+import Checked
 
 
 data Descr = Pos Con [Descr] | Neg (Set Con)
@@ -129,7 +129,7 @@ match
     -> Pat'
     -> Match DecisionTree'
 match obj descr ctx work rhs rules = \case
-    PVar (An.TypedVar (An.WithPos _ x) tx) ->
+    PVar (Inferred.TypedVar (Inferred.WithPos _ x) tx) ->
         let x' = TypedVar x tx
         in conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work

@@ -7,7 +7,7 @@ import Data.Map.Strict (Map)
 import Data.Bifunctor
 import Data.Maybe
 
-import AnnotAst
+import Inferred
 
 
 -- | Map of substitutions from type-variables to more specific types

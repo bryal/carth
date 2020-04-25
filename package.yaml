@@ -91,7 +91,9 @@ tests:
     - -Wno-unsafe
     - -Wno-missing-import-lists
     - -Wno-missing-exported-signatures
+    - -Wno-missing-export-lists
     - -Wno-missing-local-signatures
+    - -Wno-missing-signatures
     - -Wno-monomorphism-restriction
     - -Wno-implicit-prelude
     - -Wno-name-shadowing

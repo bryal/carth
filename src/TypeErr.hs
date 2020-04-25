@@ -6,8 +6,8 @@ import Text.Megaparsec (SourcePos(..), unPos)
 
 import Misc
 import SrcPos
-import qualified Ast
-import AnnotAst
+import qualified Parsed
+import Inferred
 import Pretty
 import Parse
 
@@ -25,12 +25,12 @@ data TypeErr
     | ConflictingCtorDef SrcPos String
     | RedundantCase SrcPos
     | InexhaustivePats SrcPos String
-    | ExternNotMonomorphic (Ast.Id 'Ast.Small) TVar
+    | ExternNotMonomorphic (Parsed.Id 'Parsed.Small) TVar
     | FoundHole SrcPos
     | RecTypeDef String SrcPos
     | UndefType SrcPos String
     | UnboundTVar SrcPos
-    | WrongStartType SrcPos Ast.Scheme
+    | WrongStartType SrcPos Parsed.Scheme
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
@@ -76,7 +76,7 @@ printErr = \case
     InexhaustivePats p patStr ->
         posd p $ "Inexhaustive patterns: " ++ patStr ++ " not covered."
     ExternNotMonomorphic name tv -> case tv of
-        TVExplicit (Ast.Id (WithPos p tv')) ->
+        TVExplicit (Parsed.Id (WithPos p tv')) ->
             posd p
                 $ ("Extern " ++ pretty name ++ " is not monomorphic. ")
                 ++ ("Type variable " ++ tv' ++ " encountered in type signature")

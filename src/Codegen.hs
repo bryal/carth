@@ -31,8 +31,8 @@ import Lens.Micro.Platform (modifying, use, assign, to, view)
 import Misc
 import Pretty
 import FreeVars
-import qualified MonoAst
-import MonoAst hiding (Type, Const)
+import qualified Monomorphic
+import Monomorphic hiding (Type, Const)
 import Selections
 import Gen
 import Abi
@@ -148,10 +148,10 @@ builtins = Map.fromList
       )
     ]
 
-genExterns :: [(String, MonoAst.Type)] -> Gen' [Definition]
+genExterns :: [(String, Monomorphic.Type)] -> Gen' [Definition]
 genExterns = mapM (uncurry genExtern)
 
-genExtern :: String -> MonoAst.Type -> Gen' Definition
+genExtern :: String -> Monomorphic.Type -> Gen' Definition
 genExtern name t = genType' t
     <&> \t' -> GlobalDefinition $ simpleGlobVar' (mkName name) t' Nothing
 
@@ -171,14 +171,14 @@ genMain = do
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genGlobDef :: (TypedVar, ([MonoAst.Type], Expr)) -> Gen' [Definition]
+genGlobDef :: (TypedVar, ([Monomorphic.Type], Expr)) -> Gen' [Definition]
 genGlobDef (TypedVar v _, (ts, e)) = case e of
     Fun p (body, _) ->
         fmap (map GlobalDefinition) (genClosureWrappedFunDef (v, ts) p body)
     _ -> nyi $ "Global non-function defs: " ++ show e
 
 genClosureWrappedFunDef
-    :: (String, [MonoAst.Type]) -> TypedVar -> Expr -> Gen' [Global]
+    :: (String, [Monomorphic.Type]) -> TypedVar -> Expr -> Gen' [Global]
 genClosureWrappedFunDef var p body = do
     let name = mangleName var
     assign lambdaParentFunc (Just name)
@@ -284,7 +284,7 @@ genExpr expr = do
         Deref e -> genDeref e
         Absurd t -> fmap (VLocal . undef) (genType t)
 
-genConst :: MonoAst.Const -> Gen Val
+genConst :: Monomorphic.Const -> Gen Val
 genConst = \case
     Unit -> pure (VLocal litUnit)
     Int n -> pure (VLocal (litI64 n))
@@ -300,7 +300,7 @@ genStrLit s = do
         (LLConst.GlobalReference (LLType.ptr typeStr) var)
 
 -- | Beta-reduction and closure application
-genApp :: Expr -> Expr -> MonoAst.Type -> Gen Val
+genApp :: Expr -> Expr -> Monomorphic.Type -> Gen Val
 genApp fe' ae' rt' = genApp' (fe', [(ae', rt')])
   where
     -- TODO: Could/should the beta-reduction maybe happen in an earlier stage,
@@ -393,14 +393,14 @@ genMatch m dt tbody = do
 
 genDecisionTree :: Type -> DecisionTree -> Selections Operand -> Gen Val
 genDecisionTree tbody = \case
-    MonoAst.DLeaf l -> genDecisionLeaf l
-    MonoAst.DSwitch selector cs def ->
+    Monomorphic.DLeaf l -> genDecisionLeaf l
+    Monomorphic.DSwitch selector cs def ->
         genDecisionSwitchIx selector cs def tbody
-    MonoAst.DSwitchStr selector cs def ->
+    Monomorphic.DSwitchStr selector cs def ->
         genDecisionSwitchStr selector cs def tbody
 
 genDecisionSwitchIx
-    :: MonoAst.Access
+    :: Monomorphic.Access
     -> Map VariantIx DecisionTree
     -> DecisionTree
     -> Type
@@ -431,7 +431,7 @@ genDecisionSwitchIx selector cs def tbody selections = do
     fmap VLocal (emitAnonReg (phi (v : vs)))
 
 genDecisionSwitchStr
-    :: MonoAst.Access
+    :: Monomorphic.Access
     -> Map String DecisionTree
     -> DecisionTree
     -> Type
@@ -450,12 +450,13 @@ genDecisionSwitchStr selector cs def tbody selections = do
     f <- foldrM genCase (genDT def) cs'
     f
 
-genDecisionLeaf :: (MonoAst.VarBindings, Expr) -> Selections Operand -> Gen Val
+genDecisionLeaf
+    :: (Monomorphic.VarBindings, Expr) -> Selections Operand -> Gen Val
 genDecisionLeaf (bs, e) selections = do
     bs' <- selectVarBindings selAs selSub selDeref selections bs
     withLocals bs' (genExpr e)
 
-selAs :: Span -> [MonoAst.Type] -> Operand -> Gen Operand
+selAs :: Span -> [Monomorphic.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do
     tvariant <- lift (genVariantType totVariants ts)
     let tgeneric = typeOf matchee
@@ -472,7 +473,7 @@ selSub span' i matchee =
 selDeref :: Operand -> Gen Operand
 selDeref x = emitAnonReg (load x)
 
-genCtion :: MonoAst.Ction -> Gen Val
+genCtion :: Monomorphic.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
     as' <- mapM genExpr as
     let tag = maybe
@@ -498,7 +499,7 @@ genCtion (i, span', dataType, as) = do
 --
 --   Inside of the function, first all the captured variables are extracted from
 --   the environment, then the body of the function is run.
-genLambda :: TypedVar -> (Expr, MonoAst.Type) -> Gen Val
+genLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
 genLambda p@(TypedVar px pt) (b, bt) = do
     let fvXs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
     captures <- if null fvXs
@@ -596,11 +597,11 @@ genStackAllocated v = do
     emitDo (store v ptr)
     pure ptr
 
-genType :: MonoAst.Type -> Gen Type
+genType :: Monomorphic.Type -> Gen Type
 genType = lift . genType'
 
 -- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: MonoAst.Type -> Gen' Type
+genType' :: Monomorphic.Type -> Gen' Type
 genType' = \case
     TPrim tc -> pure $ case tc of
         TUnit -> typeUnit
@@ -627,12 +628,12 @@ genType' = \case
 --
 --   An argument of a structure-type is passed by reference, to be compatible
 --   with the C calling convention.
-genClosureType :: MonoAst.Type -> MonoAst.Type -> Gen' Type
+genClosureType :: Monomorphic.Type -> Monomorphic.Type -> Gen' Type
 genClosureType a r = genClosureFunType a r
     <&> \c -> typeStruct [LLType.ptr typeUnit, LLType.ptr c]
 
 -- The type of the function itself within the closure
-genClosureFunType :: MonoAst.Type -> MonoAst.Type -> Gen' Type
+genClosureFunType :: Monomorphic.Type -> Monomorphic.Type -> Gen' Type
 genClosureFunType a r = do
     a' <- genType' a
     r' <- genType' r
@@ -654,10 +655,10 @@ genClosureFunType a r = do
 genCapturesType :: [TypedVar] -> Gen Type
 genCapturesType = fmap typeStruct . mapM (\(TypedVar _ t) -> genType t)
 
-genDatatypeRef :: MonoAst.TConst -> Type
+genDatatypeRef :: Monomorphic.TConst -> Type
 genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 
-genVariantType :: Span -> [MonoAst.Type] -> Gen' Type
+genVariantType :: Span -> [Monomorphic.Type] -> Gen' Type
 genVariantType totVariants =
     fmap (typeStruct . maybe id ((:) . IntegerType) (tagBitWidth totVariants))
         . mapM genType'
@@ -863,15 +864,15 @@ getIntBitWidth = \case
     LLType.IntegerType w -> w
     t -> ice $ "Tried to get bit width of non-integer type " ++ show t
 
-mangleName :: (String, [MonoAst.Type]) -> String
+mangleName :: (String, [Monomorphic.Type]) -> String
 mangleName (x, us) = x ++ mangleInst us
 
-mangleInst :: [MonoAst.Type] -> String
+mangleInst :: [Monomorphic.Type] -> String
 mangleInst ts = if not (null ts)
     then "<" ++ intercalate ", " (map mangleType ts) ++ ">"
     else ""
 
-mangleType :: MonoAst.Type -> String
+mangleType :: Monomorphic.Type -> String
 mangleType = \case
     TPrim c -> pretty c
     TFun p r -> mangleTConst ("Fun", [p, r])

@@ -20,10 +20,10 @@ import Misc
 import SrcPos
 import FreeVars
 import Subst
-import qualified Ast
-import Ast (Id(..), IdCase(..), idstr, isFunLike)
+import qualified Parsed
+import Parsed (Id(..), IdCase(..), idstr, isFunLike)
 import TypeErr
-import AnnotAst hiding (Id)
+import Inferred hiding (Id)
 
 
 newtype ExpectedType = Expected Type
@@ -53,8 +53,8 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 inferTopDefs
     :: TypeDefs
     -> Ctors
-    -> [Ast.Extern]
-    -> [Ast.Def]
+    -> [Parsed.Extern]
+    -> [Parsed.Def]
     -> Except TypeErr (Externs, Defs, Subst)
 inferTopDefs tdefs ctors externs defs =
     let
@@ -75,16 +75,16 @@ inferTopDefs tdefs ctors externs defs =
 
 -- TODO: Check that the types of the externs are valid more than just not
 --       containing type vars. E.g., they may not refer to undefined types, duh.
-checkExterns :: [Ast.Extern] -> Infer Externs
+checkExterns :: [Parsed.Extern] -> Infer Externs
 checkExterns = fmap Map.fromList . mapM checkExtern
   where
-    checkExtern (Ast.Extern name t) = do
+    checkExtern (Parsed.Extern name t) = do
         t' <- checkType (getPos name) t
         case Set.lookupMin (ftv t') of
             Just tv -> throwError (ExternNotMonomorphic name tv)
             Nothing -> pure (idstr name, t')
 
-checkType :: SrcPos -> Ast.Type -> Infer Type
+checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = do
     tds <- view envTypeDefs
     checkType' (\x -> fmap (length . fst) (Map.lookup x tds)) pos t
@@ -93,16 +93,16 @@ checkType'
     :: MonadError TypeErr m
     => (String -> Maybe Int)
     -> SrcPos
-    -> Ast.Type
+    -> Parsed.Type
     -> m Type
 checkType' tdefsParams pos = checkType''
   where
     checkType'' = \case
-        Ast.TVar v -> pure (TVar v)
-        Ast.TPrim p -> pure (TPrim p)
-        Ast.TConst tc -> fmap TConst (checkTConst tc)
-        Ast.TFun f a -> liftA2 TFun (checkType'' f) (checkType'' a)
-        Ast.TBox t -> fmap TBox (checkType'' t)
+        Parsed.TVar v -> pure (TVar v)
+        Parsed.TPrim p -> pure (TPrim p)
+        Parsed.TConst tc -> fmap TConst (checkTConst tc)
+        Parsed.TFun f a -> liftA2 TFun (checkType'' f) (checkType'' a)
+        Parsed.TBox t -> fmap TBox (checkType'' t)
     checkTConst (x, inst) = case tdefsParams x of
         Just expectedN -> do
             let foundN = length inst
@@ -114,7 +114,7 @@ checkType' tdefsParams pos = checkType''
                     (TypeInstArityMismatch pos x expectedN foundN)
         Nothing -> throwError (UndefType pos x)
 
-inferDefs :: [Ast.Def] -> Infer Defs
+inferDefs :: [Parsed.Def] -> Infer Defs
 inferDefs defs = do
     checkNoDuplicateDefs defs
     let ordered = orderDefs defs
@@ -135,11 +135,11 @@ inferDefs defs = do
 -- edge is a reference to another definition. For each SCC, we infer
 -- types for all the definitions / the single definition before
 -- generalizing.
-orderDefs :: [Ast.Def] -> [SCC Ast.Def]
+orderDefs :: [Parsed.Def] -> [SCC Parsed.Def]
 orderDefs = stronglyConnComp . graph
     where graph = map (\d@(n, _) -> (d, n, Set.toList (freeVars d)))
 
-inferDefsComponents :: [SCC Ast.Def] -> Infer Defs
+inferDefsComponents :: [SCC Parsed.Def] -> Infer Defs
 inferDefsComponents = \case
     [] -> pure Map.empty
     (scc : sccs) -> do
@@ -171,14 +171,14 @@ inferDefsComponents = \case
         pure (Map.union annotRest annotDefs)
 
 -- | Verify that user-provided type signature schemes are valid
-checkScheme :: (String, Maybe Ast.Scheme) -> Infer (Maybe Scheme)
+checkScheme :: (String, Maybe Parsed.Scheme) -> Infer (Maybe Scheme)
 checkScheme = \case
     ("start", Nothing) -> pure (Just (Forall Set.empty startType))
-    ("start", Just s@(Ast.Forall pos vs t))
-        | Set.size vs /= 0 || t /= Ast.startType -> throwError
+    ("start", Just s@(Parsed.Forall pos vs t))
+        | Set.size vs /= 0 || t /= Parsed.startType -> throwError
             (WrongStartType pos s)
     (_, Nothing) -> pure Nothing
-    (_, Just (Ast.Forall pos vs t)) -> do
+    (_, Just (Parsed.Forall pos vs t)) -> do
         t' <- checkType pos t
         let s1 = Forall vs t'
         s2 <- generalize t'
@@ -186,12 +186,12 @@ checkScheme = \case
             then pure (Just s1)
             else throwError (InvalidUserTypeSig pos s1 s2)
 
-infer :: Ast.Expr -> Infer (Type, Expr)
+infer :: Parsed.Expr -> Infer (Type, Expr)
 infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
-    Ast.Lit l -> pure (litType l, Lit l)
-    Ast.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
-    Ast.Var x@(Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
-    Ast.App f a -> do
+    Parsed.Lit l -> pure (litType l, Lit l)
+    Parsed.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
+    Parsed.Var x@(Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
+    Parsed.App f a -> do
         ta <- fresh
         tr <- fresh
         (tf', f') <- infer f
@@ -199,39 +199,39 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         (ta', a') <- infer a
         unify (Expected ta) (Found (getPos a) ta')
         pure (tr, App f' a' tr)
-    Ast.If p c a -> do
+    Parsed.If p c a -> do
         (tp, p') <- infer p
         (tc, c') <- infer c
         (ta, a') <- infer a
         unify (Expected (TPrim TBool)) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
-    Ast.Fun p b -> inferFunMatch (pure (p, b))
-    Ast.Let defs b -> do
+    Parsed.Fun p b -> inferFunMatch (pure (p, b))
+    Parsed.Let defs b -> do
         annotDefs <- inferDefs defs
         let defsScms = fmap (\(scm, _) -> scm) annotDefs
         (bt, b') <- withLocals' defsScms (infer b)
         pure (bt, Let annotDefs b')
-    Ast.TypeAscr x t -> do
+    Parsed.TypeAscr x t -> do
         (tx, WithPos _ x') <- infer x
         t' <- checkType pos t
         unify (Expected t') (Found (getPos x) tx)
         pure (t', x')
-    Ast.Match matchee cases -> do
+    Parsed.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
         let f = WithPos pos (FunMatch cases' tmatchee tbody)
         pure (tbody, App f matchee' tbody)
-    Ast.FunMatch cases -> inferFunMatch cases
-    Ast.Ctor c -> inferExprConstructor c
-    Ast.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
-    Ast.Deref x -> do
+    Parsed.FunMatch cases -> inferFunMatch cases
+    Parsed.Ctor c -> inferExprConstructor c
+    Parsed.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
+    Parsed.Deref x -> do
         t <- fresh
         (tx, x') <- infer x
         unify (Expected (TBox t)) (Found (getPos x) tx)
         pure (t, Deref x')
 
-inferFunMatch :: [(Ast.Pat, Ast.Expr)] -> Infer (Type, Expr')
+inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
 inferFunMatch cases = do
     tpat <- fresh
     (tbody, cases') <- inferCases (Expected tpat) cases
@@ -241,7 +241,7 @@ inferFunMatch cases = do
 --   the same type.
 inferCases
     :: ExpectedType -- Type of matchee. Expected type of pattern.
-    -> [(Ast.Pat, Ast.Expr)]
+    -> [(Parsed.Pat, Parsed.Expr)]
     -> Infer (Type, Cases)
 inferCases tmatchee cases = do
     (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase cases)
@@ -250,39 +250,40 @@ inferCases tmatchee cases = do
     forM_ tbodies (unify (Expected tbody))
     pure (tbody, cases')
 
-inferCase :: (Ast.Pat, Ast.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
+inferCase
+    :: (Parsed.Pat, Parsed.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
-    let pvs' = Map.mapKeys Ast.idstr pvs
+    let pvs' = Map.mapKeys Parsed.idstr pvs
     (tb, b') <- withLocals' pvs' (infer b)
     pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
-inferPat :: Ast.Pat -> Infer (Type, Pat, Map (Id 'Small) Scheme)
+inferPat :: Parsed.Pat -> Infer (Type, Pat, Map (Id 'Small) Scheme)
 inferPat pat = fmap
     (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss))
     (inferPat' pat)
   where
     inferPat' = \case
-        Ast.PConstruction pos c ps -> inferPatConstruction pos c ps
-        Ast.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
-        Ast.PBool _ b ->
+        Parsed.PConstruction pos c ps -> inferPatConstruction pos c ps
+        Parsed.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
+        Parsed.PBool _ b ->
             pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
-        Ast.PStr _ s ->
+        Parsed.PStr _ s ->
             let
                 span' = ice "span of Con with VariantStr"
                 p = PCon (Con (VariantStr s) span' []) []
             in pure (typeStr, p, Map.empty)
-        Ast.PVar (Id (WithPos _ "_")) -> do
+        Parsed.PVar (Id (WithPos _ "_")) -> do
             tv <- fresh
             pure (tv, PWild, Map.empty)
-        Ast.PVar x@(Id x') -> do
+        Parsed.PVar x@(Id x') -> do
             tv <- fresh
             pure
                 ( tv
                 , PVar (TypedVar x' tv)
                 , Map.singleton x (Forall Set.empty tv)
                 )
-        Ast.PBox _ p -> do
+        Parsed.PBox _ p -> do
             (tp', p', vs) <- inferPat p
             pure (TBox tp', PBox p', vs)
     intToPCon n w = PCon
@@ -297,7 +298,7 @@ inferPat pat = fmap
 inferPatConstruction
     :: SrcPos
     -> Id 'Big
-    -> [Ast.Pat]
+    -> [Parsed.Pat]
     -> Infer (Type, Pat', Map (Id 'Small) Scheme)
 inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c

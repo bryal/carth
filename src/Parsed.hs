@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
            , MultiParamTypeClasses, KindSignatures, DataKinds #-}
 
-module Ast
+module Parsed
     ( TVar(..)
     , TPrim(..)
     , TConst

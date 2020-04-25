@@ -1,4 +1,4 @@
-module DesugaredAst
+module Checked
     ( TVar(..)
     , TPrim(..)
     , TConst
@@ -24,7 +24,7 @@ where
 import Data.Map.Strict (Map)
 import Data.Word
 
-import AnnotAst
+import Inferred
     ( TVar(..)
     , TPrim(..)
     , TConst

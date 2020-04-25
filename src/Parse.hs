@@ -38,7 +38,7 @@ import qualified Data.List.NonEmpty as NonEmpty
 
 import Misc
 import SrcPos
-import Ast
+import Parsed
 import Literate
 import EnvVars
 

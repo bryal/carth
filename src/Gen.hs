@@ -31,7 +31,7 @@ import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc
 import SrcPos
-import MonoAst hiding (Type, Const)
+import Monomorphic hiding (Type, Const)
 
 
 data Env = Env

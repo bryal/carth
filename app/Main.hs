@@ -8,12 +8,12 @@ import Control.Monad
 import Misc
 import Pretty
 import qualified TypeErr
-import qualified Ast
-import qualified DesugaredAst
+import qualified Parsed
+import qualified Checked
 import Check
 import GetConfig
 import Compile
-import Mono
+import Monomorphize
 import qualified Parse
 import EnvVars
 
@@ -41,7 +41,7 @@ compileFile cfg = do
     compile f cfg mon
     putStrLn ""
 
-parse :: FilePath -> IO Ast.Program
+parse :: FilePath -> IO Parsed.Program
 parse f = Parse.parse f >>= \case
     Left e -> putStrLn (formatParseErr e) >> abort f
     Right p -> pure p
@@ -49,7 +49,7 @@ parse f = Parse.parse f >>= \case
     formatParseErr e =
         let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
-typecheck' :: FilePath -> Ast.Program -> IO DesugaredAst.Program
+typecheck' :: FilePath -> Parsed.Program -> IO Checked.Program
 typecheck' f p = case typecheck p of
     Left e -> TypeErr.printErr e >> abort f
     Right p -> pure p

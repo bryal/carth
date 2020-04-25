@@ -42,7 +42,7 @@ import Data.Foldable
 import Lens.Micro.Platform (view, to)
 
 import Misc
-import MonoAst (Span)
+import Monomorphic (Span)
 import Gen
 
 

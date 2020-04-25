@@ -3,7 +3,7 @@
 {-# LANGUAGE TemplateHaskell, LambdaCase, MultiParamTypeClasses
            , FlexibleInstances, FlexibleContexts #-}
 
-module MonoAst
+module Monomorphic
     ( TPrim(..)
     , TConst
     , Type(..)
@@ -30,9 +30,9 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Word
 
-import DesugaredAst (VariantIx, Span)
+import Checked (VariantIx, Span)
 import FreeVars
-import Ast (Const(..), TPrim(..))
+import Parsed (Const(..), TPrim(..))
 
 type TConst = (String, [Type])
 
