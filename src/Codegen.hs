@@ -172,7 +172,7 @@ genMain = do
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
 genGlobDef :: (TypedVar, ([Monomorphic.Type], Expr)) -> Gen' [Definition]
-genGlobDef (TypedVar v _, (ts, e)) = case e of
+genGlobDef (TypedVar v _, (ts, (Expr _ e))) = case e of
     Fun p (body, _) ->
         fmap (map GlobalDefinition) (genClosureWrappedFunDef (v, ts) p body)
     _ -> nyi $ "Global non-function defs: " ++ show e
@@ -269,7 +269,7 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
                 pure (zip fvs captureVals)
 
 genExpr :: Expr -> Gen Val
-genExpr expr = do
+genExpr (Expr _ expr) = do
     parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> genConst c
@@ -306,10 +306,10 @@ genApp fe' ae' rt' = genApp' (fe', [(ae', rt')])
     -- TODO: Could/should the beta-reduction maybe happen in an earlier stage,
     --       like when desugaring?
     genApp' = \case
-        (Fun p (b, _), (ae, _) : aes) -> do
+        (Expr _ (Fun p (b, _)), (ae, _) : aes) -> do
             a <- genExpr ae
             withVal p a (genApp' (b, aes))
-        (App fe ae rt, aes) -> genApp' (fe, (ae, rt) : aes)
+        (Expr _ (App fe ae rt), aes) -> genApp' (fe, (ae, rt) : aes)
         (fe, []) -> genExpr fe
         (fe, aes) -> do
             closure <- genExpr fe

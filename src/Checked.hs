@@ -12,7 +12,10 @@ module Checked
     , Access(..)
     , VarBindings
     , DecisionTree(..)
+    , Expr'(..)
     , Expr(..)
+    , withPos
+    , noPos
     , Defs
     , TypeDefs
     , Externs
@@ -24,6 +27,7 @@ where
 import Data.Map.Strict (Map)
 import Data.Word
 
+import SrcPos
 import Inferred
     ( TVar(..)
     , TPrim(..)
@@ -55,7 +59,7 @@ data DecisionTree
     | DSwitchStr Access (Map String DecisionTree) DecisionTree
     deriving Show
 
-data Expr
+data Expr'
     = Lit Const
     | Var TypedVar
     | App Expr Expr Type
@@ -68,6 +72,15 @@ data Expr
     | Deref Expr
     | Absurd Type
     deriving (Show)
+
+data Expr = Expr (Maybe SrcPos) Expr'
+    deriving (Show)
+
+withPos :: SrcPos -> Expr' -> Expr
+withPos = Expr . Just
+
+noPos :: Expr' -> Expr
+noPos = Checked.Expr Nothing
 
 type Defs = Map String (Scheme, Expr)
 type TypeDefs = Map String ([TVar], [[Type]])

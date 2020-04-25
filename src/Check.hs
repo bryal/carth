@@ -25,6 +25,7 @@ import qualified Inferred
 import Match
 import Infer
 import qualified Checked
+import Checked (withPos, noPos)
 
 
 typecheck :: Parsed.Program -> Either TypeErr Checked.Program
@@ -201,7 +202,7 @@ compileDecisionTrees tdefs = compDefs
     compDefs = mapM compDef
     compDef = bimapM pure compExpr
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
-    compExpr (WithPos pos expr) = case expr of
+    compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
         Inferred.Var (Inferred.TypedVar (WithPos _ x) t) ->
             pure (Checked.Var (Checked.TypedVar x t))
@@ -218,19 +219,21 @@ compileDecisionTrees tdefs = compDefs
                 Just e -> do
                     dt <- liftEither e
                     let p = "#x"
-                        v = Checked.Var (Checked.TypedVar p tp)
-                        b = Checked.Match v dt tb
+                        v = noPos (Checked.Var (Checked.TypedVar p tp))
+                        b = noPos (Checked.Match v dt tb)
                     pure (Checked.Fun (p, tp) (b, tb))
         Inferred.Ctor v span' inst ts ->
             let
                 xs = map
-                    (\n -> "#x" ++ show n)
-                    (take (length ts) [0 :: Word ..])
+                    (\n -> "x" ++ show n)
+                    (take (length ts) [0 ..] :: [Word])
                 params = zip xs ts
-                args = map (Checked.Var . uncurry Checked.TypedVar) params
+                args = map
+                    (noPos . Checked.Var . uncurry Checked.TypedVar)
+                    params
             in pure $ snd $ foldr
                 (\(p, pt) (bt, b) ->
-                    (Inferred.TFun pt bt, Checked.Fun (p, pt) (b, bt))
+                    (Inferred.TFun pt bt, Checked.Fun (p, pt) (noPos b, bt))
                 )
                 (Inferred.TConst inst, Checked.Ction v span' inst args)
                 params

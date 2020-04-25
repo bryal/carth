@@ -16,6 +16,7 @@ module Monomorphic
     , VarBindings
     , DecisionTree(..)
     , Ction
+    , Expr'(..)
     , Expr(..)
     , Defs
     , TypeDefs
@@ -30,6 +31,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Word
 
+import SrcPos
 import Checked (VariantIx, Span)
 import FreeVars
 import Parsed (Const(..), TPrim(..))
@@ -65,7 +67,7 @@ data DecisionTree
 
 type Ction = (VariantIx, Span, TConst, [Expr])
 
-data Expr
+data Expr'
     = Lit Const
     | Var TypedVar
     | App Expr Expr Type
@@ -77,6 +79,9 @@ data Expr
     | Box Expr
     | Deref Expr
     | Absurd Type
+    deriving (Show)
+
+data Expr = Expr (Maybe SrcPos) Expr'
     deriving (Show)
 
 type Defs = Map TypedVar ([Type], Expr)
@@ -92,7 +97,7 @@ instance FreeVars Expr TypedVar where
 
 
 fvExpr :: Expr -> Set TypedVar
-fvExpr = \case
+fvExpr (Expr _ ex) = case ex of
     Lit _ -> Set.empty
     Var x -> Set.singleton x
     App f a _ -> fvApp f a

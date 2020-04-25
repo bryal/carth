@@ -19,7 +19,7 @@ import Data.Bitraversable
 
 import Misc
 import qualified Checked
-import Checked (TVar(..), Scheme(..))
+import Checked (noPos, TVar(..), Scheme(..))
 import Monomorphic
 
 data Env = Env
@@ -42,7 +42,7 @@ monomorphize (Checked.Program defs tdefs externs) = evalMono $ do
     externs' <- mapM (bimapM pure monotype) (Map.toList externs)
     (defs', _) <- monoLet
         defs
-        (Checked.Var (Checked.TypedVar "start" Checked.startType))
+        (noPos (Checked.Var (Checked.TypedVar "start" Checked.startType)))
     tdefs' <- instTypeDefs tdefs
     pure (Program defs' tdefs' externs')
 
@@ -56,7 +56,7 @@ initEnv :: Env
 initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }
 
 mono :: Checked.Expr -> Mono Expr
-mono = \case
+mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Lit c -> pure (Lit c)
     Checked.Var (Checked.TypedVar x t) -> do
         t' <- monotype t
@@ -72,7 +72,7 @@ mono = \case
     Checked.Deref x -> fmap Deref (mono x)
     Checked.Absurd t -> fmap Absurd (monotype t)
 
-monoFun :: (String, Checked.Type) -> (Checked.Expr, Checked.Type) -> Mono Expr
+monoFun :: (String, Checked.Type) -> (Checked.Expr, Checked.Type) -> Mono Expr'
 monoFun (p, tp) (b, bt) = do
     parentInst <- use (defInsts . to (Map.lookup p))
     modifying defInsts (Map.delete p)
@@ -97,7 +97,7 @@ monoLet ds body = do
             pure (TypedVar name t, (us, dbody))
     pure (ds', body')
 
-monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr
+monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr'
 monoMatch e dt tbody =
     liftA3 Match (mono e) (monoDecisionTree dt) (monotype tbody)
 
@@ -134,7 +134,7 @@ monoAccess = \case
     Checked.Sel i span' a -> fmap (Sel i span') (monoAccess a)
     Checked.ADeref a -> fmap ADeref (monoAccess a)
 
-monoCtion :: VariantIx -> Span -> Checked.TConst -> [Checked.Expr] -> Mono Expr
+monoCtion :: VariantIx -> Span -> Checked.TConst -> [Checked.Expr] -> Mono Expr'
 monoCtion i span' (tdefName, tdefArgs) as = do
     tdefArgs' <- mapM monotype tdefArgs
     let tdefInst = (tdefName, tdefArgs')
