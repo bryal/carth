@@ -7,6 +7,7 @@ import Data.Map.Strict (Map)
 import Data.Bifunctor
 import Data.Maybe
 
+import SrcPos
 import Inferred
 
 
@@ -16,8 +17,8 @@ type Subst = Map TVar Type
 substTopDefs :: Subst -> Defs -> Defs
 substTopDefs s defs = fmap (substDef s) defs
 
-substDef :: Subst -> (Scheme, Expr) -> (Scheme, Expr)
-substDef s = second (substExpr s)
+substDef :: Subst -> WithPos (Scheme, Expr) -> WithPos (Scheme, Expr)
+substDef s = mapPos (second (substExpr s))
 
 substExpr :: Subst -> Expr -> Expr
 substExpr s (WithPos pos expr) = WithPos pos $ case expr of

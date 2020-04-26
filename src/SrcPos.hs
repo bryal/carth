@@ -1,8 +1,11 @@
 module SrcPos
     ( SrcPos(..)
+    , SourcePos(..)
     , WithPos(..)
     , HasPos(..)
+    , mapPos
     , unpos
+    , unPos
     , dummyPos
     , sourcePosPretty
     )
@@ -12,7 +15,7 @@ import Text.Megaparsec.Pos
 
 
 newtype SrcPos = SrcPos SourcePos
-    deriving (Show, Eq)
+    deriving (Show, Eq, Ord)
 
 data WithPos a = WithPos SrcPos a
 
@@ -30,6 +33,8 @@ instance Ord a => Ord (WithPos a) where
 instance HasPos (WithPos a) where
     getPos (WithPos p _) = p
 
+mapPos :: (a -> b) -> WithPos a -> WithPos b
+mapPos f (WithPos p a) = WithPos p (f a)
 
 unpos :: WithPos a -> a
 unpos (WithPos _ a) = a

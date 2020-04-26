@@ -82,7 +82,7 @@ withPos = Expr . Just
 noPos :: Expr' -> Expr
 noPos = Checked.Expr Nothing
 
-type Defs = Map String (Scheme, Expr)
+type Defs = Map String (WithPos (Scheme, Expr))
 type TypeDefs = Map String ([TVar], [[Type]])
 type Externs = Map String Type
 

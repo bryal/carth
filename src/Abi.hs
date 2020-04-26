@@ -15,7 +15,6 @@
 --   are passed how.
 module Abi
     ( simpleFunc
-    , simpleFunc'
     , simpleGlobVar
     , simpleGlobVar'
     , passByRef
@@ -26,6 +25,7 @@ module Abi
     )
 where
 
+import LLVM.Prelude (ShortByteString)
 import LLVM.AST
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Linkage as LLLink
@@ -34,7 +34,6 @@ import qualified LLVM.AST.Constant as LLConst
 import LLVM.AST.Global (Parameter)
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
-import qualified LLVM.AST.FunctionAttribute as LLFnAttr
 import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Word
@@ -46,17 +45,14 @@ import Monomorphic (Span)
 import Gen
 
 
-simpleFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
-simpleFunc = ($ []) .** simpleFunc'
-
-simpleFunc'
+simpleFunc
     :: Name
     -> [Parameter]
     -> Type
-    -> [LLFnAttr.FunctionAttribute]
     -> [BasicBlock]
+    -> [(ShortByteString, MDRef MDNode)]
     -> Global
-simpleFunc' n ps rt fnAttrs bs = Function
+simpleFunc n ps rt bs meta = Function
     { LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
     , LLGlob.dllStorageClass = Nothing
@@ -65,7 +61,7 @@ simpleFunc' n ps rt fnAttrs bs = Function
     , LLGlob.returnType = rt
     , LLGlob.name = n
     , LLGlob.parameters = (ps, False)
-    , LLGlob.functionAttributes = map Right fnAttrs
+    , LLGlob.functionAttributes = []
     , LLGlob.section = Nothing
     , LLGlob.comdat = Nothing
     , LLGlob.alignment = 0
@@ -73,14 +69,14 @@ simpleFunc' n ps rt fnAttrs bs = Function
     , LLGlob.prefix = Nothing
     , LLGlob.basicBlocks = bs
     , LLGlob.personalityFunction = Nothing
-    , LLGlob.metadata = []
+    , LLGlob.metadata = meta
     }
 
 simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
 simpleGlobVar name t = simpleGlobVar' name t . Just
 
 simpleGlobVar' :: Name -> Type -> Maybe LLConst.Constant -> Global
-simpleGlobVar' name t init = GlobalVariable
+simpleGlobVar' name t initializer = GlobalVariable
     { LLGlob.name = name
     , LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
@@ -90,7 +86,7 @@ simpleGlobVar' name t init = GlobalVariable
     , LLGlob.unnamedAddr = Nothing
     , LLGlob.isConstant = True
     , LLGlob.type' = t
-    , LLGlob.initializer = init
+    , LLGlob.initializer = initializer
     , LLGlob.section = Nothing
     , LLGlob.comdat = Nothing
     , LLGlob.alignment = 0

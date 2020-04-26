@@ -106,7 +106,7 @@ data Expr'
 
 type Expr = WithPos Expr'
 
-type Def = (Id 'Small, (Maybe Scheme, Expr))
+type Def = (Id 'Small, (WithPos (Maybe Scheme, Expr)))
 
 newtype ConstructorDefs = ConstructorDefs [(Id 'Big, [Type])]
     deriving (Show, Eq)
@@ -128,7 +128,7 @@ instance Eq Pat where
         _ -> False
 
 instance FreeVars Def (Id 'Small) where
-    freeVars (_, (_, body)) = freeVars body
+    freeVars (_, (WithPos _ (_, body))) = freeVars body
 
 instance FreeVars Expr (Id 'Small) where
     freeVars = fvExpr
@@ -153,7 +153,7 @@ fvExpr = unpos >>> \case
     App f a -> fvApp f a
     If p c a -> fvIf p c a
     Fun p b -> fvFun' p b
-    Let bs e -> fvLet (Set.fromList (map fst bs), map (snd . snd) bs) e
+    Let bs e -> fvLet (Set.fromList (map fst bs), map (snd . unpos . snd) bs) e
     TypeAscr e _ -> freeVars e
     Match e cs -> fvMatch e cs
     FunMatch cs -> fvCases cs

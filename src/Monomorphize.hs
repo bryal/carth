@@ -18,6 +18,7 @@ import Data.Set (Set)
 import Data.Bitraversable
 
 import Misc
+import SrcPos
 import qualified Checked
 import Checked (noPos, TVar(..), Scheme(..))
 import Monomorphic
@@ -88,13 +89,14 @@ monoLet ds body = do
     parentInsts <- use (defInsts . to (lookups ks))
     let newEmptyInsts = (fmap (const Map.empty) ds)
     modifying defInsts (Map.union newEmptyInsts)
-    body' <- augment envDefs ds (mono body)
+    body' <- augment envDefs (fmap unpos ds) (mono body)
     dsInsts <- use (defInsts . to (lookups ks))
     modifying defInsts (Map.union (Map.fromList parentInsts))
     let ds' = Map.fromList $ do
             (name, dInsts) <- dsInsts
+            let pos = getPos (ds Map.! name)
             (t, (us, dbody)) <- Map.toList dInsts
-            pure (TypedVar name t, (us, dbody))
+            pure (TypedVar name t, WithPos pos (us, dbody))
     pure (ds', body')
 
 monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr'

@@ -62,6 +62,7 @@ parseModule
     -> [String]
     -> IO (Either String ([Def], [TypeDef], [Extern]))
 parseModule filepath dir m visiteds nexts = do
+    -- TODO: make dir absolute to make debug work when binary is moved?
     modPaths <- fmap (dir :) modulePaths
     (src, f) <- parseModule' modPaths
     let visiteds' = Set.insert m visiteds
@@ -161,20 +162,20 @@ defTyped pos = reserved "define:" *> def' (fmap Just scheme) pos
 def'
     :: Parser (Maybe Scheme)
     -> SrcPos
-    -> Parser (Id 'Small, (Maybe Scheme, Expr))
+    -> Parser (Id 'Small, (WithPos (Maybe Scheme, Expr)))
 def' schemeParser topPos = varDef <|> funDef
   where
     varDef = do
         name <- small'
         scm <- schemeParser
         body <- expr
-        pure (name, (scm, body))
+        pure (name, (WithPos topPos (scm, body)))
     funDef = do
         (name, params) <- parens (liftM2 (,) small' (some pat))
         scm <- schemeParser
         body <- expr
         let f = foldr (WithPos topPos .* Fun) body params
-        pure (name, (scm, f))
+        pure (name, (WithPos topPos (scm, f)))
 
 expr :: Parser Expr
 expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
@@ -198,7 +199,10 @@ expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
         pure $ unpos
             (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
     let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
-    binding = parens (bindingTyped <|> bindingUntyped)
+    binding = do
+        p <- getSrcPos
+        (lhs, rhs) <- parens (bindingTyped <|> bindingUntyped)
+        pure (lhs, WithPos p rhs)
     bindingTyped = reserved ":"
         *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
     bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)

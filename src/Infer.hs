@@ -147,7 +147,8 @@ inferDefsComponents = \case
                 AcyclicSCC vert -> ([vert], False)
                 CyclicSCC verts' -> (verts', True)
         let (idents, rhss) = unzip verts
-        let (mayscms, bodies) = unzip rhss
+        let (poss, mayscms, bodies) =
+                unzip3 (map (\(WithPos p (x, y)) -> (p, x, y)) rhss)
         let names = map idstr idents
         mayscms' <- mapM checkScheme (zip names mayscms)
         ts <- replicateM (length names) fresh
@@ -166,7 +167,9 @@ inferDefsComponents = \case
                 pure body'
         generalizeds <- mapM generalize ts
         let scms' = zipWith fromMaybe generalizeds mayscms'
-        let annotDefs = Map.fromList (zip names (zip scms' bodies'))
+        let annotDefs = Map.fromList $ zip
+                names
+                (map (\(p, x, y) -> WithPos p (x, y)) (zip3 poss scms' bodies'))
         annotRest <- withLocals (zip names scms') (inferDefsComponents sccs)
         pure (Map.union annotRest annotDefs)
 
@@ -209,7 +212,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Fun p b -> inferFunMatch (pure (p, b))
     Parsed.Let defs b -> do
         annotDefs <- inferDefs defs
-        let defsScms = fmap (\(scm, _) -> scm) annotDefs
+        let defsScms = fmap (\(WithPos _ (scm, _)) -> scm) annotDefs
         (bt, b') <- withLocals' defsScms (infer b)
         pure (bt, Let annotDefs b')
     Parsed.TypeAscr x t -> do

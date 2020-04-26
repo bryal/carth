@@ -58,12 +58,12 @@ prettyProg :: Int -> Parsed.Program -> String
 prettyProg d (Parsed.Program defs tdefs externs) =
     let
         prettyDef = \case
-            (name, (Just scm, body)) -> concat
+            (name, WithPos _ (Just scm, body)) -> concat
                 [ indent d ++ "(define: " ++ pretty name ++ "\n"
                 , indent (d + 4) ++ pretty' (d + 4) scm ++ "\n"
                 , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
                 ]
-            (name, (Nothing, body)) -> concat
+            (name, WithPos _ (Nothing, body)) -> concat
                 [ indent d ++ "(define " ++ pretty name ++ "\n"
                 , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
                 ]
@@ -120,12 +120,12 @@ prettyExpr' d = \case
         ]
       where
         prettyDef d' = \case
-            (name, (Just scm, dbody)) -> concat
+            (name, WithPos _ (Just scm, dbody)) -> concat
                 [ "[: " ++ pretty' (d' + 3) name ++ "\n"
                 , indent (d' + 3) ++ pretty' (d' + 3) scm ++ "\n"
                 , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
                 ]
-            (name, (Nothing, dbody)) -> concat
+            (name, WithPos _ (Nothing, dbody)) -> concat
                 [ "[" ++ pretty' (d' + 1) name ++ "\n"
                 , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
                 ]

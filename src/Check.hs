@@ -153,7 +153,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
     boundInDefs :: Inferred.Defs -> Bound
     boundInDefs = mapM_ boundInDef
-    boundInDef ((Inferred.Forall tvs _), e) =
+    boundInDef (WithPos _ ((Inferred.Forall tvs _), e)) =
         local (Set.union tvs) (boundInExpr e)
     boundInExpr (WithPos pos e) = case e of
         Inferred.Lit _ -> pure ()
@@ -200,7 +200,7 @@ compileDecisionTrees
 compileDecisionTrees tdefs = compDefs
   where
     compDefs = mapM compDef
-    compDef = bimapM pure compExpr
+    compDef (WithPos p rhs) = fmap (WithPos p) (secondM compExpr rhs)
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of
         Inferred.Lit c -> pure (Checked.Lit c)

@@ -7,12 +7,15 @@ module Gen
     , outBlocks
     , outStrings
     , outFuncs
+    , outSrcPos
     , St(..)
     , currentBlockLabel
     , currentBlockInstrs
     , registerCount
+    , metadataCount
     , lambdaParentFunc
     , outerLambdaN
+    , srcPosToMetadata
     , Env(..)
     , env
     , dataTypes
@@ -39,7 +42,7 @@ data Env = Env
     --       or local?
     { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
     , _dataTypes :: Map Name Type
-    , _srcPos :: SrcPos
+    , _srcPos :: Maybe SrcPos
     }
 makeLenses ''Env
 
@@ -47,10 +50,12 @@ data St = St
     { _currentBlockLabel :: Name
     , _currentBlockInstrs :: [Named Instruction]
     , _registerCount :: Word
+    , _metadataCount :: Word
     -- | Keep track of the parent function name so that we can name the
     --   outermost lambdas of a function definition well.
     , _lambdaParentFunc :: Maybe String
     , _outerLambdaN :: Word
+    , _srcPosToMetadata :: Map SrcPos (MDRef MDNode)
     }
 makeLenses ''St
 
@@ -61,7 +66,8 @@ type Gen' = StateT St (Reader Env)
 data Out = Out
     { _outBlocks :: [BasicBlock]
     , _outStrings :: [(Name, String)]
-    , _outFuncs :: [(Name, [TypedVar], TypedVar, Expr)]
+    , _outFuncs :: [(Name, [TypedVar], SrcPos, TypedVar, Expr)]
+    , _outSrcPos :: [(SrcPos, MetadataNodeID)]
     }
 makeLenses ''Out
 
@@ -69,10 +75,10 @@ type Gen = WriterT Out Gen'
 
 
 instance Semigroup Out where
-    Out bs1 ss1 fs1 <> Out bs2 ss2 fs2 =
-        Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2)
+    Out bs1 ss1 fs1 ps1 <> Out bs2 ss2 fs2 ps2 =
+        Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2) (ps1 <> ps2)
 instance Monoid Out where
-    mempty = Out [] [] []
+    mempty = Out [] [] [] []
 
 
 lookupDatatype :: Name -> Gen' Type

@@ -456,3 +456,7 @@ the fix etc:
   all public-facing polymorphic functions? Should require some keyword
   or special form, like `boxed`, to make it clear when the FFI will be
   affected.
+* NEXT Add separate pass before Codegen to compile SrcPos:s
+  I think it could be done purely and independently from rest of codegen. Would be more clean.
+* NEXT Refactor Codegen
+  It's getting big, complex, and unwieldy. Probably buggy as well.

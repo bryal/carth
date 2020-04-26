@@ -84,7 +84,7 @@ data Expr'
 data Expr = Expr (Maybe SrcPos) Expr'
     deriving (Show)
 
-type Defs = Map TypedVar ([Type], Expr)
+type Defs = Map TypedVar (WithPos ([Type], Expr))
 type TypeDefs = [(TConst, [VariantTypes])]
 type Externs = [(String, Type)]
 
@@ -103,7 +103,7 @@ fvExpr (Expr _ ex) = case ex of
     App f a _ -> fvApp f a
     If p c a -> fvIf p c a
     Fun p (b, _) -> fvFun p b
-    Let bs e -> fvLet (Map.keysSet bs, map snd (Map.elems bs)) e
+    Let bs e -> fvLet (Map.keysSet bs, map (snd . unpos) (Map.elems bs)) e
     Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map fvExpr as)
     Box e -> fvExpr e

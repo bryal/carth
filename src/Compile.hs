@@ -30,6 +30,7 @@ compileModule t cfg m = do
     let exefile = outfile cfg
         ofile = replaceExtension exefile "o"
     when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" m
+    putStrLn ("   Verifying LLVM")
     verify m
     writeObjectToFile t (File ofile) m
     putStrLn ("   Linking")

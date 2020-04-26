@@ -3,11 +3,15 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
 
+import LLVM.Prelude (ShortByteString)
 import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
 import LLVM.AST.ParameterAttribute
+import qualified LLSubprog
+import qualified LLCompunit
+import qualified LLVM.AST.Operand as LLOp
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
@@ -25,10 +29,12 @@ import Data.Maybe
 import Data.Foldable
 import Data.List
 import Data.Functor
+import Data.Bifunctor
 import Control.Applicative
 import Lens.Micro.Platform (modifying, use, assign, to, view)
 
 import Misc
+import SrcPos
 import Pretty
 import FreeVars
 import qualified Monomorphic
@@ -59,24 +65,25 @@ codegen :: DataLayout -> FilePath -> Program -> Module
 codegen layout moduleFilePath (Program defs tdefs externs) =
     let
         defs' = Map.toList defs
-        initEnv = Env
-            { _env = Map.empty
-            , _dataTypes = Map.empty
-            , _srcPos = ice "Read Env.srcPos before it's been set"
-            }
+        initEnv =
+            Env { _env = Map.empty, _dataTypes = Map.empty, _srcPos = Nothing }
         initSt = St
             { _currentBlockLabel = "entry"
             , _currentBlockInstrs = []
             , _registerCount = 0
+            , _metadataCount = 3
             , _lambdaParentFunc = Nothing
             , _outerLambdaN = 1
+            -- TODO: Maybe add a pass before this that just generates all
+            --       SrcPos:s, separately and more cleanly?
+            , _srcPosToMetadata = Map.empty
             }
         runGen' g = runReader (evalStateT g initSt) initEnv
         (tdefs', externs', globDefs) = runGen' $ do
             tdefs'' <- defineDataTypes tdefs
             withDataTypes tdefs''
                 $ withExternSigs externs
-                $ withGlobDefSigs defs'
+                $ withGlobDefSigs (map (second unpos) defs')
                 $ do
                     es <- genExterns externs
                     ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs'))
@@ -93,6 +100,7 @@ codegen layout moduleFilePath (Program defs tdefs externs) =
             , genBuiltins
             , externs'
             , globDefs
+            , globMetadataDefs
             ]
         }
   where
@@ -116,6 +124,56 @@ codegen layout moduleFilePath (Program defs tdefs externs) =
                     (mkName (mangleName (x, us)))
                 )
         augment env (Map.fromList sigs') ga
+    fileId = MetadataNodeID 1
+    debugInfoVersionId = MetadataNodeID 2
+    globMetadataDefs =
+        [ MetadataNodeDefinition compileUnitId
+            $ DINode (LLOp.DIScope (LLOp.DICompileUnit compileUnitDef))
+        , MetadataNodeDefinition fileId
+            $ DINode (LLOp.DIScope (LLOp.DIFile fileDef))
+        , MetadataNodeDefinition debugInfoVersionId $ MDTuple
+            [ Just (MDValue (litI32 2))
+            , Just (MDString "Debug Info Version")
+            , Just (MDValue (litI32 3))
+            ]
+        , NamedMetadataDefinition "llvm.dbg.cu" [compileUnitId]
+        , NamedMetadataDefinition "llvm.module.flags" [debugInfoVersionId]
+        ]
+    compileUnitDef = LLCompunit.CompileUnit
+        { LLCompunit.language =
+            let unstandardized_c = 1 in unstandardized_c
+        , LLCompunit.file = MDRef fileId
+        , LLCompunit.producer = "carth version alpha"
+        , LLCompunit.optimized = False
+        , LLCompunit.flags = ""
+        , LLCompunit.runtimeVersion = 0
+        , LLCompunit.splitDebugFileName = ""
+        , LLCompunit.emissionKind = LLOp.FullDebug
+        , LLCompunit.enums = []
+        , LLCompunit.retainedTypes = []
+        , LLCompunit.globals = []
+        , LLCompunit.imports = []
+        , LLCompunit.macros = []
+        , LLCompunit.dWOId = 0
+        , LLCompunit.splitDebugInlining = False
+        , LLCompunit.debugInfoForProfiling = False
+        , LLCompunit.nameTableKind = LLOp.NameTableKindNone
+        , LLCompunit.debugBaseAddress = False
+        }
+    fileDef =
+        let (dir, file) = splitFileName moduleFilePath
+        in
+            LLOp.File
+                { LLSubprog.filename = fromString file
+                , LLSubprog.directory = fromString dir
+                , LLSubprog.checksum = Nothing
+                }
+
+compileUnitRef :: MDRef LLOp.DICompileUnit
+compileUnitRef = MDRef compileUnitId
+
+compileUnitId :: MetadataNodeID
+compileUnitId = MetadataNodeID 0
 
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct
 --   where, if there are more than 1 variant, the first element is the
@@ -136,7 +194,7 @@ defineDataTypes tds = do
 
 genBuiltins :: [Definition]
 genBuiltins = map
-    (\(x, (ps, tr)) -> GlobalDefinition (simpleFunc (mkName x) ps tr []))
+    (\(x, (ps, tr)) -> GlobalDefinition (simpleFunc (mkName x) ps tr [] []))
     (Map.toList builtins)
 
 builtins :: Map String ([Parameter], Type)
@@ -162,11 +220,11 @@ genMain :: Gen' Definition
 genMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    Out basicBlocks _ _ <- execWriterT $ do
+    Out basicBlocks _ _ _ <- execWriterT $ do
         f <- lookupVar (TypedVar "start" startType)
         _ <- app f (VLocal litUnit) typeUnit
         commitFinalFuncBlock (ret (litI32 0))
-    pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks))
+    pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks []))
 
 -- TODO: Change global defs to a new type that can be generated by llvm. As it
 --       is now, global non-function variables can't be straight-forwardly
@@ -174,70 +232,77 @@ genMain = do
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genGlobDef :: (TypedVar, ([Monomorphic.Type], Expr)) -> Gen' [Definition]
-genGlobDef (TypedVar v _, (ts, (Expr maybePos e))) =
-    let
-        pos = fromMaybe
-            (ice "rhs expr doesn't have srcpos in genGlobDef")
-            maybePos
-    in
-        case e of
-            Fun p (body, _) -> do
-                let var = (v, ts)
-                let name = mangleName var
-                assign lambdaParentFunc (Just name)
-                assign outerLambdaN 1
-                let fName = mkName (name ++ "_func")
-                (f, gs) <- locallySet srcPos pos
-                    $ genFunDef (fName, [], p, body)
-                let fRef =
-                        LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
-                let capturesType = LLType.ptr typeUnit
-                let captures = LLConst.Null capturesType
-                let closure = litStruct' [captures, fRef]
-                let closureDef =
-                        simpleGlobVar (mkName name) (typeOf closure) closure
-                pure (map GlobalDefinition (closureDef : f : gs))
-            _ -> nyi $ "Global non-function defs: " ++ show e
+genGlobDef
+    :: (TypedVar, WithPos ([Monomorphic.Type], Expr)) -> Gen' [Definition]
+genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
+    Fun p (body, _) -> do
+        let var = (v, ts)
+        let name = mangleName var
+        assign lambdaParentFunc (Just name)
+        assign outerLambdaN 1
+        let fName = mkName (name ++ "_func")
+        (f, gs) <- genFunDef (fName, [], dpos, p, body)
+        let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
+        let capturesType = LLType.ptr typeUnit
+        let captures = LLConst.Null capturesType
+        let closure = litStruct' [captures, fRef]
+        let closureDef = simpleGlobVar (mkName name) (typeOf closure) closure
+        pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
+    _ -> nyi $ "Global non-function defs: " ++ show e
 
 -- | Generates a function definition
 --
 --   The signature definition, the parameter-loading, and the result return are
 --   all done according to the calling convention.
-genFunDef :: (Name, [TypedVar], TypedVar, Expr) -> Gen' (Global, [Global])
-genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
+genFunDef
+    :: (Name, [TypedVar], SrcPos, TypedVar, Expr) -> Gen' (Global, [Definition])
+genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), body) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
-        (capturesParam, captureLocals) <- genExtractCaptures
-        pt' <- genType pt
-        px' <- newName px
-        -- Load params according to calling convention
-        passParamByRef <- passByRef pt'
-        let (withParam, pt'', pattrs) = if passParamByRef
-                then (withVar, LLType.ptr pt', [ByVal])
-                else (withLocal, pt', [])
-        let pRef = LocalReference pt'' px'
-        result <- getLocal
-            =<< withParam ptv pRef (withLocals captureLocals (genExpr body))
-        let rt' = typeOf result
-        let fParams' =
-                [uncurry Parameter capturesParam [], Parameter pt'' px' pattrs]
-        -- Return result according to calling convention
-        returnResultByRef <- passByRef rt'
-        if returnResultByRef
-            then do
-                let out = (LLType.ptr rt', mkName "out")
-                emitDo (store result (uncurry LocalReference out))
-                commitFinalFuncBlock retVoid
-                pure (LLType.void, uncurry Parameter out [SRet] : fParams')
-            else do
-                commitFinalFuncBlock (ret result)
-                pure (rt', fParams')
+    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs srcPoss) <-
+        runWriterT $ do
+            -- Two equal SrcPos's in different scopes are not equal at the
+            -- metadata level. Reset cache every scope.
+            assign srcPosToMetadata Map.empty
+            (capturesParam, captureLocals) <- genExtractCaptures
+            pt' <- genType pt
+            px' <- newName px
+            -- Load params according to calling convention
+            passParamByRef <- passByRef pt'
+            let (withParam, pt'', pattrs) = if passParamByRef
+                    then (withVar, LLType.ptr pt', [ByVal])
+                    else (withLocal, pt', [])
+            let pRef = LocalReference pt'' px'
+            result <- getLocal =<< withParam
+                ptv
+                pRef
+                (withLocals captureLocals (genExpr body))
+            let rt' = typeOf result
+            let
+                fParams' =
+                    [ uncurry Parameter capturesParam []
+                    , Parameter pt'' px' pattrs
+                    ]
+            -- Return result according to calling convention
+            returnResultByRef <- passByRef rt'
+            if returnResultByRef
+                then do
+                    let out = (LLType.ptr rt', mkName "out")
+                    emitDo (store result (uncurry LocalReference out))
+                    commitFinalFuncBlock retVoid
+                    pure (LLType.void, uncurry Parameter out [SRet] : fParams')
+                else do
+                    commitFinalFuncBlock (ret result)
+                    pure (rt', fParams')
+    (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
     ss <- mapM globStrVar globStrings
-    ls <- fmap concat (mapM (fmap (uncurry (:)) . genFunDef) lambdaFuncs)
-    let f = simpleFunc name fParams rt basicBlocks
-    pure (f, concat ss ++ ls)
+    ls <- fmap
+        concat
+        (mapM (fmap (uncurry ((:) . GlobalDefinition)) . genFunDef) lambdaFuncs)
+    ps <- mapM (defineSrcPos (MDRef funScopeMdId)) srcPoss
+    let f =
+            simpleFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
+    pure (f, concat ss ++ ls ++ (funScopeMdDef : ps))
   where
     globStrVar (strName, s) = do
         name_inner <- newName' "strlit_inner"
@@ -255,7 +320,7 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
                 [ptrBytes, litI64' len]
             str = litStructNamed' ("Str", []) [array]
             defStr = simpleGlobVar strName typeStr str
-        pure [defInner, defStr]
+        pure (map GlobalDefinition [defInner, defStr])
     genExtractCaptures = do
         capturesName <- newName "captures"
         let capturesPtrGenericType = LLType.ptr typeUnit
@@ -275,9 +340,63 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), body) = do
                     )
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
+    defineSrcPos funScopeMdRef (SrcPos (SourcePos _fp l c), mdId) = do
+        let (line, col) = both unPos (l, c)
+            loc =
+                LLOp.DILocation
+                    $ LLOp.Location (fromIntegral line) (fromIntegral col)
+                    $ funScopeMdRef
+        pure (MetadataNodeDefinition mdId loc)
+    defineFunScopeMetadata :: Gen' (MetadataNodeID, Definition)
+    defineFunScopeMetadata = do
+        mdId <- newMetadataId'
+        pure
+            ( mdId
+            , MetadataNodeDefinition
+                mdId
+                (DINode $ LLOp.DIScope $ LLOp.DILocalScope
+                    (LLOp.DISubprogram funMetadataSubprog)
+                )
+            )
+    funMetadataSubprog =
+        let
+            SrcPos (SourcePos path line' _) = dpos
+            line = fromIntegral (unPos line')
+            -- TODO: Maybe only define this once and cache MDRef somewhere?
+            fileNode =
+                let (dir, file) = splitFileName path
+                in
+                    LLSubprog.File
+                        { LLSubprog.filename = fromString file
+                        , LLSubprog.directory = fromString dir
+                        , LLSubprog.checksum = Nothing
+                        }
+        in LLOp.Subprogram
+            { LLSubprog.scope = Just (MDInline (LLOp.DIFile fileNode))
+            , LLSubprog.name = nameSBString name
+            , LLSubprog.linkageName = nameSBString name
+            , LLSubprog.file = Just (MDInline fileNode)
+            , LLSubprog.line = line
+            , LLSubprog.type' = Just
+                (MDInline (LLOp.SubroutineType [] 0 []))
+            , LLSubprog.localToUnit = True
+            , LLSubprog.definition = True
+            , LLSubprog.scopeLine = line
+            , LLSubprog.containingType = Nothing
+            , LLSubprog.virtuality = LLOp.NoVirtuality
+            , LLSubprog.virtualityIndex = 0
+            , LLSubprog.thisAdjustment = 0
+            , LLSubprog.flags = []
+            , LLSubprog.optimized = False
+            , LLSubprog.unit = Just compileUnitRef
+            , LLSubprog.templateParams = []
+            , LLSubprog.declaration = Nothing
+            , LLSubprog.retainedNodes = []
+            , LLSubprog.thrownTypes = []
+            }
 
 genExpr :: Expr -> Gen Val
-genExpr (Expr pos expr) = locally srcPos (flip fromMaybe pos) $ do
+genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
     parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> genConst c
@@ -387,7 +506,7 @@ genLet ds b = do
         t' <- genType t
         emitReg n (alloca t')
     withVars (zip vs ps) $ do
-        forM_ (zip ps es) $ \(p, (_, e)) -> do
+        forM_ (zip ps es) $ \(p, WithPos _ (_, e)) -> do
             x <- getLocal =<< genExpr e
             emitDo (store x p)
         genExpr b
@@ -522,7 +641,8 @@ genLambda p@(TypedVar px pt) (b, bt) = do
         f = VLocal $ ConstantOperand $ LLConst.GlobalReference
             (LLType.ptr ft)
             fname
-    scribe outFuncs [(fname, fvXs, p, b)]
+    pos <- view (srcPos . to (fromMaybe (ice "srcPos is Nothing in genLambda")))
+    scribe outFuncs [(fname, fvXs, pos, p, b)]
     genStruct [captures, f]
 
 genStruct :: [Val] -> Gen Val
@@ -679,13 +799,24 @@ emitNamedReg :: Name -> FunInstr -> Gen Operand
         emit' (reg :=) instr $> LocalReference rt reg
     )
   where
+    emit' :: (Instruction -> Named Instruction) -> Instr -> Gen ()
     emit' nameInstruction instr = do
-        _pos <- view srcPos
-        meta <- -- TODO:
-                --   loc <- genSrcPos p
-                --   pure [("dbg", loc)]
-                pure []
+        meta <- view srcPos >>= \case
+            Just pos -> do
+                loc <- genSrcPos pos
+                pure [("dbg", loc)]
+            Nothing -> pure []
         modifying currentBlockInstrs (nameInstruction (instr meta) :)
+    genSrcPos :: SrcPos -> Gen (MDRef MDNode)
+    genSrcPos pos = do
+        use (srcPosToMetadata . to (Map.lookup pos)) >>= \case
+            Just mdRef -> pure mdRef
+            Nothing -> do
+                mdId <- newMetadataId
+                let mdRef = MDRef mdId
+                scribe outSrcPos [(pos, mdId)]
+                modifying srcPosToMetadata (Map.insert pos mdRef)
+                pure (mdRef)
 
 emitReg :: String -> FunInstr -> Gen Operand
 emitReg s instr = newName s >>= flip emitNamedReg instr
@@ -712,6 +843,12 @@ newName = lift . newName'
 
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
+
+newMetadataId :: Gen MetadataNodeID
+newMetadataId = lift newMetadataId'
+
+newMetadataId' :: Gen' MetadataNodeID
+newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
 
 callExtern :: String -> [Operand] -> FunInstr
 callExtern f as =
@@ -892,3 +1029,8 @@ lookupVar x = do
     view (env . to (Map.lookup x)) >>= \case
         Just var -> pure (VVar var)
         Nothing -> ice $ "Undefined variable " ++ show x
+
+nameSBString :: Name -> ShortByteString
+nameSBString = \case
+    Name s -> s
+    UnName n -> fromString (show n)
