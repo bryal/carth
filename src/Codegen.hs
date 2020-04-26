@@ -62,9 +62,8 @@ instance Typed Val where
 
 
 codegen :: DataLayout -> FilePath -> Program -> Module
-codegen layout moduleFilePath (Program defs tdefs externs) =
+codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
     let
-        defs' = Map.toList defs
         initEnv =
             Env { _env = Map.empty, _dataTypes = Map.empty, _srcPos = Nothing }
         initSt = St
@@ -83,10 +82,10 @@ codegen layout moduleFilePath (Program defs tdefs externs) =
             tdefs'' <- defineDataTypes tdefs
             withDataTypes tdefs''
                 $ withExternSigs externs
-                $ withGlobDefSigs (map (second unpos) defs')
+                $ withGlobDefSigs (map (second unpos) defs)
                 $ do
                     es <- genExterns externs
-                    ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs'))
+                    ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs))
                     pure (tdefs'', es, ds)
     in Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
@@ -500,8 +499,8 @@ genCondBr predV genConseq genAlt = do
     fmap VLocal (emitAnonReg (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
 
 genLet :: Defs -> Expr -> Gen Val
-genLet ds b = do
-    let (vs, es) = unzip (Map.toList ds)
+genLet (Topo ds) b = do
+    let (vs, es) = unzip ds
     ps <- forM vs $ \(TypedVar n t) -> do
         t' <- genType t
         emitReg n (alloca t')

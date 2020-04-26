@@ -34,6 +34,7 @@ import Data.Set (Set)
 import Data.Map.Strict (Map)
 import Lens.Micro.Platform (makeLenses)
 
+import Misc
 import Parsed (TVar(..), TPrim(..), Const(..))
 import SrcPos
 
@@ -97,7 +98,7 @@ data Expr'
 
 type Expr = WithPos Expr'
 
-type Defs = Map String (WithPos (Scheme, Expr))
+type Defs = TopologicalOrder (String, (WithPos (Scheme, Expr)))
 type TypeDefs = Map String ([TVar], [(Id, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type

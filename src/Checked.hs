@@ -27,6 +27,7 @@ where
 import Data.Map.Strict (Map)
 import Data.Word
 
+import Misc
 import SrcPos
 import Inferred
     ( TVar(..)
@@ -82,7 +83,7 @@ withPos = Expr . Just
 noPos :: Expr' -> Expr
 noPos = Checked.Expr Nothing
 
-type Defs = Map String (WithPos (Scheme, Expr))
+type Defs = TopologicalOrder (String, (WithPos (Scheme, Expr)))
 type TypeDefs = Map String ([TVar], [[Type]])
 type Externs = Map String Type
 

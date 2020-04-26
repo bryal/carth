@@ -35,13 +35,13 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     let substd = substTopDefs substs inferred
     checkTypeVarsBound substd
     let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
-    desugared <- compileDecisionTrees mTypeDefs substd
-    checkStartDefined desugared
+    compiled <- compileDecisionTrees mTypeDefs substd
+    checkStartDefined compiled
     let tdefs'' = fmap (second (map snd)) tdefs'
-    pure (Checked.Program desugared tdefs'' externs')
+    pure (Checked.Program compiled tdefs'' externs')
   where
-    checkStartDefined ds =
-        when (not (Map.member "start" ds)) (throwError StartNotDefined)
+    checkStartDefined (Topo ds) =
+        when (not (elem "start" (map fst ds))) (throwError StartNotDefined)
 
 type CheckTypeDefs a
     = ReaderT
@@ -152,7 +152,7 @@ checkTypeVarsBound :: Inferred.Defs -> Except TypeErr ()
 checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
     boundInDefs :: Inferred.Defs -> Bound
-    boundInDefs = mapM_ boundInDef
+    boundInDefs (Topo defs) = mapM_ (secondM boundInDef) defs
     boundInDef (WithPos _ ((Inferred.Forall tvs _), e)) =
         local (Set.union tvs) (boundInExpr e)
     boundInExpr (WithPos pos e) = case e of
@@ -199,7 +199,7 @@ compileDecisionTrees
     :: MTypeDefs -> Inferred.Defs -> Except TypeErr Checked.Defs
 compileDecisionTrees tdefs = compDefs
   where
-    compDefs = mapM compDef
+    compDefs (Topo defs) = fmap Topo $ mapM (secondM compDef) defs
     compDef (WithPos p rhs) = fmap (WithPos p) (secondM compExpr rhs)
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of

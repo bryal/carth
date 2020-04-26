@@ -31,6 +31,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Word
 
+import Misc
 import SrcPos
 import Checked (VariantIx, Span)
 import FreeVars
@@ -84,7 +85,7 @@ data Expr'
 data Expr = Expr (Maybe SrcPos) Expr'
     deriving (Show)
 
-type Defs = Map TypedVar (WithPos ([Type], Expr))
+type Defs = TopologicalOrder (TypedVar, (WithPos ([Type], Expr)))
 type TypeDefs = [(TConst, [VariantTypes])]
 type Externs = [(String, Type)]
 
@@ -103,7 +104,8 @@ fvExpr (Expr _ ex) = case ex of
     App f a _ -> fvApp f a
     If p c a -> fvIf p c a
     Fun p (b, _) -> fvFun p b
-    Let bs e -> fvLet (Map.keysSet bs, map (snd . unpos) (Map.elems bs)) e
+    Let (Topo bs) e ->
+        fvLet (Set.fromList (map fst bs), map (snd . unpos) (map snd bs)) e
     Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map fvExpr as)
     Box e -> fvExpr e

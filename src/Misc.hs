@@ -16,6 +16,7 @@ module Misc
     , splitOn
     , (.*)
     , (.**)
+    , TopologicalOrder(..)
     )
 where
 
@@ -33,6 +34,9 @@ import qualified Text.Megaparsec as Mega
 import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import Data.Void
+
+newtype TopologicalOrder a = Topo [a]
+    deriving Show
 
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)

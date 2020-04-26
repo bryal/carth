@@ -141,7 +141,7 @@ orderDefs = stronglyConnComp . graph
 
 inferDefsComponents :: [SCC Parsed.Def] -> Infer Defs
 inferDefsComponents = \case
-    [] -> pure Map.empty
+    [] -> pure (Topo [])
     (scc : sccs) -> do
         let (verts, isCyclic) = case scc of
                 AcyclicSCC vert -> ([vert], False)
@@ -167,11 +167,13 @@ inferDefsComponents = \case
                 pure body'
         generalizeds <- mapM generalize ts
         let scms' = zipWith fromMaybe generalizeds mayscms'
-        let annotDefs = Map.fromList $ zip
+        let annotDefs = zip
                 names
                 (map (\(p, x, y) -> WithPos p (x, y)) (zip3 poss scms' bodies'))
-        annotRest <- withLocals (zip names scms') (inferDefsComponents sccs)
-        pure (Map.union annotRest annotDefs)
+        Topo annotRest <- withLocals
+            (zip names scms')
+            (inferDefsComponents sccs)
+        pure (Topo (annotDefs ++ annotRest))
 
 -- | Verify that user-provided type signature schemes are valid
 checkScheme :: (String, Maybe Parsed.Scheme) -> Infer (Maybe Scheme)
@@ -211,10 +213,10 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (tc, If p' c' a')
     Parsed.Fun p b -> inferFunMatch (pure (p, b))
     Parsed.Let defs b -> do
-        annotDefs <- inferDefs defs
-        let defsScms = fmap (\(WithPos _ (scm, _)) -> scm) annotDefs
-        (bt, b') <- withLocals' defsScms (infer b)
-        pure (bt, Let annotDefs b')
+        Topo annotDefs <- inferDefs defs
+        let defsScms = map (second (\(WithPos _ (scm, _)) -> scm)) annotDefs
+        (bt, b') <- withLocals defsScms (infer b)
+        pure (bt, Let (Topo annotDefs) b')
     Parsed.TypeAscr x t -> do
         (tx, WithPos _ x') <- infer x
         t' <- checkType pos t

@@ -10,6 +10,7 @@ import Lens.Micro.Platform (makeLenses, view, use, modifying, to)
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Functor
+import Data.Bifunctor
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -84,20 +85,20 @@ monoFun (p, tp) (b, bt) = do
     pure (Fun (TypedVar p tp') (b', bt'))
 
 monoLet :: Checked.Defs -> Checked.Expr -> Mono (Defs, Expr)
-monoLet ds body = do
-    let ks = Map.keys ds
+monoLet (Topo ds) body = do
+    let ks = map fst ds
     parentInsts <- use (defInsts . to (lookups ks))
-    let newEmptyInsts = (fmap (const Map.empty) ds)
+    let newEmptyInsts = Map.fromList (zip (map fst ds) (repeat Map.empty))
     modifying defInsts (Map.union newEmptyInsts)
-    body' <- augment envDefs (fmap unpos ds) (mono body)
-    dsInsts <- use (defInsts . to (lookups ks))
+    body' <- augment envDefs (Map.fromList (map (second unpos) ds)) (mono body)
+    dsInsts <- use (defInsts . to (Map.fromList . lookups ks))
     modifying defInsts (Map.union (Map.fromList parentInsts))
-    let ds' = Map.fromList $ do
-            (name, dInsts) <- dsInsts
-            let pos = getPos (ds Map.! name)
+    let ds' = do
+            (name, WithPos pos _) <- ds
+            let dInsts = dsInsts Map.! name
             (t, (us, dbody)) <- Map.toList dInsts
             pure (TypedVar name t, WithPos pos (us, dbody))
-    pure (ds', body')
+    pure (Topo ds', body')
 
 monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr'
 monoMatch e dt tbody =

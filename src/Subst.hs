@@ -7,6 +7,7 @@ import Data.Map.Strict (Map)
 import Data.Bifunctor
 import Data.Maybe
 
+import Misc
 import SrcPos
 import Inferred
 
@@ -15,7 +16,7 @@ import Inferred
 type Subst = Map TVar Type
 
 substTopDefs :: Subst -> Defs -> Defs
-substTopDefs s defs = fmap (substDef s) defs
+substTopDefs s (Topo defs) = Topo (map (second (substDef s)) defs)
 
 substDef :: Subst -> WithPos (Scheme, Expr) -> WithPos (Scheme, Expr)
 substDef s = mapPos (second (substExpr s))
@@ -26,7 +27,8 @@ substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     Var v -> Var (substTypedVar s v)
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
-    Let defs body -> Let (fmap (substDef s) defs) (substExpr s body)
+    Let (Topo defs) body ->
+        Let (Topo (map (second (substDef s)) defs)) (substExpr s body)
     FunMatch cs tp tb -> FunMatch (substCases s cs) (subst s tp) (subst s tb)
     Ctor i span' (tx, tts) ps ->
         Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
