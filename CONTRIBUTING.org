@@ -1,0 +1,20 @@
+* Versioning and basic git workflow
+
+  The ~master~ branch should always build, and development should
+  happen on the ~dev~ branch.
+
+  During development, the version (in package.yaml etc) should be the
+  version being developed, with an implicit -alpha. When a release is
+  ready, tag the last commit with the current version, and merge to
+  master. The immediately following commit should bump the minor
+  version by one in package.yaml and create a new, empty entry for the
+  version we're beginning work on in the changelog. The version is not
+  bumped in master, as we want to leave room for patch versions.
+
+  The entry of the currently developed version in the changelog should
+  be continously populated as features are added and everything is
+  fresh in memory.
+
+  If a bug is fixed, apply that particular commit to master as well
+  (cherry-pick?). On master, also add a commit that bumps the patch
+  version and adds a tag for the patch release.
