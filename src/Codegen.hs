@@ -630,7 +630,7 @@ genLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
 genLambda p@(TypedVar px pt) (b, bt) = do
     let fvXs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
     captures <- if null fvXs
-        then pure (VLocal (undef (LLType.ptr typeUnit)))
+        then pure (VLocal (null' (LLType.ptr typeUnit)))
         else genBoxGeneric =<< genStruct =<< mapM lookupVar fvXs
     fname <- use lambdaParentFunc >>= \case
         Just s ->
@@ -871,6 +871,9 @@ callExtern f as =
 
 undef :: Type -> Operand
 undef = ConstantOperand . LLConst.Undef
+
+null' :: Type -> Operand
+null' = ConstantOperand . LLConst.Null
 
 condbr :: Operand -> Name -> Name -> Terminator
 condbr c t f = CondBr c t f []
