@@ -336,35 +336,6 @@ the fix etc:
   Like a typechecker-pass but for generated documentation. Verify that
   all links are alive, that examples compile and produce the expected
   output, etc.
-* NEXT Debug information in LLVM-IR
-  You should be able to run a Carth program in GDB and actually be
-  able to do stuff, so we need to emit metadata about source-locations
-  and stuff in the LLVM-IR. Something like the following, from the rust playground:
-
-  #+BEGIN_EXAMPLE
-  ...
-  ; playground::foo
-  ; Function Attrs: nonlazybind uwtable
-  define internal i32 @_ZN10playground3foo17hc5d9d5678570880bE() unnamed_addr #1 !dbg !1258 {
-  start:
-  ; call std::panicking::begin_panic
-    call void @_ZN3std9panicking11begin_panic17hb85d687efeb64e5dE([0 x i8]* noalias nonnull readonly align 1 bitcast (<{ [4 x i8] }>* @13 to [0 x i8]*), i64 4, { [0 x i64], { [0 x i8]*, i64 }, [0 x i32], i32, [0 x i32], i32, [0 x i32] }* noalias readonly align 8 dereferenceable(24) bitcast (<{ i8*, [16 x i8] }>* @12 to { [0 x i64], { [0 x i8]*, i64 }, [0 x i32], i32, [0 x i32], i32, [0 x i32] }*)), !dbg !1264
-    unreachable, !dbg !1264
-  }
-  ; playground::main
-  ; Function Attrs: nonlazybind uwtable
-  define internal void @_ZN10playground4main17h7395a4a007d16efeE() unnamed_addr #1 !dbg !1265 {
-  start:
-  ; call playground::foo
-    %0 = call i32 @_ZN10playground3foo17hc5d9d5678570880bE(), !dbg !1266
-    br label %bb1, !dbg !1266
-
-    bb1:                                              ; preds = %start
-    ret void, !dbg !1267
-  }
-  ...
-  !1266 = !DILocation(line: 6, column: 4, scope: !1265)
-  #+END_EXAMPLE
 * INACTIVE Guarantee no stack overflow for tail recursion
   We should guarantee that directly (and indirectly?) recursive
   function call should not cause the stack usage to grow
