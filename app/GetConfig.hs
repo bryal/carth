@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TupleSections, TemplateHaskell #-}
 
 -- | Read all the different kinds of configurtion options for Carth. Command
 --   line options, config files, environment variables, etc.
@@ -13,6 +13,7 @@ import Data.Function
 import Control.Monad
 
 import Config
+import Prebaked
 
 
 getConfig :: IO Config
@@ -28,6 +29,7 @@ getConfig = do
             putStrLn usageSubs
             exitFailure
         "help" : a : _ | subCompile a -> usageCompile
+        "version" : _ -> printVersion >> exitSuccess
         a : _ -> do
             putStrLn ("Error: `" ++ a ++ "` is not a valid subcommand\n")
             putStrLn usageSubs
@@ -43,6 +45,7 @@ usageSubs = unlines
     , ""
     , "Available subcommands are:"
     , "  c, compile       Compile a source file"
+    , "     version       Show version information"
     , ""
     , "See `carth help SUBCOMMAND` for help on a specific subcommand"
     ]
@@ -92,3 +95,17 @@ compileOpts =
         "Output filepath"
     , Option [] ["debug"] (NoArg (\c -> c { debug = True })) "Enable debugging"
     ]
+
+printVersion :: IO ()
+printVersion = do
+    let (major, minor, patch) = version
+    let versionStr = concat [show major, ".", show minor, ".", show patch]
+    putStrLn ("Carth " ++ versionStr)
+    putStrLn ("git: " ++ commitHash ++ " (" ++ commitDate ++ ")")
+
+version :: (Int, Int, Int)
+version = $(readCompilerVersion)
+
+commitHash :: String
+commitDate :: String
+(commitHash, commitDate) = $(getCommit)

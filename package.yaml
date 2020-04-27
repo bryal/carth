@@ -33,6 +33,7 @@ dependencies:
 - bytestring
 - utf8-string
 - process
+- template-haskell
 
 library:
   source-dirs: src
