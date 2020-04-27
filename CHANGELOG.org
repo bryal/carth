@@ -5,6 +5,8 @@
     ~gdb~ with ~-tui~. Can also step source line-by-line, although
     this is not completely practical as we don't have sequential
     statements but rather trees of expressions.
+  - Add subcommand `version`, which simply prints the package version
+    and the commit of the particular build.
 
 * v0.3.1 <2020-01-10>
   Pattern match on strings and uninhabited types
