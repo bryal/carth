@@ -220,7 +220,7 @@ genMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ _ <- execWriterT $ do
-        f <- lookupVar (TypedVar "start" startType)
+        f <- lookupVar (TypedVar "main" mainType)
         _ <- app f (VLocal litUnit) typeUnit
         commitFinalFuncBlock (ret (litI32 0))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks []))
@@ -1009,7 +1009,13 @@ getIntBitWidth = \case
     t -> ice $ "Tried to get bit width of non-integer type " ++ show t
 
 mangleName :: (String, [Monomorphic.Type]) -> String
-mangleName (x, us) = x ++ mangleInst us
+mangleName = \case
+    -- Instead of dealing with changing entrypoint name and startfiles, just
+    -- call the outermost, compiler generated main `main`, and the user-defined
+    -- main `_main`, via this `mangleName` mechanic.
+    ("main", []) -> "_main"
+    ("main", _) -> ice "mangleName of `main` of non-empty instantiation"
+    (x, us) -> x ++ mangleInst us
 
 mangleInst :: [Monomorphic.Type] -> String
 mangleInst ts = if not (null ts)

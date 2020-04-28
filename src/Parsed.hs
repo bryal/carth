@@ -20,7 +20,7 @@ module Parsed
     , Extern(..)
     , Program(..)
     , isFunLike
-    , startType
+    , mainType
     )
 where
 
@@ -182,8 +182,8 @@ bvPat = \case
 idstr :: Id a -> String
 idstr (Id (WithPos _ x)) = x
 
-startType :: Type
-startType = TFun (TPrim TUnit) (TPrim TUnit)
+mainType :: Type
+mainType = TFun (TPrim TUnit) (TPrim TUnit)
 
 isFunLike :: Expr -> Bool
 isFunLike (WithPos _ e) = case e of

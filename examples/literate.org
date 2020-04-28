@@ -12,7 +12,7 @@ First we import the standard library.
 explicitly won't hurt.
 
 #+BEGIN_SRC carth :tangle yes
-(define (start _)
+(define (main _)
   (display (id "Literate programming rules!")))
 #+END_SRC
 

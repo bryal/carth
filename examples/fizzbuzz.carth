@@ -1,6 +1,6 @@
 (import std)
 
-(define (start _) (fizzbuzz unit))
+(define (main _) (fizzbuzz unit))
 
 (define (fizzbuzz _)
   (for (range 1 100)

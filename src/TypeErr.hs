@@ -13,7 +13,7 @@ import Parse
 
 
 data TypeErr
-    = StartNotDefined
+    = MainNotDefined
     | InvalidUserTypeSig SrcPos Scheme Scheme
     | CtorArityMismatch SrcPos String Int Int
     | ConflictingPatVarDefs SrcPos String
@@ -30,7 +30,7 @@ data TypeErr
     | RecTypeDef String SrcPos
     | UndefType SrcPos String
     | UnboundTVar SrcPos
-    | WrongStartType SrcPos Parsed.Scheme
+    | WrongMainType SrcPos Parsed.Scheme
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
@@ -40,7 +40,7 @@ type Message = String
 
 printErr :: TypeErr -> IO ()
 printErr = \case
-    StartNotDefined -> putStrLn "Error: start not defined"
+    MainNotDefined -> putStrLn "Error: main not defined"
     InvalidUserTypeSig p s1 s2 ->
         posd p
             $ ("Invalid user type signature " ++ pretty s1)
@@ -92,10 +92,10 @@ printErr = \case
         posd p
             $ "Could not fully infer type of expression.\n"
             ++ "Type annotations needed."
-    WrongStartType p s ->
+    WrongMainType p s ->
         posd p
-            $ "Incorrect type of `start`.\n"
-            ++ ("Expected: " ++ pretty startType)
+            $ "Incorrect type of `main`.\n"
+            ++ ("Expected: " ++ pretty mainType)
             ++ ("\nFound: " ++ pretty s)
     RecursiveVarDef (WithPos p x) ->
         posd p

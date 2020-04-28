@@ -21,7 +21,7 @@ module Monomorphic
     , Defs
     , TypeDefs
     , Program(..)
-    , startType
+    , mainType
     )
 where
 
@@ -121,5 +121,5 @@ fvDecisionTree = \case
     fvDSwitch es def =
         Set.unions $ fvDecisionTree def : map fvDecisionTree es
 
-startType :: Type
-startType = TFun (TPrim TUnit) (TPrim TUnit)
+mainType :: Type
+mainType = TFun (TPrim TUnit) (TPrim TUnit)

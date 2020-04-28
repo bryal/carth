@@ -44,7 +44,7 @@ monomorphize (Checked.Program defs tdefs externs) = evalMono $ do
     externs' <- mapM (bimapM pure monotype) (Map.toList externs)
     (defs', _) <- monoLet
         defs
-        (noPos (Checked.Var (Checked.TypedVar "start" Checked.startType)))
+        (noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType)))
     tdefs' <- instTypeDefs tdefs
     pure (Program defs' tdefs' externs')
 

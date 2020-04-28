@@ -20,7 +20,7 @@ module Checked
     , TypeDefs
     , Externs
     , Program(..)
-    , startType
+    , mainType
     )
 where
 
@@ -39,7 +39,7 @@ import Inferred
     , VariantIx
     , Span
     , Con(..)
-    , startType
+    , mainType
     )
 
 data TypedVar = TypedVar String Type

@@ -26,7 +26,7 @@ module Inferred
     , TypeDefs
     , Ctors
     , Externs
-    , startType
+    , mainType
     )
 where
 
@@ -111,5 +111,5 @@ instance Ord Con where
     compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
 
 
-startType :: Type
-startType = TFun (TPrim TUnit) (TPrim TUnit)
+mainType :: Type
+mainType = TFun (TPrim TUnit) (TPrim TUnit)

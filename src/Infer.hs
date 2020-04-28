@@ -178,10 +178,10 @@ inferDefsComponents = \case
 -- | Verify that user-provided type signature schemes are valid
 checkScheme :: (String, Maybe Parsed.Scheme) -> Infer (Maybe Scheme)
 checkScheme = \case
-    ("start", Nothing) -> pure (Just (Forall Set.empty startType))
-    ("start", Just s@(Parsed.Forall pos vs t))
-        | Set.size vs /= 0 || t /= Parsed.startType -> throwError
-            (WrongStartType pos s)
+    ("main", Nothing) -> pure (Just (Forall Set.empty mainType))
+    ("main", Just s@(Parsed.Forall pos vs t))
+        | Set.size vs /= 0 || t /= Parsed.mainType -> throwError
+            (WrongMainType pos s)
     (_, Nothing) -> pure Nothing
     (_, Just (Parsed.Forall pos vs t)) -> do
         t' <- checkType pos t

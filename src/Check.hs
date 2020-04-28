@@ -36,12 +36,12 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     checkTypeVarsBound substd
     let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
     compiled <- compileDecisionTrees mTypeDefs substd
-    checkStartDefined compiled
+    checkMainDefined compiled
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Checked.Program compiled tdefs'' externs')
   where
-    checkStartDefined (Topo ds) =
-        when (not (elem "start" (map fst ds))) (throwError StartNotDefined)
+    checkMainDefined (Topo ds) =
+        when (not (elem "main" (map fst ds))) (throwError MainNotDefined)
 
 type CheckTypeDefs a
     = ReaderT
