@@ -259,11 +259,17 @@ inferCase
     :: (Parsed.Pat, Parsed.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
-    let pvs' = Map.mapKeys Parsed.idstr pvs
-    (tb, b') <- withLocals' pvs' (infer b)
+    let
+        pvs' = map
+            (bimap (Parsed.idstr) (Forall Set.empty . TVar))
+            (Map.toList pvs)
+    (tb, b') <- withLocals pvs' (infer b)
     pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
-inferPat :: Parsed.Pat -> Infer (Type, Pat, Map (Id 'Small) Scheme)
+-- | Returns the type of the pattern; the pattern in the Pat format that the
+--   Match module wants, and a Map from the variables bound in the pattern to
+--   fresh schemes.
+inferPat :: Parsed.Pat -> Infer (Type, Pat, Map (Id 'Small) TVar)
 inferPat pat = fmap
     (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss))
     (inferPat' pat)
@@ -283,12 +289,8 @@ inferPat pat = fmap
             tv <- fresh
             pure (tv, PWild, Map.empty)
         Parsed.PVar x@(Id x') -> do
-            tv <- fresh
-            pure
-                ( tv
-                , PVar (TypedVar x' tv)
-                , Map.singleton x (Forall Set.empty tv)
-                )
+            tv <- fresh'
+            pure (TVar tv, PVar (TypedVar x' (TVar tv)), Map.singleton x tv)
         Parsed.PBox _ p -> do
             (tp', p', vs) <- inferPat p
             pure (TBox tp', PBox p', vs)
@@ -305,7 +307,7 @@ inferPatConstruction
     :: SrcPos
     -> Id 'Big
     -> [Parsed.Pat]
-    -> Infer (Type, Pat', Map (Id 'Small) Scheme)
+    -> Infer (Type, Pat', Map (Id 'Small) TVar)
 inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams
@@ -327,7 +329,7 @@ inferPatConstruction pos c cArgs = do
     pure (t, PCon con cArgs', cArgsVars')
 
 nonconflictingPatVarDefs
-    :: [Map (Id 'Small) Scheme] -> Infer (Map (Id 'Small) Scheme)
+    :: [Map (Id 'Small) TVar] -> Infer (Map (Id 'Small) TVar)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
         Just (Id (WithPos pos v)) -> throwError (ConflictingPatVarDefs pos v)
