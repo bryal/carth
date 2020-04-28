@@ -178,9 +178,9 @@ def' schemeParser topPos = varDef <|> funDef
         pure (name, (WithPos topPos (scm, f)))
 
 expr :: Parser Expr
-expr = withPos $ choice [unit, estr, ebool, var, num, eConstructor, pexpr]
+expr = withPos $ choice [eunit, estr, ebool, var, num, eConstructor, pexpr]
   where
-    unit = reserved "unit" $> Lit Unit
+    eunit = unit $> Lit Unit
     estr = fmap (Lit . Str) strlit
     ebool = fmap (Lit . Bool) bool
     eConstructor = fmap Ctor big'
@@ -227,6 +227,9 @@ ns_num = do
             a
     pure (Lit e)
 
+unit :: Parser ()
+unit = reserved "unit" $> ()
+
 bool :: Parser Bool
 bool = (reserved "true" $> True) <|> (reserved "false" $> False)
 
@@ -237,10 +240,11 @@ ns_strlit :: Parser String
 ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
 pat :: Parser Pat
-pat = choice [patInt, patBool, patStr, patCtor, patVar, ppat]
+pat = choice [patInt, patUnit, patBool, patStr, patCtor, patVar, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
     int = andSkipSpaceAfter (Lexer.signed empty Lexer.decimal)
+    patUnit = fmap PUnit getSrcPos <* unit
     patBool = liftA2 PBool getSrcPos bool
     patStr = liftA2 PStr getSrcPos strlit
     patCtor = fmap (\x -> PConstruction (getPos x) x []) big'

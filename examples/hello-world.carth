@@ -1,4 +1,4 @@
 (import std)
 
-(define (main _)
+(define (main unit)
   (display (str-append "Hello, world!" "\n")))

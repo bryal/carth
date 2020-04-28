@@ -271,6 +271,7 @@ inferPat pat = fmap
     inferPat' = \case
         Parsed.PConstruction pos c ps -> inferPatConstruction pos c ps
         Parsed.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
+        Parsed.PUnit _ -> pure (TPrim TUnit, PWild, Map.empty)
         Parsed.PBool _ b ->
             pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
         Parsed.PStr _ s ->

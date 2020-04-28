@@ -75,6 +75,7 @@ data Scheme = Forall SrcPos (Set TVar) Type
 data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]
     | PInt SrcPos Int
+    | PUnit SrcPos
     | PBool SrcPos Bool
     | PStr SrcPos String
     | PVar (Id 'Small)
@@ -140,6 +141,7 @@ instance HasPos Pat where
     getPos = \case
         PConstruction p _ _ -> p
         PInt p _ -> p
+        PUnit p -> p
         PBool p _ -> p
         PStr p _ -> p
         PVar v -> getPos v
@@ -174,6 +176,7 @@ bvPat :: Pat -> Set (Id 'Small)
 bvPat = \case
     PConstruction _ _ ps -> Set.unions (map bvPat ps)
     PInt _ _ -> Set.empty
+    PUnit _ -> Set.empty
     PBool _ _ -> Set.empty
     PStr _ _ -> Set.empty
     PVar x -> Set.singleton x

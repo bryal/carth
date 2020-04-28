@@ -158,6 +158,7 @@ prettyPat = \case
     Parsed.PConstruction _ (Parsed.Id (WithPos _ c)) ps ->
         if null ps then c else concat ["(", c, " ", spcPretty ps, ")"]
     Parsed.PInt _ n -> show n
+    Parsed.PUnit _ -> "unit"
     Parsed.PBool _ b -> if b then "true" else "false"
     Parsed.PStr _ s -> prettyStr s
     Parsed.PVar v -> Parsed.idstr v
