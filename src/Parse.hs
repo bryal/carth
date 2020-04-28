@@ -402,4 +402,8 @@ withPos :: Parser a -> Parser (WithPos a)
 withPos = liftA2 WithPos getSrcPos
 
 getSrcPos :: Parser SrcPos
-getSrcPos = fmap SrcPos getSourcePos
+getSrcPos = fmap
+    (\(SourcePos f l c) ->
+        SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c))
+    )
+    getSourcePos

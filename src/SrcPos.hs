@@ -1,21 +1,21 @@
 module SrcPos
     ( SrcPos(..)
-    , SourcePos(..)
     , WithPos(..)
     , HasPos(..)
     , mapPos
     , unpos
-    , unPos
-    , dummyPos
-    , sourcePosPretty
+    , prettySrcPos
     )
 where
 
 import Text.Megaparsec.Pos
 
 
-newtype SrcPos = SrcPos SourcePos
-    deriving (Show, Eq, Ord)
+data SrcPos = SrcPos
+    { srcName :: FilePath
+    , srcLine :: Word
+    , srcColumn :: Word
+    } deriving (Show, Eq, Ord)
 
 data WithPos a = WithPos SrcPos a
 
@@ -39,5 +39,6 @@ mapPos f (WithPos p a) = WithPos p (f a)
 unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
 
-dummyPos :: SrcPos
-dummyPos = SrcPos (initialPos "DUMMY")
+prettySrcPos :: SrcPos -> String
+prettySrcPos (SrcPos f l c) = sourcePosPretty
+    (SourcePos f (mkPos (fromIntegral l)) (mkPos (fromIntegral c)))

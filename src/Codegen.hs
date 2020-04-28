@@ -339,9 +339,8 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), body) = do
                     )
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
-    defineSrcPos funScopeMdRef (SrcPos (SourcePos _fp l c), mdId) = do
-        let (line, col) = both unPos (l, c)
-            loc =
+    defineSrcPos funScopeMdRef (SrcPos _ line col, mdId) = do
+        let loc =
                 LLOp.DILocation
                     $ LLOp.Location (fromIntegral line) (fromIntegral col)
                     $ funScopeMdRef
@@ -359,8 +358,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), body) = do
             )
     funMetadataSubprog =
         let
-            SrcPos (SourcePos path line' _) = dpos
-            line = fromIntegral (unPos line')
+            SrcPos path line _ = dpos
             -- TODO: Maybe only define this once and cache MDRef somewhere?
             fileNode =
                 let (dir, file) = splitFileName path
@@ -375,12 +373,12 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), body) = do
             , LLSubprog.name = nameSBString name
             , LLSubprog.linkageName = nameSBString name
             , LLSubprog.file = Just (MDInline fileNode)
-            , LLSubprog.line = line
+            , LLSubprog.line = fromIntegral line
             , LLSubprog.type' = Just
                 (MDInline (LLOp.SubroutineType [] 0 []))
             , LLSubprog.localToUnit = True
             , LLSubprog.definition = True
-            , LLSubprog.scopeLine = line
+            , LLSubprog.scopeLine = fromIntegral line
             , LLSubprog.containingType = Nothing
             , LLSubprog.virtuality = LLOp.NoVirtuality
             , LLSubprog.virtualityIndex = 0

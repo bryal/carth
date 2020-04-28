@@ -2,8 +2,6 @@
 
 module TypeErr (TypeErr(..), printErr) where
 
-import Text.Megaparsec (SourcePos(..), unPos)
-
 import Misc
 import SrcPos
 import qualified Parsed
@@ -109,9 +107,9 @@ printErr = \case
         posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
 
 posd :: SrcPos -> Message -> IO ()
-posd (SrcPos pos@(SourcePos f lineN colN)) msg = do
+posd (pos@(SrcPos f lineN colN)) msg = do
     src <- readFile f
-    let (lineN', colN') = (unPos lineN, unPos colN)
+    let (lineN', colN') = (fromIntegral lineN, fromIntegral colN)
         lines' = lines src
         line = if (lineN' <= length lines')
             then lines' !! (lineN' - 1)
@@ -129,7 +127,7 @@ posd (SrcPos pos@(SourcePos f lineN colN)) msg = do
             id
             (parseTokenTreeOrRest rest)
     putStrLn $ unlines
-        [ sourcePosPretty pos ++ ": Error:"
+        [ prettySrcPos pos ++ ": Error:"
         , indent pad ++ "|"
         , lineNS ++ " | " ++ line
         -- Find the span (end-pos) of the item in the source by applying the same
