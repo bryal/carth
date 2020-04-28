@@ -11,24 +11,45 @@ import qualified TypeErr
 import qualified Parsed
 import qualified Checked
 import Check
+import Conf
 import GetConfig
 import Compile
 import Monomorphize
+import qualified Monomorphic
 import qualified Parse
 import EnvVars
 
 main :: IO ()
-main = compileFile =<< getConfig
+main = getConfig >>= \case
+    CompileConf cfg -> compileFile cfg
+    RunConf cfg -> runFile cfg
 
-compileFile :: Config -> IO ()
+compileFile :: CompileConfig -> IO ()
 compileFile cfg = do
-    let (d, f) = (debug cfg, infile cfg)
+    let f = cInfile cfg
     putStrLn ("   Compiling " ++ f ++ "")
     putStrLn ("     Environment variables:")
     lp <- lookupEnv "LIBRARY_PATH"
     mp <- modulePaths
     putStrLn ("       library path = " ++ show lp)
     putStrLn ("       module paths = " ++ show mp)
+    mon <- frontend (cDebug cfg) f
+    compile f cfg mon
+    putStrLn ""
+
+runFile :: RunConfig -> IO ()
+runFile cfg = do
+    let f = rInfile cfg
+    putStrLn ("   Running " ++ f ++ "")
+    putStrLn ("     Environment variables:")
+    mp <- modulePaths
+    putStrLn ("       module paths = " ++ show mp)
+    mon <- frontend (rDebug cfg) f
+    run f cfg mon
+    putStrLn ""
+
+frontend :: Bool -> FilePath -> IO Monomorphic.Program
+frontend d f = do
     putStrLn ("   Parsing")
     ast <- parse f
     when d $ writeFile ".dbg.parsed" (pretty ast)
@@ -38,8 +59,7 @@ compileFile cfg = do
     putStrLn ("   Monomorphizing")
     let mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
-    compile f cfg mon
-    putStrLn ""
+    pure mon
 
 parse :: FilePath -> IO Parsed.Program
 parse f = Parse.parse f >>= \case

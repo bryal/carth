@@ -52,7 +52,7 @@ evalMono :: Mono a -> a
 evalMono ma = runReader (evalStateT ma initInsts) initEnv
 
 initInsts :: Insts
-initInsts = Insts Map.empty Set.empty
+initInsts = Insts Map.empty (Set.singleton ("Str", []))
 
 initEnv :: Env
 initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }

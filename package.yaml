@@ -52,6 +52,10 @@ library:
   - -Wno-missed-specialisations
   - -Wno-all-missed-specialisations
   - -Wno-unticked-promoted-constructors
+  extra-libraries:
+  - carth_foreign_core
+  # - dl
+  # - pthread
 
 executables:
   carth:

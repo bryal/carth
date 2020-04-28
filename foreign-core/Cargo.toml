@@ -11,4 +11,4 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "cdylib"]
