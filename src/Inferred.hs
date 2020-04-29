@@ -27,6 +27,7 @@ module Inferred
     , Ctors
     , Externs
     , mainType
+    , tBool
     )
 where
 
@@ -35,7 +36,7 @@ import Data.Map.Strict (Map)
 import Lens.Micro.Platform (makeLenses)
 
 import Misc
-import Parsed (TVar(..), TPrim(..), Const(..))
+import Parsed (TVar(..), TPrim(..), Const(..), tUnit)
 import SrcPos
 
 
@@ -112,4 +113,7 @@ instance Ord Con where
 
 
 mainType :: Type
-mainType = TFun (TPrim TUnit) (TPrim TUnit)
+mainType = TFun (TConst tUnit) (TConst tUnit)
+
+tBool :: Type
+tBool = TConst ("Bool", [])

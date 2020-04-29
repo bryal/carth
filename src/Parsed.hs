@@ -21,6 +21,7 @@ module Parsed
     , Program(..)
     , isFunLike
     , mainType
+    , tUnit
     )
 where
 
@@ -43,8 +44,7 @@ data TVar
     deriving (Show, Eq, Ord)
 
 data TPrim
-    = TUnit
-    | TNat8
+    = TNat8
     | TNat16
     | TNat32
     | TNat
@@ -53,7 +53,6 @@ data TPrim
     | TInt32
     | TInt
     | TDouble
-    | TBool
     deriving (Show, Eq, Ord)
 
 type TConst = (String, [Type])
@@ -75,19 +74,15 @@ data Scheme = Forall SrcPos (Set TVar) Type
 data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]
     | PInt SrcPos Int
-    | PUnit SrcPos
-    | PBool SrcPos Bool
     | PStr SrcPos String
     | PVar (Id 'Small)
     | PBox SrcPos Pat
     deriving Show
 
 data Const
-    = Unit
-    | Int Int
+    = Int Int
     | Double Double
     | Str String
-    | Bool Bool
     deriving (Show, Eq)
 
 data Expr'
@@ -141,8 +136,6 @@ instance HasPos Pat where
     getPos = \case
         PConstruction p _ _ -> p
         PInt p _ -> p
-        PUnit p -> p
-        PBool p _ -> p
         PStr p _ -> p
         PVar v -> getPos v
         PBox p _ -> p
@@ -176,8 +169,6 @@ bvPat :: Pat -> Set (Id 'Small)
 bvPat = \case
     PConstruction _ _ ps -> Set.unions (map bvPat ps)
     PInt _ _ -> Set.empty
-    PUnit _ -> Set.empty
-    PBool _ _ -> Set.empty
     PStr _ _ -> Set.empty
     PVar x -> Set.singleton x
     PBox _ p -> bvPat p
@@ -186,7 +177,10 @@ idstr :: Id a -> String
 idstr (Id (WithPos _ x)) = x
 
 mainType :: Type
-mainType = TFun (TPrim TUnit) (TPrim TUnit)
+mainType = TFun (TConst tUnit) (TConst tUnit)
+
+tUnit :: (String, [a])
+tUnit = ("Unit", [])
 
 isFunLike :: Expr -> Bool
 isFunLike (WithPos _ e) = case e of

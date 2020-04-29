@@ -1,6 +1,6 @@
 (import std)
 
-(define (main _) (fizzbuzz unit))
+(define (main Unit) (fizzbuzz Unit))
 
 (define (fizzbuzz _)
   (for (range 1 100)
@@ -8,10 +8,10 @@
 
 (define (fizzbuzz' n)
   (match (Pair (divisible? n 3) (divisible? n 5))
-    (case (Pair false false) (my-show-int n))
-    (case (Pair true false) "Fizz")
-    (case (Pair false true) "Buzz")
-    (case (Pair true true) "Fizzbuzz")))
+    (case (Pair False False) (my-show-int n))
+    (case (Pair True False) "Fizz")
+    (case (Pair False True) "Buzz")
+    (case (Pair True True) "Fizzbuzz")))
 
 (define my-show-int
   (fun-match

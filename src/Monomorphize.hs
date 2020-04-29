@@ -51,8 +51,11 @@ monomorphize (Checked.Program defs tdefs externs) = evalMono $ do
 evalMono :: Mono a -> a
 evalMono ma = runReader (evalStateT ma initInsts) initEnv
 
+-- We must manually add instantiations for types that occur in generated code
+-- and is not "detected" by the monomorphization pass, or the types won't be
+-- defined.
 initInsts :: Insts
-initInsts = Insts Map.empty (Set.singleton ("Str", []))
+initInsts = Insts Map.empty (Set.fromList [("Str", []), tUnit, ("Bool", [])])
 
 initEnv :: Env
 initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }

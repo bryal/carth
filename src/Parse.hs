@@ -178,11 +178,9 @@ def' schemeParser topPos = varDef <|> funDef
         pure (name, (WithPos topPos (scm, f)))
 
 expr :: Parser Expr
-expr = withPos $ choice [eunit, estr, ebool, var, num, eConstructor, pexpr]
+expr = withPos $ choice [estr, var, num, eConstructor, pexpr]
   where
-    eunit = unit $> Lit Unit
     estr = fmap (Lit . Str) strlit
-    ebool = fmap (Lit . Bool) bool
     eConstructor = fmap Ctor big'
     var = fmap Var small'
     pexpr =
@@ -227,12 +225,6 @@ ns_num = do
             a
     pure (Lit e)
 
-unit :: Parser ()
-unit = reserved "unit" $> ()
-
-bool :: Parser Bool
-bool = (reserved "true" $> True) <|> (reserved "false" $> False)
-
 strlit :: Parser String
 strlit = andSkipSpaceAfter ns_strlit
 
@@ -240,12 +232,10 @@ ns_strlit :: Parser String
 ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
 pat :: Parser Pat
-pat = choice [patInt, patUnit, patBool, patStr, patCtor, patVar, ppat]
+pat = choice [patInt, patStr, patCtor, patVar, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
     int = andSkipSpaceAfter (Lexer.signed empty Lexer.decimal)
-    patUnit = fmap PUnit getSrcPos <* unit
-    patBool = liftA2 PBool getSrcPos bool
     patStr = liftA2 PStr getSrcPos strlit
     patCtor = fmap (\x -> PConstruction (getPos x) x []) big'
     patVar = fmap PVar small'
@@ -273,7 +263,6 @@ nonptype = choice
     tprim = try $ do
         s <- big
         case s of
-            "Unit" -> pure TUnit
             "Nat8" -> pure TNat8
             "Nat16" -> pure TNat16
             "Nat32" -> pure TNat32
@@ -283,7 +272,6 @@ nonptype = choice
             "Int32" -> pure TInt32
             "Int" -> pure TInt
             "Double" -> pure TDouble
-            "Bool" -> pure TBool
             _ -> fail $ "Undefined type constant " ++ s
 
 ptype :: Parser Type
@@ -370,7 +358,6 @@ reserveds =
     , "define:"
     , "extern"
     , "forall"
-    , "unit"
     , "true"
     , "false"
     , "fun-match"

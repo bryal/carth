@@ -18,7 +18,7 @@ import qualified LLVM.AST.Float as LLFloat
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.String
 import System.FilePath
-import Control.Monad.Writer hiding (Sum(..))
+import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.Map as Map
@@ -433,11 +433,9 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
 
 genConst :: Monomorphic.Const -> Gen Val
 genConst = \case
-    Unit -> pure (VLocal litUnit)
     Int n -> pure (VLocal (litI64 n))
     Double x -> pure (VLocal (litDouble x))
     Str s -> genStrLit s
-    Bool b -> pure (VLocal (litBool b))
 
 genStrLit :: String -> Gen Val
 genStrLit s = do
@@ -758,7 +756,6 @@ genType = lift . genType'
 genType' :: Monomorphic.Type -> Gen' Type
 genType' = \case
     TPrim tc -> pure $ case tc of
-        TUnit -> typeUnit
         TNat8 -> i8
         TNat16 -> i16
         TNat32 -> i32
@@ -768,7 +765,6 @@ genType' = \case
         TInt32 -> i32
         TInt -> i64
         TDouble -> double
-        TBool -> typeBool
     TFun a r -> genClosureType a r
     TBox t -> fmap LLType.ptr (genType' t)
     TConst tc -> lookupEnum tc <&> \case
@@ -986,9 +982,6 @@ litI32 = ConstantOperand . LLConst.Int 32 . toInteger
 
 litI8' :: Integral n => n -> LLConst.Constant
 litI8' = LLConst.Int 8 . toInteger
-
-litBool :: Bool -> Operand
-litBool b = ConstantOperand $ LLConst.Int 8 $ if b then 1 else 0
 
 litDouble :: Double -> Operand
 litDouble = ConstantOperand . LLConst.Float . LLFloat.Double

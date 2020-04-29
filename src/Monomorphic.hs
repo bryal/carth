@@ -22,6 +22,7 @@ module Monomorphic
     , TypeDefs
     , Program(..)
     , mainType
+    , tUnit
     )
 where
 
@@ -35,7 +36,7 @@ import Misc
 import SrcPos
 import Checked (VariantIx, Span)
 import FreeVars
-import Parsed (Const(..), TPrim(..))
+import Parsed (Const(..), TPrim(..), tUnit)
 
 type TConst = (String, [Type])
 
@@ -122,4 +123,4 @@ fvDecisionTree = \case
         Set.unions $ fvDecisionTree def : map fvDecisionTree es
 
 mainType :: Type
-mainType = TFun (TPrim TUnit) (TPrim TUnit)
+mainType = TFun (TConst tUnit) (TConst tUnit)

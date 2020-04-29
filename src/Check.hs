@@ -127,6 +127,8 @@ builtinDataTypes' =
       , [TVImplicit 0, TVImplicit 1]
       , [("Pair", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
       )
+    , ("Unit", [], [("Unit", [])])
+    , ("Bool", [], [("False", []), ("True", [])])
     ]
 
 assertNoRec

@@ -158,19 +158,15 @@ prettyPat = \case
     Parsed.PConstruction _ (Parsed.Id (WithPos _ c)) ps ->
         if null ps then c else concat ["(", c, " ", spcPretty ps, ")"]
     Parsed.PInt _ n -> show n
-    Parsed.PUnit _ -> "unit"
-    Parsed.PBool _ b -> if b then "true" else "false"
     Parsed.PStr _ s -> prettyStr s
     Parsed.PVar v -> Parsed.idstr v
     Parsed.PBox _ p -> "(Box " ++ prettyPat p ++ ")"
 
 prettyConst :: Parsed.Const -> String
 prettyConst = \case
-    Parsed.Unit -> "unit"
     Parsed.Int n -> show n
     Parsed.Double x -> show x
     Parsed.Str s -> prettyStr s
-    Parsed.Bool b -> if b then "true" else "false"
 
 prettyStr :: String -> String
 prettyStr s = '"' : (s >>= showChar) ++ "\""
@@ -219,7 +215,6 @@ prettyTFun a b =
 
 prettyTPrim :: Parsed.TPrim -> String
 prettyTPrim = \case
-    Parsed.TUnit -> "Unit"
     Parsed.TNat8 -> "Nat8"
     Parsed.TNat16 -> "Nat16"
     Parsed.TNat32 -> "Nat32"
@@ -229,7 +224,6 @@ prettyTPrim = \case
     Parsed.TInt32 -> "Int32"
     Parsed.TInt -> "Int"
     Parsed.TDouble -> "Double"
-    Parsed.TBool -> "Bool"
 
 prettyTVar :: Parsed.TVar -> String
 prettyTVar = \case

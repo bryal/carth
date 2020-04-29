@@ -34,7 +34,7 @@ import qualified LLVM.AST.Constant as LLConst
 import LLVM.AST.Global (Parameter)
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
-import Control.Monad.Writer hiding (Sum(..))
+import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Word
 import Data.Foldable

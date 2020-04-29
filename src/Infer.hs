@@ -208,7 +208,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         (tp, p') <- infer p
         (tc, c') <- infer c
         (ta, a') <- infer a
-        unify (Expected (TPrim TBool)) (Found (getPos p) tp)
+        unify (Expected tBool) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
     Parsed.Fun p b -> inferFunMatch (pure (p, b))
@@ -277,9 +277,6 @@ inferPat pat = fmap
     inferPat' = \case
         Parsed.PConstruction pos c ps -> inferPatConstruction pos c ps
         Parsed.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
-        Parsed.PUnit _ -> pure (TPrim TUnit, PWild, Map.empty)
-        Parsed.PBool _ b ->
-            pure (TPrim TBool, intToPCon (fromEnum b) 1, Map.empty)
         Parsed.PStr _ s ->
             let
                 span' = ice "span of Con with VariantStr"
@@ -357,11 +354,9 @@ lookupEnvConstructor (Id (WithPos pos cx)) =
 
 litType :: Const -> Type
 litType = \case
-    Unit -> TPrim TUnit
     Int _ -> TPrim TInt
     Double _ -> TPrim TDouble
     Str _ -> typeStr
-    Bool _ -> TPrim TBool
 
 typeStr :: Type
 typeStr = TConst ("Str", [])

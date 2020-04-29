@@ -7,7 +7,7 @@
 
 (extern -panic (Fun Str Unit))
 (define (panic msg)
-  (seq (-panic msg) (undefined unit)))
+  (seq (-panic msg) (undefined Unit)))
 
 (type (Maybe a)
   None
@@ -21,7 +21,7 @@
   (Lazy (Fun Unit a)))
 
 (define lively
-  (fun-match (case (Lazy f) (f unit))))
+  (fun-match (case (Lazy f) (f Unit))))
 
 ;;; Math
 
@@ -57,9 +57,9 @@
   (or (> a b) (= a b)))
 
 (define (and p q)
-  (if p q false))
+  (if p q False))
 (define (or p q)
-  (if p true q))
+  (if p True q))
 
 (define (divisible? n m)
   (= (rem n m) 0))
@@ -102,7 +102,7 @@
 
 (define (for xs f)
   (match (next xs)
-    (case None unit)
+    (case None Unit)
     (case (Some (Pair x xs'))
           (seq (f x) (for xs' f)))))
 
