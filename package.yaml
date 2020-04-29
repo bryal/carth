@@ -37,6 +37,8 @@ dependencies:
 
 library:
   source-dirs: src
+  extra-libraries:
+  - carth_foreign_core
   ghc-options:
   - -Weverything
   - -Werror
@@ -52,10 +54,6 @@ library:
   - -Wno-missed-specialisations
   - -Wno-all-missed-specialisations
   - -Wno-unticked-promoted-constructors
-  extra-libraries:
-  - carth_foreign_core
-  # - dl
-  # - pthread
 
 executables:
   carth:
