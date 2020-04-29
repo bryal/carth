@@ -37,8 +37,6 @@ dependencies:
 
 library:
   source-dirs: src
-  extra-libraries:
-  - carth_foreign_core
   ghc-options:
   - -Weverything
   - -Werror

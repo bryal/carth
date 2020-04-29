@@ -15,7 +15,7 @@ carth-bin: foreign-core
 
 .PHONY: foreign-core
 foreign-core:
-	cd foreign-core; cargo build --release
+	cd foreign-core && cargo build --release
 
 .PHONY: install-bin
 install-bin: carth-bin
@@ -32,3 +32,4 @@ install-mods:
 .PHONY: clean
 clean:
 	stack clean --full && rm carth.cabal
+	cd foreign-core && cargo clean
