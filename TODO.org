@@ -437,11 +437,8 @@ the fix etc:
 
   https://hackage.haskell.org/package/llvm-hs-pure-9.0.0/docs/LLVM-IRBuilder-Module.html#v:function
 
-* NEXT Fix OrcJIT
-  See orcJitModule in [[file:src/Compile.hs]]
-
 * NEXT Add basic repl
-  Add a basic repl based on the MCJIT. Something very similar to
+  Add a basic repl based on the JIT. Something very similar to
   http://www.stephendiehl.com/llvm/.
 
   Could maybe be the starting point for an on-demand architechture?
