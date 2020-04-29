@@ -18,7 +18,7 @@ import qualified LLVM.AST.Float as LLFloat
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.String
 import System.FilePath
-import Control.Monad.Writer
+import Control.Monad.Writer hiding (Sum(..))
 import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.Map as Map
@@ -28,6 +28,7 @@ import Data.Word
 import Data.Maybe
 import Data.Foldable
 import Data.List
+import Data.Function
 import Data.Functor
 import Data.Bifunctor
 import Control.Applicative
@@ -64,8 +65,12 @@ instance Typed Val where
 codegen :: DataLayout -> FilePath -> Program -> Module
 codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
     let
-        initEnv =
-            Env { _env = Map.empty, _dataTypes = Map.empty, _srcPos = Nothing }
+        initEnv = Env
+            { _env = Map.empty
+            , _enumTypes = Map.empty
+            , _dataTypes = Map.empty
+            , _srcPos = Nothing
+            }
         initSt = St
             { _currentBlockLabel = "entry"
             , _currentBlockInstrs = []
@@ -79,8 +84,9 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
             }
         runGen' g = runReader (evalStateT g initSt) initEnv
         (tdefs', externs', globDefs) = runGen' $ do
-            tdefs'' <- defineDataTypes tdefs
-            withDataTypes tdefs''
+            (enums, tdefs'') <- defineDataTypes tdefs
+            augment enumTypes enums
+                $ augment dataTypes tdefs''
                 $ withExternSigs externs
                 $ withGlobDefSigs (map (second unpos) defs)
                 $ do
@@ -94,7 +100,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
         , moduleTargetTriple = Nothing
         , moduleDefinitions = concat
             [ map
-                (\(n, tmax) -> TypeDefinition n (Just tmax))
+                (\(n, tmax) -> TypeDefinition n (Just (typeStruct tmax)))
                 (Map.toList tdefs')
             , genBuiltins
             , externs'
@@ -103,7 +109,6 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
             ]
         }
   where
-    withDataTypes = augment dataTypes
     withExternSigs es ga = do
         es' <- forM es $ \(name, t) -> do
             t' <- genType' t
@@ -179,17 +184,35 @@ compileUnitId = MetadataNodeID 0
 --   variant-index. The variant index is represented as an integer with the
 --   smallest width 2^n that can fit all variants. The rest of the elements are
 --   the field-types of the largest variant wrt allocation size.
-defineDataTypes :: TypeDefs -> Gen' (Map Name Type)
+--
+--   If none of the variants of the data-type has any members, we say it's an
+--   enumeration, which is represented as a single integer, equal to the size it
+--   would have been as a tag. If further there's only a single variant, the
+--   data-type is represented as `{}`.
+defineDataTypes :: TypeDefs -> Gen' (Map Name Word32, Map Name [Type])
 defineDataTypes tds = do
-    mfix $ \tds' ->
-        fmap Map.fromList $ augment dataTypes tds' $ forM tds $ \(tc, vs) -> do
-            let n = mkName (mangleTConst tc)
-            let totVariants = length vs
-            ts <- mapM (genVariantType (fromIntegral totVariants)) vs
-            sizedTs <- mapM (\t -> fmap (\s -> (s, t)) (sizeof t)) ts
-            if null sizedTs
-                then ice ("defineDataTypes: sizedTs empty for def " ++ show n)
-                else pure (n, snd (maximum sizedTs))
+    let (enums, datas) = partition (all null . snd) tds
+    let enums' = Map.fromList $ map
+            (\(tc, vs) ->
+                ( mkName (mangleTConst tc)
+                , fromMaybe 0 (tagBitWidth (fromIntegral (length vs)))
+                )
+            )
+            enums
+    datas'' <- mfix $ \datas' ->
+        fmap Map.fromList
+            $ augment enumTypes enums'
+            $ augment dataTypes datas'
+            $ forM datas
+            $ \(tc, vs) -> do
+                let n = mkName (mangleTConst tc)
+                let totVariants = fromIntegral (length vs)
+                ts <- mapM (genVariantType totVariants) vs
+                sizedTs <- mapM (\t -> sizeof (typeStruct t) <&> (, t)) ts
+                if null sizedTs
+                    then ice ("defineDataTypes: sizedTs empty for " ++ show n)
+                    else pure (n, snd (maximum sizedTs))
+    pure (enums', datas'')
 
 genBuiltins :: [Definition]
 genBuiltins = map
@@ -244,7 +267,7 @@ genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
         let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
         let capturesType = LLType.ptr typeUnit
         let captures = LLConst.Null capturesType
-        let closure = litStruct' [captures, fRef]
+        let closure = litStruct [captures, fRef]
         let closureDef = simpleGlobVar (mkName name) (typeOf closure) closure
         pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
     _ -> nyi $ "Global non-function defs: " ++ show e
@@ -314,10 +337,10 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), body) = do
                 (LLConst.Array i8 (map litI8' bytes))
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
             ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
-            array = litStructNamed'
+            array = litStructNamed
                 ("Array", [TPrim TNat8])
                 [ptrBytes, litI64' len]
-            str = litStructNamed' ("Str", []) [array]
+            str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobVar strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
     genExtractCaptures = do
@@ -582,7 +605,7 @@ genDecisionLeaf (bs, e) selections = do
 
 selAs :: Span -> [Monomorphic.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do
-    tvariant <- lift (genVariantType totVariants ts)
+    tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
     let tgeneric = typeOf matchee
     pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
     emitDo (store matchee pGeneric)
@@ -599,18 +622,24 @@ selDeref x = emitAnonReg (load x)
 
 genCtion :: Monomorphic.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
-    as' <- mapM genExpr as
-    let tag = maybe
-            id
-            ((:) . VLocal . ConstantOperand . flip LLConst.Int i)
-            (tagBitWidth span')
-    s <- getLocal =<< genStruct (tag as')
-    let t = typeOf s
-    let tgeneric = genDatatypeRef dataType
-    pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
-    p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
-    emitDo (store s p)
-    pure (VVar pGeneric)
+    lookupEnum dataType & lift >>= \case
+        Just 0 -> pure (VLocal litUnit)
+        Just w -> pure (VLocal (ConstantOperand (LLConst.Int w i)))
+        Nothing -> do
+            as' <- mapM genExpr as
+            let tag = maybe
+                    id
+                    ((:) . VLocal . ConstantOperand . flip LLConst.Int i)
+                    (tagBitWidth span')
+            s <- getLocal =<< genStruct (tag as')
+            let t = typeOf s
+            let tgeneric = genDatatypeRef dataType
+            pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
+            p <- emitReg
+                "ction_ptr_structural"
+                (bitcast pGeneric (LLType.ptr t))
+            emitDo (store s p)
+            pure (VVar pGeneric)
 
 -- TODO: Eta-conversion
 -- | A lambda is a pair of a captured environment and a function.  The captured
@@ -742,7 +771,10 @@ genType' = \case
         TBool -> typeBool
     TFun a r -> genClosureType a r
     TBox t -> fmap LLType.ptr (genType' t)
-    TConst t -> pure (genDatatypeRef t)
+    TConst tc -> lookupEnum tc <&> \case
+        Just 0 -> typeUnit
+        Just w -> IntegerType w
+        Nothing -> genDatatypeRef tc
 
 -- | A `Fun` is a closure, and follows a certain calling convention
 --
@@ -783,9 +815,9 @@ genCapturesType = fmap typeStruct . mapM (\(TypedVar _ t) -> genType t)
 genDatatypeRef :: Monomorphic.TConst -> Type
 genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 
-genVariantType :: Span -> [Monomorphic.Type] -> Gen' Type
+genVariantType :: Span -> [Monomorphic.Type] -> Gen' [Type]
 genVariantType totVariants =
-    fmap (typeStruct . maybe id ((:) . IntegerType) (tagBitWidth totVariants))
+    fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants))
         . mapM genType'
 
 emitDo :: Instr -> Gen ()
@@ -961,35 +993,26 @@ litBool b = ConstantOperand $ LLConst.Int 8 $ if b then 1 else 0
 litDouble :: Double -> Operand
 litDouble = ConstantOperand . LLConst.Float . LLFloat.Double
 
-litStruct :: [LLConst.Constant] -> Operand
-litStruct = ConstantOperand . litStruct'
-
-litStruct' :: [LLConst.Constant] -> LLConst.Constant
-litStruct' = LLConst.Struct Nothing False
+litStruct :: [LLConst.Constant] -> LLConst.Constant
+litStruct = LLConst.Struct Nothing False
 
 -- NOTE: typeOf Struct does not return NamedTypeReference of the structName, so
 --       sometimes, an expression created from this will have the wrong
 --       type. Specifically, I have observed this behaviour i phi-nodes. To
 --       guard against it (until fixed upstream, hopefully), store the value in
 --       a variable beforehand.
-litStructNamed' :: TConst -> [LLConst.Constant] -> LLConst.Constant
-litStructNamed' t xs =
+litStructNamed :: TConst -> [LLConst.Constant] -> LLConst.Constant
+litStructNamed t xs =
     let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
 
 litUnit :: Operand
-litUnit = litStruct []
-
-typeStruct :: [Type] -> Type
-typeStruct ts = StructureType { isPacked = False, elementTypes = ts }
+litUnit = ConstantOperand (litStruct [])
 
 typeStr :: Type
 typeStr = NamedTypeReference (mkName (mangleTConst ("Str", [])))
 
 typeBool :: Type
 typeBool = i8
-
-typeUnit :: Type
-typeUnit = StructureType { isPacked = False, elementTypes = [] }
 
 getFunRet :: Type -> Type
 getFunRet = \case
@@ -1040,3 +1063,9 @@ nameSBString :: Name -> ShortByteString
 nameSBString = \case
     Name s -> s
     UnName n -> fromString (show n)
+
+lookupEnum :: TConst -> Gen' (Maybe Word32)
+lookupEnum tc = view (enumTypes . to (tconstLookup tc))
+
+tconstLookup :: TConst -> Map Name a -> Maybe a
+tconstLookup = Map.lookup . mkName . mangleTConst

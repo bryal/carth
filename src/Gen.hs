@@ -18,9 +18,12 @@ module Gen
     , srcPosToMetadata
     , Env(..)
     , env
+    , enumTypes
     , dataTypes
     , srcPos
     , lookupDatatype
+    , typeUnit
+    , typeStruct
     )
 where
 
@@ -30,6 +33,7 @@ import Control.Monad.State
 import Control.Monad.Reader
 import qualified Data.Map as Map
 import Data.Map (Map)
+import Data.Word
 import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc
@@ -41,7 +45,8 @@ data Env = Env
     -- TODO: Could operands in env be Val instead? I.e., either stack-allocated
     --       or local?
     { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
-    , _dataTypes :: Map Name Type
+    , _enumTypes :: Map Name Word32
+    , _dataTypes :: Map Name [Type]
     , _srcPos :: Maybe SrcPos
     }
 makeLenses ''Env
@@ -82,6 +87,15 @@ instance Monoid Out where
 
 
 lookupDatatype :: Name -> Gen' Type
-lookupDatatype x = view (dataTypes . to (Map.lookup x)) >>= \case
-    Just u -> pure u
-    Nothing -> ice $ "Undefined datatype " ++ show x
+lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
+    Just 0 -> pure (typeUnit)
+    Just w -> pure (IntegerType w)
+    Nothing -> fmap
+        (maybe (ice ("Undefined datatype " ++ show x)) typeStruct)
+        (view (dataTypes . to (Map.lookup x)))
+
+typeUnit :: Type
+typeUnit = typeStruct []
+
+typeStruct :: [Type] -> Type
+typeStruct ts = StructureType { isPacked = False, elementTypes = ts }

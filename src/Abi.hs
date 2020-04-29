@@ -34,7 +34,7 @@ import qualified LLVM.AST.Constant as LLConst
 import LLVM.AST.Global (Parameter)
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
-import Control.Monad.Writer
+import Control.Monad.Writer hiding (Sum(..))
 import qualified Data.Map as Map
 import Data.Word
 import Data.Foldable
@@ -103,7 +103,10 @@ passByRef = lift . passByRef'
 --       particularly section 3.2.3 Parameter Passing (p18).
 passByRef' :: Type -> Gen' Bool
 passByRef' = \case
-    NamedTypeReference x -> passByRef' =<< view (dataTypes . to (Map.! x))
+    NamedTypeReference x -> view (dataTypes . to (Map.lookup x)) >>= \case
+        Just ts -> passByRef' (typeStruct ts)
+        Nothing ->
+            ice $ "passByRef': No dataType for NamedTypeReference " ++ show x
     -- Simple scalar types. They go in registers.
     VoidType -> pure False
     IntegerType _ -> pure False
