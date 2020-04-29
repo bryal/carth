@@ -445,3 +445,6 @@ the fix etc:
   Would probably require some memoization mechanism so that we don't
   unnecessarily check, monomorphise, and compile stuff we don't need
   to.
+* NEXT Un-generalize module Selections
+  Since we now use JIT instead of interpreter, only Codegen uses
+  Selections, and we could make it simpler by inlining it.
