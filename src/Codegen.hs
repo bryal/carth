@@ -519,14 +519,18 @@ genCondBr predV genConseq genAlt = do
 
 genLet :: Defs -> Expr -> Gen Val
 genLet (Topo ds) b = do
-    let (vs, es) = unzip ds
-    ps <- forM vs $ \(TypedVar n t) -> do
-        t' <- genType t
-        emitReg n (alloca t')
-    withVars (zip vs ps) $ do
-        forM_ (zip ps es) $ \(p, WithPos _ (_, e)) -> do
-            x <- getLocal =<< genExpr e
-            emitDo (store x p)
+    (binds, cs) <- fmap unzip $ forM ds $ \case
+        (v, WithPos _ (_, Expr _ (Fun p (b, bt)))) -> do
+            let fvXs = Set.toList (Set.delete p (freeVars b))
+            tcaptures <- fmap
+                typeStruct
+                (mapM (\(TypedVar _ t) -> genType t) fvXs)
+            captures <- genHeapAllocGeneric tcaptures
+            l <- genLambda' p (b, bt) (VLocal captures) fvXs
+            pure ((v, l), Just (captures, fvXs))
+        (v, WithPos _ (_, e)) -> genExpr e <&> \e' -> ((v, e'), Nothing)
+    withVals binds $ do
+        forM_ (catMaybes cs) (uncurry populateCaptures)
         genExpr b
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Val
@@ -651,11 +655,28 @@ genCtion (i, span', dataType, as) = do
 --   Inside of the function, first all the captured variables are extracted from
 --   the environment, then the body of the function is run.
 genLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
-genLambda p@(TypedVar px pt) (b, bt) = do
-    let fvXs = Set.toList (Set.delete (TypedVar px pt) (freeVars b))
+genLambda p (b, bt) = do
+    let fvXs = Set.toList (Set.delete p (freeVars b))
     captures <- if null fvXs
-        then pure (VLocal (null' (LLType.ptr typeUnit)))
-        else genBoxGeneric =<< genStruct =<< mapM lookupVar fvXs
+        then pure (null' (LLType.ptr typeUnit))
+        else do
+            tcaptures <- fmap
+                typeStruct
+                (mapM (\(TypedVar _ t) -> genType t) fvXs)
+            captures' <- genHeapAllocGeneric tcaptures
+            populateCaptures captures' fvXs
+            pure captures'
+    genLambda' p (b, bt) (VLocal captures) fvXs
+
+populateCaptures :: Operand -> [TypedVar] -> Gen ()
+populateCaptures ptrGeneric fvXs = do
+    captures <- getLocal =<< genStruct =<< mapM lookupVar fvXs
+    ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr (typeOf captures)))
+    emitDo (store captures ptr)
+
+genLambda'
+    :: TypedVar -> (Expr, Monomorphic.Type) -> Val -> [TypedVar] -> Gen Val
+genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
     fname <- use lambdaParentFunc >>= \case
         Just s ->
             fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
@@ -678,23 +699,20 @@ genStruct xs = do
         (undef t)
         (zip [0 ..] xs')
 
-genBoxGeneric :: Val -> Gen Val
-genBoxGeneric = fmap snd . genBox'
-
 genBox :: Val -> Gen Val
 genBox = fmap fst . genBox'
 
 genBox' :: Val -> Gen (Val, Val)
 genBox' x = do
     let t = typeOf x
-    ptrGeneric <- genHeapAlloc t
+    ptrGeneric <- genHeapAllocGeneric t
     ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr t))
     x' <- getLocal x
     emitDo (store x' ptr)
     pure (VLocal ptr, VLocal ptrGeneric)
 
-genHeapAlloc :: Type -> Gen Operand
-genHeapAlloc t = do
+genHeapAllocGeneric :: Type -> Gen Operand
+genHeapAllocGeneric t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
     emitAnonReg (callExtern "carth_alloc" [size])
 
@@ -721,7 +739,7 @@ getLocal = \case
     VLocal x -> pure x
 
 withLocals :: [(TypedVar, Operand)] -> Gen a -> Gen a
-withLocals = flip (foldr (uncurry withLocal))
+withLocals = withXs withLocal
 
 -- | Takes a local value, allocates a variable for it, and runs a generator in
 --   the environment with the variable
@@ -730,18 +748,21 @@ withLocal x v gen = do
     vPtr <- genStackAllocated v
     withVar x vPtr gen
 
-withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
-withVars = flip (foldr (uncurry withVar))
-
 -- | Takes a local, stack allocated value, and runs a generator in the
 --   environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
 withVar x v = locally env (Map.insert x v)
 
+withVals :: [(TypedVar, Val)] -> Gen a -> Gen a
+withVals = withXs withVal
+
 withVal :: TypedVar -> Val -> Gen a -> Gen a
 withVal x v ga = do
     var <- getVar v
     withVar x var ga
+
+withXs :: (TypedVar -> x -> Gen a -> Gen a) -> [(TypedVar, x)] -> Gen a -> Gen a
+withXs f = flip (foldr (uncurry f))
 
 genStackAllocated :: Operand -> Gen Operand
 genStackAllocated v = do

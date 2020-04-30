@@ -60,13 +60,14 @@ handleProgram f debug file cfg pgm = withContext $ \ctx ->
             putStrLn ("   Generating LLVM")
             let amod = codegen layout file pgm
             withModuleFromAST ctx amod $ \mod -> do
-                putStrLn ("   Assembling LLVM")
-                when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
                 putStrLn ("   Verifying LLVM")
+                when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
                 verify mod
                 withPassManager (optPasses optLevel tm) $ \passman -> do
                     putStrLn "   Optimizing"
                     _ <- runPassManager passman mod
+                    when (debug cfg)
+                        $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                     f cfg tm mod
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
