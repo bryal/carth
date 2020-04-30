@@ -1,3 +1,8 @@
+(import nonstrict)
+(import iter)
+(import list)
+(import maybe)
+
 (define (fst (Pair a _)) a)
 (define (snd (Pair _ b)) b)
 
@@ -8,20 +13,6 @@
 (extern -panic (Fun Str Unit))
 (define (panic msg)
   (seq (-panic msg) (undefined Unit)))
-
-(type (Maybe a)
-  None
-  (Some a))
-
-(define unwrap!
-  (fun-match (case (Some x) x)
-             (case None (panic "unwrap! of None"))))
-
-(type (Lazy a)
-  (Lazy (Fun Unit a)))
-
-(define lively
-  (fun-match (case (Lazy f) (f Unit))))
 
 ;;; Math
 
@@ -81,100 +72,14 @@
 
 ;;; Function
 
-(define (seq a b)
-  b)
+(define (const a b) a)
+(define (seq   a b) b)
 
-(define (comp f g a)
-  (f (g a)))
-
-;;; Iter
-
-(type (Iter a)
-  (Iter (Lazy (Maybe (Pair a (Iter a))))))
-
-(define (next (Iter it)) (lively it))
-(define (next! it) (unwrap! (next it)))
-
-(define (range a b)
-  (Iter (Lazy (if (> a b)
-                  (fun _ None)
-                (fun _ (Some (Pair a (range (+ a 1) b))))))))
-
-(define (for xs f)
-  (match (next xs)
-    (case None Unit)
-    (case (Some (Pair x xs'))
-          (seq (f x) (for xs' f)))))
-
-;;; List
-
-(type (List a)
-  (Cons (Box (Pair a (List a))))
-  Nil)
-
-(define first
-  (fun-match
-    (case (Cons (Box (Pair x _))) (Some x))
-    (case Nil None)))
-(define first!
-  (fun-match
-    (case (Cons (Box (Pair x _))) x)
-    (case Nil (panic "first! of empty list"))))
-
-(define rest
-  (fun-match
-    (case (Cons (Box (Pair _ xs))) (Some xs))
-    (case Nil None)))
-(define rest!
-  (fun-match
-    (case (Cons (Box (Pair _ xs))) xs)
-    (case Nil (panic "rest! of empty list"))))
-
-(define last
-  (fun-match
-    (case (Cons (Box (Pair x Nil))) (Some x))
-    (case (Cons (Box (Pair _ xs))) (last xs))
-    (case Nil None)))
-(define last!
-  (fun-match
-    (case (Cons (Box (Pair x Nil))) x)
-    (case (Cons (Box (Pair _ xs))) (last! xs))
-    (case Nil (panic "last! of empty list"))))
-
-(define init
-  (fun-match
-    (case Nil None)
-    (case xs (Some (init! xs)))))
-(define init!
-  (fun-match
-    (case (Cons (Box (Pair _ Nil))) Nil)
-    (case (Cons (Box (Pair x xs))) (cons x (init! xs)))
-    (case Nil (panic "init! of empty list"))))
-
-(define (cons x xs)
-  (Cons (box (Pair x xs))))
-
-(define (list1 x)
-  (cons x Nil))
-(define (list2 x0 x1)
-  (cons x0 (list1 x1)))
-(define (list3 x0 x1 x2)
-  (cons x0 (list2 x1 x2)))
-(define (list4 x0 x1 x2 x3)
-  (cons x0 (list3 x1 x2 x3)))
-(define (list5 x0 x1 x2 x3 x4)
-  (cons x0 (list4 x1 x2 x3 x4)))
-(define (list6 x0 x1 x2 x3 x4 x5)
-  (cons x0 (list5 x1 x2 x3 x4 x5)))
-
-(define: (foldl f acc xs)
-    (forall (a b) (Fun (Fun b a b) b (List a) b))
-  (match xs
-    (case (Cons (Box (Pair x xs'))) (foldl f (f acc x) xs'))
-    (case Nil acc)))
+(define (<o f g a) (f (g a)))
+(define (o> f g a) (g (f a)))
 
 (type Void)
 
 (define: void-elim
     (forall (a) (Fun Void a))
-  (fun-match))
+  (fmatch))

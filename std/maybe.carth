@@ -1,0 +1,7 @@
+(type (Maybe a)
+  None
+  (Some a))
+
+(define unwrap!
+  (fmatch (case (Some x) x)
+          (case None (panic "unwrap! of None"))))

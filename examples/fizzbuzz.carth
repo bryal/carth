@@ -4,7 +4,7 @@
 
 (define (fizzbuzz _)
   (for (range 1 100)
-       (comp display fizzbuzz')))
+       (<o display fizzbuzz')))
 
 (define (fizzbuzz' n)
   (match (Pair (divisible? n 3) (divisible? n 5))
@@ -14,7 +14,7 @@
     (case (Pair True True) "Fizzbuzz")))
 
 (define my-show-int
-  (fun-match
+  (fmatch
     (case 1 "one")
     (case 2 "two")
     (case n (show-int n))))

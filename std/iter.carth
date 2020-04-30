@@ -1,0 +1,27 @@
+(import std)
+(import nonstrict)
+(import list)
+(import maybe)
+
+(type (Iter a)
+  (Iter (NonStrict (Maybe (Pair a (Iter a))))))
+
+(define (next (Iter it)) (strict it))
+(define (next! it) (unwrap! (next it)))
+
+(define (range a b)
+  (Iter (NonStrict (if (> a b)
+                       (fun (_) None)
+                     (fun (_) (Some (Pair a (range (+ a 1) b))))))))
+
+(define (for xs f) (fold (const f) Unit xs))
+
+(define: (fold f acc xs)
+    (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
+  (let ((tail-fold (fun ((Pair acc xs))
+                     (match (next xs)
+                       (case (Some (Pair x xs'))
+                             (tail-fold (Pair (f acc x) xs')))
+                       (case None
+                             acc)))))
+    (tail-fold (Pair acc xs))))
