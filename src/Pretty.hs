@@ -139,7 +139,7 @@ prettyExpr' d = \case
         , ")"
         ]
     Parsed.FunMatch cs -> concat
-        [ "(fun-match"
+        [ "(fmatch"
         , precalate
             ("\n" ++ indent (d + 2))
             (map (prettyBracketPair (d + 2)) cs)

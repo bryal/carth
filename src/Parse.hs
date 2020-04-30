@@ -186,7 +186,7 @@ expr = withPos $ choice [estr, var, num, eConstructor, pexpr]
     pexpr =
         parens $ choice
             [funMatch, match, if', fun, let', typeAscr, box, deref, app]
-    funMatch = reserved "fun-match" *> fmap FunMatch cases
+    funMatch = reserved "fmatch" *> fmap FunMatch cases
     match = reserved "match" *> liftA2 Match expr cases
     cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
     if' = reserved "if" *> liftM3 If expr expr expr
@@ -358,7 +358,7 @@ reserveds =
     , "define:"
     , "extern"
     , "forall"
-    , "fun-match"
+    , "fmatch"
     , "match"
     , "if"
     , "fun"
