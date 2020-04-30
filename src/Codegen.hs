@@ -520,20 +520,20 @@ genCondBr predV genConseq genAlt = do
     fmap VLocal (emitAnonReg (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
 
 genLet :: Defs -> Expr -> Gen Val
-genLet (Topo ds) b = do
+genLet (Topo ds) letBody = do
     (binds, cs) <- fmap unzip $ forM ds $ \case
-        (v, WithPos _ (_, Expr _ (Fun p (b, bt)))) -> do
-            let fvXs = Set.toList (Set.delete p (freeVars b))
+        (v, WithPos _ (_, Expr _ (Fun p (fb, fbt)))) -> do
+            let fvXs = Set.toList (Set.delete p (freeVars fb))
             tcaptures <- fmap
                 typeStruct
                 (mapM (\(TypedVar _ t) -> genType t) fvXs)
             captures <- genHeapAllocGeneric tcaptures
-            l <- genLambda' p (b, bt) (VLocal captures) fvXs
+            l <- genLambda' p (fb, fbt) (VLocal captures) fvXs
             pure ((v, l), Just (captures, fvXs))
         (v, WithPos _ (_, e)) -> genExpr e <&> \e' -> ((v, e'), Nothing)
     withVals binds $ do
         forM_ (catMaybes cs) (uncurry populateCaptures)
-        genExpr b
+        genExpr letBody
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Val
 genMatch m dt tbody = do

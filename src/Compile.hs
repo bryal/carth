@@ -53,9 +53,9 @@ handleProgram f debug file cfg pgm = withContext $ \ctx ->
     -- A minimum optimization level of -O1 ensures that all sibling calls are
     -- optimized, even if we don't use a calling convention like `fastcc` that
     -- can optimize any tail call.
-    let optLevel = if debug cfg then CodeGenOpt.Less else CodeGenOpt.Default
+    let optLvl = if debug cfg then CodeGenOpt.Less else CodeGenOpt.Default
     in
-        withHostTargetMachinePIC optLevel $ \tm -> do
+        withHostTargetMachinePIC optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
             putStrLn ("   Generating LLVM")
             let amod = codegen layout file pgm
@@ -63,7 +63,7 @@ handleProgram f debug file cfg pgm = withContext $ \ctx ->
                 putStrLn ("   Verifying LLVM")
                 when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
                 verify mod
-                withPassManager (optPasses optLevel tm) $ \passman -> do
+                withPassManager (optPasses optLvl tm) $ \passman -> do
                     putStrLn "   Optimizing"
                     _ <- runPassManager passman mod
                     when (debug cfg)
