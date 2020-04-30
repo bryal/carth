@@ -10,6 +10,7 @@ import LLVM.Analysis
 import LLVM.OrcJIT
 import LLVM.OrcJIT.CompileLayer as CL
 import LLVM.Linking
+import LLVM.PassManager
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
@@ -36,7 +37,6 @@ compile = handleProgram compileModule cDebug
 run :: FilePath -> RunConfig -> Monomorphic.Program -> IO ()
 run = handleProgram (const orcJitModule) rDebug
 
--- TODO: CodeGenOpt level
 handleProgram
     :: (config -> TargetMachine -> Module -> IO ())
     -> (config -> Bool)
@@ -45,21 +45,35 @@ handleProgram
     -> Monomorphic.Program
     -> IO ()
 handleProgram f debug file cfg pgm = withContext $ \ctx ->
-    withHostTargetMachinePIC $ \tm -> do
-        layout <- getTargetMachineDataLayout tm
-        putStrLn ("   Generating LLVM")
-        let amod = codegen layout file pgm
-        withModuleFromAST ctx amod $ \mod -> do
-            putStrLn ("   Assembling LLVM")
-            when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
-            putStrLn ("   Verifying LLVM")
-            verify mod
-            f cfg tm mod
+    -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize
+    -- by -O2. No point in going further to -O3, as those optimizations are
+    -- expensive and seldom actually improve the performance in a statistically
+    -- significant way.
+    --
+    -- A minimum optimization level of -O1 ensures that all sibling calls are
+    -- optimized, even if we don't use a calling convention like `fastcc` that
+    -- can optimize any tail call.
+    let optLevel = if debug cfg then CodeGenOpt.Less else CodeGenOpt.Default
+    in
+        withHostTargetMachinePIC optLevel $ \tm -> do
+            layout <- getTargetMachineDataLayout tm
+            putStrLn ("   Generating LLVM")
+            let amod = codegen layout file pgm
+            withModuleFromAST ctx amod $ \mod -> do
+                putStrLn ("   Assembling LLVM")
+                when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                putStrLn ("   Verifying LLVM")
+                verify mod
+                withPassManager (optPasses optLevel tm) $ \passman -> do
+                    putStrLn "   Optimizing"
+                    _ <- runPassManager passman mod
+                    f cfg tm mod
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do
     let exefile = cOutfile cfg
         ofile = replaceExtension exefile "o"
+    putStrLn "   Writing object"
     writeObjectToFile tm (File ofile) mod
     putStrLn ("   Linking")
     callProcess
@@ -149,6 +163,27 @@ writeLLVMAssemblyToFile' f m = do
     writeFile f ""
     writeLLVMAssemblyToFile (File f) m
 
-withHostTargetMachinePIC :: (TargetMachine -> IO a) -> IO a
-withHostTargetMachinePIC =
-    withHostTargetMachine Reloc.PIC CodeModel.Default CodeGenOpt.None
+withHostTargetMachinePIC :: CodeGenOpt.Level -> (TargetMachine -> IO a) -> IO a
+withHostTargetMachinePIC = withHostTargetMachine Reloc.PIC CodeModel.Default
+
+optPasses :: CodeGenOpt.Level -> TargetMachine -> PassSetSpec
+optPasses level tm =
+    let
+        levelN = case level of
+            CodeGenOpt.None -> 0
+            CodeGenOpt.Less -> 1
+            CodeGenOpt.Default -> 2
+            CodeGenOpt.Aggressive -> 3
+    in
+        CuratedPassSetSpec
+            { optLevel = Just levelN
+            , sizeLevel = Nothing
+            , unitAtATime = Nothing
+            , simplifyLibCalls = Nothing
+            , loopVectorize = Nothing
+            , superwordLevelParallelismVectorize = Nothing
+            , useInlinerWithThreshold = Nothing
+            , dataLayout = Nothing
+            , targetLibraryInfo = Nothing
+            , targetMachine = Just tm
+            }
