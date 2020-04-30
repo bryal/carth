@@ -317,18 +317,6 @@ the fix etc:
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
 
-* NEXT Reference
-  Rust has a [[https://doc.rust-lang.org/reference/][good reference]]. Look at that for inspiration.
-
-** INACTIVE Document syntax
-
-** INACTIVE Document type system
-
-** INACTIVE Document memory model
-
-* NEXT Continuous deployment of webpage
-  at [[https://carth.jo.zone/]] or some other place.
-
 * INACTIVE HTML documentation generation
   Like [[https://www.haskell.org/haddock/][haddock]] and [[https://www.haskell.org/haddock/][rustdoc]].
 
@@ -375,7 +363,7 @@ the fix etc:
    priority inversion which is a problem with spinlocks.
    https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
    https://matklad.github.io/2020/01/04/mutexes-are-faster-than-spinlocks.html
-* NEXT "Global" memoization
+* INACTIVE "Global" memoization
   Add a special function for "memoized application" that acts like the
   application function (in Haskell, ($) :: (a -> b) -> a -> b), the
   difference being that it stores the result in a global, hidden Map
@@ -413,7 +401,7 @@ the fix etc:
   Maybe monomorphize all package-internal code, and box all
   public-facing functions?
 
-* NEXT Public polymorphic functions in compiled library
+* INACTIVE Public polymorphic functions in compiled library
   Keywords: boxing, dynamic linking
 
   When compiling a library, especially a dynamically linked one, how
@@ -431,7 +419,7 @@ the fix etc:
   I think it could be done purely and independently from rest of codegen. Would be more clean.
 * NEXT Refactor Codegen
   It's getting big, complex, and unwieldy. Probably buggy as well.
-* NEXT Use GADTs in Infer
+* INACTIVE Use GADTs in Infer
 * NEXT Have a look at LLVM.IRBuilder
   Might simplify my Codegen
 
@@ -445,6 +433,6 @@ the fix etc:
   Would probably require some memoization mechanism so that we don't
   unnecessarily check, monomorphise, and compile stuff we don't need
   to.
-* NEXT Un-generalize module Selections
+* TODO Un-generalize module Selections
   Since we now use JIT instead of interpreter, only Codegen uses
   Selections, and we could make it simpler by inlining it.
