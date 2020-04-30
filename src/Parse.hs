@@ -192,7 +192,7 @@ expr = withPos $ choice [estr, var, num, eConstructor, pexpr]
     if' = reserved "if" *> liftM3 If expr expr expr
     fun = do
         reserved "fun"
-        params <- choice [parens (some pat), fmap (pure . PVar) small']
+        params <- parens (some pat)
         body <- expr
         pure $ unpos
             (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
