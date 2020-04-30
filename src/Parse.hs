@@ -61,42 +61,44 @@ parseModule
     -> Set String
     -> [String]
     -> IO (Either String ([Def], [TypeDef], [Extern]))
-parseModule filepath dir m visiteds nexts = do
-    -- TODO: make dir absolute to make debug work when binary is moved?
-    modPaths <- fmap (dir :) modulePaths
-    (src, f) <- parseModule' modPaths
-    let visiteds' = Set.insert m visiteds
-    case parse' toplevels f src of
-        Left e -> pure (Left e)
-        Right (is, ds, ts, es) -> case is ++ nexts of
+parseModule filepath dir m visiteds nexts =
+    let
+        readModuleIn modPaths = do
+            let fs = do
+                    p <- modPaths
+                    let pm = p </> m
+                    fmap (addExtension pm) [".carth", ".org"]
+            fs' <- filterM doesFileExist fs
+            f <- case listToMaybe fs' of
+                Nothing -> do
+                    putStrLn
+                        $ ("Error: No file for module " ++ m)
+                        ++ (" exists.\nSearched paths: " ++ show modPaths)
+                    abort filepath
+                Just f' -> pure f'
+            s <- readFile f
+            s' <- if takeExtension f == ".org"
+                then do
+                    let s' = untangleOrg s
+                    writeFile (addExtension m "untangled") s'
+                    pure s'
+                else pure s
+            pure (s', f)
+
+        advance (is, ds, ts, es) = case (is ++ nexts) of
             [] -> pure (Right (ds, ts, es))
-            next : nexts' -> do
-                r <- parseModule filepath dir next visiteds' nexts'
-                pure $ fmap
-                    (\(ds', ts', es') -> (ds ++ ds', ts ++ ts', es ++ es'))
-                    r
-  where
-    parseModule' modPaths = do
-        let fs = do
-                p <- modPaths
-                let pm = p </> m
-                fmap (addExtension pm) [".carth", ".org"]
-        fs' <- filterM doesFileExist fs
-        f <- case listToMaybe fs' of
-            Nothing -> do
-                putStrLn
-                    $ ("Error: No file for module " ++ m)
-                    ++ (" exists.\nSearched paths: " ++ show modPaths)
-                abort filepath
-            Just f' -> pure f'
-        s <- readFile f
-        s' <- if takeExtension f == ".org"
-            then do
-                let s' = untangleOrg s
-                writeFile (addExtension m "untangled") s'
-                pure s'
-            else pure s
-        pure (s', f)
+            next : nexts' -> fmap
+                (fmap (\(ds', ts', es') -> (ds ++ ds', ts ++ ts', es ++ es')))
+                (parseModule filepath dir next (Set.insert m visiteds) nexts')
+    in if Set.member m visiteds
+        then advance ([], [], [], [])
+        else do
+            -- TODO: make dir absolute to make debug work when binary is moved?
+            modPaths <- fmap (dir :) modulePaths
+            (src, f) <- readModuleIn modPaths
+            case parse' toplevels f src of
+                Left e -> pure (Left e)
+                Right r -> advance r
 
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = first errorBundlePretty (Mega.parse p name src)
