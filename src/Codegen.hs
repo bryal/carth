@@ -229,6 +229,7 @@ builtins = Map.fromList
         , typeBool
         )
       )
+    , ("install_stackoverflow_handler", ([], LLType.void))
     ]
 
 genExterns :: [(String, Monomorphic.Type)] -> Gen' [Definition]
@@ -243,6 +244,7 @@ genMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ _ <- execWriterT $ do
+        emitDo' (callExtern "install_stackoverflow_handler" [])
         f <- lookupVar (TypedVar "main" mainType)
         _ <- app f (VLocal litUnit) typeUnit
         commitFinalFuncBlock (ret (litI32 0))
@@ -836,6 +838,9 @@ genVariantType :: Span -> [Monomorphic.Type] -> Gen' [Type]
 genVariantType totVariants =
     fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants))
         . mapM genType'
+
+emitDo' :: FunInstr -> Gen ()
+emitDo' (WithRetType instr _) = emitDo instr
 
 emitDo :: Instr -> Gen ()
 emitNamedReg :: Name -> FunInstr -> Gen Operand

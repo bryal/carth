@@ -1,7 +1,29 @@
 #![feature(const_fn)]
+#![feature(extern_types)]
+#![allow(non_camel_case_types)]
 
+mod ffi;
+
+use libc::*;
 use std::io::{self, Write};
 use std::{alloc, ptr, slice, str};
+
+#[no_mangle]
+pub extern "C" fn install_stackoverflow_handler() {
+    extern "C" fn stackoverflow_handler(_emergency: c_int, _scp: ffi::stackoverflow_context_t) {
+        println!("Stack overflow");
+    }
+
+    let extra_stack_size = 16 << 10; // 16 KB ought to be enough for anybody
+    let extra_stack = carth_alloc(extra_stack_size);
+    unsafe {
+        ffi::stackoverflow_install_handler(
+            stackoverflow_handler,
+            extra_stack as *mut _,
+            extra_stack_size as usize,
+        );
+    }
+}
 
 macro_rules! def_carth_closure {
     ($e:expr, $s:ident, $f:ident; $ta:ty, $tr:ty; $a:pat => $b:expr) => {

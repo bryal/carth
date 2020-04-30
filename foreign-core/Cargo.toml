@@ -9,6 +9,7 @@ repository = "https://gitlab.com/JoJoZ/carth"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
+libc = "0.2"
 
 [lib]
 crate-type = ["staticlib", "cdylib"]

@@ -83,6 +83,7 @@ compileModule cfg tm mod = do
         , exefile
         , ofile
         , "-l:libcarth_foreign_core.a"
+        , "-lsigsegv"
         , "-ldl"
         , "-lpthread"
         ]
@@ -93,10 +94,11 @@ foreign import ccall "dynamic"
 orcJitModule :: TargetMachine -> Module -> IO ()
 orcJitModule tm mod = do
     putStrLn "   Running with OrcJIT"
-    putStrLn "   Loading symbols of foreign-core"
-    let path = "libcarth_foreign_core.so"
-    loadLibraryPermanently (Just path)
-        >>= flip when (putStrLn ("   Error loading " ++ path))
+    let libs = ["libsigsegv.so", "libcarth_foreign_core.so"]
+    forM_ libs $ \lib -> do
+        putStrLn $ "   Loading symbols of " ++ lib
+        r <- loadLibraryPermanently (Just lib)
+        when r (putStrLn ("   Error loading " ++ lib))
     resolvers <- newIORef Map.empty
     let linkingResolver key = fmap (Map.! key) (readIORef resolvers)
     session <- createExecutionSession
