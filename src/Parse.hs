@@ -358,8 +358,6 @@ reserveds =
     , "define:"
     , "extern"
     , "forall"
-    , "true"
-    , "false"
     , "fun-match"
     , "match"
     , "if"
