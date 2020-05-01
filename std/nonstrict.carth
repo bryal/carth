@@ -1,4 +1,0 @@
-(type (NonStrict a)
-  (NonStrict (Fun Unit a)))
-
-(define (strict (NonStrict f)) (f Unit))

@@ -5,3 +5,7 @@
 (define unwrap!
   (fmatch (case (Some x) x)
           (case None (panic "unwrap! of None"))))
+
+(define (map-maybe f)
+  (fmatch (case (Some x) (Some (f x)))
+          (case None None)))

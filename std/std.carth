@@ -1,10 +1,13 @@
-(import nonstrict)
 (import iter)
 (import list)
 (import maybe)
 
 (define (fst (Pair a _)) a)
 (define (snd (Pair _ b)) b)
+
+(define (map-fst f (Pair a b)) (Pair (f a) b))
+(define (map-snd f (Pair a b)) (Pair a (f b)))
+(define (map-both f g (Pair a b)) (Pair (f a) (g b)))
 
 (define: (undefined x)
     (forall (a) (Fun Unit a))
@@ -15,6 +18,9 @@
   (seq (-panic msg) (undefined Unit)))
 
 ;;; Math
+
+(define (inc n) (+ n 1))
+(define (dec n) (- n 1))
 
 (extern rem-int (Fun (Pair Int Int) Int))
 (define (rem a b)
@@ -52,6 +58,9 @@
 (define (or p q)
   (if p True q))
 
+(define not (fmatch (case True False)
+                    (case False True)))
+
 (define (divisible? n m)
   (= (rem n m) 0))
 
@@ -77,6 +86,8 @@
 
 (define (<o f g a) (f (g a)))
 (define (o> f g a) (g (f a)))
+
+(define (flip f a b) (f b a))
 
 (type Void)
 

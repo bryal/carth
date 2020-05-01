@@ -1,27 +1,49 @@
 (import std)
-(import nonstrict)
 (import list)
 (import maybe)
 
 (type (Iter a)
-  (Iter (NonStrict (Maybe (Pair a (Iter a))))))
+  (Iter (Fun Unit (Maybe (Pair a (Iter a))))))
 
-(define (next (Iter it)) (strict it))
+(define (next (Iter it)) (it Unit))
 (define (next! it) (unwrap! (next it)))
 
-(define (range a b)
-  (Iter (NonStrict (if (> a b)
-                       (fun (_) None)
-                     (fun (_) (Some (Pair a (range (+ a 1) b))))))))
+(define (xrange a b) (take (- b a)       (range-from a)))
+(define (range  a b) (take (inc (- b a)) (range-from a)))
+
+(define (range-from a)
+  (Iter (fun (_) (Some (Pair a (range-from (inc a)))))))
+
+(define (take n xs)
+  (Iter (if (> n 0)
+            (fun (_) (map-maybe (map-snd (take (- n 1))) (next xs)))
+          (fun (_) None))))
+
+(define (skip-while pred xs)
+  (let ((skip-while' (fun (xs)
+                       (match (next xs)
+                         (case (Some (Pair x xs'))
+                               (if (pred x)
+                                   (Some (Pair x xs'))
+                                 (skip-while' xs')))
+                         (case None None)))))
+    (Iter (fun (_) (skip-while' xs)))))
 
 (define (for xs f) (fold (const f) Unit xs))
 
+(define (map f xs)
+  (Iter (fun (_) (map-maybe (map-both f (map f)) (next xs)))))
+
+(define (filter pred xs)
+  (Iter (fun (_) (map-maybe (map-snd (filter pred))
+                            (next (skip-while (<o not pred) xs))))))
+
 (define: (fold f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
-  (let ((tail-fold (fun ((Pair acc xs))
-                     (match (next xs)
-                       (case (Some (Pair x xs'))
-                             (tail-fold (Pair (f acc x) xs')))
-                       (case None
-                             acc)))))
-    (tail-fold (Pair acc xs))))
+  (let ((fold' (fun ((Pair acc xs))
+                 (match (next xs)
+                   (case (Some (Pair x xs'))
+                         (fold' (Pair (f acc x) xs')))
+                   (case None
+                         acc)))))
+    (fold' (Pair acc xs))))
