@@ -436,3 +436,7 @@ the fix etc:
 * TODO Un-generalize module Selections
   Since we now use JIT instead of interpreter, only Codegen uses
   Selections, and we could make it simpler by inlining it.
+* TODO Type aliases
+* TODO Return instead of phi-nodes at edges of match/if in tail pos
+  Probably needed for our sibling call optimization to work in
+  branches.
