@@ -11,6 +11,13 @@ import System.Process
 
 type Parser = M.Parsec Void String
 
+readCompilerVersion :: Q Exp
+readCompilerVersion = do
+    s <- runIO (readFile "carth.cabal")
+    let (_, major, minor, patch) =
+            head (catMaybes (map (M.parseMaybe pversion) (lines s)))
+    lift (major, minor, patch)
+
 pversion :: Parser (Int, Int, Int, Int)
 pversion = do
     MC.string "version:" >> MC.space
@@ -22,13 +29,6 @@ pversion = do
   where
     num = ML.decimal
     dot = MC.char '.'
-
-readCompilerVersion :: Q Exp
-readCompilerVersion = do
-    s <- runIO (readFile "package.yaml")
-    let (_, major, minor, patch) =
-            head (catMaybes (map (M.parseMaybe pversion) (lines s)))
-    lift (major, minor, patch)
 
 getCommit :: Q Exp
 getCommit =

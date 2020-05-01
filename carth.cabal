@@ -1,0 +1,119 @@
+cabal-version: 2.2
+
+name:           carth
+version:        0.0.4.0
+description:    Please see the README on GitHub at <https://github.com/bryal/carth#readme>
+homepage:       https://carth.jo.zone
+author:         Johan Johansson
+maintainer:     jo@jo.zone
+copyright:      2020 Johan Johansson
+license:        AGPL-3.0-or-later
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.org
+    CHANGELOG.org
+
+source-repository head
+  type: git
+  location: https://github.com/bryal/carth
+
+library
+  exposed-modules:
+      Abi
+      Check
+      Checked
+      Codegen
+      Compile
+      Conf
+      EnvVars
+      FreeVars
+      Gen
+      Infer
+      Inferred
+      Literate
+      LLCompunit
+      LLSubprog
+      Match
+      Misc
+      Monomorphic
+      Monomorphize
+      Parse
+      Parsed
+      Pretty
+      Selections
+      SrcPos
+      Subst
+      TypeErr
+  other-modules:
+  hs-source-dirs:
+      src
+  ghc-options: -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors
+  build-depends:
+      base
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , llvm-hs
+    , llvm-hs-pure
+    , megaparsec
+    , microlens-platform
+    , mtl
+    , process
+    , template-haskell
+    , utf8-string
+  default-language: Haskell2010
+
+executable carth
+  main-is: Main.hs
+  other-modules:
+      GetConfig
+      Prebaked
+  hs-source-dirs:
+      app
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors
+  build-depends:
+      base
+    , bytestring
+    , carth
+    , containers
+    , directory
+    , filepath
+    , llvm-hs
+    , llvm-hs-pure
+    , megaparsec
+    , microlens-platform
+    , mtl
+    , process
+    , template-haskell
+    , utf8-string
+  default-language: Haskell2010
+
+test-suite carth-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      CheckSpec
+  hs-source-dirs:
+      test
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-export-lists -Wno-missing-local-signatures -Wno-missing-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors
+  build-depends:
+      QuickCheck
+    , base
+    , bytestring
+    , carth
+    , containers
+    , directory
+    , filepath
+    , hspec
+    , hspec-discover
+    , llvm-hs
+    , llvm-hs-pure
+    , megaparsec
+    , microlens-platform
+    , mtl
+    , process
+    , template-haskell
+    , utf8-string
+  default-language: Haskell2010
