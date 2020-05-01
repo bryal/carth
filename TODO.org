@@ -440,3 +440,11 @@ the fix etc:
 * TODO Return instead of phi-nodes at edges of match/if in tail pos
   Probably needed for our sibling call optimization to work in
   branches.
+* NEXT Playground
+  Might actually be pretty easy by making use of Guix
+  containers. Sandboxes the filesystem, and doesn't give network
+  access unless `--network` is provided.
+
+  #+BEGIN_EXAMPLE
+  guix environment --container --ad-hoc coreutils clang carth
+  #+END_EXAMPLE
