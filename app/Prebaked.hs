@@ -1,13 +1,12 @@
-module Prebaked (readCompilerVersion, getCommit) where
+module Prebaked (readCompilerVersion) where
 
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (Lift(..), qAddDependentFile)
+import Language.Haskell.TH.Syntax (Lift(..))
 import Data.Maybe
 import qualified Text.Megaparsec as M
 import qualified Text.Megaparsec.Char as MC
 import qualified Text.Megaparsec.Char.Lexer as ML
 import Data.Void
-import System.Process
 
 type Parser = M.Parsec Void String
 
@@ -29,16 +28,3 @@ pversion = do
   where
     num = ML.decimal
     dot = MC.char '.'
-
-getCommit :: Q Exp
-getCommit =
-    qAddDependentFile ".git/index"
-        >> runIO
-            (do
-                c <- fmap (head . lines)
-                    $ readProcess "git" ["rev-parse", "--short", "HEAD"] ""
-                d <- fmap (head . lines)
-                    $ readProcess "git" ["show", "-s", "--format=%ci", c] ""
-                pure (c, d)
-            )
-        >>= lift

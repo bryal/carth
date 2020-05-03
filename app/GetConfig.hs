@@ -141,11 +141,6 @@ printVersion = do
     let (major, minor, patch) = version
     let versionStr = concat [show major, ".", show minor, ".", show patch]
     putStrLn ("Carth " ++ versionStr)
-    putStrLn ("git: " ++ commitHash ++ " (" ++ commitDate ++ ")")
 
 version :: (Int, Int, Int)
 version = $(readCompilerVersion)
-
-commitHash :: String
-commitDate :: String
-(commitHash, commitDate) = $(getCommit)
