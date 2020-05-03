@@ -1,5 +1,3 @@
-#![feature(const_fn)]
-#![feature(extern_types)]
 #![allow(non_camel_case_types)]
 
 mod ffi;
@@ -28,7 +26,10 @@ pub extern "C" fn install_stackoverflow_handler() {
 macro_rules! def_carth_closure {
     ($e:expr, $s:ident, $f:ident; $ta:ty, $tr:ty; $a:pat => $b:expr) => {
         #[export_name = $e]
-        pub static $s: Closure<$ta, $tr> = Closure::new($f);
+        pub static $s: Closure<$ta, $tr> = Closure {
+            captures: ptr::null(),
+            func: $f,
+        };
         pub extern "C" fn $f(_: Captures, $a: $ta) -> $tr {
             $b
         }
@@ -45,15 +46,6 @@ pub struct Closure<A, B> {
 }
 
 unsafe impl<A, B> Sync for Closure<A, B> {}
-
-impl<A, B> Closure<A, B> {
-    const fn new(f: ClosureFunc<A, B>) -> Closure<A, B> {
-        Closure {
-            captures: ptr::null(),
-            func: f,
-        }
-    }
-}
 
 #[repr(C)]
 pub struct Array<A> {
