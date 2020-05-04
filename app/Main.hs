@@ -28,12 +28,12 @@ compileFile :: CompileConfig -> IO ()
 compileFile cfg = do
     let f = cInfile cfg
     putStrLn ("   Compiling " ++ f ++ "")
-    putStrLn ("     Environment variables:")
+    verbose cfg ("     Environment variables:")
     lp <- lookupEnv "LIBRARY_PATH"
     mp <- modulePaths
-    putStrLn ("       library path = " ++ show lp)
-    putStrLn ("       module paths = " ++ show mp)
-    mon <- frontend (cDebug cfg) f
+    verbose cfg ("       library path = " ++ show lp)
+    verbose cfg ("       module paths = " ++ show mp)
+    mon <- frontend cfg f
     compile f cfg mon
     putStrLn ""
 
@@ -41,22 +41,23 @@ runFile :: RunConfig -> IO ()
 runFile cfg = do
     let f = rInfile cfg
     putStrLn ("   Running " ++ f ++ "")
-    putStrLn ("     Environment variables:")
+    verbose cfg ("     Environment variables:")
     mp <- modulePaths
-    putStrLn ("       module paths = " ++ show mp)
-    mon <- frontend (rDebug cfg) f
+    verbose cfg ("       module paths = " ++ show mp)
+    mon <- frontend cfg f
     run f cfg mon
     putStrLn ""
 
-frontend :: Bool -> FilePath -> IO Monomorphic.Program
-frontend d f = do
-    putStrLn ("   Parsing")
+frontend :: Config cfg => cfg -> FilePath -> IO Monomorphic.Program
+frontend cfg f = do
+    let d = getDebug cfg
+    verbose cfg ("   Parsing")
     ast <- parse f
     when d $ writeFile ".dbg.parsed" (pretty ast)
-    putStrLn ("   Typechecking")
+    verbose cfg ("   Typechecking")
     ann <- typecheck' f ast
     when d $ writeFile ".dbg.checked" (show ann)
-    putStrLn ("   Monomorphizing")
+    verbose cfg ("   Monomorphizing")
     let mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
     pure mon

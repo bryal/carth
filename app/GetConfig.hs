@@ -70,6 +70,7 @@ compileCfg args = do
             , cOutfile = outf
             , cCompiler = "cc"
             , cDebug = False
+            , cVerbose = False
             }
         cfg = foldl (&) defaultCfg fs
     pure (CompileConf cfg)
@@ -77,7 +78,7 @@ compileCfg args = do
 runCfg :: [String] -> IO Conf
 runCfg args = do
     (fs, inf) <- get args runOpts usageRun
-    let defaultCfg = RunConfig { rInfile = inf, rDebug = False }
+    let defaultCfg = RunConfig { rInfile = inf, rDebug = False, rVerbose = False }
         cfg = foldl (&) defaultCfg fs
     pure (RunConf cfg)
 
@@ -130,11 +131,14 @@ compileOpts =
         (ReqArg (\f c -> c { cOutfile = f }) "FILE")
         "Output filepath"
     , Option [] ["debug"] (NoArg (\c -> c { cDebug = True })) "Enable debugging"
+    , Option ['v'] ["verbose"] (NoArg (\c -> c { cVerbose = True })) "Verbose output"
     ]
 
 runOpts :: [OptDescr (RunConfig -> RunConfig)]
 runOpts =
-    [Option [] ["debug"] (NoArg (\c -> c { rDebug = True })) "Enable debugging"]
+    [ Option [] ["debug"] (NoArg (\c -> c { rDebug = True })) "Enable debugging"
+    , Option ['v'] ["verbose"] (NoArg (\c -> c { rVerbose = True })) "Verbose output"
+    ]
 
 printVersion :: IO ()
 printVersion = do

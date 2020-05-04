@@ -32,19 +32,19 @@ import Codegen
 
 
 compile :: FilePath -> CompileConfig -> Monomorphic.Program -> IO ()
-compile = handleProgram compileModule cDebug
+compile = handleProgram compileModule
 
 run :: FilePath -> RunConfig -> Monomorphic.Program -> IO ()
-run = handleProgram (const orcJitModule) rDebug
+run = handleProgram orcJitModule
 
 handleProgram
-    :: (config -> TargetMachine -> Module -> IO ())
-    -> (config -> Bool)
+    :: Config cfg
+    => (cfg -> TargetMachine -> Module -> IO ())
     -> FilePath
-    -> config
+    -> cfg
     -> Monomorphic.Program
     -> IO ()
-handleProgram f debug file cfg pgm = withContext $ \ctx ->
+handleProgram f file cfg pgm = withContext $ \ctx ->
     -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize
     -- by -O2. No point in going further to -O3, as those optimizations are
     -- expensive and seldom actually improve the performance in a statistically
@@ -53,20 +53,20 @@ handleProgram f debug file cfg pgm = withContext $ \ctx ->
     -- A minimum optimization level of -O1 ensures that all sibling calls are
     -- optimized, even if we don't use a calling convention like `fastcc` that
     -- can optimize any tail call.
-    let optLvl = if debug cfg then CodeGenOpt.Less else CodeGenOpt.Default
+    let optLvl = if (getDebug cfg) then CodeGenOpt.Less else CodeGenOpt.Default
     in
         withHostTargetMachinePIC optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
-            putStrLn ("   Generating LLVM")
+            verbose cfg ("   Generating LLVM")
             let amod = codegen layout file pgm
             withModuleFromAST ctx amod $ \mod -> do
-                putStrLn ("   Verifying LLVM")
-                when (debug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                verbose cfg ("   Verifying LLVM")
+                when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
                 verify mod
                 withPassManager (optPasses optLvl tm) $ \passman -> do
-                    putStrLn "   Optimizing"
+                    verbose cfg "   Optimizing"
                     _ <- runPassManager passman mod
-                    when (debug cfg)
+                    when (getDebug cfg)
                         $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                     f cfg tm mod
 
@@ -74,9 +74,9 @@ compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do
     let exefile = cOutfile cfg
         ofile = replaceExtension exefile "o"
-    putStrLn "   Writing object"
+    verbose cfg "   Writing object"
     writeObjectToFile tm (File ofile) mod
-    putStrLn ("   Linking")
+    verbose cfg ("   Linking")
     callProcess
         (cCompiler cfg)
         [ "-o"
@@ -91,14 +91,14 @@ compileModule cfg tm mod = do
 foreign import ccall "dynamic"
   mkMain :: FunPtr (IO Int32) -> IO Int32
 
-orcJitModule :: TargetMachine -> Module -> IO ()
-orcJitModule tm mod = do
-    putStrLn "   Running with OrcJIT"
+orcJitModule :: RunConfig -> TargetMachine -> Module -> IO ()
+orcJitModule cfg tm mod = do
+    verbose cfg "   Running with OrcJIT"
     let libs = ["libsigsegv.so", "libcarth_foreign_core.so"]
     forM_ libs $ \lib -> do
-        putStrLn $ "   Loading symbols of " ++ lib
+        verbose cfg $ "   Loading symbols of " ++ lib
         r <- loadLibraryPermanently (Just lib)
-        when r (putStrLn ("   Error loading " ++ lib))
+        when r (putStrLn ("   Error loading " ++ lib) *> exitFailure)
     resolvers <- newIORef Map.empty
     let linkingResolver key = fmap (Map.! key) (readIORef resolvers)
     session <- createExecutionSession
