@@ -167,20 +167,27 @@ def'
     -> Parser (Id 'Small, (WithPos (Maybe Scheme, Expr)))
 def' schemeParser topPos = varDef <|> funDef
   where
+    parenDef = try (getSrcPos >>= (parens . def))
+    body = withPos $ do
+        ds <- many parenDef
+        if null ds then expr' else fmap (Let ds) expr
     varDef = do
         name <- small'
         scm <- schemeParser
-        body <- expr
-        pure (name, (WithPos topPos (scm, body)))
+        b <- body
+        pure (name, (WithPos topPos (scm, b)))
     funDef = do
         (name, params) <- parens (liftM2 (,) small' (some pat))
         scm <- schemeParser
-        body <- expr
-        let f = foldr (WithPos topPos .* Fun) body params
+        b <- body
+        let f = foldr (WithPos topPos .* Fun) b params
         pure (name, (WithPos topPos (scm, f)))
 
 expr :: Parser Expr
-expr = withPos $ choice [estr, var, num, eConstructor, pexpr]
+expr = withPos expr'
+
+expr' :: Parser Expr'
+expr' = choice [estr, var, num, eConstructor, pexpr]
   where
     estr = fmap (Lit . Str) strlit
     eConstructor = fmap Ctor big'
