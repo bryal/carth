@@ -355,7 +355,7 @@ lookupEnvConstructor (Id (WithPos pos cx)) =
 litType :: Const -> Type
 litType = \case
     Int _ -> TPrim TInt
-    Double _ -> TPrim TDouble
+    F64 _ -> TPrim TF64
     Str _ -> typeStr
 
 typeStr :: Type

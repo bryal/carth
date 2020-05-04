@@ -52,7 +52,7 @@ data TPrim
     | TInt16
     | TInt32
     | TInt
-    | TDouble
+    | TF64
     deriving (Show, Eq, Ord)
 
 type TConst = (String, [Type])
@@ -81,7 +81,7 @@ data Pat
 
 data Const
     = Int Int
-    | Double Double
+    | F64 Double
     | Str String
     deriving (Show, Eq)
 

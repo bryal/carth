@@ -165,7 +165,7 @@ prettyPat = \case
 prettyConst :: Parsed.Const -> String
 prettyConst = \case
     Parsed.Int n -> show n
-    Parsed.Double x -> show x
+    Parsed.F64 x -> show x
     Parsed.Str s -> prettyStr s
 
 prettyStr :: String -> String
@@ -223,7 +223,7 @@ prettyTPrim = \case
     Parsed.TInt16 -> "Int16"
     Parsed.TInt32 -> "Int32"
     Parsed.TInt -> "Int"
-    Parsed.TDouble -> "Double"
+    Parsed.TF64 -> "Double"
 
 prettyTVar :: Parsed.TVar -> String
 prettyTVar = \case

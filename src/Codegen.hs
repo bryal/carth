@@ -436,7 +436,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
 genConst :: Monomorphic.Const -> Gen Val
 genConst = \case
     Int n -> pure (VLocal (litI64 n))
-    Double x -> pure (VLocal (litDouble x))
+    F64 x -> pure (VLocal (litF64 x))
     Str s -> genStrLit s
 
 genStrLit :: String -> Gen Val
@@ -787,7 +787,7 @@ genType' = \case
         TInt16 -> i16
         TInt32 -> i32
         TInt -> i64
-        TDouble -> double
+        TF64 -> double
     TFun a r -> genClosureType a r
     TBox t -> fmap LLType.ptr (genType' t)
     TConst tc -> lookupEnum tc <&> \case
@@ -1009,8 +1009,8 @@ litI32 = ConstantOperand . LLConst.Int 32 . toInteger
 litI8' :: Integral n => n -> LLConst.Constant
 litI8' = LLConst.Int 8 . toInteger
 
-litDouble :: Double -> Operand
-litDouble = ConstantOperand . LLConst.Float . LLFloat.Double
+litF64 :: Double -> Operand
+litF64 = ConstantOperand . LLConst.Float . LLFloat.Double
 
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False

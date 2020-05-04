@@ -223,7 +223,7 @@ ns_num = do
     a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
     let e = either
             (\n -> Int (if neg then -n else n))
-            (\x -> Double (if neg then -x else x))
+            (\x -> F64 (if neg then -x else x))
             a
     pure (Lit e)
 
@@ -273,7 +273,7 @@ nonptype = choice
             "Int16" -> pure TInt16
             "Int32" -> pure TInt32
             "Int" -> pure TInt
-            "Double" -> pure TDouble
+            "F64" -> pure TF64
             _ -> fail $ "Undefined type constant " ++ s
 
 ptype :: Parser Type
