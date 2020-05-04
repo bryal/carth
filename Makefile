@@ -1,7 +1,6 @@
-prefix=~/.carth
-bin_dir=$(prefix)/bin
-lib_dir=$(prefix)/lib
-mod_dir=$(prefix)/mod
+bin_dir=~/.local/bin
+lib_dir=~/.local/lib
+mod_dir=~/.carth/mod
 
 .PHONY: all
 all: carth-bin foreign-core
