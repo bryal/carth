@@ -164,6 +164,42 @@ def_carth_closure! {
 }
 
 def_carth_closure! {
+    "add-f64", ADD_F64, add_f64;
+    Pair<f64, f64>, f64; Pair { fst, snd } => fst + snd
+}
+
+def_carth_closure! {
+    "sub-f64", SUB_F64, sub_f64;
+    Pair<f64, f64>, f64; Pair { fst, snd } => fst - snd
+}
+
+def_carth_closure! {
+    "mul-f64", MUL_F64, mul_f64;
+    Pair<f64, f64>, f64; Pair { fst, snd } => fst * snd
+}
+
+def_carth_closure! {
+    "div-f64", DIV_F64, div_f64;
+    Pair<f64, f64>, f64; Pair { fst, snd } => fst / snd
+}
+
+def_carth_closure! {
+    "gt-f64", GT_F64, gt_f64;
+    Pair<f64, f64>, bool; Pair { fst, snd } => fst > snd
+}
+
+def_carth_closure! {
+    "eq-f64", EQ_F64, eq_f64;
+    Pair<f64, f64>, bool; Pair { fst, snd } => fst == snd
+}
+
+def_carth_closure! {
+    "show-f64", SHOW_F64, show_f64;
+    f64, Str; n =>
+        Str::new(n.to_string())
+}
+
+def_carth_closure! {
     "-panic", PANIC, panic;
     Str, (); s => {
         eprintln!("*** Panic: {}", from_carth_str(&s));

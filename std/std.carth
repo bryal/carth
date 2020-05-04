@@ -1,6 +1,7 @@
 (import iter)
 (import list)
 (import maybe)
+(import math)
 
 (define (fst (Pair a _)) a)
 (define (snd (Pair _ b)) b)
@@ -17,56 +18,10 @@
 (define (panic msg)
   (seq (-panic msg) (undefined Unit)))
 
-;;; Math
-
-(define (inc n) (+ n 1))
-(define (dec n) (- n 1))
-
-(extern rem-int (Fun (Pair Int Int) Int))
-(define (rem a b)
-  (rem-int (Pair a b)))
-
-(extern add-int (Fun (Pair Int Int) Int))
-(define (+ a b)
-  (add-int (Pair a b)))
-
-(extern sub-int (Fun (Pair Int Int) Int))
-(define (- a b)
-  (sub-int (Pair a b)))
-
-(extern mul-int (Fun (Pair Int Int) Int))
-(define (* a b)
-  (mul-int (Pair a b)))
-
-(extern div-int (Fun (Pair Int Int) Int))
-(define (/ a b)
-  (div-int (Pair a b)))
-
-(extern eq-int (Fun (Pair Int Int) Bool))
-(define (= a b)
-  (eq-int (Pair a b)))
-
-(extern gt-int (Fun (Pair Int Int) Bool))
-(define (> a b)
-  (gt-int (Pair a b)))
-
-(define (>= a b)
-  (or (> a b) (= a b)))
-
-(define (and p q)
-  (if p q False))
-(define (or p q)
-  (if p True q))
-
-(define not (fmatch (case True False)
-                    (case False True)))
-
-(define (divisible? n m)
-  (= (rem n m) 0))
-
 ;;; Strings
 
 (extern show-int (Fun Int Str))
+(extern show-f64 (Fun F64 Str))
 
 (extern -str-append (Fun (Pair Str Str) Str))
 (define (str-append s1 s2)
