@@ -448,3 +448,11 @@ the fix etc:
   #+BEGIN_EXAMPLE
   guix environment --container --ad-hoc coreutils clang carth
   #+END_EXAMPLE
+* TODO Compute glob vars at runtime
+* NEXT Compute glob vars at compiletime
+* NEXT Compile-time eval in arbitrary contexts
+  As a step towards something like dependent types
+* INACTIVE Benchmark, profile, optimize
+  Check out
+  https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
+  tips!
