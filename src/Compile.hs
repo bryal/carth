@@ -86,6 +86,7 @@ compileModule cfg tm mod = do
         , "-lsigsegv"
         , "-ldl"
         , "-lpthread"
+        , "-lm"
         ]
 
 foreign import ccall "dynamic"

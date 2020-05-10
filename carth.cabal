@@ -26,6 +26,7 @@ library
       Compile
       Conf
       EnvVars
+      Extern
       FreeVars
       Gen
       Infer

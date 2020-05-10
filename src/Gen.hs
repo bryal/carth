@@ -10,6 +10,7 @@ module Gen where
 import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
+import Control.Applicative
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.Map (Map)
 import Data.Word
@@ -124,32 +125,14 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             (capturesParam, captureLocals) <- genExtractCaptures
             pt' <- genType pt
             px' <- newName px
-            passParamByRef <- passByRef pt'
-            let (withParam, pt'', pattrs) = if passParamByRef
-                    then (withVar, LLType.ptr pt', [ByVal])
-                    else (withLocal, pt', [])
-            let pRef = LocalReference pt'' px'
-            result <- getLocal =<< withParam
-                ptv
-                pRef
-                (withLocals captureLocals genBody)
+            let pRef = LocalReference pt' px'
+            result <- getLocal
+                =<< withLocal ptv pRef (withLocals captureLocals genBody)
             let rt' = typeOf result
-            let
-                fParams' =
-                    [ uncurry Parameter capturesParam []
-                    , Parameter pt'' px' pattrs
-                    ]
-            -- Return result according to calling convention
-            returnResultByRef <- passByRef rt'
-            if returnResultByRef
-                then do
-                    let out = (LLType.ptr rt', mkName "out")
-                    emitDo (store result (uncurry LocalReference out))
-                    commitFinalFuncBlock retVoid
-                    pure (LLType.void, uncurry Parameter out [SRet] : fParams')
-                else do
-                    commitFinalFuncBlock (ret result)
-                    pure (rt', fParams')
+            let fParams' =
+                    [uncurry Parameter capturesParam [], Parameter pt' px' []]
+            commitFinalFuncBlock (ret result)
+            pure (rt', fParams')
     (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
     ss <- mapM globStrVar globStrings
     ls <- fmap
@@ -288,7 +271,7 @@ genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
         Just s ->
             fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
         Nothing -> newName "func"
-    ft <- genType pt >>= \pt' -> lift (genClosureFunType pt' bt)
+    ft <- genType pt <&> \pt' -> closureFunType pt' bt
     let
         f = VLocal $ ConstantOperand $ LLConst.GlobalReference
             (LLType.ptr ft)
@@ -502,7 +485,7 @@ genType' = \case
         Monomorphic.TInt32 -> i32
         Monomorphic.TInt -> i64
         Monomorphic.TF64 -> double
-    Monomorphic.TFun a r -> genClosureType a r
+    Monomorphic.TFun a r -> liftA2 closureType (genType' a) (genType' r)
     Monomorphic.TBox t -> fmap LLType.ptr (genType' t)
     Monomorphic.TConst tc -> lookupEnum tc <&> \case
         Just 0 -> typeUnit
@@ -512,39 +495,23 @@ genType' = \case
 genDatatypeRef :: Monomorphic.TConst -> Type
 genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 
-    -- | A `Fun` is a closure, and follows a certain calling convention
+-- | A `Fun` is a closure, and follows a certain calling convention
 --
 --   A closure is represented as a pair where the first element is the pointer
 --   to the structure of captures, and the second element is a pointer to the
 --   actual function, which takes as first parameter the captures-pointer, and
 --   as second parameter the argument.
---
---   An argument of a structure-type is passed by reference, to be compatible
---   with the C calling convention.
-genClosureType :: Monomorphic.Type -> Monomorphic.Type -> Gen' Type
-genClosureType a r = do
-    a' <- genType' a
-    r' <- genType' r
-    c <- genClosureFunType a' r'
-    pure (typeStruct [LLType.ptr typeUnit, LLType.ptr c])
+closureType :: Type -> Type -> Type
+closureType a r =
+    typeStruct [LLType.ptr typeUnit, LLType.ptr (closureFunType a r)]
 
 -- The type of the function itself within the closure
-genClosureFunType :: Type -> Type -> Gen' Type
-genClosureFunType a r = do
-    passArgByRef <- passByRef' a
-    let a' = if passArgByRef then LLType.ptr a else a
-    returnResultByRef <- passByRef' r
-    pure $ if returnResultByRef
-        then FunctionType
-            { resultType = LLType.void
-            , argumentTypes = [LLType.ptr r, LLType.ptr typeUnit, a']
-            , isVarArg = False
-            }
-        else FunctionType
-            { resultType = r
-            , argumentTypes = [LLType.ptr typeUnit, a']
-            , isVarArg = False
-            }
+closureFunType :: Type -> Type -> Type
+closureFunType a r = FunctionType
+    { resultType = r
+    , argumentTypes = [LLType.ptr typeUnit, a]
+    , isVarArg = False
+    }
 
 genCapturesType :: [Monomorphic.TypedVar] -> Gen Type
 genCapturesType =
@@ -563,43 +530,6 @@ tagBitWidth span'
     | span' <= 2 ^ (32 :: Integer) = Just 32
     | span' <= 2 ^ (64 :: Integer) = Just 64
     | otherwise = ice $ "tagBitWidth: span' = " ++ show span'
-
-passByRef :: Type -> Gen Bool
-passByRef = lift . passByRef'
-
--- NOTE: This post is helpful:
---       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
---       Also, official docs:
---       https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
---       particularly section 3.2.3 Parameter Passing (p18).
-passByRef' :: Type -> Gen' Bool
-passByRef' = \case
-    NamedTypeReference x -> view (dataTypes . to (Map.lookup x)) >>= \case
-        Just ts -> passByRef' (typeStruct ts)
-        Nothing ->
-            ice $ "passByRef': No dataType for NamedTypeReference " ++ show x
-    -- Simple scalar types. They go in registers.
-    VoidType -> pure False
-    IntegerType _ -> pure False
-    PointerType _ _ -> pure False
-    FloatingPointType _ -> pure False
-    -- Functions are not POD (Plain Ol' Data), so they are passed on the stack.
-    FunctionType _ _ _ -> pure True
-    -- TODO: Investigate how exactly SIMD vectors are to be passed when/if we
-    --       ever add support for that in the rest of the compiler.
-    VectorType _ _ -> pure True
-    -- Aggregate types can either be passed on stack or in regs, depending on
-    -- what they contain.
-    t@(StructureType _ us) -> do
-        size <- sizeof t
-        if size > 16 then pure True else fmap or (mapM passByRef' us)
-    ArrayType _ u -> do
-        size <- sizeof u
-        if size > 16 then pure True else passByRef' u
-    -- N/A
-    MetadataType -> ice "passByRef of MetadataType"
-    LabelType -> ice "passByRef of LabelType"
-    TokenType -> ice "passByRef of TokenType"
 
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and
 --       impl of `getTypeAllocSize`.

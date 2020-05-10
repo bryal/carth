@@ -23,9 +23,7 @@
 (extern show-int (Fun Int Str))
 (extern show-f64 (Fun F64 Str))
 
-(extern -str-append (Fun (Pair Str Str) Str))
-(define (str-append s1 s2)
-  (-str-append (Pair s1 s2)))
+(extern str-append (Fun Str Str Str))
 
 ;;; IO
 

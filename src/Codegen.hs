@@ -7,7 +7,6 @@ import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
-import LLVM.AST.ParameterAttribute
 import qualified LLSubprog
 import qualified LLCompunit
 import qualified LLVM.AST.Operand as LLOp
@@ -36,19 +35,20 @@ import qualified Monomorphic
 import Monomorphic hiding (Type, Const)
 import Selections
 import Gen
+import Extern
 
 
 codegen :: DataLayout -> FilePath -> Program -> Module
 codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
-    let externs' = map (\(x, t, _) -> (x, t)) externs
-        (tdefs', externs'', globDefs) = runGen' $ do
+    let
+        (tdefs', externs', globDefs) = runGen' $ do
             (enums, tdefs'') <- defineDataTypes tdefs
             augment enumTypes enums
                 $ augment dataTypes tdefs''
-                $ withExternSigs externs'
+                $ withExternSigs externs
                 $ withGlobDefSigs (map (second unpos) defs)
                 $ do
-                    es <- genExterns externs'
+                    es <- genExterns externs
                     ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs))
                     pure (tdefs'', es, ds)
     in
@@ -62,21 +62,12 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
                     (\(n, tmax) -> TypeDefinition n (Just (typeStruct tmax)))
                     (Map.toList tdefs')
                 , genBuiltins
-                , externs''
+                , externs'
                 , globDefs
                 , globMetadataDefs
                 ]
             }
   where
-    withExternSigs es ga = do
-        es' <- forM es $ \(name, t) -> do
-            t' <- genType' t
-            pure
-                ( TypedVar name t
-                , ConstantOperand
-                    $ LLConst.GlobalReference (LLType.ptr t') (mkName name)
-                )
-        augment env (Map.fromList es') ga
     withGlobDefSigs sigs ga = do
         sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
             t' <- genType' t
@@ -167,13 +158,6 @@ defineDataTypes tds = do
                     else pure (n, snd (maximum sizedTs))
     pure (enums', datas'')
 
-genExterns :: [(String, Monomorphic.Type)] -> Gen' [Definition]
-genExterns = mapM (uncurry genExtern)
-
-genExtern :: String -> Monomorphic.Type -> Gen' Definition
-genExtern name t = genType' t
-    <&> \t' -> GlobalDefinition $ simpleGlobVar' (mkName name) t' Nothing
-
 genMain :: Gen' Definition
 genMain = do
     assign currentBlockLabel (mkName "entry")
@@ -181,7 +165,7 @@ genMain = do
     Out basicBlocks _ _ _ <- execWriterT $ do
         emitDo' (callExtern "install_stackoverflow_handler" [])
         f <- lookupVar (TypedVar "main" mainType)
-        _ <- app f (VLocal litUnit) typeUnit
+        _ <- app f (VLocal litUnit)
         commitFinalFuncBlock (ret (litI32 0))
     pure (GlobalDefinition (simpleFunc (mkName "main") [] i32 basicBlocks []))
 
@@ -215,7 +199,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
     case expr of
         Lit c -> genConst c
         Var (TypedVar x t) -> lookupVar (TypedVar x t)
-        App f e rt -> genApp f e rt
+        App f e _ -> genApp f e
         If p c a -> genIf p c a
         Fun p b -> assign lambdaParentFunc parent *> genExprLambda p b
         Let ds b -> genLet ds b
@@ -245,41 +229,30 @@ genStrLit s = do
         (LLConst.GlobalReference (LLType.ptr typeStr) var)
 
 -- | Beta-reduction and closure application
-genApp :: Expr -> Expr -> Monomorphic.Type -> Gen Val
-genApp fe' ae' rt' = genApp' (fe', [(ae', rt')])
+genApp :: Expr -> Expr -> Gen Val
+genApp fe' ae' = genApp' (fe', [ae'])
   where
     -- TODO: Could/should the beta-reduction maybe happen in an earlier stage,
     --       like when desugaring?
     genApp' = \case
-        (Expr _ (Fun p (b, _)), (ae, _) : aes) -> do
+        (Expr _ (Fun p (b, _)), ae : aes) -> do
             a <- genExpr ae
             withVal p a (genApp' (b, aes))
-        (Expr _ (App fe ae rt), aes) -> genApp' (fe, (ae, rt) : aes)
+        (Expr _ (App fe ae _), aes) -> genApp' (fe, ae : aes)
         (fe, []) -> genExpr fe
         (fe, aes) -> do
             closure <- genExpr fe
-            as <- mapM
-                (\(ae, rt) -> liftA2 (,) (genExpr ae) (genType rt))
-                aes
-            foldlM (\f (a, rt) -> app f a rt) closure as
+            as <- mapM genExpr aes
+            foldlM (\f a -> app f a) closure as
 
-app :: Val -> Val -> Type -> Gen Val
-app closure a rt = do
+app :: Val -> Val -> Gen Val
+app closure a = do
     closure' <- getLocal closure
     captures <- emitReg "captures" =<< extractvalue closure' [0]
     f <- emitReg "function" =<< extractvalue closure' [1]
-    passArgByRef <- passByRef (typeOf a)
-    (a', aattrs) <- if passArgByRef
-        then fmap (, [ByVal]) (getVar a)
-        else fmap (, []) (getLocal a)
-    let args = [(captures, []), (a', aattrs)]
-    returnByRef <- passByRef rt
-    if returnByRef
-        then do
-            out <- emitReg "out" (alloca rt)
-            emitDo $ callVoid f ((out, [SRet]) : args)
-            pure (VVar out)
-        else fmap VLocal (emitAnonReg (call f args))
+    a' <- getLocal a
+    let args = [(captures, []), (a', [])]
+    fmap VLocal (emitAnonReg (call f args))
   where
     call f as =
         WithRetType (callVoid f as) (getFunRet (getPointee (typeOf f)))

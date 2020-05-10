@@ -4,7 +4,7 @@ mod ffi;
 
 use libc::*;
 use std::io::{self, Write};
-use std::{alloc, ptr, slice, str};
+use std::{alloc, slice, str};
 
 #[no_mangle]
 pub extern "C" fn install_stackoverflow_handler() {
@@ -22,30 +22,6 @@ pub extern "C" fn install_stackoverflow_handler() {
         );
     }
 }
-
-macro_rules! def_carth_closure {
-    ($e:expr, $s:ident, $f:ident; $ta:ty, $tr:ty; $a:pat => $b:expr) => {
-        #[export_name = $e]
-        pub static $s: Closure<$ta, $tr> = Closure {
-            captures: ptr::null(),
-            func: $f,
-        };
-        pub extern "C" fn $f(_: Captures, $a: $ta) -> $tr {
-            $b
-        }
-    };
-}
-
-pub type Captures = *const ();
-pub type ClosureFunc<A, B> = extern "C" fn(Captures, A) -> B;
-
-#[repr(C)]
-pub struct Closure<A, B> {
-    captures: Captures,
-    func: ClosureFunc<A, B>,
-}
-
-unsafe impl<A, B> Sync for Closure<A, B> {}
 
 #[repr(C)]
 pub struct Array<A> {
@@ -97,21 +73,17 @@ pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
     s1 == s2
 }
 
-def_carth_closure! {
-    "display-inline", DISPLAY_INLINE, display_inline;
-    Str, (); s => {
-        let s = from_carth_str(&s);
-        print!("{}", s);
-        io::stdout().flush().ok();
-    }
+#[export_name = "display-inline"]
+pub extern "C" fn display_inline(s: Str) {
+    let s = from_carth_str(&s);
+    print!("{}", s);
+    io::stdout().flush().ok();
 }
 
-def_carth_closure! {
-    "-str-append", STR_APPEND, str_append;
-    Pair<Str, Str>, Str; Pair { fst, snd } => {
-        let (s1, s2) = (from_carth_str(&fst), from_carth_str(&snd));
-        Str::new(s1.to_string() + s2)
-    }
+#[export_name = "str-append"]
+pub extern "C" fn str_append(s1: Str, s2: Str) -> Str {
+    let (s1, s2) = (from_carth_str(&s1), from_carth_str(&s2));
+    Str::new(s1.to_string() + s2)
 }
 
 fn from_carth_str<'s>(s: &'s Str) -> &'s str {
@@ -122,87 +94,88 @@ fn from_carth_str<'s>(s: &'s Str) -> &'s str {
     }
 }
 
-def_carth_closure! {
-    "add-int", ADD_INT, add_int;
-    Pair<i64, i64>, i64; Pair { fst, snd } => fst + snd
+#[export_name = "+i"]
+pub extern "C" fn add_int(a: i64, b: i64) -> i64 {
+    a + b
 }
 
-def_carth_closure! {
-    "sub-int", SUB_INT, sub_int;
-    Pair<i64, i64>, i64; Pair { fst, snd } => fst - snd
+#[export_name = "-i"]
+pub extern "C" fn sub_int(a: i64, b: i64) -> i64 {
+    a - b
 }
 
-def_carth_closure! {
-    "mul-int", MUL_INT, mul_int;
-    Pair<i64, i64>, i64; Pair { fst, snd } => fst * snd
+#[export_name = "*i"]
+pub extern "C" fn mul_int(a: i64, b: i64) -> i64 {
+    a * b
 }
 
-def_carth_closure! {
-    "div-int", DIV_INT, div_int;
-    Pair<i64, i64>, i64; Pair { fst, snd } => fst / snd
+#[export_name = "/i"]
+pub extern "C" fn div_int(a: i64, b: i64) -> i64 {
+    a / b
 }
 
-def_carth_closure! {
-    "rem-int", REM_INT, rem_int;
-    Pair<i64, i64>, i64; Pair { fst, snd } => fst % snd
+#[export_name = "remi"]
+pub extern "C" fn rem_int(a: i64, b: i64) -> i64 {
+    a % b
 }
 
-def_carth_closure! {
-    "gt-int", GT_INT, gt_int;
-    Pair<i64, i64>, bool; Pair { fst, snd } => fst > snd
+#[export_name = ">i"]
+pub extern "C" fn gt_int(a: i64, b: i64) -> bool {
+    a > b
 }
 
-def_carth_closure! {
-    "eq-int", EQ_INT, eq_int;
-    Pair<i64, i64>, bool; Pair { fst, snd } => fst == snd
+#[export_name = "=i"]
+pub extern "C" fn eq_int(a: i64, b: i64) -> bool {
+    a == b
 }
 
-def_carth_closure! {
-    "show-int", SHOW_INT, show_int;
-    i64, Str; n =>
-        Str::new(n.to_string())
+#[export_name = "show-int"]
+pub extern "C" fn show_int(n: i64) -> Str {
+    Str::new(n.to_string())
 }
 
-def_carth_closure! {
-    "add-f64", ADD_F64, add_f64;
-    Pair<f64, f64>, f64; Pair { fst, snd } => fst + snd
+#[export_name = "+f"]
+pub extern "C" fn add_f64(a: f64, b: f64) -> f64 {
+    a + b
 }
 
-def_carth_closure! {
-    "sub-f64", SUB_F64, sub_f64;
-    Pair<f64, f64>, f64; Pair { fst, snd } => fst - snd
+#[export_name = "-f"]
+pub extern "C" fn sub_f64(a: f64, b: f64) -> f64 {
+    a - b
 }
 
-def_carth_closure! {
-    "mul-f64", MUL_F64, mul_f64;
-    Pair<f64, f64>, f64; Pair { fst, snd } => fst * snd
+#[export_name = "*f"]
+pub extern "C" fn mul_f64(a: f64, b: f64) -> f64 {
+    a * b
 }
 
-def_carth_closure! {
-    "div-f64", DIV_F64, div_f64;
-    Pair<f64, f64>, f64; Pair { fst, snd } => fst / snd
+#[export_name = "/f"]
+pub extern "C" fn div_f64(a: f64, b: f64) -> f64 {
+    a / b
 }
 
-def_carth_closure! {
-    "gt-f64", GT_F64, gt_f64;
-    Pair<f64, f64>, bool; Pair { fst, snd } => fst > snd
+#[export_name = "remf"]
+pub extern "C" fn rem_f64(a: f64, b: f64) -> f64 {
+    a % b
 }
 
-def_carth_closure! {
-    "eq-f64", EQ_F64, eq_f64;
-    Pair<f64, f64>, bool; Pair { fst, snd } => fst == snd
+#[export_name = ">f"]
+pub extern "C" fn gt_f64(a: f64, b: f64) -> bool {
+    a > b
 }
 
-def_carth_closure! {
-    "show-f64", SHOW_F64, show_f64;
-    f64, Str; n =>
-        Str::new(n.to_string())
+#[export_name = "=f"]
+pub extern "C" fn eq_f64(a: f64, b: f64) -> bool {
+    a == b
 }
 
-def_carth_closure! {
-    "-panic", PANIC, panic;
-    Str, (); s => {
-        eprintln!("*** Panic: {}", from_carth_str(&s));
-        std::process::abort()
-    }
+#[export_name = "show-f64"]
+pub extern "C" fn show_f64(n: f64) -> Str {
+    Str::new(n.to_string())
+}
+
+#[export_name = "-panic"]
+pub extern "C" fn panic(s: Str) {
+    eprintln!("*** Panic: {}", from_carth_str(&s));
+    std::process::abort()
 }
