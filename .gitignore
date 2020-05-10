@@ -3,3 +3,6 @@
 .dbg.*
 /examples/*
 !/examples/*.carth
+/dist-newstyle/
+/dist/
+*.untangled
