@@ -1,0 +1,78 @@
+;;; Math
+
+(define (inc n) (+ n 1))
+(define (dec n) (- n 1))
+
+(extern rem-int (Fun (Pair Int Int) Int))
+(define (rem a b)
+  (rem-int (Pair a b)))
+
+(extern add-int (Fun (Pair Int Int) Int))
+(define (+ a b)
+  (add-int (Pair a b)))
+
+(extern sub-int (Fun (Pair Int Int) Int))
+(define (- a b)
+  (sub-int (Pair a b)))
+
+(extern mul-int (Fun (Pair Int Int) Int))
+(define (* a b)
+  (mul-int (Pair a b)))
+
+(extern div-int (Fun (Pair Int Int) Int))
+(define (/ a b)
+  (div-int (Pair a b)))
+
+(extern eq-int (Fun (Pair Int Int) Bool))
+(define (= a b)
+  (eq-int (Pair a b)))
+
+(extern gt-int (Fun (Pair Int Int) Bool))
+(define (> a b)
+  (gt-int (Pair a b)))
+
+(define (>= a b)
+  (or (> a b) (= a b)))
+
+
+(extern rem-f64 (Fun (Pair F64 F64) F64))
+(define (remf a b)
+  (rem-f64 (Pair a b)))
+
+(extern add-f64 (Fun (Pair F64 F64) F64))
+(define (+f a b)
+  (add-f64 (Pair a b)))
+
+(extern sub-f64 (Fun (Pair F64 F64) F64))
+(define (-f a b)
+  (sub-f64 (Pair a b)))
+
+(extern mul-f64 (Fun (Pair F64 F64) F64))
+(define (*f a b)
+  (mul-f64 (Pair a b)))
+
+(extern div-f64 (Fun (Pair F64 F64) F64))
+(define (/f a b)
+  (div-f64 (Pair a b)))
+
+(extern eq-f64 (Fun (Pair F64 F64) Bool))
+(define (=f a b)
+  (eq-f64 (Pair a b)))
+
+(extern gt-f64 (Fun (Pair F64 F64) Bool))
+(define (>f a b)
+  (gt-f64 (Pair a b)))
+
+(define (>=f a b)
+  (or (>f a b) (=f a b)))
+
+(define (and p q)
+  (if p q False))
+(define (or p q)
+  (if p True q))
+
+(define not (fmatch (case True False)
+                    (case False True)))
+
+(define (divisible? n m)
+  (= (rem n m) 0))
