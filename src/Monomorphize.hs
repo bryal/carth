@@ -41,7 +41,9 @@ type Mono = StateT Insts (Reader Env)
 
 monomorphize :: Checked.Program -> Program
 monomorphize (Checked.Program defs tdefs externs) = evalMono $ do
-    externs' <- mapM (bimapM pure monotype) (Map.toList externs)
+    externs' <- mapM
+        (\(x, (t, p)) -> fmap (\t' -> (x, t', p)) (monotype t))
+        (Map.toList externs)
     (defs', _) <- monoLet
         defs
         (noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType)))

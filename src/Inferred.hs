@@ -102,7 +102,7 @@ type Expr = WithPos Expr'
 type Defs = TopologicalOrder (String, (WithPos (Scheme, Expr)))
 type TypeDefs = Map String ([TVar], [(Id, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
-type Externs = Map String Type
+type Externs = Map String (Type, SrcPos)
 
 
 instance Eq Con where

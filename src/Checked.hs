@@ -85,7 +85,7 @@ noPos = Checked.Expr Nothing
 
 type Defs = TopologicalOrder (String, (WithPos (Scheme, Expr)))
 type TypeDefs = Map String ([TVar], [[Type]])
-type Externs = Map String Type
+type Externs = Map String (Type, SrcPos)
 
 data Program = Program Defs TypeDefs Externs
     deriving (Show)

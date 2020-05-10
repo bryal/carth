@@ -88,7 +88,7 @@ data Expr = Expr (Maybe SrcPos) Expr'
 
 type Defs = TopologicalOrder (TypedVar, (WithPos ([Type], Expr)))
 type TypeDefs = [(TConst, [VariantTypes])]
-type Externs = [(String, Type)]
+type Externs = [(String, Type, SrcPos)]
 
 data Program = Program Defs TypeDefs Externs
     deriving (Show)

@@ -3,7 +3,6 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
 
-import LLVM.Prelude (ShortByteString)
 import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
@@ -14,13 +13,9 @@ import qualified LLCompunit
 import qualified LLVM.AST.Operand as LLOp
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
-import qualified LLVM.AST.Float as LLFloat
-import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
-import Control.Monad.State
-import Control.Monad.Reader
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -32,82 +27,46 @@ import Data.Function
 import Data.Functor
 import Data.Bifunctor
 import Control.Applicative
-import Lens.Micro.Platform (modifying, use, assign, to, view)
+import Lens.Micro.Platform (use, assign)
 
 import Misc
 import SrcPos
-import Pretty
 import FreeVars
 import qualified Monomorphic
 import Monomorphic hiding (Type, Const)
 import Selections
 import Gen
-import Abi
-
-
-type Instr = InstructionMetadata -> Instruction
-
--- | An instruction that returns a value. The name refers to the fact that a
---   mathematical function always returns a value, but an imperative procedure
---   may only produce side effects.
-data FunInstr = WithRetType Instr Type
-
-data Val
-    = VVar Operand
-    | VLocal Operand
-
-instance Typed Val where
-    typeOf = \case
-        VVar x -> getPointee (typeOf x)
-        VLocal x -> typeOf x
 
 
 codegen :: DataLayout -> FilePath -> Program -> Module
 codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
-    let
-        initEnv = Env
-            { _env = Map.empty
-            , _enumTypes = Map.empty
-            , _dataTypes = Map.empty
-            , _srcPos = Nothing
-            }
-        initSt = St
-            { _currentBlockLabel = "entry"
-            , _currentBlockInstrs = []
-            , _registerCount = 0
-            , _metadataCount = 3
-            , _lambdaParentFunc = Nothing
-            , _outerLambdaN = 1
-            -- TODO: Maybe add a pass before this that just generates all
-            --       SrcPos:s, separately and more cleanly?
-            , _srcPosToMetadata = Map.empty
-            }
-        runGen' g = runReader (evalStateT g initSt) initEnv
-        (tdefs', externs', globDefs) = runGen' $ do
+    let externs' = map (\(x, t, _) -> (x, t)) externs
+        (tdefs', externs'', globDefs) = runGen' $ do
             (enums, tdefs'') <- defineDataTypes tdefs
             augment enumTypes enums
                 $ augment dataTypes tdefs''
-                $ withExternSigs externs
+                $ withExternSigs externs'
                 $ withGlobDefSigs (map (second unpos) defs)
                 $ do
-                    es <- genExterns externs
+                    es <- genExterns externs'
                     ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs))
                     pure (tdefs'', es, ds)
-    in Module
-        { moduleName = fromString ((takeBaseName moduleFilePath))
-        , moduleSourceFileName = fromString moduleFilePath
-        , moduleDataLayout = Just layout
-        , moduleTargetTriple = Nothing
-        , moduleDefinitions = concat
-            [ map
-                (\(n, tmax) -> TypeDefinition n (Just (typeStruct tmax)))
-                (Map.toList tdefs')
-            , genBuiltins
-            , externs'
-            , globDefs
-            , globMetadataDefs
-            ]
-        }
+    in
+        Module
+            { moduleName = fromString ((takeBaseName moduleFilePath))
+            , moduleSourceFileName = fromString moduleFilePath
+            , moduleDataLayout = Just layout
+            , moduleTargetTriple = Nothing
+            , moduleDefinitions = concat
+                [ map
+                    (\(n, tmax) -> TypeDefinition n (Just (typeStruct tmax)))
+                    (Map.toList tdefs')
+                , genBuiltins
+                , externs''
+                , globDefs
+                , globMetadataDefs
+                ]
+            }
   where
     withExternSigs es ga = do
         es' <- forM es $ \(name, t) -> do
@@ -173,12 +132,6 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
                 , LLSubprog.checksum = Nothing
                 }
 
-compileUnitRef :: MDRef LLOp.DICompileUnit
-compileUnitRef = MDRef compileUnitId
-
-compileUnitId :: MetadataNodeID
-compileUnitId = MetadataNodeID 0
-
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct
 --   where, if there are more than 1 variant, the first element is the
 --   variant-index. The variant index is represented as an integer with the
@@ -214,24 +167,6 @@ defineDataTypes tds = do
                     else pure (n, snd (maximum sizedTs))
     pure (enums', datas'')
 
-genBuiltins :: [Definition]
-genBuiltins = map
-    (\(x, (ps, tr)) -> GlobalDefinition (simpleFunc (mkName x) ps tr [] []))
-    (Map.toList builtins)
-
-builtins :: Map String ([Parameter], Type)
-builtins = Map.fromList
-    [ ("carth_alloc", ([Parameter i64 (mkName "size") []], LLType.ptr typeUnit))
-    , ( "carth_str_eq"
-      , ( [ Parameter typeStr (mkName "s1") []
-          , Parameter typeStr (mkName "s2") []
-          ]
-        , typeBool
-        )
-      )
-    , ("install_stackoverflow_handler", ([], LLType.void))
-    ]
-
 genExterns :: [(String, Monomorphic.Type)] -> Gen' [Definition]
 genExterns = mapM (uncurry genExtern)
 
@@ -265,7 +200,7 @@ genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
         assign lambdaParentFunc (Just name)
         assign outerLambdaN 1
         let fName = mkName (name ++ "_func")
-        (f, gs) <- genFunDef (fName, [], dpos, p, body)
+        (f, gs) <- genFunDef (fName, [], dpos, p, genExpr body)
         let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
         let capturesType = LLType.ptr typeUnit
         let captures = LLConst.Null capturesType
@@ -273,149 +208,6 @@ genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
         let closureDef = simpleGlobVar (mkName name) (typeOf closure) closure
         pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
     _ -> nyi $ "Global non-function defs: " ++ show e
-
--- | Generates a function definition
---
---   The signature definition, the parameter-loading, and the result return are
---   all done according to the calling convention.
-genFunDef
-    :: (Name, [TypedVar], SrcPos, TypedVar, Expr) -> Gen' (Global, [Definition])
-genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), body) = do
-    assign currentBlockLabel (mkName "entry")
-    assign currentBlockInstrs []
-    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs srcPoss) <-
-        runWriterT $ do
-            -- Two equal SrcPos's in different scopes are not equal at the
-            -- metadata level. Reset cache every scope.
-            assign srcPosToMetadata Map.empty
-            (capturesParam, captureLocals) <- genExtractCaptures
-            pt' <- genType pt
-            px' <- newName px
-            -- Load params according to calling convention
-            passParamByRef <- passByRef pt'
-            let (withParam, pt'', pattrs) = if passParamByRef
-                    then (withVar, LLType.ptr pt', [ByVal])
-                    else (withLocal, pt', [])
-            let pRef = LocalReference pt'' px'
-            result <- getLocal =<< withParam
-                ptv
-                pRef
-                (withLocals captureLocals (genExpr body))
-            let rt' = typeOf result
-            let
-                fParams' =
-                    [ uncurry Parameter capturesParam []
-                    , Parameter pt'' px' pattrs
-                    ]
-            -- Return result according to calling convention
-            returnResultByRef <- passByRef rt'
-            if returnResultByRef
-                then do
-                    let out = (LLType.ptr rt', mkName "out")
-                    emitDo (store result (uncurry LocalReference out))
-                    commitFinalFuncBlock retVoid
-                    pure (LLType.void, uncurry Parameter out [SRet] : fParams')
-                else do
-                    commitFinalFuncBlock (ret result)
-                    pure (rt', fParams')
-    (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
-    ss <- mapM globStrVar globStrings
-    ls <- fmap
-        concat
-        (mapM (fmap (uncurry ((:) . GlobalDefinition)) . genFunDef) lambdaFuncs)
-    ps <- mapM (defineSrcPos (MDRef funScopeMdId)) srcPoss
-    let f =
-            simpleFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
-    pure (f, concat ss ++ ls ++ (funScopeMdDef : ps))
-  where
-    globStrVar (strName, s) = do
-        name_inner <- newName' "strlit_inner"
-        let bytes = UTF8.String.encode s
-            len = length bytes
-            tInner = ArrayType (fromIntegral len) i8
-            defInner = simpleGlobVar
-                name_inner
-                tInner
-                (LLConst.Array i8 (map litI8' bytes))
-            inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
-            ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
-            array = litStructNamed
-                ("Array", [TPrim TNat8])
-                [ptrBytes, litI64' len]
-            str = litStructNamed ("Str", []) [array]
-            defStr = simpleGlobVar strName typeStr str
-        pure (map GlobalDefinition [defInner, defStr])
-    genExtractCaptures = do
-        capturesName <- newName "captures"
-        let capturesPtrGenericType = LLType.ptr typeUnit
-        let capturesPtrGeneric =
-                LocalReference capturesPtrGenericType capturesName
-        let capturesParam = (capturesPtrGenericType, capturesName)
-        fmap (capturesParam, ) $ if null fvs
-            then pure []
-            else do
-                capturesType <- genCapturesType fvs
-                capturesPtr <- emitAnonReg
-                    (bitcast capturesPtrGeneric (LLType.ptr capturesType))
-                captures <- emitAnonReg (load capturesPtr)
-                captureVals <- mapM
-                    (\(TypedVar x _, i) ->
-                        emitReg x =<< extractvalue captures [i]
-                    )
-                    (zip fvs [0 ..])
-                pure (zip fvs captureVals)
-    defineSrcPos funScopeMdRef (SrcPos _ line col, mdId) = do
-        let loc =
-                LLOp.DILocation
-                    $ LLOp.Location (fromIntegral line) (fromIntegral col)
-                    $ funScopeMdRef
-        pure (MetadataNodeDefinition mdId loc)
-    defineFunScopeMetadata :: Gen' (MetadataNodeID, Definition)
-    defineFunScopeMetadata = do
-        mdId <- newMetadataId'
-        pure
-            ( mdId
-            , MetadataNodeDefinition
-                mdId
-                (DINode $ LLOp.DIScope $ LLOp.DILocalScope
-                    (LLOp.DISubprogram funMetadataSubprog)
-                )
-            )
-    funMetadataSubprog =
-        let
-            SrcPos path line _ = dpos
-            -- TODO: Maybe only define this once and cache MDRef somewhere?
-            fileNode =
-                let (dir, file) = splitFileName path
-                in
-                    LLSubprog.File
-                        { LLSubprog.filename = fromString file
-                        , LLSubprog.directory = fromString dir
-                        , LLSubprog.checksum = Nothing
-                        }
-        in LLOp.Subprogram
-            { LLSubprog.scope = Just (MDInline (LLOp.DIFile fileNode))
-            , LLSubprog.name = nameSBString name
-            , LLSubprog.linkageName = nameSBString name
-            , LLSubprog.file = Just (MDInline fileNode)
-            , LLSubprog.line = fromIntegral line
-            , LLSubprog.type' = Just
-                (MDInline (LLOp.SubroutineType [] 0 []))
-            , LLSubprog.localToUnit = True
-            , LLSubprog.definition = True
-            , LLSubprog.scopeLine = fromIntegral line
-            , LLSubprog.containingType = Nothing
-            , LLSubprog.virtuality = LLOp.NoVirtuality
-            , LLSubprog.virtualityIndex = 0
-            , LLSubprog.thisAdjustment = 0
-            , LLSubprog.flags = []
-            , LLSubprog.optimized = False
-            , LLSubprog.unit = Just compileUnitRef
-            , LLSubprog.templateParams = []
-            , LLSubprog.declaration = Nothing
-            , LLSubprog.retainedNodes = []
-            , LLSubprog.thrownTypes = []
-            }
 
 genExpr :: Expr -> Gen Val
 genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
@@ -425,13 +217,19 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Var (TypedVar x t) -> lookupVar (TypedVar x t)
         App f e rt -> genApp f e rt
         If p c a -> genIf p c a
-        Fun p b -> assign lambdaParentFunc parent *> genLambda p b
+        Fun p b -> assign lambdaParentFunc parent *> genExprLambda p b
         Let ds b -> genLet ds b
         Match e cs tbody -> genMatch e cs =<< genType tbody
         Ction c -> genCtion c
         Box e -> genBox =<< genExpr e
         Deref e -> genDeref e
         Absurd t -> fmap (VLocal . undef) (genType t)
+
+genExprLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
+genExprLambda p (b, bt) = do
+    let fvXs = Set.toList (Set.delete p (freeVars b))
+    bt' <- genType bt
+    genLambda fvXs p (genExpr b, bt')
 
 genConst :: Monomorphic.Const -> Gen Val
 genConst = \case
@@ -485,19 +283,6 @@ app closure a rt = do
   where
     call f as =
         WithRetType (callVoid f as) (getFunRet (getPointee (typeOf f)))
-    callVoid f as meta = Call
-        -- NOTE: Just marking all calls as "tail" did not work out
-        --       well. Lotsa segfaults and stuff! Learn more about what
-        --       exactly "tail" does first. Maybe it's only ok to mark calls
-        --       that are actually in tail position as tail calls?
-        { tailCallKind = Nothing
-        , callingConvention = cfg_callConv
-        , returnAttributes = []
-        , function = Right f
-        , arguments = as
-        , functionAttributes = []
-        , metadata = meta
-        }
 
 genIf :: Expr -> Expr -> Expr -> Gen Val
 genIf pred' conseq alt = do
@@ -528,7 +313,8 @@ genLet (Topo ds) letBody = do
                 typeStruct
                 (mapM (\(TypedVar _ t) -> genType t) fvXs)
             captures <- genHeapAllocGeneric tcaptures
-            l <- genLambda' p (fb, fbt) (VLocal captures) fvXs
+            fbt' <- genType fbt
+            l <- genLambda' p (genExpr fb, fbt') (VLocal captures) fvXs
             pure ((v, l), Just (captures, fvXs))
         (v, WithPos _ (_, e)) -> genExpr e <&> \e' -> ((v, e'), Nothing)
     withVals binds $ do
@@ -645,62 +431,6 @@ genCtion (i, span', dataType, as) = do
             emitDo (store s p)
             pure (VVar pGeneric)
 
--- TODO: Eta-conversion
--- | A lambda is a pair of a captured environment and a function.  The captured
---   environment must be on the heap, since the closure value needs to be of
---   some specific size, regardless of what the closure captures, so that
---   closures of same types but different captures can be used interchangeably.
---
---   The first parameter of the function is a pointer to an environment of
---   captures and the second parameter is the lambda parameter.
---
---   Inside of the function, first all the captured variables are extracted from
---   the environment, then the body of the function is run.
-genLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
-genLambda p (b, bt) = do
-    let fvXs = Set.toList (Set.delete p (freeVars b))
-    captures <- if null fvXs
-        then pure (null' (LLType.ptr typeUnit))
-        else do
-            tcaptures <- fmap
-                typeStruct
-                (mapM (\(TypedVar _ t) -> genType t) fvXs)
-            captures' <- genHeapAllocGeneric tcaptures
-            populateCaptures captures' fvXs
-            pure captures'
-    genLambda' p (b, bt) (VLocal captures) fvXs
-
-populateCaptures :: Operand -> [TypedVar] -> Gen ()
-populateCaptures ptrGeneric fvXs = do
-    captures <- getLocal =<< genStruct =<< mapM lookupVar fvXs
-    ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr (typeOf captures)))
-    emitDo (store captures ptr)
-
-genLambda'
-    :: TypedVar -> (Expr, Monomorphic.Type) -> Val -> [TypedVar] -> Gen Val
-genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
-    fname <- use lambdaParentFunc >>= \case
-        Just s ->
-            fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
-        Nothing -> newName "func"
-    ft <- lift (genClosureFunType pt bt)
-    let
-        f = VLocal $ ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr ft)
-            fname
-    pos <- view (srcPos . to (fromMaybe (ice "srcPos is Nothing in genLambda")))
-    scribe outFuncs [(fname, fvXs, pos, p, b)]
-    genStruct [captures, f]
-
-genStruct :: [Val] -> Gen Val
-genStruct xs = do
-    xs' <- mapM getLocal xs
-    let t = typeStruct (map typeOf xs')
-    fmap VLocal $ foldlM
-        (\s (i, x) -> emitAnonReg (insertvalue s x [i]))
-        (undef t)
-        (zip [0 ..] xs')
-
 genBox :: Val -> Gen Val
 genBox = fmap fst . genBox'
 
@@ -713,11 +443,6 @@ genBox' x = do
     emitDo (store x' ptr)
     pure (VLocal ptr, VLocal ptrGeneric)
 
-genHeapAllocGeneric :: Type -> Gen Operand
-genHeapAllocGeneric t = do
-    size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnonReg (callExtern "carth_alloc" [size])
-
 genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
     VVar x -> fmap VVar (selDeref x)
@@ -729,362 +454,3 @@ genStrEq s1 s2 = do
     s2' <- getLocal s2
     b <- emitAnonReg (callExtern "carth_str_eq" [s1', s2'])
     pure (VLocal b)
-
-getVar :: Val -> Gen Operand
-getVar = \case
-    VVar x -> pure x
-    VLocal x -> genStackAllocated x
-
-getLocal :: Val -> Gen Operand
-getLocal = \case
-    VVar x -> emitAnonReg (load x)
-    VLocal x -> pure x
-
-withLocals :: [(TypedVar, Operand)] -> Gen a -> Gen a
-withLocals = withXs withLocal
-
--- | Takes a local value, allocates a variable for it, and runs a generator in
---   the environment with the variable
-withLocal :: TypedVar -> Operand -> Gen a -> Gen a
-withLocal x v gen = do
-    vPtr <- genStackAllocated v
-    withVar x vPtr gen
-
--- | Takes a local, stack allocated value, and runs a generator in the
---   environment with the variable
-withVar :: TypedVar -> Operand -> Gen a -> Gen a
-withVar x v = locally env (Map.insert x v)
-
-withVals :: [(TypedVar, Val)] -> Gen a -> Gen a
-withVals = withXs withVal
-
-withVal :: TypedVar -> Val -> Gen a -> Gen a
-withVal x v ga = do
-    var <- getVar v
-    withVar x var ga
-
-withXs :: (TypedVar -> x -> Gen a -> Gen a) -> [(TypedVar, x)] -> Gen a -> Gen a
-withXs f = flip (foldr (uncurry f))
-
-genStackAllocated :: Operand -> Gen Operand
-genStackAllocated v = do
-    ptr <- emitAnonReg (alloca (typeOf v))
-    emitDo (store v ptr)
-    pure ptr
-
-genType :: Monomorphic.Type -> Gen Type
-genType = lift . genType'
-
--- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: Monomorphic.Type -> Gen' Type
-genType' = \case
-    TPrim tc -> pure $ case tc of
-        TNat8 -> i8
-        TNat16 -> i16
-        TNat32 -> i32
-        TNat -> i64
-        TInt8 -> i8
-        TInt16 -> i16
-        TInt32 -> i32
-        TInt -> i64
-        TF64 -> double
-    TFun a r -> genClosureType a r
-    TBox t -> fmap LLType.ptr (genType' t)
-    TConst tc -> lookupEnum tc <&> \case
-        Just 0 -> typeUnit
-        Just w -> IntegerType w
-        Nothing -> genDatatypeRef tc
-
--- | A `Fun` is a closure, and follows a certain calling convention
---
---   A closure is represented as a pair where the first element is the pointer
---   to the structure of captures, and the second element is a pointer to the
---   actual function, which takes as first parameter the captures-pointer, and
---   as second parameter the argument.
---
---   An argument of a structure-type is passed by reference, to be compatible
---   with the C calling convention.
-genClosureType :: Monomorphic.Type -> Monomorphic.Type -> Gen' Type
-genClosureType a r = genClosureFunType a r
-    <&> \c -> typeStruct [LLType.ptr typeUnit, LLType.ptr c]
-
--- The type of the function itself within the closure
-genClosureFunType :: Monomorphic.Type -> Monomorphic.Type -> Gen' Type
-genClosureFunType a r = do
-    a' <- genType' a
-    r' <- genType' r
-    passArgByRef <- passByRef' a'
-    let a'' = if passArgByRef then LLType.ptr a' else a'
-    returnResultByRef <- passByRef' r'
-    pure $ if returnResultByRef
-        then FunctionType
-            { resultType = LLType.void
-            , argumentTypes = [LLType.ptr r', LLType.ptr typeUnit, a'']
-            , isVarArg = False
-            }
-        else FunctionType
-            { resultType = r'
-            , argumentTypes = [LLType.ptr typeUnit, a'']
-            , isVarArg = False
-            }
-
-genCapturesType :: [TypedVar] -> Gen Type
-genCapturesType = fmap typeStruct . mapM (\(TypedVar _ t) -> genType t)
-
-genDatatypeRef :: Monomorphic.TConst -> Type
-genDatatypeRef = NamedTypeReference . mkName . mangleTConst
-
-genVariantType :: Span -> [Monomorphic.Type] -> Gen' [Type]
-genVariantType totVariants =
-    fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants))
-        . mapM genType'
-
-emitDo' :: FunInstr -> Gen ()
-emitDo' (WithRetType instr _) = emitDo instr
-
-emitDo :: Instr -> Gen ()
-emitNamedReg :: Name -> FunInstr -> Gen Operand
-(emitDo, emitNamedReg) =
-    ( emit' Do
-    , \reg (WithRetType instr rt) ->
-        emit' (reg :=) instr $> LocalReference rt reg
-    )
-  where
-    emit' :: (Instruction -> Named Instruction) -> Instr -> Gen ()
-    emit' nameInstruction instr = do
-        meta <- view srcPos >>= \case
-            Just pos -> do
-                loc <- genSrcPos pos
-                pure [("dbg", loc)]
-            Nothing -> pure []
-        modifying currentBlockInstrs (nameInstruction (instr meta) :)
-    genSrcPos :: SrcPos -> Gen (MDRef MDNode)
-    genSrcPos pos = do
-        use (srcPosToMetadata . to (Map.lookup pos)) >>= \case
-            Just mdRef -> pure mdRef
-            Nothing -> do
-                mdId <- newMetadataId
-                let mdRef = MDRef mdId
-                scribe outSrcPos [(pos, mdId)]
-                modifying srcPosToMetadata (Map.insert pos mdRef)
-                pure (mdRef)
-
-emitReg :: String -> FunInstr -> Gen Operand
-emitReg s instr = newName s >>= flip emitNamedReg instr
-
-emitAnonReg :: FunInstr -> Gen Operand
-emitAnonReg instr = newAnonRegister >>= flip emitNamedReg instr
-    where newAnonRegister = fmap UnName (registerCount <<+= 1)
-
-commitFinalFuncBlock :: Terminator -> Gen ()
-commitFinalFuncBlock t = commitToNewBlock
-    t
-    (ice "Continued gen after final block of function was already commited")
-
-commitToNewBlock :: Terminator -> Name -> Gen ()
-commitToNewBlock t l = do
-    n <- use currentBlockLabel
-    is <- use (currentBlockInstrs . to reverse)
-    scribe outBlocks [BasicBlock n is (Do t)]
-    assign currentBlockLabel l
-    assign currentBlockInstrs []
-
-newName :: String -> Gen Name
-newName = lift . newName'
-
-newName' :: String -> Gen' Name
-newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
-
-newMetadataId :: Gen MetadataNodeID
-newMetadataId = lift newMetadataId'
-
-newMetadataId' :: Gen' MetadataNodeID
-newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
-
-callExtern :: String -> [Operand] -> FunInstr
-callExtern f as =
-    let
-        (_, tr) = fromMaybe
-            (ice $ "callExtern on '" ++ f ++ "' not in builtins")
-            (Map.lookup f builtins)
-    in
-        flip WithRetType tr $ \meta -> Call
-            { tailCallKind = Nothing
-            , callingConvention = cfg_callConv
-            , returnAttributes = []
-            , function = Right $ ConstantOperand $ LLConst.GlobalReference
-                (LLType.ptr (FunctionType tr (map typeOf as) False))
-                (mkName f)
-            , arguments = map (, []) as
-            , functionAttributes = []
-            , metadata = meta
-            }
-
-undef :: Type -> Operand
-undef = ConstantOperand . LLConst.Undef
-
-null' :: Type -> Operand
-null' = ConstantOperand . LLConst.Null
-
-condbr :: Operand -> Name -> Name -> Terminator
-condbr c t f = CondBr c t f []
-
-br :: Name -> Terminator
-br = flip Br []
-
-ret :: Operand -> Terminator
-ret = flip Ret [] . Just
-
-retVoid :: Terminator
-retVoid = Ret Nothing []
-
-switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
-switch x def cs = Switch x def cs []
-
-bitcast :: Operand -> Type -> FunInstr
-bitcast x t = WithRetType (BitCast x t) t
-
-trunc :: Operand -> Type -> FunInstr
-trunc x t = WithRetType (Trunc x t) t
-
-insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
-insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)
-
-extractvalue :: Operand -> [Word32] -> Gen FunInstr
-extractvalue struct is = fmap
-    (WithRetType (ExtractValue struct is))
-    (getIndexed (typeOf struct) (map fromIntegral is))
-  where
-    getIndexed = foldlM $ \t i -> getMembers t <&> \us -> if i < length us
-        then us !! i
-        else
-            ice
-            $ "extractvalue: index out of bounds: "
-            ++ (show (typeOf struct) ++ ", " ++ show is)
-    getMembers = \case
-        NamedTypeReference x -> getMembers =<< lift (lookupDatatype x)
-        StructureType _ members -> pure members
-        t ->
-            ice $ "Tried to get member types of non-struct type " ++ show t
-
-store :: Operand -> Operand -> Instr
-store srcVal destPtr meta = Store
-    { volatile = False
-    , address = destPtr
-    , value = srcVal
-    , maybeAtomicity = Nothing
-    , alignment = 0
-    , metadata = meta
-    }
-
-load :: Operand -> FunInstr
-load p = WithRetType
-    (\meta -> Load
-        { volatile = False
-        , address = p
-        , maybeAtomicity = Nothing
-        , alignment = 0
-        , metadata = meta
-        }
-    )
-    (getPointee (typeOf p))
-
-phi :: [(Operand, Name)] -> FunInstr
-phi = \case
-    [] -> ice "phi was given empty list of cases"
-    cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs) t
-
-alloca :: Type -> FunInstr
-alloca t = WithRetType (Alloca t Nothing 0) (LLType.ptr t)
-
-litI64 :: Int -> Operand
-litI64 = ConstantOperand . litI64'
-
-litI64' :: Int -> LLConst.Constant
-litI64' = LLConst.Int 64 . toInteger
-
-litI32 :: Int -> Operand
-litI32 = ConstantOperand . LLConst.Int 32 . toInteger
-
-litI8' :: Integral n => n -> LLConst.Constant
-litI8' = LLConst.Int 8 . toInteger
-
-litF64 :: Double -> Operand
-litF64 = ConstantOperand . LLConst.Float . LLFloat.Double
-
-litStruct :: [LLConst.Constant] -> LLConst.Constant
-litStruct = LLConst.Struct Nothing False
-
--- NOTE: typeOf Struct does not return NamedTypeReference of the structName, so
---       sometimes, an expression created from this will have the wrong
---       type. Specifically, I have observed this behaviour i phi-nodes. To
---       guard against it (until fixed upstream, hopefully), store the value in
---       a variable beforehand.
-litStructNamed :: TConst -> [LLConst.Constant] -> LLConst.Constant
-litStructNamed t xs =
-    let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
-
-litUnit :: Operand
-litUnit = ConstantOperand (litStruct [])
-
-typeStr :: Type
-typeStr = NamedTypeReference (mkName (mangleTConst ("Str", [])))
-
-typeBool :: Type
-typeBool = i8
-
-getFunRet :: Type -> Type
-getFunRet = \case
-    FunctionType rt _ _ -> rt
-    t -> ice $ "Tried to get return type of non-function type " ++ show t
-
-getPointee :: Type -> Type
-getPointee = \case
-    LLType.PointerType t _ -> t
-    t -> ice $ "Tried to get pointee of non-function type " ++ show t
-
-getIntBitWidth :: Type -> Word32
-getIntBitWidth = \case
-    LLType.IntegerType w -> w
-    t -> ice $ "Tried to get bit width of non-integer type " ++ show t
-
-mangleName :: (String, [Monomorphic.Type]) -> String
-mangleName = \case
-    -- Instead of dealing with changing entrypoint name and startfiles, just
-    -- call the outermost, compiler generated main `main`, and the user-defined
-    -- main `_main`, via this `mangleName` mechanic.
-    ("main", []) -> "_main"
-    ("main", _) -> ice "mangleName of `main` of non-empty instantiation"
-    (x, us) -> x ++ mangleInst us
-
-mangleInst :: [Monomorphic.Type] -> String
-mangleInst ts = if not (null ts)
-    then "<" ++ intercalate ", " (map mangleType ts) ++ ">"
-    else ""
-
-mangleType :: Monomorphic.Type -> String
-mangleType = \case
-    TPrim c -> pretty c
-    TFun p r -> mangleTConst ("Fun", [p, r])
-    TBox t -> mangleTConst ("Box", [t])
-    TConst tc -> mangleTConst tc
-
-mangleTConst :: TConst -> String
-mangleTConst (c, ts) = c ++ mangleInst ts
-
-lookupVar :: TypedVar -> Gen Val
-lookupVar x = do
-    view (env . to (Map.lookup x)) >>= \case
-        Just var -> pure (VVar var)
-        Nothing -> ice $ "Undefined variable " ++ show x
-
-nameSBString :: Name -> ShortByteString
-nameSBString = \case
-    Name s -> s
-    UnName n -> fromString (show n)
-
-lookupEnum :: TConst -> Gen' (Maybe Word32)
-lookupEnum tc = view (enumTypes . to (tconstLookup tc))
-
-tconstLookup :: TConst -> Map Name a -> Maybe a
-tconstLookup = Map.lookup . mkName . mangleTConst

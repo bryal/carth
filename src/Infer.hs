@@ -68,8 +68,8 @@ inferTopDefs tdefs ctors externs defs =
   where
     inferTopDefs' = do
         externs' <- checkExterns externs
-        let externs'' = fmap (Forall Set.empty) externs'
-        defs'' <- augment envDefs externs'' (inferDefs defs)
+        let externs'' = fmap (first (Forall Set.empty)) externs'
+        defs'' <- augment envDefs (fmap fst externs'') (inferDefs defs)
         s <- use substs
         pure (externs', defs'', s)
 
@@ -82,7 +82,7 @@ checkExterns = fmap Map.fromList . mapM checkExtern
         t' <- checkType (getPos name) t
         case Set.lookupMin (ftv t') of
             Just tv -> throwError (ExternNotMonomorphic name tv)
-            Nothing -> pure (idstr name, t')
+            Nothing -> pure (idstr name, (t', getPos name))
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = do
