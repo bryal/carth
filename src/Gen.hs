@@ -80,7 +80,7 @@ type Gen' = StateT St (Reader Env)
 data Out = Out
     { _outBlocks :: [BasicBlock]
     , _outStrings :: [(Name, String)]
-    , _outFuncs :: [(Name, [TypedVar], SrcPos, TypedVar, Gen Val)]
+    , _outFuncs :: [(Name, [TypedVar], SrcPos, TypedVar, Gen Type)]
     , _outSrcPos :: [(SrcPos, MetadataNodeID)]
     }
 
@@ -112,7 +112,7 @@ instance Typed Val where
 --   The signature definition, the parameter-loading, and the result return are
 --   all done according to the calling convention.
 genFunDef
-    :: (Name, [TypedVar], SrcPos, TypedVar, Gen Val)
+    :: (Name, [TypedVar], SrcPos, TypedVar, Gen Type)
     -> Gen' (Global, [Definition])
 genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
@@ -126,12 +126,9 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             pt' <- genType pt
             px' <- newName px
             let pRef = LocalReference pt' px'
-            result <- getLocal
-                =<< withLocal ptv pRef (withLocals captureLocals genBody)
-            let rt' = typeOf result
+            rt' <- withLocal ptv pRef (withLocals captureLocals genBody)
             let fParams' =
                     [uncurry Parameter capturesParam [], Parameter pt' px' []]
-            commitFinalFuncBlock (ret result)
             pure (rt', fParams')
     (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
     ss <- mapM globStrVar globStrings
@@ -140,7 +137,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         (mapM (fmap (uncurry ((:) . GlobalDefinition)) . genFunDef) lambdaFuncs)
     ps <- mapM (defineSrcPos (MDRef funScopeMdId)) srcPoss
     let f =
-            simpleFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
+            internFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
     pure (f, concat ss ++ ls ++ (funScopeMdDef : ps))
   where
     globStrVar (strName, s) = do
@@ -246,7 +243,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
 --
 --   Inside of the function, first all the captured variables are extracted from
 --   the environment, then the body of the function is run.
-genLambda :: [TypedVar] -> TypedVar -> (Gen Val, Type) -> Gen Val
+genLambda :: [TypedVar] -> TypedVar -> (Gen (), Type) -> Gen Val
 genLambda fvXs p body = do
     captures <- if null fvXs
         then pure (null' (LLType.ptr typeUnit))
@@ -265,7 +262,7 @@ populateCaptures ptrGeneric fvXs = do
     ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr (typeOf captures)))
     emitDo (store captures ptr)
 
-genLambda' :: TypedVar -> (Gen Val, Type) -> Val -> [TypedVar] -> Gen Val
+genLambda' :: TypedVar -> (Gen (), Type) -> Val -> [TypedVar] -> Gen Val
 genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
     fname <- use lambdaParentFunc >>= \case
         Just s ->
@@ -277,7 +274,7 @@ genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
             (LLType.ptr ft)
             fname
     pos <- view (srcPos . to (fromMaybe (ice "srcPos is Nothing in genLambda")))
-    scribe outFuncs [(fname, fvXs, pos, p, b)]
+    scribe outFuncs [(fname, fvXs, pos, p, b $> bt)]
     genStruct [captures, f]
 
 compileUnitRef :: MDRef LLOp.DICompileUnit
@@ -307,33 +304,45 @@ runGen' g = runReader (evalStateT g initSt) initEnv
         , _srcPosToMetadata = Map.empty
         }
 
-callVoid
-    :: Operand
-    -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
-    -> InstructionMetadata
-    -> Instruction
-callVoid f as meta = Call
-    { tailCallKind = Nothing
-    , callingConvention = LLCallConv.Fast
-    , returnAttributes = []
-    , function = Right f
-    , arguments = as
-    , functionAttributes = []
-    , metadata = meta
-    }
-
-simpleFunc
+internFunc
     :: Name
     -> [Parameter]
     -> Type
     -> [BasicBlock]
     -> [(ShortByteString, MDRef MDNode)]
     -> Global
-simpleFunc n ps rt bs meta = Function
+internFunc n ps rt bs meta = Function
+    { LLGlob.linkage = LLLink.External
+    , LLGlob.visibility = LLVis.Hidden
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.callingConvention = LLCallConv.Fast
+    , LLGlob.returnAttributes = []
+    , LLGlob.returnType = rt
+    , LLGlob.name = n
+    , LLGlob.parameters = (ps, False)
+    , LLGlob.functionAttributes = []
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.garbageCollectorName = Nothing
+    , LLGlob.prefix = Nothing
+    , LLGlob.basicBlocks = bs
+    , LLGlob.personalityFunction = Nothing
+    , LLGlob.metadata = meta
+    }
+
+externFunc
+    :: Name
+    -> [Parameter]
+    -> Type
+    -> [BasicBlock]
+    -> [(ShortByteString, MDRef MDNode)]
+    -> Global
+externFunc n ps rt bs meta = Function
     { LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
     , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = LLCallConv.Fast
+    , LLGlob.callingConvention = LLCallConv.C
     , LLGlob.returnAttributes = []
     , LLGlob.returnType = rt
     , LLGlob.name = n
@@ -421,7 +430,7 @@ genStruct xs = do
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnonReg (callExtern "carth_alloc" [size])
+    emitAnonReg (callBuiltin "carth_alloc" [size])
 
 genStackAllocated :: Operand -> Gen Operand
 genStackAllocated v = do
@@ -435,28 +444,52 @@ lookupVar x = do
         Just var -> pure (VVar var)
         Nothing -> ice $ "Undefined variable " ++ show x
 
-callExtern :: String -> [Operand] -> FunInstr
-callExtern f as =
+callBuiltin :: String -> [Operand] -> FunInstr
+callBuiltin f as =
     let
         (_, tr) = fromMaybe
-            (ice $ "callExtern on '" ++ f ++ "' not in builtins")
+            (ice $ "callBuiltin on '" ++ f ++ "' not in builtins")
             (Map.lookup f builtins)
-    in
-        flip WithRetType tr $ \meta -> Call
-            { tailCallKind = Nothing
-            , callingConvention = LLCallConv.C
-            , returnAttributes = []
-            , function = Right $ ConstantOperand $ LLConst.GlobalReference
-                (LLType.ptr (FunctionType tr (map typeOf as) False))
-                (mkName f)
-            , arguments = map (, []) as
-            , functionAttributes = []
-            , metadata = meta
-            }
+        f' = ConstantOperand $ LLConst.GlobalReference
+            (LLType.ptr (FunctionType tr (map typeOf as) False))
+            (mkName f)
+    in flip WithRetType tr $ callExtern f' (map (, []) as)
+
+callIntern
+    :: Maybe TailCallKind
+    -> Operand
+    -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
+    -> InstructionMetadata
+    -> Instruction
+callIntern = call LLCallConv.Fast
+
+callExtern
+    :: Operand
+    -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
+    -> InstructionMetadata
+    -> Instruction
+callExtern = call LLCallConv.C Nothing
+
+call
+    :: LLCallConv.CallingConvention
+    -> Maybe TailCallKind
+    -> Operand
+    -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
+    -> InstructionMetadata
+    -> Instruction
+call callconv tailkind f as meta = Call
+    { tailCallKind = tailkind
+    , callingConvention = callconv
+    , returnAttributes = []
+    , function = Right f
+    , arguments = as
+    , functionAttributes = []
+    , metadata = meta
+    }
 
 genBuiltins :: [Definition]
 genBuiltins = map
-    (\(x, (ps, tr)) -> GlobalDefinition (simpleFunc (mkName x) ps tr [] []))
+    (\(x, (ps, tr)) -> GlobalDefinition (externFunc (mkName x) ps tr [] []))
     (Map.toList builtins)
 
 builtins :: Map String ([Parameter], Type)

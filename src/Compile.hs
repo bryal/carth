@@ -6,6 +6,7 @@ module Compile (compile, run) where
 import LLVM.Context
 import LLVM.Module
 import LLVM.Target
+import LLVM.Target.Options
 import LLVM.Analysis
 import LLVM.OrcJIT
 import LLVM.OrcJIT.CompileLayer as CL
@@ -58,7 +59,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
     -- can optimize any tail call.
     let optLvl = if (getDebug cfg) then CodeGenOpt.Less else CodeGenOpt.Default
     in
-        withHostTargetMachinePIC optLvl $ \tm -> do
+        withMyTargetMachine optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
             verbose cfg ("   Generating LLVM")
             let amod = codegen layout file pgm
@@ -172,8 +173,28 @@ writeLLVMAssemblyToFile' f m = do
     writeFile f ""
     writeLLVMAssemblyToFile (File f) m
 
-withHostTargetMachinePIC :: CodeGenOpt.Level -> (TargetMachine -> IO a) -> IO a
-withHostTargetMachinePIC = withHostTargetMachine Reloc.PIC CodeModel.Default
+withMyTargetMachine :: CodeGenOpt.Level -> (TargetMachine -> IO a) -> IO a
+withMyTargetMachine codeGenOpt f = do
+    initializeAllTargets
+    triple <- getProcessTargetTriple
+    cpu <- getHostCPUName
+    features <- getHostCPUFeatures
+    (target, _) <- lookupTarget Nothing triple
+    withTargetOptions $ \toptions -> do
+        options <- peekTargetOptions toptions
+        pokeTargetOptions
+            (options { guaranteedTailCallOptimization = True })
+            toptions
+        withTargetMachine
+            target
+            triple
+            cpu
+            features
+            toptions
+            Reloc.PIC
+            CodeModel.Default
+            codeGenOpt
+            f
 
 optPasses :: CodeGenOpt.Level -> TargetMachine -> PassSetSpec
 optPasses level tm =

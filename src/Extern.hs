@@ -28,7 +28,7 @@ import LLVM.AST.ParameterAttribute
 import qualified LLVM.AST.Constant as LLConst
 import Control.Monad.Writer
 import qualified Data.Map as Map
-import Lens.Micro.Platform (view, to)
+import Lens.Micro.Platform (view, to, assign)
 import LLVM.AST.Typed
 import qualified LLVM.AST.Type as LLType
 import Data.Functor
@@ -69,7 +69,7 @@ genExtern (name, t, pos) = do
     (rt'', ps') <- passByRef' rt' <&> \case
         True -> (LLType.void, Parameter (LLType.ptr rt') anon [SRet] : ps)
         False -> (rt', ps)
-    let externDef = GlobalDefinition (simpleFunc (mkName name) ps' rt'' [] [])
+    let externDef = GlobalDefinition (externFunc (mkName name) ps' rt'' [] [])
     wrapperDefs <- genWrapper pos name rt' pts
     pure (externDef : wrapperDefs)
 
@@ -98,33 +98,42 @@ genWrapper pos externName rt paramTs =
                                         False
                                     )
                                     fname
-                            emitDo $ callVoid f ((out, [SRet]) : as)
+                            emitDo $ callExtern f ((out, [SRet]) : as)
                             pure (VVar out)
                         False ->
                             let
                                 f = ConstantOperand $ LLConst.GlobalReference
                                     (LLType.ptr $ FunctionType rt ats False)
                                     fname
-                                call = WithRetType
-                                    (callVoid f as)
+                                call' = WithRetType
+                                    (callExtern f as)
                                     (getFunRet (getPointee (typeOf f)))
-                            in fmap VLocal (emitAnonReg call)
+                            in fmap VLocal (emitAnonReg call')
             let
-                genWrapper' fvs = \case
-                    [] -> genCallExtern fvs
-                    (p : ps) -> do
-                        pts <- mapM (\(TypedVar _ t) -> genType t) ps
-                        let bt = foldr closureType rt pts
-                        genLambda fvs p (genWrapper' (fvs ++ [p]) ps, bt)
-            let fname = mkName ("_wrapper_f_" ++ externName)
-            (f, gs) <- locallySet srcPos (Just pos) $
-                genFunDef
-                    ( fname
-                    , []
-                    , pos
-                    , firstParam
-                    , genWrapper' [firstParam] restParams
-                    )
+                genWrapper' fvs ps' = do
+                    r <- getLocal =<< case ps' of
+                        [] -> genCallExtern fvs
+                        (p : ps) -> do
+                            pts <- mapM (\(TypedVar _ t) -> genType t) ps
+                            let bt = foldr closureType rt pts
+                            genLambda
+                                fvs
+                                p
+                                (genWrapper' (fvs ++ [p]) ps $> (), bt)
+                    commitFinalFuncBlock (ret r)
+                    pure (typeOf r)
+            let wrapperName = "_wrapper_" ++ externName
+            assign lambdaParentFunc (Just wrapperName)
+            let fname = mkName (wrapperName ++ "_func")
+            (f, gs) <-
+                locallySet srcPos (Just pos)
+                    $ genFunDef
+                        ( fname
+                        , []
+                        , pos
+                        , firstParam
+                        , genWrapper' [firstParam] restParams
+                        )
             let fref = LLConst.GlobalReference (LLType.ptr (typeOf f)) fname
             let captures = LLConst.Null (LLType.ptr typeUnit)
             let closure = litStruct [captures, fref]
