@@ -11,10 +11,12 @@ import LLVM.OrcJIT
 import LLVM.OrcJIT.CompileLayer as CL
 import LLVM.Linking
 import LLVM.PassManager
+import LLVM.Exception
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 import Control.Monad
+import Control.Monad.Catch
 import System.FilePath
 import System.Process
 import System.Exit
@@ -26,6 +28,7 @@ import qualified Data.Map as Map
 import Foreign.Ptr
 import Prelude hiding (mod)
 
+import Misc
 import Conf
 import qualified Monomorphic
 import Codegen
@@ -62,7 +65,9 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             withModuleFromAST ctx amod $ \mod -> do
                 verbose cfg ("   Verifying LLVM")
                 when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
-                verify mod
+                catch (verify mod) $ \case
+                    VerifyException msg ->
+                        ice $ "LLVM verification exception:\n" ++ msg
                 withPassManager (optPasses optLvl tm) $ \passman -> do
                     verbose cfg "   Optimizing"
                     _ <- runPassManager passman mod
