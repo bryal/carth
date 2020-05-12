@@ -279,6 +279,8 @@ genCondBr predV genConseq genAlt = do
 
 genLet :: Defs -> Expr -> Gen Val
 genLet (Topo ds) letBody = do
+    -- For both function and variable bindings, we need separate the definition
+    -- into two passes, where the first pre-allocates some stuff.
     (binds, cs) <- fmap unzip $ forM ds $ \case
         (v, WithPos _ (_, Expr _ (Fun p (fb, fbt)))) -> do
             let fvXs = Set.toList (Set.delete p (freeVars fb))
@@ -287,11 +289,20 @@ genLet (Topo ds) letBody = do
                 (mapM (\(TypedVar _ t) -> genType t) fvXs)
             captures <- genHeapAllocGeneric tcaptures
             fbt' <- genType fbt
-            l <- genLambda' p (genExpr fb, fbt') (VLocal captures) fvXs
-            pure ((v, l), Just (captures, fvXs))
-        (v, WithPos _ (_, e)) -> genExpr e <&> \e' -> ((v, e'), Nothing)
-    withVals binds $ do
-        forM_ (catMaybes cs) (uncurry populateCaptures)
+            l <-
+                getVar
+                    =<< genLambda' p (genExpr fb, fbt') (VLocal captures) fvXs
+            pure ((v, l), Left (captures, fvXs))
+        (v@(TypedVar n t), WithPos _ (_, e)) -> do
+            t' <- genType t
+            mem <- emitReg n (alloca t')
+            pure ((v, mem), Right e)
+    withVars binds $ do
+        forM_ (zip binds cs) $ \case
+            (_, Left (captures, fvXs)) -> populateCaptures captures fvXs
+            ((_, mem), Right e) -> do
+                x <- getLocal =<< genExpr e
+                emitDo (store x mem)
         genExpr letBody
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Val

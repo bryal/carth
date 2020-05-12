@@ -390,6 +390,9 @@ withLocal x v gen = do
     vPtr <- genStackAllocated v
     withVar x vPtr gen
 
+withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
+withVars = withXs withVar
+
 -- | Takes a local, stack allocated value, and runs a generator in the
 --   environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
