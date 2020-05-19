@@ -135,7 +135,7 @@ genWrapper pos externName rt paramTs =
                         , genWrapper' [firstParam] restParams
                         )
             let fref = LLConst.GlobalReference (LLType.ptr (typeOf f)) fname
-            let captures = LLConst.Null (LLType.ptr typeUnit)
+            let captures = LLConst.Null typeGenericPtr
             let closure = litStruct [captures, fref]
             let closureDef = simpleGlobVar
                     (mkName ("_wrapper_" ++ externName))

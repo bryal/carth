@@ -7,15 +7,15 @@
 --   situations.
 module Gen where
 
-import Control.Monad.Writer
-import Control.Monad.State
-import Control.Monad.Reader
+import Control.Monad.Writer hiding (void)
+import Control.Monad.State hiding (void)
+import Control.Monad.Reader hiding (void)
 import Control.Applicative
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.Map (Map)
 import Data.Word
 import Data.Foldable
-import Data.Functor
+import Data.Functor hiding (void)
 import Data.List
 import Data.String
 import Data.Maybe
@@ -159,7 +159,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         pure (map GlobalDefinition [defInner, defStr])
     genExtractCaptures = do
         capturesName <- newName "captures"
-        let capturesPtrGenericType = LLType.ptr typeUnit
+        let capturesPtrGenericType = typeGenericPtr
         let capturesPtrGeneric =
                 LocalReference capturesPtrGenericType capturesName
         let capturesParam = (capturesPtrGenericType, capturesName)
@@ -246,7 +246,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
 genLambda :: [TypedVar] -> TypedVar -> (Gen (), Type) -> Gen Val
 genLambda fvXs p body = do
     captures <- if null fvXs
-        then pure (null' (LLType.ptr typeUnit))
+        then pure (null' typeGenericPtr)
         else do
             tcaptures <- fmap
                 typeStruct
@@ -494,7 +494,7 @@ genBuiltins = map
 
 builtins :: Map String ([Parameter], Type)
 builtins = Map.fromList
-    [ ("carth_alloc", ([Parameter i64 (mkName "size") []], LLType.ptr typeUnit))
+    [ ("carth_alloc", ([Parameter i64 (mkName "size") []], typeGenericPtr))
     , ( "carth_str_eq"
       , ( [ Parameter typeStr (mkName "s1") []
           , Parameter typeStr (mkName "s2") []
@@ -538,14 +538,13 @@ genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 --   actual function, which takes as first parameter the captures-pointer, and
 --   as second parameter the argument.
 closureType :: Type -> Type -> Type
-closureType a r =
-    typeStruct [LLType.ptr typeUnit, LLType.ptr (closureFunType a r)]
+closureType a r = typeStruct [typeGenericPtr, LLType.ptr (closureFunType a r)]
 
 -- The type of the function itself within the closure
 closureFunType :: Type -> Type -> Type
 closureFunType a r = FunctionType
     { resultType = r
-    , argumentTypes = [LLType.ptr typeUnit, a]
+    , argumentTypes = [typeGenericPtr, a]
     , isVarArg = False
     }
 
@@ -691,7 +690,7 @@ tconstLookup = Map.lookup . mkName . mangleTConst
 
 lookupDatatype :: Name -> Gen' Type
 lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
-    Just 0 -> pure (typeUnit)
+    Just 0 -> pure typeUnit
     Just w -> pure (IntegerType w)
     Nothing -> fmap
         (maybe (ice ("Undefined datatype " ++ show x)) typeStruct)
@@ -806,6 +805,9 @@ litStructNamed t xs =
 
 litUnit :: Operand
 litUnit = ConstantOperand (litStruct [])
+
+typeGenericPtr :: Type
+typeGenericPtr = LLType.ptr i8
 
 typeStr :: Type
 typeStr = NamedTypeReference (mkName (mangleTConst ("Str", [])))
