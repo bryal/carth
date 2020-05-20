@@ -185,7 +185,7 @@ genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
         assign outerLambdaN 1
         let fName = mkName (name ++ "_func")
         (f, gs) <- genFunDef
-            (fName, [], dpos, p, genTailExpr body *> genType rt)
+            (fName, [], dpos, p, genTailExpr body *> genRetType rt)
         let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
         let capturesType = LLType.ptr typeUnit
         let captures = LLConst.Null capturesType
@@ -207,7 +207,9 @@ genTailExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
             _ -> genExpr (Expr pos expr)
 
 genTailReturn :: Val -> Gen ()
-genTailReturn = (commitFinalFuncBlock . ret) <=< getLocal
+genTailReturn v = if typeOf v == typeUnit
+    then commitFinalFuncBlock retVoid
+    else commitFinalFuncBlock . ret =<< getLocal v
 
 genExpr :: Expr -> Gen Val
 genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
@@ -228,7 +230,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
 genExprLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
 genExprLambda p (b, bt) = do
     let fvXs = Set.toList (Set.delete p (freeVars b))
-    bt' <- genType bt
+    bt' <- genRetType bt
     genLambda fvXs p (genTailExpr b, bt')
 
 genConst :: Monomorphic.Const -> Gen Val
@@ -278,12 +280,11 @@ app tailkind closure a = do
     captures <- emitReg "captures" =<< extractvalue closure' [0]
     f <- emitReg "function" =<< extractvalue closure' [1]
     a' <- getLocal a
-    let args = [(captures, []), (a', [])]
-    fmap VLocal (emitAnonReg (call' f args))
-  where
-    call' f as = WithRetType
-        (callIntern tailkind f as)
-        (getFunRet (getPointee (typeOf f)))
+    let as = [(captures, []), (a', [])]
+    let rt = getFunRet (getPointee (typeOf f))
+    fmap VLocal $ if rt == LLType.void
+        then emitDo (callIntern tailkind f as) $> litUnit
+        else emitAnonReg $ WithRetType (callIntern tailkind f as) rt
 
 genTailIf :: Expr -> Expr -> Expr -> Gen ()
 genTailIf pred' conseq alt = do
@@ -337,7 +338,7 @@ genLet' (Topo ds) genBody = do
                 typeStruct
                 (mapM (\(TypedVar _ t) -> genType t) fvXs)
             captures <- genHeapAllocGeneric tcaptures
-            fbt' <- genType fbt
+            fbt' <- genRetType fbt
             l <-
                 getVar
                     =<< genLambda'

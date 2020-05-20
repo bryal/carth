@@ -505,6 +505,12 @@ builtins = Map.fromList
     , ("install_stackoverflow_handler", ([], LLType.void))
     ]
 
+genRetType :: Monomorphic.Type -> Gen Type
+genRetType = lift . genRetType'
+
+genRetType' :: Monomorphic.Type -> Gen' Type
+genRetType' = fmap (\t -> if t == typeUnit then LLType.void else t) . genType'
+
 genType :: Monomorphic.Type -> Gen Type
 genType = lift . genType'
 
@@ -521,7 +527,7 @@ genType' = \case
         Monomorphic.TInt32 -> i32
         Monomorphic.TInt -> i64
         Monomorphic.TF64 -> double
-    Monomorphic.TFun a r -> liftA2 closureType (genType' a) (genType' r)
+    Monomorphic.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
     Monomorphic.TBox t -> fmap LLType.ptr (genType' t)
     Monomorphic.TConst tc -> lookupEnum tc <&> \case
         Just 0 -> typeUnit
@@ -691,7 +697,7 @@ tconstLookup = Map.lookup . mkName . mangleTConst
 
 lookupDatatype :: Name -> Gen' Type
 lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
-    Just 0 -> pure (typeUnit)
+    Just 0 -> pure typeUnit
     Just w -> pure (IntegerType w)
     Nothing -> fmap
         (maybe (ice ("Undefined datatype " ++ show x)) typeStruct)

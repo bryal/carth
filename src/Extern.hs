@@ -65,7 +65,7 @@ genExtern (name, t, pos) = do
     ps <- forM pts' $ \pt' -> passByRef' pt' <&> \case
         True -> Parameter (LLType.ptr pt') anon [ByVal]
         False -> Parameter pt' anon []
-    rt' <- genType' rt
+    rt' <- genRetType' rt
     (rt'', ps') <- passByRef' rt' <&> \case
         True -> (LLType.void, Parameter (LLType.ptr rt') anon [SRet] : ps)
         False -> (rt', ps)
@@ -105,10 +105,13 @@ genWrapper pos externName rt paramTs =
                                 f = ConstantOperand $ LLConst.GlobalReference
                                     (LLType.ptr $ FunctionType rt ats False)
                                     fname
-                                call' = WithRetType
-                                    (callExtern f as)
-                                    (getFunRet (getPointee (typeOf f)))
-                            in fmap VLocal (emitAnonReg call')
+                            in
+                                if rt == LLType.void
+                                    then emitDo (callExtern f as)
+                                        $> VLocal litUnit
+                                    else fmap VLocal $ emitAnonReg $ WithRetType
+                                        (callExtern f as)
+                                        rt
             let
                 genWrapper' fvs ps' = do
                     r <- getLocal =<< case ps' of
@@ -120,8 +123,9 @@ genWrapper pos externName rt paramTs =
                                 fvs
                                 p
                                 (genWrapper' (fvs ++ [p]) ps $> (), bt)
-                    commitFinalFuncBlock (ret r)
-                    pure (typeOf r)
+                    if typeOf r == typeUnit
+                        then commitFinalFuncBlock retVoid $> LLType.void
+                        else commitFinalFuncBlock (ret r) $> typeOf r
             let wrapperName = "_wrapper_" ++ externName
             assign lambdaParentFunc (Just wrapperName)
             let fname = mkName (wrapperName ++ "_func")
