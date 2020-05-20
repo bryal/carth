@@ -63,18 +63,25 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             layout <- getTargetMachineDataLayout tm
             verbose cfg ("   Generating LLVM")
             let amod = codegen layout file pgm
-            withModuleFromAST ctx amod $ \mod -> do
-                verbose cfg ("   Verifying LLVM")
-                when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
-                catch (verify mod) $ \case
-                    VerifyException msg ->
-                        ice $ "LLVM verification exception:\n" ++ msg
-                withPassManager (optPasses optLvl tm) $ \passman -> do
-                    verbose cfg "   Optimizing"
-                    _ <- runPassManager passman mod
-                    when (getDebug cfg)
-                        $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
-                    f cfg tm mod
+            flip
+                    catch
+                    (\case
+                        EncodeException msg ->
+                            ice $ "LLVM encode exception:\n" ++ msg
+                    )
+                $ withModuleFromAST ctx amod
+                $ \mod -> do
+                    verbose cfg ("   Verifying LLVM")
+                    when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                    catch (verify mod) $ \case
+                        VerifyException msg ->
+                            ice $ "LLVM verification exception:\n" ++ msg
+                    withPassManager (optPasses optLvl tm) $ \passman -> do
+                        verbose cfg "   Optimizing"
+                        _ <- runPassManager passman mod
+                        when (getDebug cfg)
+                            $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
+                        f cfg tm mod
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do
