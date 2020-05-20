@@ -24,8 +24,8 @@
                        (match (next xs)
                          (case (Some (Pair x xs'))
                                (if (pred x)
-                                   (Some (Pair x xs'))
-                                 (skip-while' xs')))
+                                   (skip-while' xs')
+                                 (Some (Pair x xs'))))
                          (case None None)))))
     (Iter (fun (_) (skip-while' xs)))))
 
