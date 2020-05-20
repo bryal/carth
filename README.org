@@ -14,7 +14,7 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   - Currying
   - Closures
   - Algebraic datatypes
-  - LLVM-based backend
+  - LLVM backend
 
 * Roadmap
   This is a high-level overview of what is planned for the language, and
@@ -26,19 +26,28 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   - Effect system
   - Linear types
 
-* Building
+* Building Carth
   The compiler is written in [[https://haskell.org][Haskell]] and uses the [[https://www.haskellstack.org/][Stack]] build system,
   while the core-library is written in [[https://rust-lang.org][Rust]]. The external dependencies
   required are [[https://llvm.org/][LLVM]] version 9.
 
   To build the project and install the ~carth~ binary, the core
   library, and the standard library, simply run ~make install~, which
-  defaults to installing everything in =~/.carth/=. Then add the
-  directory of the installed core library (default =~/.carth/lib=) to
-  your ~LIBRARY_PATH~ environment variable, so that the compiler can
-  find it for the linking step, and add the directory of the installed
-  standard library (default =~/.carth/mod=) your ~CARTH_MODULE_PATH~
-  environment variable, so that the parser can find all Carth modules.
+  defaults to installing the binary in =~/.local/bin=, the core
+  library in =~/.local/lib=, and the modules of the Carth standard
+  library in =~/.carth/mod=.
+
+* Building with Carth
+  At compiler runtime, the dependencies are ~libsigsegv~, ~libdl~,
+  ~libpthread~, and ~libm~, which are linked into the executables
+  produced by Carth.
+
+  Carth must further be able to find the core library and standard
+  library modules, so you must have added the directory of the
+  installed core library (default =~/.local/lib=) to your
+  ~LIBRARY_PATH~ environment variable, the directory of the installed
+  standard library (default =~/.carth/mod=) to your
+  ~CARTH_MODULE_PATH~ environment variable.
 
 * Running
   #+BEGIN_EXAMPLE bash
@@ -53,6 +62,9 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
   # Compile and run a program with default output filename
   carth c examples/fizzbuzz.carth
   ./out
+
+  # Run with the JIT compiler
+  carth run examples/fizzbuzz.carth
 
   # Compile a program with a specific output filename
   carth c -o examples/fizzbuzz examples/fizzbuzz.carth
