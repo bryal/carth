@@ -14,7 +14,7 @@ import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
 import Data.String
 import System.FilePath
-import Control.Monad.Writer hiding (void)
+import Control.Monad.Writer
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -23,7 +23,7 @@ import Data.Maybe
 import Data.Foldable
 import Data.List
 import Data.Function
-import Data.Functor hiding (void)
+import Data.Functor
 import Data.Bifunctor
 import Control.Applicative
 import Lens.Micro.Platform (use, assign)
@@ -187,7 +187,8 @@ genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
         (f, gs) <- genFunDef
             (fName, [], dpos, p, genTailExpr body *> genType rt)
         let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
-        let captures = LLConst.Null typeGenericPtr
+        let capturesType = LLType.ptr typeUnit
+        let captures = LLConst.Null capturesType
         let closure = litStruct [captures, fRef]
         let closureDef = simpleGlobVar (mkName name) (typeOf closure) closure
         pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
@@ -278,8 +279,11 @@ app tailkind closure a = do
     f <- emitReg "function" =<< extractvalue closure' [1]
     a' <- getLocal a
     let args = [(captures, []), (a', [])]
-    let rt = getFunRet (getPointee (typeOf f))
-    fmap VLocal (emitAnonReg (WithRetType (callIntern tailkind f args) rt))
+    fmap VLocal (emitAnonReg (call' f args))
+  where
+    call' f as = WithRetType
+        (callIntern tailkind f as)
+        (getFunRet (getPointee (typeOf f)))
 
 genTailIf :: Expr -> Expr -> Expr -> Gen ()
 genTailIf pred' conseq alt = do
