@@ -9,6 +9,11 @@ extern "C" {
     ) -> c_int;
 }
 
+#[link(name = "gc")]
+extern "C" {
+    pub fn GC_malloc(size: size_t) -> *mut c_void;
+}
+
 pub type stackoverflow_context_t = *mut c_void;
 
 pub type stackoverflow_handler_t = extern "C" fn(emergency: c_int, scp: stackoverflow_context_t);

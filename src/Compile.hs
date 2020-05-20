@@ -100,6 +100,7 @@ compileModule cfg tm mod = do
         , "-ldl"
         , "-lpthread"
         , "-lm"
+        , "-lgc"
         ]
 
 foreign import ccall "dynamic"
@@ -108,7 +109,7 @@ foreign import ccall "dynamic"
 orcJitModule :: RunConfig -> TargetMachine -> Module -> IO ()
 orcJitModule cfg tm mod = do
     verbose cfg "   Running with OrcJIT"
-    let libs = ["libsigsegv.so", "libcarth_foreign_core.so"]
+    let libs = ["libsigsegv.so", "libcarth_foreign_core.so", "libgc.so"]
     forM_ libs $ \lib -> do
         verbose cfg $ "   Loading symbols of " ++ lib
         r <- loadLibraryPermanently (Just lib)

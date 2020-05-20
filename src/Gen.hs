@@ -430,7 +430,7 @@ genStruct xs = do
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnonReg (callBuiltin "carth_alloc" [size])
+    emitAnonReg (callBuiltin "GC_malloc" [size])
 
 genStackAllocated :: Operand -> Gen Operand
 genStackAllocated v = do
@@ -494,7 +494,7 @@ genBuiltins = map
 
 builtins :: Map String ([Parameter], Type)
 builtins = Map.fromList
-    [ ("carth_alloc", ([Parameter i64 (mkName "size") []], LLType.ptr typeUnit))
+    [ ("GC_malloc", ([Parameter i64 (mkName "size") []], LLType.ptr typeUnit))
     , ( "carth_str_eq"
       , ( [ Parameter typeStr (mkName "s1") []
           , Parameter typeStr (mkName "s2") []

@@ -4,7 +4,7 @@ mod ffi;
 
 use libc::*;
 use std::io::{self, Write};
-use std::{alloc, slice, str};
+use std::{alloc, mem, slice, str};
 
 #[no_mangle]
 pub extern "C" fn install_stackoverflow_handler() {
@@ -13,7 +13,7 @@ pub extern "C" fn install_stackoverflow_handler() {
     }
 
     let extra_stack_size = 16 << 10; // 16 KB ought to be enough for anybody
-    let extra_stack = carth_alloc(extra_stack_size);
+    let extra_stack = heap_alloc(extra_stack_size);
     unsafe {
         ffi::stackoverflow_install_handler(
             stackoverflow_handler,
@@ -29,12 +29,20 @@ pub struct Array<A> {
     len: u64,
 }
 
-impl<A> Array<A> {
-    fn new(xs: Vec<A>) -> Array<A> {
-        let len = xs.len() as u64;
-        Array {
-            elems: Box::into_raw(xs.into_boxed_slice()) as *mut A,
-            len,
+impl<A> Array<A>
+where
+    A: Clone,
+{
+    fn new(src: &[A]) -> Array<A> {
+        unsafe {
+            let len = src.len();
+            let p = ffi::GC_malloc(len * mem::size_of::<A>()) as *mut A;
+            let dest = slice::from_raw_parts_mut(p, len);
+            dest.clone_from_slice(src);
+            Array {
+                elems: p,
+                len: len as u64,
+            }
         }
     }
 }
@@ -45,9 +53,9 @@ pub struct Str {
 }
 
 impl Str {
-    fn new(s: String) -> Str {
+    fn new(s: &str) -> Str {
         Str {
-            array: Array::new(s.into_bytes()),
+            array: Array::new(s.as_bytes()),
         }
     }
 }
@@ -62,8 +70,7 @@ pub struct Pair<A, B> {
 //       https://en.cppreference.com/w/c/types/max_align_t
 const MAX_ALIGN: usize = 8;
 
-#[no_mangle]
-pub extern "C" fn carth_alloc(size: u64) -> *mut u8 {
+fn heap_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
@@ -83,7 +90,7 @@ pub extern "C" fn display_inline(s: Str) {
 #[export_name = "str-append"]
 pub extern "C" fn str_append(s1: Str, s2: Str) -> Str {
     let (s1, s2) = (from_carth_str(&s1), from_carth_str(&s2));
-    Str::new(s1.to_string() + s2)
+    Str::new(&(s1.to_string() + s2))
 }
 
 fn from_carth_str<'s>(s: &'s Str) -> &'s str {
@@ -131,7 +138,7 @@ pub extern "C" fn eq_int(a: i64, b: i64) -> bool {
 
 #[export_name = "show-int"]
 pub extern "C" fn show_int(n: i64) -> Str {
-    Str::new(n.to_string())
+    Str::new(&n.to_string())
 }
 
 #[export_name = "+f"]
@@ -171,7 +178,7 @@ pub extern "C" fn eq_f64(a: f64, b: f64) -> bool {
 
 #[export_name = "show-f64"]
 pub extern "C" fn show_f64(n: f64) -> Str {
-    Str::new(n.to_string())
+    Str::new(&n.to_string())
 }
 
 #[export_name = "-panic"]

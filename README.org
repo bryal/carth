@@ -39,8 +39,8 @@ Visit [[https://carth.jo.zone/][https://carth.jo.zone/]] for an overview of the 
 
 * Building with Carth
   At compiler runtime, the dependencies are ~libsigsegv~, ~libdl~,
-  ~libpthread~, and ~libm~, which are linked into the executables
-  produced by Carth.
+  ~libpthread~, ~libm~, and ~libgc~, which are linked into the
+  executables produced by Carth.
 
   Carth must further be able to find the core library and standard
   library modules, so you must have added the directory of the
