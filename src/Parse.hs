@@ -206,12 +206,16 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
         pure $ unpos
             (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
     let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
-    binding = do
-        p <- getSrcPos
-        parens $ do
-            lhs <- small'
-            rhs <- expr
-            pure (lhs, WithPos p (Nothing, rhs))
+    binding = getSrcPos >>= \p -> parens (varBinding p <|> funBinding p)
+    varBinding pos = do
+        lhs <- small'
+        rhs <- expr
+        pure (lhs, WithPos pos (Nothing, rhs))
+    funBinding pos = do
+        (name, params) <- parens (liftM2 (,) small' (some pat))
+        b <- expr
+        let f = foldr (WithPos pos .* Fun) b params
+        pure (name, (WithPos pos (Nothing, f)))
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
     box = reserved "box" *> fmap Box expr
     deref = reserved "deref" *> fmap Deref expr
