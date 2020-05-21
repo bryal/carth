@@ -90,7 +90,6 @@ data Expr'
     | Var (Id 'Small)
     | App Expr Expr
     | If Expr Expr Expr
-    | Fun Pat Expr
     | Let [Def] Expr
     | TypeAscr Expr Type
     | Match Expr [(Pat, Expr)]
@@ -147,7 +146,6 @@ fvExpr = unpos >>> \case
     Var x -> Set.singleton x
     App f a -> fvApp f a
     If p c a -> fvIf p c a
-    Fun p b -> fvFun' p b
     Let bs e -> fvLet (Set.fromList (map fst bs), map (snd . unpos . snd) bs) e
     TypeAscr e _ -> freeVars e
     Match e cs -> fvMatch e cs
@@ -155,9 +153,6 @@ fvExpr = unpos >>> \case
     Ctor _ -> Set.empty
     Box e -> fvExpr e
     Deref e -> fvExpr e
-
-fvFun' :: Pat -> Expr -> Set (Id 'Small)
-fvFun' p e = Set.difference (freeVars e) (bvPat p)
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)
@@ -184,6 +179,5 @@ tUnit = ("Unit", [])
 
 isFunLike :: Expr -> Bool
 isFunLike (WithPos _ e) = case e of
-    Fun _ _ -> True
     FunMatch _ -> True
     _ -> False

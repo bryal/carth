@@ -180,7 +180,7 @@ def' schemeParser topPos = varDef <|> funDef
         (name, params) <- parens (liftM2 (,) small' (some pat))
         scm <- schemeParser
         b <- body
-        let f = foldr (WithPos topPos .* Fun) b params
+        let f = foldr (WithPos topPos . FunMatch . pure .* (,)) b params
         pure (name, (WithPos topPos (scm, f)))
 
 expr :: Parser Expr
@@ -203,8 +203,10 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
         reserved "fun"
         params <- parens (some pat)
         body <- expr
-        pure $ unpos
-            (foldr (\p b -> WithPos (getPos p) (Fun p b)) body params)
+        pure $ unpos $ foldr
+            (\p b -> WithPos (getPos p) (FunMatch [(p, b)]))
+            body
+            params
     let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
     binding = getSrcPos >>= \p -> parens (varBinding p <|> funBinding p)
     varBinding pos = do
@@ -214,7 +216,7 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
     funBinding pos = do
         (name, params) <- parens (liftM2 (,) small' (some pat))
         b <- expr
-        let f = foldr (WithPos pos .* Fun) b params
+        let f = foldr (WithPos pos . FunMatch . pure .* (,)) b params
         pure (name, (WithPos pos (Nothing, f)))
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
     box = reserved "box" *> fmap Box expr

@@ -211,7 +211,6 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected tBool) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
-    Parsed.Fun p b -> inferFunMatch [(p, b)]
     Parsed.Let defs b -> do
         Topo annotDefs <- inferDefs defs
         let defsScms = map (second (\(WithPos _ (scm, _)) -> scm)) annotDefs

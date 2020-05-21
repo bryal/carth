@@ -104,14 +104,6 @@ prettyExpr' d = \case
         , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
         , indent (d + 2) ++ pretty' (d + 2) alt ++ ")"
         ]
-    Parsed.Fun param body -> concat
-        [ "(fun ("
-        , prettyPat param
-        , ")\n"
-        , indent (d + 2)
-        , pretty' (d + 2) body
-        , ")"
-        ]
     Parsed.Let binds body -> concat
         [ "(let ["
         , intercalate ("\n" ++ indent (d + 6)) (map (prettyDef (d + 6)) binds)
