@@ -1,27 +1,13 @@
--- | Monomorphic AST as a result of monomorphization
-
 {-# LANGUAGE TemplateHaskell, LambdaCase, MultiParamTypeClasses
            , FlexibleInstances, FlexibleContexts #-}
 
+-- | Monomorphic AST as a result of monomorphization
 module Monomorphic
-    ( TPrim(..)
-    , TConst
-    , Type(..)
-    , TypedVar(..)
+    ( module Monomorphic
+    , TPrim(..)
     , Const(..)
     , VariantIx
-    , VariantTypes
     , Span
-    , Access(..)
-    , VarBindings
-    , DecisionTree(..)
-    , Ction
-    , Expr'(..)
-    , Expr(..)
-    , Defs
-    , TypeDefs
-    , Program(..)
-    , mainType
     , tUnit
     )
 where

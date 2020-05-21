@@ -1,29 +1,7 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
            , MultiParamTypeClasses, KindSignatures, DataKinds #-}
 
-module Parsed
-    ( TVar(..)
-    , TPrim(..)
-    , TConst
-    , Type(..)
-    , Scheme(..)
-    , IdCase(..)
-    , Id(..)
-    , idstr
-    , Const(..)
-    , Pat(..)
-    , Expr'(..)
-    , Expr
-    , Def
-    , ConstructorDefs(..)
-    , TypeDef(..)
-    , Extern(..)
-    , Program(..)
-    , isFunLike
-    , mainType
-    , tUnit
-    )
-where
+module Parsed where
 
 import qualified Data.Set as Set
 import Data.Set (Set)

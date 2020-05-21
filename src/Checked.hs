@@ -1,25 +1,13 @@
 module Checked
-    ( TVar(..)
+    ( module Checked
+    , TVar(..)
     , TPrim(..)
     , TConst
     , Type(..)
     , Scheme(..)
-    , TypedVar(..)
-    , Const(..)
     , VariantIx
     , Span
     , Con(..)
-    , Access(..)
-    , VarBindings
-    , DecisionTree(..)
-    , Expr'(..)
-    , Expr(..)
-    , withPos
-    , noPos
-    , Defs
-    , TypeDefs
-    , Externs
-    , Program(..)
     , mainType
     )
 where

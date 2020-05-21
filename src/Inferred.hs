@@ -2,32 +2,11 @@
 
 -- | Type annotated AST as a result of typechecking
 module Inferred
-    ( WithPos(..)
+    ( module Inferred
+    , WithPos(..)
     , TVar(..)
     , TPrim(..)
-    , TConst
-    , Type(..)
-    , Scheme(..)
-    , scmParams
-    , scmBody
-    , Id
-    , TypedVar(..)
     , Const(..)
-    , VariantIx
-    , Variant(..)
-    , Span
-    , Con(..)
-    , Pat'(..)
-    , Pat
-    , Cases
-    , Expr
-    , Expr'(..)
-    , Defs
-    , TypeDefs
-    , Ctors
-    , Externs
-    , mainType
-    , tBool
     )
 where
 
