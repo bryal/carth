@@ -79,9 +79,11 @@ scribe l b = tell (set l b mempty)
 
 (.*) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.*) = (.) . (.)
+infixr 8 .*
 
 (.**) :: (d -> e) -> (a -> b -> c -> d) -> a -> b -> c -> e
 (.**) = (.) . (.*)
+infixr 8 .**
 
 abort :: FilePath -> IO a
 abort f = do
