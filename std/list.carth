@@ -1,6 +1,6 @@
 (import std)
 
-(type (List a)
+(data (List a)
   (Cons (Box (Pair a (List a))))
   Nil)
 

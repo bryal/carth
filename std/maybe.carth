@@ -1,4 +1,4 @@
-(type (Maybe a)
+(data (Maybe a)
   None
   (Some a))
 

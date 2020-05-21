@@ -2,7 +2,7 @@
 (import list)
 (import maybe)
 
-(type (Iter a)
+(data (Iter a)
   (Iter (Fun Unit (Maybe (Pair a (Iter a))))))
 
 (define (next (Iter it)) (it Unit))

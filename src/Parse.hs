@@ -145,7 +145,7 @@ extern = reserved "extern" *> liftA2 Extern small' type_
 
 typedef :: Parser TypeDef
 typedef = do
-    _ <- reserved "type"
+    _ <- reserved "data"
     let onlyName = fmap (, []) big'
     let nameAndSome = parens . liftA2 (,) big' . some
     (name, params) <- onlyName <|> nameAndSome small'
@@ -372,7 +372,7 @@ reserveds =
     , "if"
     , "fun"
     , "let"
-    , "type"
+    , "data"
     , "box"
     , "deref"
     , "import"

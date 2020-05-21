@@ -42,7 +42,7 @@
 
 (define (flip f a b) (f b a))
 
-(type Void)
+(data Void)
 
 (define: void-elim
     (forall (a) (Fun Void a))
