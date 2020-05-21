@@ -208,11 +208,10 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
     let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
     binding = do
         p <- getSrcPos
-        (lhs, rhs) <- parens (bindingTyped <|> bindingUntyped)
-        pure (lhs, WithPos p rhs)
-    bindingTyped = reserved ":"
-        *> liftA2 (,) small' (liftA2 (,) (fmap Just scheme) expr)
-    bindingUntyped = liftA2 (,) small' (fmap (Nothing, ) expr)
+        parens $ do
+            lhs <- small'
+            rhs <- expr
+            pure (lhs, WithPos p (Nothing, rhs))
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
     box = reserved "box" *> fmap Box expr
     deref = reserved "deref" *> fmap Deref expr
