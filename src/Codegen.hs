@@ -15,6 +15,7 @@ import qualified LLVM.AST.Constant as LLConst
 import Data.String
 import System.FilePath
 import Control.Monad.Writer
+import Control.Monad.Except
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
@@ -24,6 +25,7 @@ import Data.Foldable
 import Data.List
 import Data.Function
 import Data.Functor
+import Data.Functor.Identity
 import Data.Bifunctor
 import Control.Applicative
 import Lens.Micro.Platform (use, assign)
@@ -31,19 +33,23 @@ import Lens.Micro.Platform (use, assign)
 import Misc
 import SrcPos
 import FreeVars
-import qualified Monomorphic
+import qualified Monomorphic as M
 import Monomorphic hiding (Type, Const)
 import Selections
 import Gen
 import Extern
 
 
-codegen :: DataLayout -> FilePath -> Program -> Module
+codegen :: DataLayout -> FilePath -> Program -> Either GenErr Module
 codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
-    let
-        (tdefs', externs', globDefs) = runGen' $ do
-            (enums, tdefs'') <- defineDataTypes tdefs
-            augment enumTypes enums
+    runExcept $ do
+        (tdefs', externs', globDefs) <-
+            let
+                (enums, tdefs'') =
+                    runIdentity (runGen' (defineDataTypes tdefs))
+            in
+                runGen'
+                $ augment enumTypes enums
                 $ augment dataTypes tdefs''
                 $ withExternSigs externs
                 $ withGlobDefSigs (map (second unpos) defs)
@@ -51,8 +57,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
                     es <- genExterns externs
                     ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs))
                     pure (tdefs'', es, ds)
-    in
-        Module
+        pure $ Module
             { moduleName = fromString ((takeBaseName moduleFilePath))
             , moduleSourceFileName = fromString moduleFilePath
             , moduleDataLayout = Just layout
@@ -133,7 +138,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
 --   enumeration, which is represented as a single integer, equal to the size it
 --   would have been as a tag. If further there's only a single variant, the
 --   data-type is represented as `{}`.
-defineDataTypes :: TypeDefs -> Gen' (Map Name Word32, Map Name [Type])
+defineDataTypes :: TypeDefs -> Gen'T Identity (Map Name Word32, Map Name [Type])
 defineDataTypes tds = do
     let (enums, datas) = partition (all null . snd) tds
     let enums' = Map.fromList $ map
@@ -175,8 +180,7 @@ genMain = do
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genGlobDef
-    :: (TypedVar, WithPos ([Monomorphic.Type], Expr)) -> Gen' [Definition]
+genGlobDef :: (TypedVar, WithPos ([M.Type], Expr)) -> Gen' [Definition]
 genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
     Fun p (body, rt) -> do
         let var = (v, ts)
@@ -226,14 +230,15 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Box e -> genBox =<< genExpr e
         Deref e -> genDeref e
         Absurd t -> fmap (VLocal . undef) (genType t)
+        Transmute epos e t u -> genTransmute epos e t u
 
-genExprLambda :: TypedVar -> (Expr, Monomorphic.Type) -> Gen Val
+genExprLambda :: TypedVar -> (Expr, M.Type) -> Gen Val
 genExprLambda p (b, bt) = do
     let fvXs = Set.toList (Set.delete p (freeVars b))
     bt' <- genRetType bt
     genLambda fvXs p (genTailExpr b, bt')
 
-genConst :: Monomorphic.Const -> Gen Val
+genConst :: M.Const -> Gen Val
 genConst = \case
     Int n -> pure (VLocal (litI64 n))
     F64 x -> pure (VLocal (litF64 x))
@@ -429,10 +434,9 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
             join (foldrM genCase (genDT def selections') cs')
 
         genDT = \case
-            Monomorphic.DLeaf l -> genDecisionLeaf l
-            Monomorphic.DSwitch selector cs def ->
-                genDecisionSwitchIx selector cs def
-            Monomorphic.DSwitchStr selector cs def ->
+            M.DLeaf l -> genDecisionLeaf l
+            M.DSwitch selector cs def -> genDecisionSwitchIx selector cs def
+            M.DSwitchStr selector cs def ->
                 genDecisionSwitchStr selector cs def
     in genDT
 
@@ -470,7 +474,7 @@ genCases tbody selections variantLs variantDts def = do
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnonReg (phi (v : vs)))
 
-selAs :: Span -> [Monomorphic.Type] -> Operand -> Gen Operand
+selAs :: Span -> [M.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do
     tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
     let tgeneric = typeOf matchee
@@ -487,7 +491,7 @@ selSub span' i matchee =
 selDeref :: Operand -> Gen Operand
 selDeref x = emitAnonReg (load x)
 
-genCtion :: Monomorphic.Ction -> Gen Val
+genCtion :: M.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
     lookupEnum dataType & lift >>= \case
         Just 0 -> pure (VLocal litUnit)
@@ -524,6 +528,66 @@ genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
     VVar x -> fmap VVar (selDeref x)
     VLocal x -> pure (VVar x)
+
+genTransmute :: SrcPos -> Expr -> M.Type -> M.Type -> Gen Val
+genTransmute pos e t u = do
+    t' <- genType t
+    u' <- genType u
+    st <- lift (sizeof t')
+    su <- lift (sizeof u')
+    if st == su
+        then genExpr e >>= transmute t' u'
+        else throwError (TransmuteErr pos (t, st) (u, su))
+
+-- | Assumes that the from-type and to-type are of the same size.
+transmute :: Type -> Type -> Val -> Gen Val
+transmute t u x = case (t, u) of
+    (FunctionType _ _ _, _) -> transmuteIce
+    (_, FunctionType _ _ _) -> transmuteIce
+    (MetadataType, _) -> transmuteIce
+    (_, MetadataType) -> transmuteIce
+    (LabelType, _) -> transmuteIce
+    (_, LabelType) -> transmuteIce
+    (TokenType, _) -> transmuteIce
+    (_, TokenType) -> transmuteIce
+    (VoidType, _) -> transmuteIce
+    (_, VoidType) -> transmuteIce
+
+    (IntegerType _, IntegerType _) -> bitcast'
+    (IntegerType _, PointerType _ _) ->
+        getLocal x >>= \x' -> emitAnonReg (inttoptr x' u) <&> VLocal
+    (IntegerType _, FloatingPointType _) -> bitcast'
+    (IntegerType _, VectorType _ _) -> bitcast'
+
+    (PointerType pt _, PointerType pu _)
+        | pt == pu -> pure x
+        | otherwise -> bitcast'
+    (PointerType _ _, IntegerType _) ->
+        getLocal x >>= \x' -> emitAnonReg (ptrtoint x' u) <&> VLocal
+    (PointerType _ _, _) -> stackCast
+    (_, PointerType _ _) -> stackCast
+
+    (FloatingPointType _, FloatingPointType _) -> pure x
+    (FloatingPointType _, IntegerType _) -> bitcast'
+    (FloatingPointType _, VectorType _ _) -> bitcast'
+
+    (VectorType _ vt, VectorType _ vu)
+        | vt == vu -> pure x
+        | otherwise -> bitcast'
+    (VectorType _ _, IntegerType _) -> bitcast'
+    (VectorType _ _, FloatingPointType _) -> bitcast'
+
+    (StructureType _ _, _) -> stackCast
+    (_, StructureType _ _) -> stackCast
+    (ArrayType _ _, _) -> stackCast
+    (_, ArrayType _ _) -> stackCast
+    (NamedTypeReference _, _) -> stackCast
+    (_, NamedTypeReference _) -> stackCast
+  where
+    transmuteIce = ice $ "transmute " ++ show t ++ " to " ++ show u
+    bitcast' = getLocal x >>= \x' -> emitAnonReg (bitcast x' u) <&> VLocal
+    stackCast = getVar x
+        >>= \x' -> emitAnonReg (bitcast x' (LLType.ptr u)) <&> VVar
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 = do

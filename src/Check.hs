@@ -6,6 +6,7 @@ import Prelude hiding (span)
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Data.Functor
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Foldable
@@ -20,7 +21,7 @@ import SrcPos
 import Subst
 import qualified Parsed
 import Parsed (Id(..), TVar(..), TPrim(..), idstr)
-import TypeErr
+import Err
 import qualified Inferred
 import Match
 import Infer
@@ -182,6 +183,8 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             forM_ ts (boundInType pos)
         Inferred.Box x -> boundInExpr x
         Inferred.Deref x -> boundInExpr x
+        Inferred.Transmute x t u ->
+            boundInExpr x *> boundInType pos t *> boundInType pos u
     boundInType :: SrcPos -> Inferred.Type -> Bound
     boundInType pos = \case
         Inferred.TVar tv -> do
@@ -243,3 +246,5 @@ compileDecisionTrees tdefs = compDefs
                 params
         Inferred.Box x -> fmap Checked.Box (compExpr x)
         Inferred.Deref x -> fmap Checked.Deref (compExpr x)
+        Inferred.Transmute x t u ->
+            compExpr x <&> \x' -> Checked.Transmute pos x' t u

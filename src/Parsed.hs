@@ -75,6 +75,7 @@ data Expr'
     | Ctor (Id 'Big)
     | Box Expr
     | Deref Expr
+    | Transmute Expr
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
@@ -131,6 +132,7 @@ fvExpr = unpos >>> \case
     Ctor _ -> Set.empty
     Box e -> fvExpr e
     Deref e -> fvExpr e
+    Transmute e -> fvExpr e
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)

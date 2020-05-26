@@ -8,6 +8,7 @@ import Control.Applicative hiding (Const(..))
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Data.Functor
 import Data.Bifunctor
 import Data.Graph (SCC(..), stronglyConnComp)
 import qualified Data.Map.Strict as Map
@@ -22,7 +23,6 @@ import FreeVars
 import Subst
 import qualified Parsed
 import Parsed (Id(..), IdCase(..), idstr, isFunLike)
-import TypeErr
 import Inferred hiding (Id)
 
 
@@ -234,6 +234,8 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         (tx, x') <- infer x
         unify (Expected (TBox t)) (Found (getPos x) tx)
         pure (t, Deref x')
+    Parsed.Transmute x ->
+        fresh >>= \u -> infer x <&> \(t, x') -> (u, Transmute x' t u)
 
 inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
 inferFunMatch cases = do

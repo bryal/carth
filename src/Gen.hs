@@ -10,6 +10,7 @@ module Gen where
 import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
+import Control.Monad.Except
 import Control.Applicative
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.Map (Map)
@@ -45,6 +46,9 @@ import Monomorphic (TypedVar(..), TPrim(..))
 import SrcPos
 
 
+data GenErr
+    = TransmuteErr SrcPos (Monomorphic.Type, Word64) (Monomorphic.Type, Word64)
+
 type Instr = InstructionMetadata -> Instruction
 
 -- | An instruction that returns a value. The name refers to the fact that a
@@ -73,7 +77,8 @@ data St = St
     , _srcPosToMetadata :: Map SrcPos (MDRef MDNode)
     }
 
-type Gen' = StateT St (Reader Env)
+type Gen'T m = StateT St (ReaderT Env m)
+type Gen' = Gen'T (Except GenErr)
 
 -- | The output of generating a function. Dependencies of stuff within the
 --   function that must be generated at the top-level.
@@ -283,8 +288,8 @@ compileUnitRef = MDRef compileUnitId
 compileUnitId :: MetadataNodeID
 compileUnitId = MetadataNodeID 0
 
-runGen' :: Gen' a -> a
-runGen' g = runReader (evalStateT g initSt) initEnv
+runGen' :: Monad m => StateT St (ReaderT Env m) a -> m a
+runGen' g = runReaderT (evalStateT g initSt) initEnv
   where
     initEnv = Env
         { _env = Map.empty
@@ -508,14 +513,14 @@ builtins = Map.fromList
 genRetType :: Monomorphic.Type -> Gen Type
 genRetType = lift . genRetType'
 
-genRetType' :: Monomorphic.Type -> Gen' Type
+genRetType' :: Monad m => Monomorphic.Type -> Gen'T m Type
 genRetType' = fmap (\t -> if t == typeUnit then LLType.void else t) . genType'
 
 genType :: Monomorphic.Type -> Gen Type
 genType = lift . genType'
 
 -- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: Monomorphic.Type -> Gen' Type
+genType' :: Monad m => Monomorphic.Type -> Gen'T m Type
 genType' = \case
     Monomorphic.TPrim tc -> pure $ case tc of
         Monomorphic.TNat8 -> i8
@@ -559,7 +564,8 @@ genCapturesType :: [Monomorphic.TypedVar] -> Gen Type
 genCapturesType =
     fmap typeStruct . mapM (\(Monomorphic.TypedVar _ t) -> genType t)
 
-genVariantType :: Monomorphic.Span -> [Monomorphic.Type] -> Gen' [Type]
+genVariantType
+    :: Monad m => Monomorphic.Span -> [Monomorphic.Type] -> Gen'T m [Type]
 genVariantType totVariants =
     fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants))
         . mapM genType'
@@ -587,7 +593,7 @@ tagBitWidth span'
 --
 --   See the [System V ABI docs](https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf)
 --   for more info.
-sizeof :: Type -> Gen' Word64
+sizeof :: Monad m => Type -> Gen'T m Word64
 sizeof = \case
     NamedTypeReference x -> sizeof =<< lookupDatatype x
     IntegerType bits -> pure (fromIntegral (toBytesCeil bits))
@@ -614,7 +620,7 @@ sizeof = \case
         size <- sizeof u
         pure (accSize + padding + size)
 
-alignmentof :: Type -> Gen' Word64
+alignmentof :: Monad m => Type -> Gen'T m Word64
 alignmentof = \case
     NamedTypeReference x -> alignmentof =<< lookupDatatype x
     StructureType _ [] -> pure 0
@@ -689,13 +695,13 @@ newMetadataId = lift newMetadataId'
 newMetadataId' :: Gen' MetadataNodeID
 newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
 
-lookupEnum :: Monomorphic.TConst -> Gen' (Maybe Word32)
+lookupEnum :: Monad m => Monomorphic.TConst -> Gen'T m (Maybe Word32)
 lookupEnum tc = view (enumTypes . to (tconstLookup tc))
 
 tconstLookup :: Monomorphic.TConst -> Map Name a -> Maybe a
 tconstLookup = Map.lookup . mkName . mangleTConst
 
-lookupDatatype :: Name -> Gen' Type
+lookupDatatype :: Monad m => Name -> Gen'T m Type
 lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
     Just 0 -> pure typeUnit
     Just w -> pure (IntegerType w)
@@ -743,6 +749,12 @@ switch x def cs = Switch x def cs []
 
 bitcast :: Operand -> Type -> FunInstr
 bitcast x t = WithRetType (BitCast x t) t
+
+inttoptr :: Operand -> Type -> FunInstr
+inttoptr x t = WithRetType (IntToPtr x t) t
+
+ptrtoint :: Operand -> Type -> FunInstr
+ptrtoint x t = WithRetType (PtrToInt x t) t
 
 trunc :: Operand -> Type -> FunInstr
 trunc x t = WithRetType (Trunc x t) t

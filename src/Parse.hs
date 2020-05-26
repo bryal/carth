@@ -193,8 +193,19 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
     eConstructor = fmap Ctor big'
     var = fmap Var small'
     pexpr =
-        parens $ choice
-            [funMatch, match, if', fun, let', typeAscr, box, deref, app]
+        parens
+            $ choice
+                [ funMatch
+                , match
+                , if'
+                , fun
+                , let'
+                , typeAscr
+                , box
+                , deref
+                , transmute
+                , app
+                ]
     funMatch = reserved "fmatch" *> fmap FunMatch cases
     match = reserved "match" *> liftA2 Match expr cases
     cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
@@ -221,6 +232,7 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
     box = reserved "box" *> fmap Box expr
     deref = reserved "deref" *> fmap Deref expr
+    transmute = reserved "transmute" *> fmap Transmute expr
     app = do
         rator <- expr
         rands <- some expr
@@ -380,6 +392,7 @@ reserveds =
     , "data"
     , "box"
     , "deref"
+    , "transmute"
     , "import"
     , "case"
     ]

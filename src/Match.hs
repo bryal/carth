@@ -23,7 +23,7 @@ import Lens.Micro.Platform (makeLenses, view, to)
 import Misc hiding (augment)
 import Pretty
 import SrcPos
-import TypeErr
+import Err
 import qualified Inferred
 import Inferred (Pat, Pat'(..), Variant(..))
 import Checked

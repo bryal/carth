@@ -44,7 +44,7 @@ library
       Selections
       SrcPos
       Subst
-      TypeErr
+      Err
   other-modules:
   hs-source-dirs:
       src

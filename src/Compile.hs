@@ -16,6 +16,8 @@ import LLVM.Exception
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
+import LLVM.AST.DataLayout
+import qualified LLVM.AST as LLAST
 import Control.Monad
 import Control.Monad.Catch
 import System.FilePath
@@ -33,6 +35,7 @@ import Misc
 import Conf
 import qualified Monomorphic
 import Codegen
+import Err
 
 
 compile :: FilePath -> CompileConfig -> Monomorphic.Program -> IO ()
@@ -62,7 +65,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
         withMyTargetMachine optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
             verbose cfg ("   Generating LLVM")
-            let amod = codegen layout file pgm
+            amod <- codegen' layout file pgm
             flip
                     catch
                     (\case
@@ -82,6 +85,11 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                         when (getDebug cfg)
                             $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                         f cfg tm mod
+
+codegen' :: DataLayout -> FilePath -> Monomorphic.Program -> IO LLAST.Module
+codegen' dl f pgm = case codegen dl f pgm of
+    Right m -> pure m
+    Left e -> printGenErr e *> abort f
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do

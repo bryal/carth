@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell #-}
+{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds #-}
 
 -- | Type annotated AST as a result of typechecking
 module Inferred
@@ -15,9 +15,34 @@ import Data.Map.Strict (Map)
 import Lens.Micro.Platform (makeLenses)
 
 import Misc
+import qualified Parsed
 import Parsed (TVar(..), TPrim(..), Const(..), tUnit)
 import SrcPos
 
+
+data TypeErr
+    = MainNotDefined
+    | InvalidUserTypeSig SrcPos Scheme Scheme
+    | CtorArityMismatch SrcPos String Int Int
+    | ConflictingPatVarDefs SrcPos String
+    | UndefCtor SrcPos String
+    | UndefVar SrcPos String
+    | InfType SrcPos Type Type TVar Type
+    | UnificationFailed SrcPos Type Type Type Type
+    | ConflictingTypeDef SrcPos String
+    | ConflictingCtorDef SrcPos String
+    | RedundantCase SrcPos
+    | InexhaustivePats SrcPos String
+    | ExternNotMonomorphic (Parsed.Id 'Parsed.Small) TVar
+    | FoundHole SrcPos
+    | RecTypeDef String SrcPos
+    | UndefType SrcPos String
+    | UnboundTVar SrcPos
+    | WrongMainType SrcPos Parsed.Scheme
+    | RecursiveVarDef (WithPos String)
+    | TypeInstArityMismatch SrcPos String Int Int
+    | ConflictingVarDef SrcPos String
+    deriving Show
 
 type TConst = (String, [Type])
 
@@ -74,6 +99,7 @@ data Expr'
     | Ctor VariantIx Span TConst [Type]
     | Box Expr
     | Deref Expr
+    | Transmute Expr Type Type
     deriving Show
 
 type Expr = WithPos Expr'

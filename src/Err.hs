@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase, FlexibleContexts, DataKinds #-}
 
-module TypeErr (TypeErr(..), printErr) where
+module Err (module Err, TypeErr(..), GenErr(..)) where
 
 import Misc
 import SrcPos
@@ -8,36 +8,13 @@ import qualified Parsed
 import Inferred
 import Pretty
 import Parse
+import Gen
 
-
-data TypeErr
-    = MainNotDefined
-    | InvalidUserTypeSig SrcPos Scheme Scheme
-    | CtorArityMismatch SrcPos String Int Int
-    | ConflictingPatVarDefs SrcPos String
-    | UndefCtor SrcPos String
-    | UndefVar SrcPos String
-    | InfType SrcPos Type Type TVar Type
-    | UnificationFailed SrcPos Type Type Type Type
-    | ConflictingTypeDef SrcPos String
-    | ConflictingCtorDef SrcPos String
-    | RedundantCase SrcPos
-    | InexhaustivePats SrcPos String
-    | ExternNotMonomorphic (Parsed.Id 'Parsed.Small) TVar
-    | FoundHole SrcPos
-    | RecTypeDef String SrcPos
-    | UndefType SrcPos String
-    | UnboundTVar SrcPos
-    | WrongMainType SrcPos Parsed.Scheme
-    | RecursiveVarDef (WithPos String)
-    | TypeInstArityMismatch SrcPos String Int Int
-    | ConflictingVarDef SrcPos String
-    deriving Show
 
 type Message = String
 
-printErr :: TypeErr -> IO ()
-printErr = \case
+printTypeErr :: TypeErr -> IO ()
+printTypeErr = \case
     MainNotDefined -> putStrLn "Error: main not defined"
     InvalidUserTypeSig p s1 s2 ->
         posd p
@@ -105,6 +82,17 @@ printErr = \case
             ++ (", found " ++ show found)
     ConflictingVarDef p x ->
         posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
+
+printGenErr :: GenErr -> IO ()
+printGenErr = \case
+    TransmuteErr p (t, sizet) (u, sizeu) ->
+        posd p
+            $ "Cannot transmute between types of different sizes."
+            ++ ("\nSource type: " ++ pretty t)
+            ++ (" (" ++ show sizet ++ " bytes)")
+            ++ ("\nTarget type: " ++ pretty u)
+            ++ (" (" ++ show sizeu ++ " bytes)")
+
 
 posd :: SrcPos -> Message -> IO ()
 posd (pos@(SrcPos f lineN colN)) msg = do

@@ -12,6 +12,7 @@ import Misc
 import SrcPos
 import qualified Parsed
 import qualified Inferred
+import qualified Monomorphic as M
 
 
 -- Pretty print starting at some indentation depth
@@ -140,6 +141,7 @@ prettyExpr' d = \case
     Parsed.Ctor c -> pretty c
     Parsed.Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
     Parsed.Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
+    Parsed.Transmute e -> concat ["(transmute ", pretty' (d + 11) e, ")"]
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) = concat
@@ -242,5 +244,25 @@ prettyAnTFun a b =
         (bParams, bBody) = f b
         f = \case
             Inferred.TFun a' b' -> first (a' :) (f b')
+            t -> ([], t)
+    in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
+
+
+instance Pretty M.Type where
+    pretty' _ = prettyMonoType
+
+prettyMonoType :: M.Type -> String
+prettyMonoType = \case
+    M.TPrim c -> pretty c
+    M.TFun a b -> prettyMonoTFun a b
+    M.TBox t -> prettyTBox t
+    M.TConst tc -> prettyTConst tc
+
+prettyMonoTFun :: M.Type -> M.Type -> String
+prettyMonoTFun a b =
+    let
+        (bParams, bBody) = f b
+        f = \case
+            M.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
     in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]

@@ -7,7 +7,7 @@ import Control.Monad
 
 import Misc
 import Pretty
-import qualified TypeErr
+import qualified Err
 import qualified Parsed
 import qualified Checked
 import Check
@@ -72,5 +72,5 @@ parse f = Parse.parse f >>= \case
 
 typecheck' :: FilePath -> Parsed.Program -> IO Checked.Program
 typecheck' f p = case typecheck p of
-    Left e -> TypeErr.printErr e >> abort f
+    Left e -> Err.printTypeErr e >> abort f
     Right p -> pure p

@@ -67,6 +67,7 @@ data Expr'
     | Box Expr
     | Deref Expr
     | Absurd Type
+    | Transmute SrcPos Expr Type Type
     deriving (Show)
 
 data Expr = Expr (Maybe SrcPos) Expr'
@@ -98,6 +99,7 @@ fvExpr (Expr _ ex) = case ex of
     Box e -> fvExpr e
     Deref e -> fvExpr e
     Absurd _ -> Set.empty
+    Transmute _ x _ _ -> fvExpr x
 
 fvDecisionTree :: DecisionTree -> Set TypedVar
 fvDecisionTree = \case
