@@ -234,6 +234,12 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         (tx, x') <- infer x
         unify (Expected (TBox t)) (Found (getPos x) tx)
         pure (t, Deref x')
+    Parsed.Store x p -> do
+        (tx, x') <- infer x
+        (tp, p') <- infer p
+        unify (Expected (TBox tx)) (Found (getPos p) tp)
+        pure (tp, Store x' p')
+
     Parsed.Transmute x ->
         fresh >>= \u -> infer x <&> \(t, x') -> (u, Transmute x' t u)
 

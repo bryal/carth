@@ -99,6 +99,7 @@ data Expr'
     | Ctor VariantIx Span TConst [Type]
     | Box Expr
     | Deref Expr
+    | Store Expr Expr
     | Transmute Expr Type Type
     deriving Show
 

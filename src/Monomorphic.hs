@@ -66,6 +66,7 @@ data Expr'
     | Ction Ction
     | Box Expr
     | Deref Expr
+    | Store Expr Expr
     | Absurd Type
     | Transmute SrcPos Expr Type Type
     deriving (Show)
@@ -98,6 +99,7 @@ fvExpr (Expr _ ex) = case ex of
     Ction (_, _, _, as) -> Set.unions (map fvExpr as)
     Box e -> fvExpr e
     Deref e -> fvExpr e
+    Store x p -> Set.union (fvExpr x) (fvExpr p)
     Absurd _ -> Set.empty
     Transmute _ x _ _ -> fvExpr x
 

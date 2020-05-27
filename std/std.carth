@@ -1,7 +1,9 @@
 (import iter)
 (import list)
 (import maybe)
+(import either)
 (import math)
+(import memo)
 
 (define (fst (Pair a _)) a)
 (define (snd (Pair _ b)) b)

@@ -29,7 +29,7 @@
                          (case None None)))))
     (Iter (fun (_) (skip-while' xs)))))
 
-(define (for xs f) (fold (const f) Unit xs))
+(define (for xs f) (foldl (const f) Unit xs))
 
 (define (map f xs)
   (Iter (fun (_) (map-maybe (map-both f (map f)) (next xs)))))
@@ -38,12 +38,12 @@
   (Iter (fun (_) (map-maybe (map-snd (filter pred))
                             (next (skip-while (<o not pred) xs))))))
 
-(define: (fold f acc xs)
+(define: (foldl f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
-  (let ((fold' (fun ((Pair acc xs))
-                 (match (next xs)
-                   (case (Some (Pair x xs'))
-                         (fold' (Pair (f acc x) xs')))
-                   (case None
-                         acc)))))
-    (fold' (Pair acc xs))))
+  (let ((foldl' (fun ((Pair acc xs))
+                  (match (next xs)
+                    (case (Some (Pair x xs'))
+                          (foldl' (Pair (f acc x) xs')))
+                    (case None
+                          acc)))))
+    (foldl' (Pair acc xs))))

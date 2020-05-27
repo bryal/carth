@@ -77,6 +77,7 @@ mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Ction v span' inst as -> monoCtion v span' inst as
     Checked.Box x -> fmap Box (mono x)
     Checked.Deref x -> fmap Deref (mono x)
+    Checked.Store x p -> liftA2 Store (mono x) (mono p)
     Checked.Absurd t -> fmap Absurd (monotype t)
     Checked.Transmute xpos x t u ->
         liftA3 (Transmute xpos) (mono x) (monotype t) (monotype u)

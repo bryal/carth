@@ -3,7 +3,7 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
 
-import LLVM.AST hiding (args)
+import LLVM.AST hiding (args, Store)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
@@ -229,6 +229,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Ction c -> genCtion c
         Box e -> genBox =<< genExpr e
         Deref e -> genDeref e
+        Store x p -> genStore x p
         Absurd t -> fmap (VLocal . undef) (genType t)
         Transmute epos e t u -> genTransmute epos e t u
 
@@ -528,6 +529,14 @@ genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case
     VVar x -> fmap VVar (selDeref x)
     VLocal x -> pure (VVar x)
+
+genStore :: Expr -> Expr -> Gen Val
+genStore x p = do
+    x' <- getLocal =<< genExpr x
+    p' <- genExpr p
+    p'' <- getLocal p'
+    emitDo (store x' p'')
+    pure p'
 
 genTransmute :: SrcPos -> Expr -> M.Type -> M.Type -> Gen Val
 genTransmute pos e t u = do

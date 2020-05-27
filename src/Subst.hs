@@ -34,6 +34,7 @@ substExpr s (WithPos pos expr) = WithPos pos $ case expr of
         Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
     Box e -> Box (substExpr s e)
     Deref e -> Deref (substExpr s e)
+    Store x p -> Store (substExpr s x) (substExpr s p)
     Transmute e t u -> Transmute (substExpr s e) (subst s t) (subst s u)
 
 substCases :: Subst -> Cases -> Cases

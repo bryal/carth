@@ -183,6 +183,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             forM_ ts (boundInType pos)
         Inferred.Box x -> boundInExpr x
         Inferred.Deref x -> boundInExpr x
+        Inferred.Store x p -> boundInExpr x *> boundInExpr p
         Inferred.Transmute x t u ->
             boundInExpr x *> boundInType pos t *> boundInType pos u
     boundInType :: SrcPos -> Inferred.Type -> Bound
@@ -246,5 +247,7 @@ compileDecisionTrees tdefs = compDefs
                 params
         Inferred.Box x -> fmap Checked.Box (compExpr x)
         Inferred.Deref x -> fmap Checked.Deref (compExpr x)
+        Inferred.Store x p ->
+            liftA2 Checked.Store (compExpr x) (compExpr p)
         Inferred.Transmute x t u ->
             compExpr x <&> \x' -> Checked.Transmute pos x' t u

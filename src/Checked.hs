@@ -59,6 +59,7 @@ data Expr'
     | Ction VariantIx Span TConst [Expr]
     | Box Expr
     | Deref Expr
+    | Store Expr Expr
     | Absurd Type
     | Transmute SrcPos Expr Type Type
     deriving (Show)

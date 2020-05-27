@@ -141,6 +141,10 @@ prettyExpr' d = \case
     Parsed.Ctor c -> pretty c
     Parsed.Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
     Parsed.Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
+    Parsed.Store x p -> concat
+        [ "(store " ++ pretty' (d + 7) x
+        , indent (d + 7) ++ pretty' (d + 7) p ++ ")"
+        ]
     Parsed.Transmute e -> concat ["(transmute ", pretty' (d + 11) e, ")"]
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
