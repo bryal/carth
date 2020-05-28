@@ -1,0 +1,21 @@
+;; Memoization
+;;
+;; A bit like lazy evaluation, but only the result caching part -- no thunk-wise
+;; evaluation.
+
+(import std)
+
+(data (Memo a)
+  (Memo (Box (Either (Fun Unit a) a))))
+
+(define: (memoize f)
+    (forall (a) (Fun (Fun Unit a) (Memo a)))
+  (Memo (box (Left f))))
+
+(define: (remember (Memo ptr))
+    (forall (a) (Fun (Memo a) a))
+  (match (deref ptr)
+    (case (Left f) (let ((x (f Unit)))
+                     (seq (store (Right x) ptr)
+                          x)))
+    (case (Right x) x)))
