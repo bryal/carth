@@ -4,6 +4,7 @@
 (import either)
 (import math)
 (import memo)
+(import mem)
 
 (define (fst (Pair a _)) a)
 (define (snd (Pair _ b)) b)

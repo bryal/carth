@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts #-}
+{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts, TupleSections #-}
 
 module Infer (inferTopDefs, checkType', checkType'') where
 
@@ -218,7 +218,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (tbody, App f matchee' tbody)
     Parsed.FunMatch cases -> inferFunMatch cases
     Parsed.Ctor c -> inferExprConstructor c
-    Parsed.Box x -> fmap (\(tx, x') -> (TBox tx, Box x')) (infer x)
+    Parsed.Sizeof t -> fmap ((TPrim TInt, ) . Sizeof) (checkType pos t)
     Parsed.Deref x -> do
         t <- fresh
         (tx, x') <- infer x

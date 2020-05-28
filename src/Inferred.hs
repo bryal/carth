@@ -100,7 +100,7 @@ data Expr'
     | Let Defs Expr
     | FunMatch Cases Type Type
     | Ctor VariantIx Span TConst [Type]
-    | Box Expr
+    | Sizeof Type
     | Deref Expr
     | Store Expr Expr
     | Transmute Expr Type Type

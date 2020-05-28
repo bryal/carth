@@ -199,7 +199,7 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         , fun
         , let'
         , typeAscr
-        , box
+        , sizeof
         , deref
         , store
         , transmute
@@ -229,7 +229,7 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         let f = foldr (WithPos pos . FunMatch . pure .* (,)) b params
         pure (name, (WithPos pos (Nothing, f)))
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
-    box = reserved "box" *> fmap Box expr
+    sizeof = reserved "sizeof" *> fmap Sizeof type_
     deref = reserved "deref" *> fmap Deref expr
     store = reserved "store" *> liftA2 Store expr expr
     transmute = reserved "transmute" *> fmap Transmute expr
@@ -395,7 +395,7 @@ reserveds =
     , "fun"
     , "let"
     , "data"
-    , "box"
+    , "sizeof"
     , "deref"
     , "store"
     , "transmute"

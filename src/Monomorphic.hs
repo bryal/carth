@@ -64,7 +64,7 @@ data Expr'
     | Let Defs Expr
     | Match Expr DecisionTree Type
     | Ction Ction
-    | Box Expr
+    | Sizeof Type
     | Deref Expr
     | Store Expr Expr
     | Absurd Type
@@ -97,7 +97,7 @@ fvExpr (Expr _ ex) = case ex of
         fvLet (Set.fromList (map fst bs), map (snd . unpos) (map snd bs)) e
     Match e dt _ -> Set.union (fvExpr e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map fvExpr as)
-    Box e -> fvExpr e
+    Sizeof _t -> Set.empty
     Deref e -> fvExpr e
     Store x p -> Set.union (fvExpr x) (fvExpr p)
     Absurd _ -> Set.empty

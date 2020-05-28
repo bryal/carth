@@ -139,7 +139,7 @@ prettyExpr' d = \case
         , ")"
         ]
     Parsed.Ctor c -> pretty c
-    Parsed.Box e -> concat ["(box ", pretty' (d + 5) e, ")"]
+    Parsed.Sizeof t -> concat ["(sizeof ", pretty' (d + 8) t, ")"]
     Parsed.Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
     Parsed.Store x p -> concat
         [ "(store " ++ pretty' (d + 7) x

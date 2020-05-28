@@ -32,7 +32,7 @@ substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     FunMatch cs tp tb -> FunMatch (substCases s cs) (subst s tp) (subst s tb)
     Ctor i span' (tx, tts) ps ->
         Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
-    Box e -> Box (substExpr s e)
+    Sizeof t -> Sizeof (subst s t)
     Deref e -> Deref (substExpr s e)
     Store x p -> Store (substExpr s x) (substExpr s p)
     Transmute e t u -> Transmute (substExpr s e) (subst s t) (subst s u)

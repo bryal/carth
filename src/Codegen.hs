@@ -228,7 +228,8 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Let ds b -> genLet ds b
         Match e cs tbody -> genMatch e cs =<< genType tbody
         Ction c -> genCtion c
-        Box e -> genBox =<< genExpr e
+        Sizeof t ->
+            (VLocal . litI64 . fromIntegral) <$> ((lift . sizeof) =<< genType t)
         Deref e -> genDeref e
         Store x p -> genStore x p
         Absurd t -> fmap (VLocal . undef) (genType t)
@@ -513,18 +514,6 @@ genCtion (i, span', dataType, as) = do
                 (bitcast pGeneric (LLType.ptr t))
             emitDo (store s p)
             pure (VVar pGeneric)
-
-genBox :: Val -> Gen Val
-genBox = fmap fst . genBox'
-
-genBox' :: Val -> Gen (Val, Val)
-genBox' x = do
-    let t = typeOf x
-    ptrGeneric <- genHeapAllocGeneric t
-    ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr t))
-    x' <- getLocal x
-    emitDo (store x' ptr)
-    pure (VLocal ptr, VLocal ptrGeneric)
 
 genDeref :: Expr -> Gen Val
 genDeref e = genExpr e >>= \case

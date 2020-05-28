@@ -58,7 +58,7 @@ data Expr'
     | Let Defs Expr
     | Match Expr DecisionTree Type
     | Ction VariantIx Span TConst [Expr]
-    | Box Expr
+    | Sizeof Type
     | Deref Expr
     | Store Expr Expr
     | Absurd Type

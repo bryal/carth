@@ -73,7 +73,7 @@ data Expr'
     | Match Expr [(Pat, Expr)]
     | FunMatch [(Pat, Expr)]
     | Ctor (Id 'Big)
-    | Box Expr
+    | Sizeof Type
     | Deref Expr
     | Store Expr Expr
     | Transmute Expr
@@ -127,11 +127,11 @@ fvExpr = unpos >>> \case
     App f a -> fvApp f a
     If p c a -> fvIf p c a
     Let bs e -> fvLet (Set.fromList (map fst bs), map (snd . unpos . snd) bs) e
-    TypeAscr e _ -> freeVars e
+    TypeAscr e _t -> freeVars e
     Match e cs -> fvMatch e cs
     FunMatch cs -> fvCases cs
     Ctor _ -> Set.empty
-    Box e -> fvExpr e
+    Sizeof _t -> Set.empty
     Deref e -> fvExpr e
     Store x p -> Set.union (fvExpr x) (fvExpr p)
     Transmute e -> fvExpr e

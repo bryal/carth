@@ -78,7 +78,7 @@ mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Let ds b -> fmap (uncurry Let) (monoLet ds b)
     Checked.Match e cs tbody -> monoMatch e cs tbody
     Checked.Ction v span' inst as -> monoCtion v span' inst as
-    Checked.Box x -> fmap Box (mono x)
+    Checked.Sizeof t -> fmap Sizeof (monotype t)
     Checked.Deref x -> fmap Deref (mono x)
     Checked.Store x p -> liftA2 Store (mono x) (mono p)
     Checked.Absurd t -> fmap Absurd (monotype t)
