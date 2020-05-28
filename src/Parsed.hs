@@ -81,7 +81,7 @@ data Expr'
 
 type Expr = WithPos Expr'
 
-type Def = (Id 'Small, (WithPos (Maybe Scheme, Expr)))
+type Def = (Id 'Small, WithPos (Maybe Scheme, Expr))
 
 newtype ConstructorDefs = ConstructorDefs [(Id 'Big, [Type])]
     deriving (Show, Eq)
@@ -158,8 +158,3 @@ mainType = TFun (TConst tUnit) (TConst tUnit)
 
 tUnit :: (String, [a])
 tUnit = ("Unit", [])
-
-isFunLike :: Expr -> Bool
-isFunLike (WithPos _ e) = case e of
-    FunMatch _ -> True
-    _ -> False

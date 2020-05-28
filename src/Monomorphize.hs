@@ -31,7 +31,7 @@ data Env = Env
 makeLenses ''Env
 
 data Insts = Insts
-    { _defInsts :: Map String (Map Type ([Type], Expr))
+    { _defInsts :: Map String (Map Type ([Type], Expr'))
     , _tdefInsts :: Set TConst
     }
 makeLenses ''Insts
@@ -40,15 +40,18 @@ makeLenses ''Insts
 type Mono = StateT Insts (Reader Env)
 
 monomorphize :: Checked.Program -> Program
-monomorphize (Checked.Program defs tdefs externs) = evalMono $ do
+monomorphize (Checked.Program (Topo defs) tdefs externs) = evalMono $ do
     externs' <- mapM
         (\(x, (t, p)) -> fmap (\t' -> (x, t', p)) (monotype t))
         (Map.toList externs)
-    (defs', _) <- monoLet
+    let callMain =
+            noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType))
+    defs' <- foldr
+        (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
+        (mono callMain $> [])
         defs
-        (noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType)))
     tdefs' <- instTypeDefs tdefs
-    pure (Program defs' tdefs' externs')
+    pure (Program (Topo defs') tdefs' externs')
 
 builtinExterns :: Map String Type
 builtinExterns = evalMono (mapM monotype Checked.builtinExterns)
@@ -74,8 +77,8 @@ mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
         pure (Var (TypedVar x t'))
     Checked.App f a rt -> liftA3 App (mono f) (mono a) (monotype rt)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
-    Checked.Fun p b -> monoFun p b
-    Checked.Let ds b -> fmap (uncurry Let) (monoLet ds b)
+    Checked.Fun (p, b) -> monoFun p b
+    Checked.Let d e -> monoLet pos d e
     Checked.Match e cs tbody -> monoMatch e cs tbody
     Checked.Ction v span' inst as -> monoCtion v span' inst as
     Checked.Sizeof t -> fmap Sizeof (monotype t)
@@ -93,23 +96,37 @@ monoFun (p, tp) (b, bt) = do
     b' <- mono b
     bt' <- monotype bt
     maybe (pure ()) (modifying defInsts . Map.insert p) parentInst
-    pure (Fun (TypedVar p tp') (b', bt'))
+    pure (Fun (TypedVar p tp', (b', bt')))
 
-monoLet :: Checked.Defs -> Checked.Expr -> Mono (Defs, Expr)
-monoLet (Topo ds) body = do
-    let ks = map fst ds
-    parentInsts <- use (defInsts . to (lookups ks))
-    let newEmptyInsts = Map.fromList (zip (map fst ds) (repeat Map.empty))
-    modifying defInsts (Map.union newEmptyInsts)
-    body' <- augment envDefs (Map.fromList (map (second unpos) ds)) (mono body)
-    dsInsts <- use (defInsts . to (Map.fromList . lookups ks))
-    modifying defInsts (Map.union (Map.fromList parentInsts))
-    let ds' = do
-            (name, WithPos pos _) <- ds
-            let dInsts = dsInsts Map.! name
-            (t, (us, dbody)) <- Map.toList dInsts
-            pure (TypedVar name t, WithPos pos (us, dbody))
-    pure (Topo ds', body')
+monoLet :: Maybe SrcPos -> Checked.Def -> Checked.Expr -> Mono Expr'
+monoLet pos d e = do
+    (ds', e') <- monoLet' d (mono e)
+    let Expr _ l = foldr (Expr pos .* Let) e' ds'
+    pure l
+
+monoLet' :: Checked.Def -> Mono a -> Mono ([Def], a)
+monoLet' def ma = case def of
+    Checked.VarDef d -> fmap (first (map VarDef)) (monoLetVar d ma)
+    Checked.RecDefs ds -> fmap (first (pure . RecDefs)) (monoLetRecs ds ma)
+
+monoLetVar :: Checked.VarDef -> Mono a -> Mono ([VarDef], a)
+monoLetVar (lhs, rhs) monoBody = do
+    parentInsts <- use (defInsts . to (Map.lookup lhs))
+    modifying defInsts (Map.insert lhs Map.empty)
+    body' <- augment1 envDefs (lhs, unpos rhs) monoBody
+    dInsts <- use (defInsts . to (Map.! lhs))
+    mapM_ (modifying defInsts . Map.insert lhs) parentInsts
+    let ds' = Map.toList dInsts <&> \(t, (us, dbody)) ->
+            (TypedVar lhs t, WithPos (getPos rhs) (us, dbody))
+    pure (ds', body')
+
+monoLetRecs :: Checked.RecDefs -> Mono a -> Mono (RecDefs, a)
+monoLetRecs ds ma = foldr
+    (\d1 mb -> monoLetVar (Checked.funDefToVarDef d1) mb
+        <&> \(d1's, (d2s, b)) -> (map funDefFromVarDef d1's ++ d2s, b)
+    )
+    (fmap ([], ) ma)
+    ds
 
 monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr'
 monoMatch e dt tbody =
@@ -169,7 +186,7 @@ addDefInst x t1 = do
                 let boundTvs = bindTvs t2 t1
                     instTs = Map.elems boundTvs
                 insertInst t1 (instTs, body')
-                augment tvBinds boundTvs (mono body)
+                augment tvBinds boundTvs (fmap expr' (mono body))
             pure ()
     where insertInst t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 

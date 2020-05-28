@@ -1,12 +1,4 @@
-module SrcPos
-    ( SrcPos(..)
-    , WithPos(..)
-    , HasPos(..)
-    , mapPos
-    , unpos
-    , prettySrcPos
-    )
-where
+module SrcPos where
 
 import Text.Megaparsec.Pos
 
@@ -33,8 +25,11 @@ instance Ord a => Ord (WithPos a) where
 instance HasPos (WithPos a) where
     getPos (WithPos p _) = p
 
-mapPos :: (a -> b) -> WithPos a -> WithPos b
-mapPos f (WithPos p a) = WithPos p (f a)
+mapPosd :: (a -> b) -> WithPos a -> WithPos b
+mapPosd f (WithPos p a) = WithPos p (f a)
+
+mapPosdM :: Monad m => (a -> m b) -> WithPos a -> m (WithPos b)
+mapPosdM f (WithPos p a) = fmap (WithPos p) (f a)
 
 unpos :: WithPos a -> a
 unpos (WithPos _ a) = a

@@ -16,13 +16,15 @@ import Data.Map.Strict (Map)
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Control.Arrow ((>>>))
 
 import Misc
 import SrcPos
 import FreeVars
 import Subst
 import qualified Parsed
-import Parsed (Id(..), IdCase(..), idstr, isFunLike)
+import Parsed (Id(..), IdCase(..), idstr)
+import Err
 import Inferred hiding (Id)
 
 
@@ -130,44 +132,50 @@ orderDefs = stronglyConnComp . graph
     where graph = map (\d@(n, _) -> (d, n, Set.toList (freeVars d)))
 
 inferDefsComponents :: [SCC Parsed.Def] -> Infer Defs
-inferDefsComponents = \case
-    [] -> pure (Topo [])
-    (scc : sccs) -> do
-        let (verts, isCyclic) = case scc of
-                AcyclicSCC vert -> ([vert], False)
-                CyclicSCC verts' -> (verts', True)
-        let (idents, rhss) = unzip verts
-        let (poss, mayscms, bodies) =
-                unzip3 (map (\(WithPos p (x, y)) -> (p, x, y)) rhss)
-        let names = map idstr idents
-        mayscms' <- mapM checkScheme (zip names mayscms)
-        ts <- replicateM (length names) fresh
-        let scms = map
-                (\(mayscm, t) -> fromMaybe (Forall Set.empty t) mayscm)
-                (zip mayscms' ts)
-        forM_ (zip idents bodies) $ \(Id name, body) ->
-            when (not (isFunLike body) && isCyclic)
-                $ throwError (RecursiveVarDef name)
-        bodies' <-
-            withLocals (zip names scms)
-            $ forM (zip bodies scms)
-            $ \(body, Forall _ t1) -> do
-                (t2, body') <- infer body
-                unify (Expected t1) (Found (getPos body) t2)
-                pure body'
-        generalizeds <- mapM generalize ts
-        let scms' = zipWith fromMaybe generalizeds mayscms'
-        let annotDefs = zip
-                names
-                (map (\(p, x, y) -> WithPos p (x, y)) (zip3 poss scms' bodies'))
-        Topo annotRest <- withLocals
-            (zip names scms')
-            (inferDefsComponents sccs)
-        pure (Topo (annotDefs ++ annotRest))
+inferDefsComponents = flip foldr (pure (Topo [])) $ \scc inferRest -> do
+    def <- inferComponent scc
+    Topo rest <- withLocals (defSigs def) inferRest
+    pure (Topo (def : rest))
+  where
+    inferComponent :: SCC Parsed.Def -> Infer Def
+    inferComponent = \case
+        AcyclicSCC vert -> fmap VarDef (inferVarDef vert)
+        CyclicSCC verts -> fmap RecDefs (inferRecDefs verts)
+
+    inferVarDef :: Parsed.Def -> Infer VarDef
+    inferVarDef (lhs, WithPos defPos (mayscm, body)) = do
+        t <- fresh
+        body' <- inferDef t lhs mayscm (getPos body) (infer body)
+        scm <- generalize t
+        pure (idstr lhs, WithPos defPos (scm, body'))
+
+    inferRecDefs :: [Parsed.Def] -> Infer RecDefs
+    inferRecDefs ds = do
+        ts <- replicateM (length ds) fresh
+        let dummyScms = map (Forall Set.empty) ts
+        let (names, poss) = unzip (map (bimap idstr getPos) ds)
+        fs <- withLocals (zip names dummyScms) $ zipWithM inferRecDef ts ds
+        scms <- mapM generalize ts
+        pure (zip names (zipWith3 (curry . WithPos) poss scms fs))
+
+    inferRecDef :: Type -> Parsed.Def -> Infer (WithPos FunMatch)
+    inferRecDef t = uncurry $ \(Id lhs) -> unpos >>> \case
+        (mayscm, WithPos fPos (Parsed.FunMatch cs)) ->
+            fmap (WithPos fPos)
+                $ inferDef t (Id lhs) mayscm fPos (inferFunMatch cs)
+        _ -> throwError (RecursiveVarDef lhs)
+
+    inferDef t lhs mayscm bodyPos inferBody = do
+        checkScheme (idstr lhs) mayscm >>= \case
+            Just (Forall _ scmt) -> unify (Expected scmt) (Found bodyPos t)
+            Nothing -> pure ()
+        (t', body') <- inferBody
+        unify (Expected t) (Found bodyPos t')
+        pure body'
 
 -- | Verify that user-provided type signature schemes are valid
-checkScheme :: (String, Maybe Parsed.Scheme) -> Infer (Maybe Scheme)
-checkScheme = \case
+checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
+checkScheme = curry $ \case
     ("main", Nothing) -> pure (Just (Forall Set.empty mainType))
     ("main", Just s@(Parsed.Forall pos vs t))
         | Set.size vs /= 0 || t /= Parsed.mainType -> throwError
@@ -202,10 +210,11 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
     Parsed.Let defs b -> do
-        Topo annotDefs <- inferDefs defs
-        let defsScms = map (second (\(WithPos _ (scm, _)) -> scm)) annotDefs
-        (bt, b') <- withLocals defsScms (infer b)
-        pure (bt, Let (Topo annotDefs) b')
+        Topo defs' <- inferDefs defs
+        let withDef def inferX = do
+                (tx, x') <- withLocals (defSigs def) inferX
+                pure (tx, WithPos pos (Let def x'))
+        fmap (second unpos) (foldr withDef (infer b) defs')
     Parsed.TypeAscr x t -> do
         (tx, WithPos _ x') <- infer x
         t' <- checkType pos t
@@ -214,9 +223,9 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Match matchee cases -> do
         (tmatchee, matchee') <- infer matchee
         (tbody, cases') <- inferCases (Expected tmatchee) cases
-        let f = WithPos pos (FunMatch cases' tmatchee tbody)
+        let f = WithPos pos (FunMatch (cases', tmatchee, tbody))
         pure (tbody, App f matchee' tbody)
-    Parsed.FunMatch cases -> inferFunMatch cases
+    Parsed.FunMatch cases -> fmap (second FunMatch) (inferFunMatch cases)
     Parsed.Ctor c -> inferExprConstructor c
     Parsed.Sizeof t -> fmap ((TPrim TInt, ) . Sizeof) (checkType pos t)
     Parsed.Deref x -> do
@@ -233,11 +242,11 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Transmute x ->
         fresh >>= \u -> infer x <&> \(t, x') -> (u, Transmute x' t u)
 
-inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
+inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do
     tpat <- fresh
     (tbody, cases') <- inferCases (Expected tpat) cases
-    pure (TFun tpat tbody, FunMatch cases' tpat tbody)
+    pure (TFun tpat tbody, (cases', tpat, tbody))
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.

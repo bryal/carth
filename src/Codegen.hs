@@ -47,16 +47,17 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
             let
                 (enums, tdefs'') =
                     runIdentity (runGen' (defineDataTypes tdefs))
+                defs' = defToVarDefs =<< defs
             in
                 runGen'
                 $ augment enumTypes enums
                 $ augment dataTypes tdefs''
                 $ withBuiltins
                 $ withExternSigs externs
-                $ withGlobDefSigs (map (second unpos) defs)
+                $ withGlobDefSigs (map (second unpos) defs')
                 $ do
                     es <- genExterns externs
-                    ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs))
+                    ds <- liftA2 (:) genMain (fmap join (mapM genGlobDef defs'))
                     pure (tdefs'', es, ds)
         pure $ Module
             { moduleName = fromString ((takeBaseName moduleFilePath))
@@ -84,6 +85,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
                     (mkName (mangleName (x, us)))
                 )
         augment env (Map.fromList sigs') ga
+
     fileId = MetadataNodeID 1
     debugInfoVersionId = MetadataNodeID 2
     globMetadataDefs =
@@ -181,9 +183,9 @@ genMain = do
 --       start, or an interpretation step is added between monomorphization and
 --       codegen that evaluates all expressions in relevant contexts, like
 --       constexprs.
-genGlobDef :: (TypedVar, WithPos ([M.Type], Expr)) -> Gen' [Definition]
-genGlobDef (TypedVar v _, WithPos dpos (ts, (Expr _ e))) = case e of
-    Fun p (body, rt) -> do
+genGlobDef :: (TypedVar, WithPos ([M.Type], Expr')) -> Gen' [Definition]
+genGlobDef (TypedVar v _, WithPos dpos (ts, e)) = case e of
+    Fun (p, (body, rt)) -> do
         let var = (v, ts)
         let name = mangleName var
         assign lambdaParentFunc (Just name)
@@ -205,10 +207,10 @@ genTailExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
     case expr of
         App f e _ -> genTailApp f e
         If p c a -> genTailIf p c a
-        Let ds b -> genTailLet ds b
+        Let d b -> genTailLet d b
         Match e cs tbody -> genTailMatch e cs =<< genType tbody
         _ -> genTailReturn =<< case expr of
-            Fun p b -> assign lambdaParentFunc parent *> genExprLambda p b
+            Fun (p, b) -> assign lambdaParentFunc parent *> genExprLambda p b
             _ -> genExpr (Expr pos expr)
 
 genTailReturn :: Val -> Gen ()
@@ -224,8 +226,8 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Var (TypedVar x t) -> lookupVar (TypedVar x t)
         App f e _ -> genApp f e
         If p c a -> genIf p c a
-        Fun p b -> assign lambdaParentFunc parent *> genExprLambda p b
-        Let ds b -> genLet ds b
+        Fun (p, b) -> assign lambdaParentFunc parent *> genExprLambda p b
+        Let d b -> genLet d b
         Match e cs tbody -> genMatch e cs =<< genType tbody
         Ction c -> genCtion c
         Sizeof t ->
@@ -269,7 +271,7 @@ genBetaReduceApp
     -> (Expr, [Expr])
     -> Gen a
 genBetaReduceApp genExpr' returnMethod app' = \case
-    (Expr _ (Fun p (b, _)), ae : aes) -> do
+    (Expr _ (Fun (p, (b, _))), ae : aes) -> do
         a <- genExpr ae
         withVal p a (genBetaReduceApp genExpr' returnMethod app' (b, aes))
     (Expr _ (App fe ae _), aes) ->
@@ -329,43 +331,36 @@ genCondBr predV genConseq genAlt = do
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnonReg (phi [(conseqV, fromConseqL), (altV, fromAltL)]))
 
-genTailLet :: Defs -> Expr -> Gen ()
-genTailLet ds = genLet' ds . genTailExpr
+genTailLet :: Def -> Expr -> Gen ()
+genTailLet d = genLet' d . genTailExpr
 
-genLet :: Defs -> Expr -> Gen Val
-genLet ds = genLet' ds . genExpr
+genLet :: Def -> Expr -> Gen Val
+genLet d = genLet' d . genExpr
 
-genLet' :: Defs -> Gen a -> Gen a
-genLet' (Topo ds) genBody = do
-    -- For both function and variable bindings, we need separate the definition
-    -- into two passes, where the first pre-allocates some stuff.
-    (binds, cs) <- fmap unzip $ forM ds $ \case
-        (v, WithPos _ (_, Expr _ (Fun p (fb, fbt)))) -> do
-            let fvXs = Set.toList (Set.delete p (freeVars fb))
-            tcaptures <- fmap
-                typeStruct
-                (mapM (\(TypedVar _ t) -> genType t) fvXs)
-            captures <- genHeapAllocGeneric tcaptures
-            fbt' <- genRetType fbt
-            l <-
-                getVar
-                    =<< genLambda'
-                            p
-                            (genTailExpr fb, fbt')
-                            (VLocal captures)
-                            fvXs
-            pure ((v, l), Left (captures, fvXs))
-        (v@(TypedVar n t), WithPos _ (_, e)) -> do
-            t' <- genType t
-            mem <- emitReg n (alloca t')
-            pure ((v, mem), Right e)
-    withVars binds $ do
-        forM_ (zip binds cs) $ \case
-            (_, Left (captures, fvXs)) -> populateCaptures captures fvXs
-            ((_, mem), Right e) -> do
-                x <- getLocal =<< genExpr e
-                emitDo (store x mem)
-        genBody
+genLet' :: Def -> Gen a -> Gen a
+genLet' def genBody = case def of
+    VarDef (lhs, WithPos pos (_, rhs)) ->
+        genExpr (Expr (Just pos) rhs) >>= \rhs' -> withVal lhs rhs' genBody
+    RecDefs ds -> do
+        (binds, cs) <- fmap unzip $ forM ds $ \case
+            (lhs, WithPos _ (_, (p, (fb, fbt)))) -> do
+                let fvXs = Set.toList (Set.delete p (freeVars fb))
+                tcaptures <- fmap
+                    typeStruct
+                    (mapM (\(TypedVar _ t) -> genType t) fvXs)
+                captures <- genHeapAllocGeneric tcaptures
+                fbt' <- genRetType fbt
+                lam <-
+                    getVar
+                        =<< genLambda'
+                                p
+                                (genTailExpr fb, fbt')
+                                (VLocal captures)
+                                fvXs
+                pure ((lhs, lam), (captures, fvXs))
+        withVars binds $ do
+            forM_ cs (uncurry populateCaptures)
+            genBody
 
 genTailMatch :: Expr -> DecisionTree -> Type -> Gen ()
 genTailMatch m dt tbody = do

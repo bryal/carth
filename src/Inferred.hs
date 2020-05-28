@@ -91,14 +91,15 @@ data Pat'
 type Pat = WithPos Pat'
 
 type Cases = [(Pat, Expr)]
+type FunMatch = (Cases, Type, Type)
 
 data Expr'
     = Lit Const
     | Var TypedVar
     | App Expr Expr Type
     | If Expr Expr Expr
-    | Let Defs Expr
-    | FunMatch Cases Type Type
+    | Let Def Expr
+    | FunMatch FunMatch
     | Ctor VariantIx Span TConst [Type]
     | Sizeof Type
     | Deref Expr
@@ -108,7 +109,10 @@ data Expr'
 
 type Expr = WithPos Expr'
 
-type Defs = TopologicalOrder (String, (WithPos (Scheme, Expr)))
+type Defs = TopologicalOrder Def
+data Def = VarDef VarDef | RecDefs RecDefs deriving Show
+type VarDef = (String, WithPos (Scheme, Expr))
+type RecDefs = [(String, WithPos (Scheme, WithPos FunMatch))]
 type TypeDefs = Map String ([TVar], [(Id, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String (Type, SrcPos)
@@ -133,6 +137,20 @@ builtinExterns :: Map String (Inferred.Type, SrcPos)
 builtinExterns = Map.fromList $ map
     (second (, SrcPos "<builtin>" 0 0))
     [("GC_malloc", TFun (TPrim TInt) (TBox (TConst tUnit)))]
+
+defSigs :: Def -> [(String, Scheme)]
+defSigs = \case
+    VarDef d -> [defSig d]
+    RecDefs ds -> map defSig ds
+    where defSig d = (fst d, fst (unpos (snd d)))
+
+flattenDefs :: Defs -> [(String, WithPos (Scheme, Expr))]
+flattenDefs (Topo defs) = defToVarDefs =<< defs
+
+defToVarDefs :: Def -> [(String, WithPos (Scheme, Expr))]
+defToVarDefs = \case
+    VarDef d -> [d]
+    RecDefs ds -> map (second (mapPosd (second (mapPosd FunMatch)))) ds
 
 mainType :: Type
 mainType = TFun (TConst tUnit) (TConst tUnit)

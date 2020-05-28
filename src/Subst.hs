@@ -16,10 +16,13 @@ import Inferred
 type Subst = Map TVar Type
 
 substTopDefs :: Subst -> Defs -> Defs
-substTopDefs s (Topo defs) = Topo (map (second (substDef s)) defs)
+substTopDefs s (Topo defs) = Topo (map (substDef s) defs)
 
-substDef :: Subst -> WithPos (Scheme, Expr) -> WithPos (Scheme, Expr)
-substDef s = mapPos (second (substExpr s))
+substDef :: Subst -> Def -> Def
+substDef s = \case
+    VarDef d -> VarDef (second (mapPosd (second (substExpr s))) d)
+    RecDefs ds ->
+        RecDefs (map (second (mapPosd (second (mapPosd (substFunMatch s))))) ds)
 
 substExpr :: Subst -> Expr -> Expr
 substExpr s (WithPos pos expr) = WithPos pos $ case expr of
@@ -27,15 +30,17 @@ substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     Var v -> Var (substTypedVar s v)
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
-    Let (Topo defs) body ->
-        Let (Topo (map (second (substDef s)) defs)) (substExpr s body)
-    FunMatch cs tp tb -> FunMatch (substCases s cs) (subst s tp) (subst s tb)
+    Let def body -> Let (substDef s def) (substExpr s body)
+    FunMatch f -> FunMatch (substFunMatch s f)
     Ctor i span' (tx, tts) ps ->
         Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
     Sizeof t -> Sizeof (subst s t)
     Deref e -> Deref (substExpr s e)
     Store x p -> Store (substExpr s x) (substExpr s p)
     Transmute e t u -> Transmute (substExpr s e) (subst s t) (subst s u)
+
+substFunMatch :: Subst -> FunMatch -> FunMatch
+substFunMatch s (cs, tp, tb) = ((substCases s cs), (subst s tp), (subst s tb))
 
 substCases :: Subst -> Cases -> Cases
 substCases s cs = map (bimap (substPat s) (substExpr s)) cs

@@ -42,8 +42,9 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Checked.Program compiled tdefs'' externs')
   where
-    checkMainDefined (Topo ds) =
-        when (not (elem "main" (map fst ds))) (throwError MainNotDefined)
+    checkMainDefined ds = when
+        (not (elem "main" (map fst (Checked.flattenDefs ds))))
+        (throwError MainNotDefined)
 
 type CheckTypeDefs a
     = ReaderT
@@ -169,7 +170,7 @@ checkTypeVarsBound :: Inferred.Defs -> Except TypeErr ()
 checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
     boundInDefs :: Inferred.Defs -> Bound
-    boundInDefs (Topo defs) = mapM_ (secondM boundInDef) defs
+    boundInDefs = mapM_ (secondM boundInDef) . Inferred.flattenDefs
     boundInDef (WithPos _ ((Inferred.Forall tvs _), e)) =
         local (Set.union tvs) (boundInExpr e)
     boundInExpr (WithPos pos e) = case e of
@@ -183,10 +184,10 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             boundInExpr p
             boundInExpr c
             boundInExpr a
-        Inferred.Let lds b -> do
-            boundInDefs lds
+        Inferred.Let ld b -> do
+            mapM_ (secondM boundInDef) (Inferred.defToVarDefs ld)
             boundInExpr b
-        Inferred.FunMatch cs pt bt -> do
+        Inferred.FunMatch (cs, pt, bt) -> do
             boundInCases cs
             boundInType pos pt
             boundInType pos bt
@@ -219,8 +220,31 @@ compileDecisionTrees
     :: MTypeDefs -> Inferred.Defs -> Except TypeErr Checked.Defs
 compileDecisionTrees tdefs = compDefs
   where
-    compDefs (Topo defs) = fmap Topo $ mapM (secondM compDef) defs
-    compDef (WithPos p rhs) = fmap (WithPos p) (secondM compExpr rhs)
+    compDefs (Topo defs) = fmap Topo $ mapM compDef defs
+
+    compDef :: Inferred.Def -> Except TypeErr Checked.Def
+    compDef = \case
+        Inferred.VarDef (lhs, WithPos p rhs) -> fmap
+            (Checked.VarDef . (lhs, ) . WithPos p)
+            (secondM compExpr rhs)
+        Inferred.RecDefs ds ->
+            fmap Checked.RecDefs $ flip mapM ds $ secondM $ mapPosdM
+                (secondM compFunMatch)
+
+    compFunMatch
+        :: WithPos Inferred.FunMatch -> Except TypeErr (WithPos Checked.Fun)
+    compFunMatch (WithPos pos (cs, tp, tb)) = do
+        cs' <- mapM (secondM compExpr) cs
+        let p = "#x"
+        fmap (WithPos pos)
+            $ case runExceptT (toDecisionTree tdefs pos tp cs') of
+                Nothing -> pure ((p, tp), (noPos (Checked.Absurd tb), tb))
+                Just e -> do
+                    dt <- liftEither e
+                    let v = noPos (Checked.Var (Checked.TypedVar p tp))
+                        b = noPos (Checked.Match v dt tb)
+                    pure ((p, tp), (b, tb))
+
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
@@ -230,18 +254,9 @@ compileDecisionTrees tdefs = compDefs
             liftA3 Checked.App (compExpr f) (compExpr a) (pure tr)
         Inferred.If p c a ->
             liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
-        Inferred.Let lds b ->
-            liftA2 Checked.Let (compDefs lds) (compExpr b)
-        Inferred.FunMatch cs tp tb -> do
-            cs' <- mapM (secondM compExpr) cs
-            case runExceptT (toDecisionTree tdefs pos tp cs') of
-                Nothing -> pure (Checked.Absurd tb)
-                Just e -> do
-                    dt <- liftEither e
-                    let p = "#x"
-                        v = noPos (Checked.Var (Checked.TypedVar p tp))
-                        b = noPos (Checked.Match v dt tb)
-                    pure (Checked.Fun (p, tp) (b, tb))
+        Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
+        Inferred.FunMatch fm ->
+            fmap (Checked.Fun . unpos) (compFunMatch (WithPos pos fm))
         Inferred.Ctor v span' inst ts ->
             let
                 xs = map
@@ -253,7 +268,9 @@ compileDecisionTrees tdefs = compDefs
                     params
             in pure $ snd $ foldr
                 (\(p, pt) (bt, b) ->
-                    (Inferred.TFun pt bt, Checked.Fun (p, pt) (noPos b, bt))
+                    ( Inferred.TFun pt bt
+                    , Checked.Fun ((p, pt), (noPos b, bt))
+                    )
                 )
                 (Inferred.TConst inst, Checked.Ction v span' inst args)
                 params

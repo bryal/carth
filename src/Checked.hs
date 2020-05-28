@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Checked
     ( module Checked
     , TVar(..)
@@ -14,6 +16,7 @@ where
 
 import Data.Map.Strict (Map)
 import Data.Word
+import Data.Bifunctor
 
 import Misc
 import SrcPos
@@ -49,13 +52,15 @@ data DecisionTree
     | DSwitchStr Access (Map String DecisionTree) DecisionTree
     deriving Show
 
+type Fun = ((String, Type), (Expr, Type))
+
 data Expr'
     = Lit Const
     | Var TypedVar
     | App Expr Expr Type
     | If Expr Expr Expr
-    | Fun (String, Type) (Expr, Type)
-    | Let Defs Expr
+    | Fun Fun
+    | Let Def Expr
     | Match Expr DecisionTree Type
     | Ction VariantIx Span TConst [Expr]
     | Sizeof Type
@@ -78,9 +83,25 @@ withPos = Expr . Just
 noPos :: Expr' -> Expr
 noPos = Checked.Expr Nothing
 
-type Defs = TopologicalOrder (String, (WithPos (Scheme, Expr)))
+type Defs = TopologicalOrder Def
+data Def = VarDef VarDef | RecDefs RecDefs deriving Show
+type VarDef = (String, WithPos (Scheme, Expr))
+type RecDefs = [(String, WithPos (Scheme, WithPos Fun))]
 type TypeDefs = Map String ([TVar], [[Type]])
 type Externs = Map String (Type, SrcPos)
 
 data Program = Program Defs TypeDefs Externs
     deriving (Show)
+
+
+flattenDefs :: Defs -> [(String, WithPos (Scheme, Expr))]
+flattenDefs (Topo defs) = defToVarDefs =<< defs
+
+defToVarDefs :: Def -> [(String, WithPos (Scheme, Expr))]
+defToVarDefs = \case
+    VarDef d -> [d]
+    RecDefs ds -> map funDefToVarDef ds
+
+funDefToVarDef :: (String, WithPos (Scheme, WithPos Fun)) -> VarDef
+funDefToVarDef =
+    second (mapPosd (second (\(WithPos p f) -> Expr (Just p) (Fun f))))
