@@ -16,6 +16,7 @@ import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.Map (Map)
 import Data.Word
 import Data.Foldable
+import Data.Bifunctor
 import Data.Functor
 import Data.List
 import Data.String
@@ -41,13 +42,14 @@ import qualified LLSubprog
 
 import Misc
 import Pretty
-import qualified Monomorphic
+import qualified Monomorphic as M
 import Monomorphic (TypedVar(..), TPrim(..))
+import qualified Monomorphize
 import SrcPos
 
 
 data GenErr
-    = TransmuteErr SrcPos (Monomorphic.Type, Word64) (Monomorphic.Type, Word64)
+    = TransmuteErr SrcPos (M.Type, Word64) (M.Type, Word64)
 
 type Instr = InstructionMetadata -> Instruction
 
@@ -62,6 +64,7 @@ data Env = Env
     { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
     , _enumTypes :: Map Name Word32
     , _dataTypes :: Map Name [Type]
+    , _builtins :: Map String ([Parameter], Type)
     , _srcPos :: Maybe SrcPos
     }
 
@@ -157,7 +160,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
             ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
             array = litStructNamed
-                ("Array", [Monomorphic.TPrim TNat8])
+                ("Array", [M.TPrim TNat8])
                 [ptrBytes, litI64' len]
             str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobVar strName typeStr str
@@ -295,6 +298,7 @@ runGen' g = runReaderT (evalStateT g initSt) initEnv
         { _env = Map.empty
         , _enumTypes = Map.empty
         , _dataTypes = Map.empty
+        , _builtins = Map.empty
         , _srcPos = Nothing
         }
     initSt = St
@@ -435,7 +439,7 @@ genStruct xs = do
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnonReg (callBuiltin "GC_malloc" [size])
+    emitAnonReg =<< callBuiltin "GC_malloc" [size]
 
 genStackAllocated :: Operand -> Gen Operand
 genStackAllocated v = do
@@ -449,16 +453,15 @@ lookupVar x = do
         Just var -> pure (VVar var)
         Nothing -> ice $ "Undefined variable " ++ show x
 
-callBuiltin :: String -> [Operand] -> FunInstr
-callBuiltin f as =
-    let
-        (_, tr) = fromMaybe
-            (ice $ "callBuiltin on '" ++ f ++ "' not in builtins")
-            (Map.lookup f builtins)
-        f' = ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr (FunctionType tr (map typeOf as) False))
+callBuiltin :: String -> [Operand] -> Gen FunInstr
+callBuiltin f as = do
+    (_, rt) <- view (builtins . to (Map.lookup f)) <&> \case
+        Just b' -> b'
+        Nothing -> ice $ "callBuiltin on '" ++ f ++ "' not in builtins"
+    let f' = ConstantOperand $ LLConst.GlobalReference
+            (LLType.ptr (FunctionType rt (map typeOf as) False))
             (mkName f)
-    in flip WithRetType tr $ callExtern f' (map (, []) as)
+    pure $ flip WithRetType rt $ callExtern f' (map (, []) as)
 
 callIntern
     :: Maybe TailCallKind
@@ -492,15 +495,21 @@ call callconv tailkind f as meta = Call
     , metadata = meta
     }
 
-genBuiltins :: [Definition]
-genBuiltins = map
-    (\(x, (ps, tr)) -> GlobalDefinition (externFunc (mkName x) ps tr [] []))
-    (Map.toList builtins)
+withBuiltins :: Gen' a -> Gen' a
+withBuiltins ga = builtinExterns
+    >>= \es -> augment builtins (Map.union builtinsHidden es) ga
+  where
+    builtinExterns =
+        mapM (fmap snd . genExternTypeSig) Monomorphize.builtinExterns
 
-builtins :: Map String ([Parameter], Type)
-builtins = Map.fromList
-    [ ("GC_malloc", ([Parameter i64 (mkName "size") []], LLType.ptr typeUnit))
-    , ( "carth_str_eq"
+defineBuiltinsHidden :: [Definition]
+defineBuiltinsHidden = map
+    (\(x, (ps, tr)) -> GlobalDefinition (externFunc (mkName x) ps tr [] []))
+    (Map.toList builtinsHidden)
+
+builtinsHidden :: Map String ([Parameter], Type)
+builtinsHidden = Map.fromList
+    [ ( "carth_str_eq"
       , ( [ Parameter typeStr (mkName "s1") []
           , Parameter typeStr (mkName "s2") []
           ]
@@ -510,36 +519,95 @@ builtins = Map.fromList
     , ("install_stackoverflow_handler", ([], LLType.void))
     ]
 
-genRetType :: Monomorphic.Type -> Gen Type
+genExternTypeSig :: M.Type -> Gen' (([M.Type], Type), ([Parameter], Type))
+genExternTypeSig t = do
+    let (pts, rt) = uncurryType t
+    when (null pts) $ ice "genExternTypeSig of non-function"
+    let anon = mkName ""
+    pts' <- mapM genType' pts
+    ps <- forM pts' $ \pt' -> passByRef' pt' <&> \case
+        True -> Parameter (LLType.ptr pt') anon [ByVal]
+        False -> Parameter pt' anon []
+    rt' <- genRetType' rt
+    (rt'', ps') <- passByRef' rt' <&> \case
+        True -> (LLType.void, Parameter (LLType.ptr rt') anon [SRet] : ps)
+        False -> (rt', ps)
+    pure ((pts, rt'), (ps', rt''))
+  where
+
+    uncurryType :: M.Type -> ([M.Type], M.Type)
+    uncurryType = \case
+        M.TFun a b -> first (a :) (uncurryType b)
+        x -> ([], x)
+
+passByRef :: Type -> Gen Bool
+passByRef = lift . passByRef'
+
+-- NOTE: This post is helpful:
+--       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
+--       Also, official docs:
+--       https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
+--       particularly section 3.2.3 Parameter Passing (p18).
+passByRef' :: Type -> Gen' Bool
+passByRef' = \case
+    NamedTypeReference x -> view (dataTypes . to (Map.lookup x)) >>= \case
+        Just ts -> passByRef' (typeStruct ts)
+        Nothing ->
+            ice $ "passByRef': No dataType for NamedTypeReference " ++ show x
+    -- Simple scalar types. They go in registers.
+    VoidType -> pure False
+    IntegerType _ -> pure False
+    PointerType _ _ -> pure False
+    FloatingPointType _ -> pure False
+    -- Functions are not POD (Plain Ol' Data), so they are passed on the
+    -- stack.
+    FunctionType _ _ _ -> pure True
+    -- TODO: Investigate how exactly SIMD vectors are to be passed when/if
+    --       we ever add support for that in the rest of the compiler.
+    VectorType _ _ -> pure True
+    -- Aggregate types can either be passed on stack or in regs, depending
+    -- on what they contain.
+    t@(StructureType _ us) -> do
+        size <- sizeof t
+        if size > 16 then pure True else fmap or (mapM passByRef' us)
+    ArrayType _ u -> do
+        size <- sizeof u
+        if size > 16 then pure True else passByRef' u
+    -- N/A
+    MetadataType -> ice "passByRef of MetadataType"
+    LabelType -> ice "passByRef of LabelType"
+    TokenType -> ice "passByRef of TokenTyp"
+
+genRetType :: M.Type -> Gen Type
 genRetType = lift . genRetType'
 
-genRetType' :: Monad m => Monomorphic.Type -> Gen'T m Type
+genRetType' :: Monad m => M.Type -> Gen'T m Type
 genRetType' = fmap (\t -> if t == typeUnit then LLType.void else t) . genType'
 
-genType :: Monomorphic.Type -> Gen Type
+genType :: M.Type -> Gen Type
 genType = lift . genType'
 
 -- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: Monad m => Monomorphic.Type -> Gen'T m Type
+genType' :: Monad m => M.Type -> Gen'T m Type
 genType' = \case
-    Monomorphic.TPrim tc -> pure $ case tc of
-        Monomorphic.TNat8 -> i8
-        Monomorphic.TNat16 -> i16
-        Monomorphic.TNat32 -> i32
-        Monomorphic.TNat -> i64
-        Monomorphic.TInt8 -> i8
-        Monomorphic.TInt16 -> i16
-        Monomorphic.TInt32 -> i32
-        Monomorphic.TInt -> i64
-        Monomorphic.TF64 -> double
-    Monomorphic.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
-    Monomorphic.TBox t -> fmap LLType.ptr (genType' t)
-    Monomorphic.TConst tc -> lookupEnum tc <&> \case
+    M.TPrim tc -> pure $ case tc of
+        M.TNat8 -> i8
+        M.TNat16 -> i16
+        M.TNat32 -> i32
+        M.TNat -> i64
+        M.TInt8 -> i8
+        M.TInt16 -> i16
+        M.TInt32 -> i32
+        M.TInt -> i64
+        M.TF64 -> double
+    M.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
+    M.TBox t -> fmap LLType.ptr (genType' t)
+    M.TConst tc -> lookupEnum tc <&> \case
         Just 0 -> typeUnit
         Just w -> IntegerType w
         Nothing -> genDatatypeRef tc
 
-genDatatypeRef :: Monomorphic.TConst -> Type
+genDatatypeRef :: M.TConst -> Type
 genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 
 -- | A `Fun` is a closure, and follows a certain calling convention
@@ -560,17 +628,15 @@ closureFunType a r = FunctionType
     , isVarArg = False
     }
 
-genCapturesType :: [Monomorphic.TypedVar] -> Gen Type
-genCapturesType =
-    fmap typeStruct . mapM (\(Monomorphic.TypedVar _ t) -> genType t)
+genCapturesType :: [M.TypedVar] -> Gen Type
+genCapturesType = fmap typeStruct . mapM (\(M.TypedVar _ t) -> genType t)
 
-genVariantType
-    :: Monad m => Monomorphic.Span -> [Monomorphic.Type] -> Gen'T m [Type]
+genVariantType :: Monad m => M.Span -> [M.Type] -> Gen'T m [Type]
 genVariantType totVariants =
     fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants))
         . mapM genType'
 
-tagBitWidth :: Monomorphic.Span -> Maybe Word32
+tagBitWidth :: M.Span -> Maybe Word32
 tagBitWidth span'
     | span' <= 2 ^ (0 :: Integer) = Nothing
     | span' <= 2 ^ (8 :: Integer) = Just 8
@@ -695,10 +761,10 @@ newMetadataId = lift newMetadataId'
 newMetadataId' :: Gen' MetadataNodeID
 newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
 
-lookupEnum :: Monad m => Monomorphic.TConst -> Gen'T m (Maybe Word32)
+lookupEnum :: Monad m => M.TConst -> Gen'T m (Maybe Word32)
 lookupEnum tc = view (enumTypes . to (tconstLookup tc))
 
-tconstLookup :: Monomorphic.TConst -> Map Name a -> Maybe a
+tconstLookup :: M.TConst -> Map Name a -> Maybe a
 tconstLookup = Map.lookup . mkName . mangleTConst
 
 lookupDatatype :: Monad m => Name -> Gen'T m Type
@@ -818,7 +884,7 @@ litStruct = LLConst.Struct Nothing False
 --       type. Specifically, I have observed this behaviour i phi-nodes. To
 --       guard against it (until fixed upstream, hopefully), store the value in
 --       a variable beforehand.
-litStructNamed :: Monomorphic.TConst -> [LLConst.Constant] -> LLConst.Constant
+litStructNamed :: M.TConst -> [LLConst.Constant] -> LLConst.Constant
 litStructNamed t xs =
     let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
 
@@ -852,7 +918,7 @@ getIntBitWidth = \case
     LLType.IntegerType w -> w
     t -> ice $ "Tried to get bit width of non-integer type " ++ show t
 
-mangleName :: (String, [Monomorphic.Type]) -> String
+mangleName :: (String, [M.Type]) -> String
 mangleName = \case
     -- Instead of dealing with changing entrypoint name and startfiles, just
     -- call the outermost, compiler generated main `main`, and the user-defined
@@ -861,17 +927,17 @@ mangleName = \case
     ("main", _) -> ice "mangleName of `main` of non-empty instantiation"
     (x, us) -> x ++ mangleInst us
 
-mangleInst :: [Monomorphic.Type] -> String
+mangleInst :: [M.Type] -> String
 mangleInst ts = if not (null ts)
     then "<" ++ intercalate ", " (map mangleType ts) ++ ">"
     else ""
 
-mangleType :: Monomorphic.Type -> String
+mangleType :: M.Type -> String
 mangleType = \case
-    Monomorphic.TPrim c -> pretty c
-    Monomorphic.TFun p r -> mangleTConst ("Fun", [p, r])
-    Monomorphic.TBox t -> mangleTConst ("Box", [t])
-    Monomorphic.TConst tc -> mangleTConst tc
+    M.TPrim c -> pretty c
+    M.TFun p r -> mangleTConst ("Fun", [p, r])
+    M.TBox t -> mangleTConst ("Box", [t])
+    M.TConst tc -> mangleTConst tc
 
-mangleTConst :: Monomorphic.TConst -> String
+mangleTConst :: M.TConst -> String
 mangleTConst (c, ts) = c ++ mangleInst ts

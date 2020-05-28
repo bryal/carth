@@ -152,7 +152,8 @@ assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
 
 checkExterns
     :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.Externs
-checkExterns tdefs = fmap Map.fromList . mapM checkExtern
+checkExterns tdefs = fmap (Map.union Inferred.builtinExterns . Map.fromList)
+    . mapM checkExtern
   where
     checkExtern (Parsed.Extern name t) = do
         t' <- checkType' tdefs (getPos name) t

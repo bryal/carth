@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds #-}
+{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, TupleSections #-}
 
 -- | Type annotated AST as a result of typechecking
 module Inferred
@@ -12,7 +12,9 @@ where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Map.Strict (Map)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Bifunctor
 import Lens.Micro.Platform (makeLenses)
 
 import Misc
@@ -126,6 +128,11 @@ ftv = \case
     TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
     TBox t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
+
+builtinExterns :: Map String (Inferred.Type, SrcPos)
+builtinExterns = Map.fromList $ map
+    (second (, SrcPos "<builtin>" 0 0))
+    [("GC_malloc", TFun (TPrim TInt) (TBox (TConst tUnit)))]
 
 mainType :: Type
 mainType = TFun (TConst tUnit) (TConst tUnit)

@@ -3,7 +3,7 @@
            , FlexibleContexts #-}
 
 -- | Monomorphization
-module Monomorphize (monomorphize) where
+module Monomorphize (monomorphize, builtinExterns) where
 
 import Control.Applicative (liftA2, liftA3)
 import Lens.Micro.Platform (makeLenses, view, use, modifying, to)
@@ -49,6 +49,9 @@ monomorphize (Checked.Program defs tdefs externs) = evalMono $ do
         (noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType)))
     tdefs' <- instTypeDefs tdefs
     pure (Program defs' tdefs' externs')
+
+builtinExterns :: Map String Type
+builtinExterns = evalMono (mapM monotype Checked.builtinExterns)
 
 evalMono :: Mono a -> a
 evalMono ma = runReader (evalStateT ma initInsts) initEnv

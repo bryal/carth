@@ -51,6 +51,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
                 runGen'
                 $ augment enumTypes enums
                 $ augment dataTypes tdefs''
+                $ withBuiltins
                 $ withExternSigs externs
                 $ withGlobDefSigs (map (second unpos) defs)
                 $ do
@@ -66,7 +67,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
                 [ map
                     (\(n, tmax) -> TypeDefinition n (Just (typeStruct tmax)))
                     (Map.toList tdefs')
-                , genBuiltins
+                , defineBuiltinsHidden
                 , externs'
                 , globDefs
                 , globMetadataDefs
@@ -168,7 +169,7 @@ genMain = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ _ <- execWriterT $ do
-        emitDo' (callBuiltin "install_stackoverflow_handler" [])
+        emitDo' =<< callBuiltin "install_stackoverflow_handler" []
         f <- lookupVar (TypedVar "main" mainType)
         _ <- app Nothing f (VLocal litUnit)
         commitFinalFuncBlock (ret (litI32 0))
@@ -602,5 +603,5 @@ genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 = do
     s1' <- getLocal s1
     s2' <- getLocal s2
-    b <- emitAnonReg (callBuiltin "carth_str_eq" [s1', s2'])
+    b <- emitAnonReg =<< callBuiltin "carth_str_eq" [s1', s2']
     pure (VLocal b)

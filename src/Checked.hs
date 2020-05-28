@@ -29,6 +29,7 @@ import Inferred
     , Con(..)
     , mainType
     )
+import qualified Inferred
 
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
@@ -66,6 +67,10 @@ data Expr'
 
 data Expr = Expr (Maybe SrcPos) Expr'
     deriving (Show)
+
+
+builtinExterns :: Map String Type
+builtinExterns = fmap fst Inferred.builtinExterns
 
 withPos :: SrcPos -> Expr' -> Expr
 withPos = Expr . Just

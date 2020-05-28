@@ -1,24 +1,6 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, LambdaCase, RankNTypes #-}
 
-module Misc
-    ( ice
-    , nyi
-    , precalate
-    , indent
-    , both
-    , secondM
-    , locally
-    , locallySet
-    , augment
-    , scribe
-    , (<<+=)
-    , abort
-    , splitOn
-    , (.*)
-    , (.**)
-    , TopologicalOrder(..)
-    )
-where
+module Misc where
 
 import Data.List (intercalate)
 import qualified Data.Map as Map
@@ -56,6 +38,9 @@ indent = flip replicate ' '
 
 both :: (a -> b) -> (a, a) -> (b, b)
 both f (a0, a1) = (f a0, f a1)
+
+firstM :: (Bitraversable t, Applicative f) => (a -> f a') -> t a b -> f (t a' b)
+firstM = flip bimapM pure
 
 secondM
     :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')

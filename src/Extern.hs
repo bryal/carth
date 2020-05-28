@@ -21,18 +21,17 @@
 --
 --   See the definition of `passByRef` for up-to-date details about which types
 --   are passed how.
-module Extern (withExternSigs, genExterns, genBuiltins, callExtern) where
+module Extern (withExternSigs, genExterns, callExtern) where
 
 import LLVM.AST
 import LLVM.AST.ParameterAttribute
 import qualified LLVM.AST.Constant as LLConst
 import Control.Monad.Writer
 import qualified Data.Map as Map
-import Lens.Micro.Platform (view, to, assign)
+import Lens.Micro.Platform (assign)
 import LLVM.AST.Typed
 import qualified LLVM.AST.Type as LLType
 import Data.Functor
-import Data.Bifunctor
 
 import Misc
 import SrcPos
@@ -58,19 +57,9 @@ genExterns = fmap join . mapM genExtern
 
 genExtern :: (String, M.Type, SrcPos) -> Gen' [Definition]
 genExtern (name, t, pos) = do
-    let (pts, rt) = uncurryType t
-    when (null pts) $ ice "genExtern of non-function"
-    let anon = mkName ""
-    pts' <- mapM genType' pts
-    ps <- forM pts' $ \pt' -> passByRef' pt' <&> \case
-        True -> Parameter (LLType.ptr pt') anon [ByVal]
-        False -> Parameter pt' anon []
-    rt' <- genRetType' rt
-    (rt'', ps') <- passByRef' rt' <&> \case
-        True -> (LLType.void, Parameter (LLType.ptr rt') anon [SRet] : ps)
-        False -> (rt', ps)
-    let externDef = GlobalDefinition (externFunc (mkName name) ps' rt'' [] [])
-    wrapperDefs <- genWrapper pos name rt' pts
+    ((pts, rt), (ps, rt')) <- genExternTypeSig t
+    let externDef = GlobalDefinition (externFunc (mkName name) ps rt' [] [])
+    wrapperDefs <- genWrapper pos name rt pts
     pure (externDef : wrapperDefs)
 
 genWrapper :: SrcPos -> String -> Type -> [M.Type] -> Gen' [Definition]
@@ -146,45 +135,3 @@ genWrapper pos externName rt paramTs =
                     (typeOf closure)
                     closure
             pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
-
-uncurryType :: M.Type -> ([M.Type], M.Type)
-uncurryType = \case
-    M.TFun a b -> first (a :) (uncurryType b)
-    t -> ([], t)
-
-passByRef :: Type -> Gen Bool
-passByRef = lift . passByRef'
-
--- NOTE: This post is helpful:
---       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
---       Also, official docs:
---       https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf
---       particularly section 3.2.3 Parameter Passing (p18).
-passByRef' :: Type -> Gen' Bool
-passByRef' = \case
-    NamedTypeReference x -> view (dataTypes . to (Map.lookup x)) >>= \case
-        Just ts -> passByRef' (typeStruct ts)
-        Nothing ->
-            ice $ "passByRef': No dataType for NamedTypeReference " ++ show x
-    -- Simple scalar types. They go in registers.
-    VoidType -> pure False
-    IntegerType _ -> pure False
-    PointerType _ _ -> pure False
-    FloatingPointType _ -> pure False
-    -- Functions are not POD (Plain Ol' Data), so they are passed on the stack.
-    FunctionType _ _ _ -> pure True
-    -- TODO: Investigate how exactly SIMD vectors are to be passed when/if we
-    --       ever add support for that in the rest of the compiler.
-    VectorType _ _ -> pure True
-    -- Aggregate types can either be passed on stack or in regs, depending on
-    -- what they contain.
-    t@(StructureType _ us) -> do
-        size <- sizeof t
-        if size > 16 then pure True else fmap or (mapM passByRef' us)
-    ArrayType _ u -> do
-        size <- sizeof u
-        if size > 16 then pure True else passByRef' u
-    -- N/A
-    MetadataType -> ice "passByRef of MetadataType"
-    LabelType -> ice "passByRef of LabelType"
-    TokenType -> ice "passByRef of TokenType"
