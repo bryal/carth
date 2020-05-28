@@ -138,17 +138,17 @@ toplevels = do
             ]
 
 import' :: Parser Import
-import' = reserved "import" *> fmap idstr small'
+import' = reserved "import" *> fmap idstr small
 
 extern :: Parser Extern
-extern = reserved "extern" *> liftA2 Extern small' type_
+extern = reserved "extern" *> liftA2 Extern small type_
 
 typedef :: Parser TypeDef
 typedef = do
     _ <- reserved "data"
-    let onlyName = fmap (, []) big'
-    let nameAndSome = parens . liftA2 (,) big' . some
-    (name, params) <- onlyName <|> nameAndSome small'
+    let onlyName = fmap (, []) big
+    let nameAndSome = parens . liftA2 (,) big . some
+    (name, params) <- onlyName <|> nameAndSome small
     constrs <- many (onlyName <|> nameAndSome type_)
     pure (TypeDef name params (ConstructorDefs constrs))
 
@@ -172,12 +172,12 @@ def' schemeParser topPos = varDef <|> funDef
         ds <- many parenDef
         if null ds then expr' else fmap (Let ds) expr
     varDef = do
-        name <- small'
+        name <- small
         scm <- schemeParser
         b <- body
         pure (name, (WithPos topPos (scm, b)))
     funDef = do
-        (name, params) <- parens (liftM2 (,) small' (some pat))
+        (name, params) <- parens (liftM2 (,) small (some pat))
         scm <- schemeParser
         b <- body
         let f = foldr (WithPos topPos . FunMatch . pure .* (,)) b params
@@ -187,11 +187,11 @@ expr :: Parser Expr
 expr = withPos expr'
 
 expr' :: Parser Expr'
-expr' = choice [estr, var, num, eConstructor, pexpr]
+expr' = choice [var, estr, num, eConstructor, pexpr]
   where
     estr = fmap (Lit . Str) strlit
-    eConstructor = fmap Ctor big'
-    var = fmap Var small'
+    eConstructor = fmap Ctor big
+    var = fmap Var small
     pexpr = parens $ choice
         [ funMatch
         , match
@@ -220,11 +220,11 @@ expr' = choice [estr, var, num, eConstructor, pexpr]
     let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
     binding = getSrcPos >>= \p -> parens (varBinding p <|> funBinding p)
     varBinding pos = do
-        lhs <- small'
+        lhs <- small
         rhs <- expr
         pure (lhs, WithPos pos (Nothing, rhs))
     funBinding pos = do
-        (name, params) <- parens (liftM2 (,) small' (some pat))
+        (name, params) <- parens (liftM2 (,) small (some pat))
         b <- expr
         let f = foldr (WithPos pos . FunMatch . pure .* (,)) b params
         pure (name, (WithPos pos (Nothing, f)))
@@ -263,13 +263,13 @@ pat = choice [patInt, patStr, patCtor, patVar, ppat]
     patInt = liftA2 PInt getSrcPos int
     int = andSkipSpaceAfter (Lexer.signed empty Lexer.decimal)
     patStr = liftA2 PStr getSrcPos strlit
-    patCtor = fmap (\x -> PConstruction (getPos x) x []) big'
-    patVar = fmap PVar small'
+    patCtor = fmap (\x -> PConstruction (getPos x) x []) big
+    patVar = fmap PVar small
     ppat = do
         pos <- getSrcPos
         parens (choice [patBox pos, patCtion pos])
     patBox pos = reserved "Box" *> fmap (PBox pos) pat
-    patCtion pos = liftM3 PConstruction (pure pos) big' (some pat)
+    patCtion pos = liftM3 PConstruction (pure pos) big (some pat)
 
 scheme :: Parser Scheme
 scheme = do
@@ -284,11 +284,11 @@ type_ = nonptype <|> parens ptype
 
 nonptype :: Parser Type
 nonptype = choice
-    [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, [])) big]
+    [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big]
   where
     tprim = try $ do
         s <- big
-        case s of
+        case idstr s of
             "Nat8" -> pure TNat8
             "Nat16" -> pure TNat16
             "Nat32" -> pure TNat32
@@ -298,7 +298,7 @@ nonptype = choice
             "Int32" -> pure TInt32
             "Int" -> pure TInt
             "F64" -> pure TF64
-            _ -> fail $ "Undefined type constant " ++ s
+            s' -> fail $ "Undefined type constant " ++ s'
 
 ptype :: Parser Type
 ptype = choice [tfun, tbox, tapp]
@@ -309,10 +309,10 @@ ptype = choice [tfun, tbox, tapp]
         ts <- some type_
         pure (foldr1 TFun (t : ts))
     tbox = reserved "Box" *> fmap TBox type_
-    tapp = liftA2 (TConst .* (,)) big (some type_)
+    tapp = liftA2 (TConst .* (,) . idstr) big (some type_)
 
 tvar :: Parser TVar
-tvar = fmap TVExplicit small'
+tvar = fmap TVExplicit small
 
 parens :: Parser a -> Parser a
 parens = andSkipSpaceAfter . ns_parens
@@ -320,26 +320,31 @@ parens = andSkipSpaceAfter . ns_parens
 ns_parens :: Parser a -> Parser a
 ns_parens = between (symbol "(") (string ")")
 
-big' :: Parser (Id 'Big)
-big' = fmap Id (withPos big)
+big :: Parser (Id 'Big)
+big = fmap Id (withPos (special <|> normal))
+  where
+    special = reserved "Id@" *> strlit
+    normal = try $ do
+        s <- identifier
+        let c = head s
+        if (isUpper c || [c] == ":")
+            then pure s
+            else
+                fail
+                    "Big identifier must start with an uppercase letter or colon."
 
-big :: Parser String
-big = try $ do
-    s <- identifier
-    let c = head s
-    if (isUpper c || [c] == ":")
-        then pure s
-        else fail "Big identifier must start with an uppercase letter or colon."
-
-small' :: Parser (Id 'Small)
-small' = fmap Id $ withPos $ try $ do
-    s <- identifier
-    let c = head s
-    if (isUpper c || [c] == ":")
-        then
-            fail
-                "Small identifier must not start with an uppercase letter or colon."
-        else pure s
+small :: Parser (Id 'Small)
+small = fmap Id (withPos (special <|> normal))
+  where
+    special = reserved "id@" *> strlit
+    normal = try $ do
+        s <- identifier
+        let c = head s
+        if (isUpper c || [c] == ":")
+            then
+                fail
+                    "Small identifier must not start with an uppercase letter or colon."
+            else pure s
 
 identifier :: Parser String
 identifier = do
@@ -396,6 +401,8 @@ reserveds =
     , "transmute"
     , "import"
     , "case"
+    , "id@"
+    , "Id@"
     ]
 
 otherChar :: Parser Char
