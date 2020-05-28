@@ -11,6 +11,7 @@ module Inferred
 where
 
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Map.Strict (Map)
 import Lens.Micro.Platform (makeLenses)
 
@@ -117,6 +118,14 @@ instance Eq Con where
 instance Ord Con where
     compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
 
+
+ftv :: Type -> Set TVar
+ftv = \case
+    TVar tv -> Set.singleton tv
+    TPrim _ -> Set.empty
+    TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
+    TBox t -> ftv t
+    TConst (_, ts) -> Set.unions (map ftv ts)
 
 mainType :: Type
 mainType = TFun (TConst tUnit) (TConst tUnit)

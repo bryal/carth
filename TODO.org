@@ -53,6 +53,8 @@ Features and other stuff to do/implement in/around Carth.
 
 * NEXT Typeclasses
 ** Agda style classes w implicit args
+   https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/glasgow_exts.html#implicit-parameters
+
    In Haskell, you can only have a single instance of a specific
    typeclass for a specific type. This doesn't always make
    sense. Consider Semigroup for Int. Both + and * make sense, but we

@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts #-}
 
-module Infer (inferTopDefs, checkType') where
+module Infer (inferTopDefs, checkType', checkType'') where
 
 import Prelude hiding (span)
 import Lens.Micro.Platform (assign, makeLenses, over, use, view, mapped, to)
@@ -53,9 +53,9 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 inferTopDefs
     :: TypeDefs
     -> Ctors
-    -> [Parsed.Extern]
+    -> Externs
     -> [Parsed.Def]
-    -> Except TypeErr (Externs, Defs, Subst)
+    -> Except TypeErr (Defs, Subst)
 inferTopDefs tdefs ctors externs defs =
     let
         initEnv = Env
@@ -67,48 +67,38 @@ inferTopDefs tdefs ctors externs defs =
     in evalStateT (runReaderT inferTopDefs' initEnv) initSt
   where
     inferTopDefs' = do
-        externs' <- checkExterns externs
-        let externs'' = fmap (first (Forall Set.empty)) externs'
-        defs'' <- augment envDefs (fmap fst externs'') (inferDefs defs)
+        let externs' = fmap (first (Forall Set.empty)) externs
+        defs'' <- augment envDefs (fmap fst externs') (inferDefs defs)
         s <- use substs
-        pure (externs', defs'', s)
-
--- TODO: Check that the types of the externs are valid more than just not
---       containing type vars. E.g., they may not refer to undefined types, duh.
-checkExterns :: [Parsed.Extern] -> Infer Externs
-checkExterns = fmap Map.fromList . mapM checkExtern
-  where
-    checkExtern (Parsed.Extern name t) = do
-        t' <- checkType (getPos name) t
-        case Set.lookupMin (ftv t') of
-            Just tv -> throwError (ExternNotMonomorphic name tv)
-            Nothing -> pure (idstr name, (t', getPos name))
+        pure (defs'', s)
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
-checkType pos t = do
-    tds <- view envTypeDefs
-    checkType' (\x -> fmap (length . fst) (Map.lookup x tds)) pos t
+checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
 
 checkType'
+    :: MonadError TypeErr m => TypeDefs -> SrcPos -> Parsed.Type -> m Type
+checkType' tdefs = checkType'' (\x -> fmap (length . fst) (Map.lookup x tdefs))
+
+checkType''
     :: MonadError TypeErr m
     => (String -> Maybe Int)
     -> SrcPos
     -> Parsed.Type
     -> m Type
-checkType' tdefsParams pos = checkType''
+checkType'' tdefsParams pos = go
   where
-    checkType'' = \case
+    go = \case
         Parsed.TVar v -> pure (TVar v)
         Parsed.TPrim p -> pure (TPrim p)
         Parsed.TConst tc -> fmap TConst (checkTConst tc)
-        Parsed.TFun f a -> liftA2 TFun (checkType'' f) (checkType'' a)
-        Parsed.TBox t -> fmap TBox (checkType'' t)
+        Parsed.TFun f a -> liftA2 TFun (go f) (go a)
+        Parsed.TBox t -> fmap TBox (go t)
     checkTConst (x, inst) = case tdefsParams x of
         Just expectedN -> do
             let foundN = length inst
             if (expectedN == foundN)
                 then do
-                    inst' <- mapM checkType'' inst
+                    inst' <- mapM go inst
                     pure (x, inst')
                 else throwError
                     (TypeInstArityMismatch pos x expectedN foundN)
@@ -440,14 +430,6 @@ generalize' env t = Set.difference (ftv t) (ftvEnv env)
 
 substEnv :: Subst -> Env -> Env
 substEnv s = over (envDefs . mapped . scmBody) (subst s)
-
-ftv :: Type -> Set TVar
-ftv = \case
-    TVar tv -> Set.singleton tv
-    TPrim _ -> Set.empty
-    TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
-    TBox t -> ftv t
-    TConst (_, ts) -> Set.unions (map ftv ts)
 
 ftvEnv :: Env -> Set TVar
 ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs

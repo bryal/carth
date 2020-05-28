@@ -32,7 +32,8 @@ import Checked (withPos, noPos)
 typecheck :: Parsed.Program -> Either TypeErr Checked.Program
 typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     (tdefs', ctors) <- checkTypeDefs tdefs
-    (externs', inferred, substs) <- inferTopDefs tdefs' ctors externs defs
+    externs' <- checkExterns tdefs' externs
+    (inferred, substs) <- inferTopDefs tdefs' ctors externs' defs
     let substd = substTopDefs substs inferred
     checkTypeVarsBound substd
     let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
@@ -89,7 +90,7 @@ checkCtors parent (Parsed.ConstructorDefs cs) =
         modify (second (Map.insert c (i, parent, ts', cspan)))
         pure (c', ts')
     checkType pos t =
-        ask >>= \tdefs -> checkType' (\x -> Map.lookup x tdefs) pos t
+        ask >>= \tdefs -> checkType'' (\x -> Map.lookup x tdefs) pos t
 
 builtinDataTypes :: Inferred.TypeDefs
 builtinDataTypes = Map.fromList $ map
@@ -148,6 +149,16 @@ assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
             let substs = Map.fromList (zip tvs ts)
             assertNoRec' cs substs
         _ -> pure ()
+
+checkExterns
+    :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.Externs
+checkExterns tdefs = fmap Map.fromList . mapM checkExtern
+  where
+    checkExtern (Parsed.Extern name t) = do
+        t' <- checkType' tdefs (getPos name) t
+        case Set.lookupMin (Inferred.ftv t') of
+            Just tv -> throwError (ExternNotMonomorphic name tv)
+            Nothing -> pure (idstr name, (t', getPos name))
 
 type Bound = ReaderT (Set TVar) (Except TypeErr) ()
 
