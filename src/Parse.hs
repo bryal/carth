@@ -321,10 +321,10 @@ ns_parens :: Parser a -> Parser a
 ns_parens = between (symbol "(") (string ")")
 
 big :: Parser (Id 'Big)
-big = fmap Id (withPos (special <|> normal))
+big = fmap Id (special <|> normal)
   where
-    special = reserved "Id@" *> strlit
-    normal = try $ do
+    special = reserved "Id@" *> withPos strlit
+    normal = withPos $ try $ do
         s <- identifier
         let c = head s
         if (isUpper c || [c] == ":")
@@ -334,10 +334,10 @@ big = fmap Id (withPos (special <|> normal))
                     "Big identifier must start with an uppercase letter or colon."
 
 small :: Parser (Id 'Small)
-small = fmap Id (withPos (special <|> normal))
+small = fmap Id (special <|> normal)
   where
-    special = reserved "id@" *> strlit
-    normal = try $ do
+    special = reserved "id@" *> withPos strlit
+    normal = withPos $ try $ do
         s <- identifier
         let c = head s
         if (isUpper c || [c] == ":")
