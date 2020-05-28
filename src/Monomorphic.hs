@@ -79,7 +79,8 @@ data Expr = Expr (Maybe SrcPos) Expr'
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (TypedVar, WithPos ([Type], Expr'))
-type RecDefs = [(TypedVar, WithPos ([Type], Fun))]
+type RecDefs = [FunDef]
+type FunDef = (TypedVar, WithPos ([Type], Fun))
 type TypeDefs = [(TConst, [VariantTypes])]
 type Externs = [(String, Type, SrcPos)]
 

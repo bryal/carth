@@ -1,3 +1,10 @@
+(define: pi F64 3.14159265358979323846264338327950288)
+(define: inv-pi F64 0.318309886183790671537767526745028724)
+
+(extern sin (Fun F64 F64))
+(extern cos (Fun F64 F64))
+(extern tan (Fun F64 F64))
+
 (define (inc n) (+i n 1))
 (define (dec n) (-i n 1))
 

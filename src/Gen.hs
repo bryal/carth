@@ -153,7 +153,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         let bytes = UTF8.String.encode s
             len = length bytes
             tInner = ArrayType (fromIntegral len) i8
-            defInner = simpleGlobVar
+            defInner = simpleGlobConst
                 name_inner
                 tInner
                 (LLConst.Array i8 (map litI8' bytes))
@@ -163,7 +163,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                 ("Array", [M.TPrim TNat8])
                 [ptrBytes, litI64' len]
             str = litStructNamed ("Str", []) [array]
-            defStr = simpleGlobVar strName typeStr str
+            defStr = simpleGlobConst strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
     genExtractCaptures = do
         capturesName <- newName "captures"
@@ -368,10 +368,13 @@ externFunc n ps rt bs meta = Function
     }
 
 simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
-simpleGlobVar name t = simpleGlobVar' name t . Just
+simpleGlobVar name t = simpleGlobVar' False name t . Just
 
-simpleGlobVar' :: Name -> Type -> Maybe LLConst.Constant -> Global
-simpleGlobVar' name t initializer = GlobalVariable
+simpleGlobConst :: Name -> Type -> LLConst.Constant -> Global
+simpleGlobConst name t = simpleGlobVar' True name t . Just
+
+simpleGlobVar' :: Bool -> Name -> Type -> Maybe LLConst.Constant -> Global
+simpleGlobVar' isconst name t initializer = GlobalVariable
     { LLGlob.name = name
     , LLGlob.linkage = LLLink.External
     , LLGlob.visibility = LLVis.Default
@@ -379,7 +382,7 @@ simpleGlobVar' name t initializer = GlobalVariable
     , LLGlob.threadLocalMode = Nothing
     , LLGlob.addrSpace = LLAddr.AddrSpace 0
     , LLGlob.unnamedAddr = Nothing
-    , LLGlob.isConstant = True
+    , LLGlob.isConstant = isconst
     , LLGlob.type' = t
     , LLGlob.initializer = initializer
     , LLGlob.section = Nothing

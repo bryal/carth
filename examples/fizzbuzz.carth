@@ -1,8 +1,8 @@
 (import std)
 
-(define (main Unit) (fizzbuzz Unit))
+(define main fizzbuzz)
 
-(define (fizzbuzz _)
+(define (fizzbuzz Unit)
   (for (range 1 100)
        (<o display fizzbuzz')))
 
