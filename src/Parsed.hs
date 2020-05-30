@@ -5,6 +5,7 @@ module Parsed where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Bifunctor
 import Control.Arrow ((>>>))
 
 import SrcPos
@@ -126,7 +127,7 @@ fvExpr = unpos >>> \case
     Var x -> Set.singleton x
     App f a -> fvApp f a
     If p c a -> fvIf p c a
-    Let bs e -> fvLet (Set.fromList (map fst bs), map (snd . unpos . snd) bs) e
+    Let bs e -> fvLet (unzip (map (second (snd . unpos)) bs)) e
     TypeAscr e _t -> freeVars e
     Match e cs -> fvMatch e cs
     FunMatch cs -> fvCases cs

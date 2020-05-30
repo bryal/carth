@@ -107,7 +107,7 @@ fvExpr' = \case
     Fun (p, (b, _)) -> fvFun p b
     Let d (Expr _ e) ->
         let bs = defToVarDefs d
-        in fvLet (Set.fromList (map fst bs), map (snd . unpos . snd) bs) e
+        in fvLet (unzip (map (second (snd . unpos)) bs)) e
     Match e dt _ -> Set.union (freeVars e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)
     Sizeof _t -> Set.empty
