@@ -26,10 +26,7 @@ printTypeErr = \case
             ++ ("` in pattern.\nExpected " ++ show arity)
             ++ (", found " ++ show nArgs)
     ConflictingPatVarDefs p v ->
-        posd p
-            $ "Conflicting definitions for variable `"
-            ++ v
-            ++ "` in pattern."
+        posd p $ "Conflicting definitions for variable `" ++ v ++ "` in pattern."
     UndefCtor p c -> posd p $ "Undefined constructor `" ++ c ++ "`"
     UndefVar p v -> posd p $ "Undefined variable `" ++ v ++ "`"
     InfType p t1 t2 a t ->
@@ -43,8 +40,7 @@ printTypeErr = \case
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
-    ConflictingTypeDef p x ->
-        posd p $ "Conflicting definitions for type `" ++ x ++ "`."
+    ConflictingTypeDef p x -> posd p $ "Conflicting definitions for type `" ++ x ++ "`."
     ConflictingCtorDef p x ->
         posd p $ "Conflicting definitions for constructor `" ++ x ++ "`."
     RedundantCase p -> posd p $ "Redundant case in pattern match."
@@ -73,8 +69,7 @@ printTypeErr = \case
             ++ ("Expected: " ++ pretty mainType)
             ++ ("\nFound: " ++ pretty s)
     RecursiveVarDef (WithPos p x) ->
-        posd p
-            $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
+        posd p $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
     TypeInstArityMismatch p t expected found ->
         posd p
             $ ("Arity mismatch for instantiation of type `" ++ t)
@@ -105,15 +100,12 @@ posd (pos@(SrcPos f lineN colN)) msg = do
         rest = if (colN' <= length line)
             then drop (colN' - 1) line
             else
-                ice
-                $ "col num in SourcePos is greater than "
-                ++ "num of cols in src line"
+                ice $ "col num in SourcePos is greater than " ++ "num of cols in src line"
         lineNS = show lineN'
         pad = length lineNS + 1
-        s = either
-            (\e -> ice ("posd: msg=|" ++ msg ++ "|,err=|" ++ show e ++ "|"))
-            id
-            (parseTokenTreeOrRest rest)
+        s = either (\e -> ice ("posd: msg=|" ++ msg ++ "|,err=|" ++ show e ++ "|"))
+                   id
+                   (parseTokenTreeOrRest rest)
     putStrLn $ unlines
         [ prettySrcPos pos ++ ": Error:"
         , indent pad ++ "|"

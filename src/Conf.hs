@@ -1,11 +1,4 @@
-module Conf
-    ( Conf(..)
-    , CompileConfig(..)
-    , RunConfig(..)
-    , verbose
-    , Config(..)
-    )
-where
+module Conf (Conf(..), CompileConfig(..), RunConfig(..), verbose, Config(..)) where
 
 import Control.Monad
 

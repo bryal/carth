@@ -53,20 +53,11 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
 
 inferTopDefs
-    :: TypeDefs
-    -> Ctors
-    -> Externs
-    -> [Parsed.Def]
-    -> Except TypeErr (Defs, Subst)
+    :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr (Defs, Subst)
 inferTopDefs tdefs ctors externs defs =
-    let
-        initEnv = Env
-            { _envTypeDefs = tdefs
-            , _envDefs = Map.empty
-            , _envCtors = ctors
-            }
+    let initEnv = Env { _envTypeDefs = tdefs, _envDefs = Map.empty, _envCtors = ctors }
         initSt = St { _tvCount = 0, _substs = Map.empty }
-    in evalStateT (runReaderT inferTopDefs' initEnv) initSt
+    in  evalStateT (runReaderT inferTopDefs' initEnv) initSt
   where
     inferTopDefs' = do
         let externs' = fmap (first (Forall Set.empty)) externs
@@ -77,16 +68,11 @@ inferTopDefs tdefs ctors externs defs =
 checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
 
-checkType'
-    :: MonadError TypeErr m => TypeDefs -> SrcPos -> Parsed.Type -> m Type
+checkType' :: MonadError TypeErr m => TypeDefs -> SrcPos -> Parsed.Type -> m Type
 checkType' tdefs = checkType'' (\x -> fmap (length . fst) (Map.lookup x tdefs))
 
 checkType''
-    :: MonadError TypeErr m
-    => (String -> Maybe Int)
-    -> SrcPos
-    -> Parsed.Type
-    -> m Type
+    :: MonadError TypeErr m => (String -> Maybe Int) -> SrcPos -> Parsed.Type -> m Type
 checkType'' tdefsParams pos = go
   where
     go = \case
@@ -102,8 +88,7 @@ checkType'' tdefsParams pos = go
                 then do
                     inst' <- mapM go inst
                     pure (x, inst')
-                else throwError
-                    (TypeInstArityMismatch pos x expectedN foundN)
+                else throwError (TypeInstArityMismatch pos x expectedN foundN)
         Nothing -> throwError (UndefType pos x)
 
 inferDefs :: [Parsed.Def] -> Infer Defs
@@ -161,8 +146,7 @@ inferDefsComponents = flip foldr (pure (Topo [])) $ \scc inferRest -> do
     inferRecDef :: Type -> Parsed.Def -> Infer (WithPos FunMatch)
     inferRecDef t = uncurry $ \(Id lhs) -> unpos >>> \case
         (mayscm, WithPos fPos (Parsed.FunMatch cs)) ->
-            fmap (WithPos fPos)
-                $ inferDef t (Id lhs) mayscm fPos (inferFunMatch cs)
+            fmap (WithPos fPos) $ inferDef t (Id lhs) mayscm fPos (inferFunMatch cs)
         _ -> throwError (RecursiveVarDef lhs)
 
     inferDef t lhs mayscm bodyPos inferBody = do
@@ -178,16 +162,13 @@ checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
 checkScheme = curry $ \case
     ("main", Nothing) -> pure (Just (Forall Set.empty mainType))
     ("main", Just s@(Parsed.Forall pos vs t))
-        | Set.size vs /= 0 || t /= Parsed.mainType -> throwError
-            (WrongMainType pos s)
+        | Set.size vs /= 0 || t /= Parsed.mainType -> throwError (WrongMainType pos s)
     (_, Nothing) -> pure Nothing
     (_, Just (Parsed.Forall pos vs t)) -> do
         t' <- checkType pos t
         let s1 = Forall vs t'
         s2 <- generalize t'
-        if (s1 == s2)
-            then pure (Just s1)
-            else throwError (InvalidUserTypeSig pos s1 s2)
+        if (s1 == s2) then pure (Just s1) else throwError (InvalidUserTypeSig pos s1 s2)
 
 infer :: Parsed.Expr -> Infer (Type, Expr)
 infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
@@ -239,8 +220,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected (TBox tx)) (Found (getPos p) tp)
         pure (tp, Store x' p')
 
-    Parsed.Transmute x ->
-        fresh >>= \u -> infer x <&> \(t, x') -> (u, Transmute x' t u)
+    Parsed.Transmute x -> fresh >>= \u -> infer x <&> \(t, x') -> (u, Transmute x' t u)
 
 inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do
@@ -261,14 +241,10 @@ inferCases tmatchee cases = do
     forM_ tbodies (unify (Expected tbody))
     pure (tbody, cases')
 
-inferCase
-    :: (Parsed.Pat, Parsed.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
+inferCase :: (Parsed.Pat, Parsed.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
 inferCase (p, b) = do
     (tp, p', pvs) <- inferPat p
-    let
-        pvs' = map
-            (bimap (Parsed.idstr) (Forall Set.empty . TVar))
-            (Map.toList pvs)
+    let pvs' = map (bimap (Parsed.idstr) (Forall Set.empty . TVar)) (Map.toList pvs)
     (tb, b') <- withLocals pvs' (infer b)
     pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
@@ -276,18 +252,15 @@ inferCase (p, b) = do
 --   Match module wants, and a Map from the variables bound in the pattern to
 --   fresh schemes.
 inferPat :: Parsed.Pat -> Infer (Type, Pat, Map (Id 'Small) TVar)
-inferPat pat = fmap
-    (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss))
-    (inferPat' pat)
+inferPat pat = fmap (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss)) (inferPat' pat)
   where
     inferPat' = \case
         Parsed.PConstruction pos c ps -> inferPatConstruction pos c ps
         Parsed.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
         Parsed.PStr _ s ->
-            let
-                span' = ice "span of Con with VariantStr"
+            let span' = ice "span of Con with VariantStr"
                 p = PCon (Con (VariantStr s) span' []) []
-            in pure (typeStr, p, Map.empty)
+            in  pure (typeStr, p, Map.empty)
         Parsed.PVar (Id (WithPos _ "_")) -> do
             tv <- fresh
             pure (tv, PWild, Map.empty)
@@ -298,41 +271,30 @@ inferPat pat = fmap
             (tp', p', vs) <- inferPat p
             pure (TBox tp', PBox p', vs)
     intToPCon n w = PCon
-        (Con
-            { variant = VariantIx (fromIntegral n)
-            , span = 2 ^ (w :: Integer)
-            , argTs = []
-            }
+        (Con { variant = VariantIx (fromIntegral n)
+             , span = 2 ^ (w :: Integer)
+             , argTs = []
+             }
         )
         []
 
 inferPatConstruction
-    :: SrcPos
-    -> Id 'Big
-    -> [Parsed.Pat]
-    -> Infer (Type, Pat', Map (Id 'Small) TVar)
+    :: SrcPos -> Id 'Big -> [Parsed.Pat] -> Infer (Type, Pat', Map (Id 'Small) TVar)
 inferPatConstruction pos c cArgs = do
     (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
     let arity = length cParams
     let nArgs = length cArgs
-    unless
-        (arity == nArgs)
-        (throwError (CtorArityMismatch pos (idstr c) arity nArgs))
+    unless (arity == nArgs) (throwError (CtorArityMismatch pos (idstr c) arity nArgs))
     (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
     let t = TConst tdefInst
     (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
     cArgsVars' <- nonconflictingPatVarDefs cArgsVars
     forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
         unify (Expected cParamT) (Found (getPos cArg) cArgT)
-    let con = Con
-            { variant = VariantIx variantIx
-            , span = cSpan
-            , argTs = cArgTs
-            }
+    let con = Con { variant = VariantIx variantIx, span = cSpan, argTs = cArgTs }
     pure (t, PCon con cArgs', cArgsVars')
 
-nonconflictingPatVarDefs
-    :: [Map (Id 'Small) TVar] -> Infer (Map (Id 'Small) TVar)
+nonconflictingPatVarDefs :: [Map (Id 'Small) TVar] -> Infer (Map (Id 'Small) TVar)
 nonconflictingPatVarDefs = flip foldM Map.empty $ \acc ks ->
     case listToMaybe (Map.keys (Map.intersection acc ks)) of
         Just (Id (WithPos pos v)) -> throwError (ConflictingPatVarDefs pos v)
@@ -345,18 +307,15 @@ inferExprConstructor c = do
     let t = foldr TFun (TConst tdefInst) cParams'
     pure (t, Ctor variantIx cSpan tdefInst cParams')
 
-instantiateConstructorOfTypeDef
-    :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])
+instantiateConstructorOfTypeDef :: (String, [TVar]) -> [Type] -> Infer (TConst, [Type])
 instantiateConstructorOfTypeDef (tName, tParams) cParams = do
     tVars <- mapM (const fresh) tParams
     let cParams' = map (subst (Map.fromList (zip tParams tVars))) cParams
     pure ((tName, tVars), cParams')
 
-lookupEnvConstructor
-    :: Id 'Big -> Infer (VariantIx, (String, [TVar]), [Type], Span)
+lookupEnvConstructor :: Id 'Big -> Infer (VariantIx, (String, [TVar]), [Type], Span)
 lookupEnvConstructor (Id (WithPos pos cx)) =
-    view (envCtors . to (Map.lookup cx))
-        >>= maybe (throwError (UndefCtor pos cx)) pure
+    view (envCtors . to (Map.lookup cx)) >>= maybe (throwError (UndefCtor pos cx)) pure
 
 litType :: Const -> Type
 litType = \case
@@ -397,10 +356,9 @@ data UnifyErr'' = InfiniteType'' TVar Type | UnificationFailed'' Type Type
 unify'' :: Type -> Type -> Except UnifyErr'' Subst
 unify'' = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty
-    (TConst (c0, ts0), TConst (c1, ts1)) | c0 == c1 ->
-        if length ts0 /= length ts1
-            then ice "lengths of TConst params differ in unify"
-            else unifys ts0 ts1
+    (TConst (c0, ts0), TConst (c1, ts1)) | c0 == c1 -> if length ts0 /= length ts1
+        then ice "lengths of TConst params differ in unify"
+        else unifys ts0 ts1
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t -> throwError (InfiniteType'' a t)
     -- Do not allow "override" of explicit (user given) type variables.

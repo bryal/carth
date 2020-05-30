@@ -42,9 +42,8 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Checked.Program compiled tdefs'' externs')
   where
-    checkMainDefined ds = when
-        (not (elem "main" (map fst (Checked.flattenDefs ds))))
-        (throwError MainNotDefined)
+    checkMainDefined ds = when (not (elem "main" (map fst (Checked.flattenDefs ds))))
+                               (throwError MainNotDefined)
 
 type CheckTypeDefs a
     = ReaderT
@@ -52,19 +51,12 @@ type CheckTypeDefs a
           (StateT (Inferred.TypeDefs, Inferred.Ctors) (Except TypeErr))
           a
 
-checkTypeDefs
-    :: [Parsed.TypeDef] -> Except TypeErr (Inferred.TypeDefs, Inferred.Ctors)
+checkTypeDefs :: [Parsed.TypeDef] -> Except TypeErr (Inferred.TypeDefs, Inferred.Ctors)
 checkTypeDefs tdefs = do
-    let tdefsParams =
-            Map.union (fmap (length . fst) builtinDataTypes)
-                $ Map.fromList
-                    (map
-                        (\(Parsed.TypeDef x ps _) -> (idstr x, length ps))
-                        tdefs
-                    )
-    (tdefs', ctors) <- execStateT
-        (runReaderT (forM_ tdefs checkTypeDef) tdefsParams)
-        (builtinDataTypes, builtinConstructors)
+    let tdefsParams = Map.union (fmap (length . fst) builtinDataTypes) $ Map.fromList
+            (map (\(Parsed.TypeDef x ps _) -> (idstr x, length ps)) tdefs)
+    (tdefs', ctors) <- execStateT (runReaderT (forM_ tdefs checkTypeDef) tdefsParams)
+                                  (builtinDataTypes, builtinConstructors)
     forM_ (Map.toList tdefs') (assertNoRec tdefs')
     pure (tdefs', ctors)
 
@@ -81,8 +73,7 @@ checkCtors
     -> Parsed.ConstructorDefs
     -> CheckTypeDefs [(Inferred.Id, [Inferred.Type])]
 checkCtors parent (Parsed.ConstructorDefs cs) =
-    let cspan = fromIntegral (length cs)
-    in mapM (checkCtor cspan) (zip [0 ..] cs)
+    let cspan = fromIntegral (length cs) in mapM (checkCtor cspan) (zip [0 ..] cs)
   where
     checkCtor cspan (i, (Id c'@(WithPos pos c), ts)) = do
         cAlreadyDefined <- gets (Map.member c . snd)
@@ -90,14 +81,11 @@ checkCtors parent (Parsed.ConstructorDefs cs) =
         ts' <- mapM (checkType pos) ts
         modify (second (Map.insert c (i, parent, ts', cspan)))
         pure (c', ts')
-    checkType pos t =
-        ask >>= \tdefs -> checkType'' (\x -> Map.lookup x tdefs) pos t
+    checkType pos t = ask >>= \tdefs -> checkType'' (\x -> Map.lookup x tdefs) pos t
 
 builtinDataTypes :: Inferred.TypeDefs
 builtinDataTypes = Map.fromList $ map
-    (\(x, ps, cs) ->
-        (x, (ps, map (first (WithPos (SrcPos "<builtin>" 0 0))) cs))
-    )
+    (\(x, ps, cs) -> (x, (ps, map (first (WithPos (SrcPos "<builtin>" 0 0))) cs)))
     builtinDataTypes'
 
 builtinConstructors :: Inferred.Ctors
@@ -105,11 +93,8 @@ builtinConstructors = Map.unions (map builtinConstructors' builtinDataTypes')
   where
     builtinConstructors' (x, ps, cs) =
         let cSpan = fromIntegral (length cs)
-        in
-            foldl'
-                (\csAcc (i, (cx, cps)) ->
-                    Map.insert cx (i, (x, ps), cps, cSpan) csAcc
-                )
+        in  foldl'
+                (\csAcc (i, (cx, cps)) -> Map.insert cx (i, (x, ps), cps, cSpan) csAcc)
                 Map.empty
                 (zip [0 ..] cs)
 
@@ -117,15 +102,9 @@ builtinDataTypes' :: [(String, [TVar], [(String, [Inferred.Type])])]
 builtinDataTypes' =
     [ ( "Array"
       , [TVImplicit 0]
-      , [ ( "Array"
-          , [Inferred.TBox (Inferred.TVar (TVImplicit 0)), Inferred.TPrim TNat]
-          )
-        ]
+      , [("Array", [Inferred.TBox (Inferred.TVar (TVImplicit 0)), Inferred.TPrim TNat])]
       )
-    , ( "Str"
-      , []
-      , [("Str", [Inferred.TConst ("Array", [Inferred.TPrim TNat8])])]
-      )
+    , ("Str", [], [("Str", [Inferred.TConst ("Array", [Inferred.TPrim TNat8])])])
     , ( "Pair"
       , [TVImplicit 0, TVImplicit 1]
       , [("Pair", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
@@ -141,8 +120,7 @@ assertNoRec
 assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
   where
     assertNoRec' cs s =
-        forM_ cs $ \(WithPos cpos _, cts) ->
-            forM_ cts (assertNoRecType cpos . subst s)
+        forM_ cs $ \(WithPos cpos _, cts) -> forM_ cts (assertNoRecType cpos . subst s)
     assertNoRecType cpos = \case
         Inferred.TConst (y, ts) -> do
             when (x == y) $ throwError (RecTypeDef x cpos)
@@ -151,8 +129,7 @@ assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
             assertNoRec' cs substs
         _ -> pure ()
 
-checkExterns
-    :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.Externs
+checkExterns :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.Externs
 checkExterns tdefs = fmap (Map.union Inferred.builtinExterns . Map.fromList)
     . mapM checkExtern
   where
@@ -216,67 +193,51 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         Inferred.PBox p -> boundInPat p
     boundInCon pos (Con _ _ ts) = forM_ ts (boundInType pos)
 
-compileDecisionTrees
-    :: MTypeDefs -> Inferred.Defs -> Except TypeErr Checked.Defs
+compileDecisionTrees :: MTypeDefs -> Inferred.Defs -> Except TypeErr Checked.Defs
 compileDecisionTrees tdefs = compDefs
   where
     compDefs (Topo defs) = fmap Topo $ mapM compDef defs
 
     compDef :: Inferred.Def -> Except TypeErr Checked.Def
     compDef = \case
-        Inferred.VarDef (lhs, WithPos p rhs) -> fmap
-            (Checked.VarDef . (lhs, ) . WithPos p)
-            (secondM compExpr rhs)
-        Inferred.RecDefs ds ->
-            fmap Checked.RecDefs $ flip mapM ds $ secondM $ mapPosdM
-                (secondM compFunMatch)
+        Inferred.VarDef (lhs, WithPos p rhs) ->
+            fmap (Checked.VarDef . (lhs, ) . WithPos p) (secondM compExpr rhs)
+        Inferred.RecDefs ds -> fmap Checked.RecDefs $ flip mapM ds $ secondM $ mapPosdM
+            (secondM compFunMatch)
 
-    compFunMatch
-        :: WithPos Inferred.FunMatch -> Except TypeErr (WithPos Checked.Fun)
+    compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr (WithPos Checked.Fun)
     compFunMatch (WithPos pos (cs, tp, tb)) = do
         cs' <- mapM (secondM compExpr) cs
         let p = "#x"
-        fmap (WithPos pos)
-            $ case runExceptT (toDecisionTree tdefs pos tp cs') of
-                Nothing -> pure ((p, tp), (noPos (Checked.Absurd tb), tb))
-                Just e -> do
-                    dt <- liftEither e
-                    let v = noPos (Checked.Var (Checked.TypedVar p tp))
-                        b = noPos (Checked.Match v dt tb)
-                    pure ((p, tp), (b, tb))
+        fmap (WithPos pos) $ case runExceptT (toDecisionTree tdefs pos tp cs') of
+            Nothing -> pure ((p, tp), (noPos (Checked.Absurd tb), tb))
+            Just e -> do
+                dt <- liftEither e
+                let v = noPos (Checked.Var (Checked.TypedVar p tp))
+                    b = noPos (Checked.Match v dt tb)
+                pure ((p, tp), (b, tb))
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
         Inferred.Var (Inferred.TypedVar (WithPos _ x) t) ->
             pure (Checked.Var (Checked.TypedVar x t))
-        Inferred.App f a tr ->
-            liftA3 Checked.App (compExpr f) (compExpr a) (pure tr)
-        Inferred.If p c a ->
-            liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
+        Inferred.App f a tr -> liftA3 Checked.App (compExpr f) (compExpr a) (pure tr)
+        Inferred.If p c a -> liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
         Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
         Inferred.FunMatch fm ->
             fmap (Checked.Fun . unpos) (compFunMatch (WithPos pos fm))
         Inferred.Ctor v span' inst ts ->
-            let
-                xs = map
-                    (\n -> "x" ++ show n)
-                    (take (length ts) [0 ..] :: [Word])
+            let xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
                 params = zip xs ts
-                args = map
-                    (noPos . Checked.Var . uncurry Checked.TypedVar)
-                    params
-            in pure $ snd $ foldr
-                (\(p, pt) (bt, b) ->
-                    ( Inferred.TFun pt bt
-                    , Checked.Fun ((p, pt), (noPos b, bt))
+                args = map (noPos . Checked.Var . uncurry Checked.TypedVar) params
+            in  pure $ snd $ foldr
+                    (\(p, pt) (bt, b) ->
+                        (Inferred.TFun pt bt, Checked.Fun ((p, pt), (noPos b, bt)))
                     )
-                )
-                (Inferred.TConst inst, Checked.Ction v span' inst args)
-                params
+                    (Inferred.TConst inst, Checked.Ction v span' inst args)
+                    params
         Inferred.Sizeof t -> pure (Checked.Sizeof t)
         Inferred.Deref x -> fmap Checked.Deref (compExpr x)
-        Inferred.Store x p ->
-            liftA2 Checked.Store (compExpr x) (compExpr p)
-        Inferred.Transmute x t u ->
-            compExpr x <&> \x' -> Checked.Transmute pos x' t u
+        Inferred.Store x p -> liftA2 Checked.Store (compExpr x) (compExpr p)
+        Inferred.Transmute x t u -> compExpr x <&> \x' -> Checked.Transmute pos x' t u

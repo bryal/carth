@@ -41,44 +41,42 @@ import Extern
 
 
 codegen :: DataLayout -> FilePath -> Program -> Either GenErr Module
-codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
-    runExcept $ do
-        (tdefs', externs', globDefs) <-
-            let
-                (enums, tdefs'') =
-                    runIdentity (runGen' (defineDataTypes tdefs))
-                defs' = defToVarDefs =<< defs
-                (funDefs, varDefs) = separateFunDefs defs'
-            in
-                runGen'
-                $ augment enumTypes enums
-                $ augment dataTypes tdefs''
-                $ withBuiltins
-                $ withExternSigs externs
-                $ withGlobDefSigs (map (second unpos) defs')
-                $ do
-                    es <- genExterns externs
-                    funDefs' <- mapM genGlobFunDef funDefs
-                    varDecls <- mapM genGlobVarDecl varDefs
-                    init_ <- genInit varDefs
-                    main <- genMain
-                    let ds = main : init_ : join funDefs' ++ varDecls
-                    pure (tdefs'', es, ds)
-        pure $ Module
-            { moduleName = fromString ((takeBaseName moduleFilePath))
-            , moduleSourceFileName = fromString moduleFilePath
-            , moduleDataLayout = Just layout
-            , moduleTargetTriple = Nothing
-            , moduleDefinitions = concat
-                [ map
-                    (\(n, tmax) -> TypeDefinition n (Just (typeStruct tmax)))
-                    (Map.toList tdefs')
-                , defineBuiltinsHidden
-                , externs'
-                , globDefs
-                , globMetadataDefs
-                ]
-            }
+codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ do
+    (tdefs', externs', globDefs) <-
+        let (enums, tdefs'') = runIdentity (runGen' (defineDataTypes tdefs))
+            defs' = defToVarDefs =<< defs
+            (funDefs, varDefs) = separateFunDefs defs'
+        in  runGen'
+            $ augment enumTypes enums
+            $ augment dataTypes tdefs''
+            $ withBuiltins
+            $ withExternSigs externs
+            $ withGlobDefSigs (map (second unpos) defs')
+            $ do
+                  es <- genExterns externs
+                  funDefs' <- mapM genGlobFunDef funDefs
+                  varDecls <- mapM genGlobVarDecl varDefs
+                  init_ <- genInit varDefs
+                  main <- genMain
+                  let ds = main : init_ : join funDefs' ++ varDecls
+                  pure (tdefs'', es, ds)
+    pure $ Module
+        { moduleName = fromString ((takeBaseName moduleFilePath))
+        , moduleSourceFileName = fromString moduleFilePath
+        , moduleDataLayout = Just layout
+        , moduleTargetTriple = Nothing
+        , moduleDefinitions = concat
+                                  [ map
+                                      (\(n, tmax) ->
+                                          TypeDefinition n (Just (typeStruct tmax))
+                                      )
+                                      (Map.toList tdefs')
+                                  , defineBuiltinsHidden
+                                  , externs'
+                                  , globDefs
+                                  , globMetadataDefs
+                                  ]
+        }
   where
     withGlobDefSigs sigs ga = do
         sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
@@ -96,8 +94,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
     globMetadataDefs =
         [ MetadataNodeDefinition compileUnitId
             $ DINode (LLOp.DIScope (LLOp.DICompileUnit compileUnitDef))
-        , MetadataNodeDefinition fileId
-            $ DINode (LLOp.DIScope (LLOp.DIFile fileDef))
+        , MetadataNodeDefinition fileId $ DINode (LLOp.DIScope (LLOp.DIFile fileDef))
         , MetadataNodeDefinition debugInfoVersionId $ MDTuple
             [ Just (MDValue (litI32 2))
             , Just (MDString "Debug Info Version")
@@ -107,8 +104,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
         , NamedMetadataDefinition "llvm.module.flags" [debugInfoVersionId]
         ]
     compileUnitDef = LLCompunit.CompileUnit
-        { LLCompunit.language =
-            let unstandardized_c = 1 in unstandardized_c
+        { LLCompunit.language = let unstandardized_c = 1 in unstandardized_c
         , LLCompunit.file = MDRef fileId
         , LLCompunit.producer = "carth version alpha"
         , LLCompunit.optimized = False
@@ -129,12 +125,10 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) =
         }
     fileDef =
         let (dir, file) = splitFileName moduleFilePath
-        in
-            LLOp.File
-                { LLSubprog.filename = fromString file
-                , LLSubprog.directory = fromString dir
-                , LLSubprog.checksum = Nothing
-                }
+        in  LLOp.File { LLSubprog.filename = fromString file
+                      , LLSubprog.directory = fromString dir
+                      , LLSubprog.checksum = Nothing
+                      }
 
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct
 --   where, if there are more than 1 variant, the first element is the
@@ -162,13 +156,13 @@ defineDataTypes tds = do
             $ augment dataTypes datas'
             $ forM datas
             $ \(tc, vs) -> do
-                let n = mkName (mangleTConst tc)
-                let totVariants = fromIntegral (length vs)
-                ts <- mapM (genVariantType totVariants) vs
-                sizedTs <- mapM (\t -> sizeof (typeStruct t) <&> (, t)) ts
-                if null sizedTs
-                    then ice ("defineDataTypes: sizedTs empty for " ++ show n)
-                    else pure (n, snd (maximum sizedTs))
+                  let n = mkName (mangleTConst tc)
+                  let totVariants = fromIntegral (length vs)
+                  ts <- mapM (genVariantType totVariants) vs
+                  sizedTs <- mapM (\t -> sizeof (typeStruct t) <&> (, t)) ts
+                  if null sizedTs
+                      then ice ("defineDataTypes: sizedTs empty for " ++ show n)
+                      else pure (n, snd (maximum sizedTs))
     pure (enums', datas'')
 
 genMain :: Gen' Definition
@@ -258,8 +252,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Let d b -> genLet d b
         Match e cs tbody -> genMatch e cs =<< genType tbody
         Ction c -> genCtion c
-        Sizeof t ->
-            (VLocal . litI64 . fromIntegral) <$> ((lift . sizeof) =<< genType t)
+        Sizeof t -> (VLocal . litI64 . fromIntegral) <$> ((lift . sizeof) =<< genType t)
         Deref e -> genDeref e
         Store x p -> genStore x p
         Absurd t -> fmap (VLocal . undef) (genType t)
@@ -281,8 +274,7 @@ genStrLit :: String -> Gen Val
 genStrLit s = do
     var <- newName "strlit"
     scribe outStrings [(var, s)]
-    pure $ VVar $ ConstantOperand
-        (LLConst.GlobalReference (LLType.ptr typeStr) var)
+    pure $ VVar $ ConstantOperand (LLConst.GlobalReference (LLType.ptr typeStr) var)
 
 genTailApp :: Expr -> Expr -> Gen ()
 genTailApp fe' ae' =
@@ -373,18 +365,11 @@ genLet' def genBody = case def of
         (binds, cs) <- fmap unzip $ forM ds $ \case
             (lhs, WithPos _ (_, (p, (fb, fbt)))) -> do
                 let fvXs = Set.toList (Set.delete p (freeVars fb))
-                tcaptures <- fmap
-                    typeStruct
-                    (mapM (\(TypedVar _ t) -> genType t) fvXs)
+                tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
                 captures <- genHeapAllocGeneric tcaptures
                 fbt' <- genRetType fbt
                 lam <-
-                    getVar
-                        =<< genLambda'
-                                p
-                                (genTailExpr fb, fbt')
-                                (VLocal captures)
-                                fvXs
+                    getVar =<< genLambda' p (genTailExpr fb, fbt') (VLocal captures) fvXs
                 pure ((lhs, lam), (captures, fvXs))
         withVars binds $ do
             forM_ cs (uncurry populateCaptures)
@@ -423,8 +408,7 @@ genDecisionTree'
     -> Selections Operand
     -> Gen a
 genDecisionTree' genExpr' genCondBr' genCases' tbody =
-    let
-        genDecisionLeaf (bs, e) selections = do
+    let genDecisionLeaf (bs, e) selections = do
             bs' <- selectVarBindings selAs selSub selDeref selections bs
             withLocals bs' (genExpr' e)
 
@@ -436,21 +420,14 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
                 _ -> emitReg "found_variant_ix" =<< extractvalue m [0]
             let ixBits = getIntBitWidth (typeOf mVariantIx)
             let litIxInt = LLConst.Int ixBits
-            variantLs <- mapM
-                (newName . (++ "_") . ("variant_" ++) . show)
-                variantIxs
+            variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
             defaultL <- newName "default"
             let dests' = zip (map litIxInt variantIxs) variantLs
             commitToNewBlock (switch mVariantIx defaultL dests') defaultL
             genCases' tbody selections' variantLs variantDts def
 
         genDecisionSwitchStr selector cs def selections = do
-            (matchee, selections') <- select
-                selAs
-                selSub
-                selDeref
-                selector
-                selections
+            (matchee, selections') <- select selAs selSub selDeref selector selections
             let cs' = Map.toAscList cs
             let genCase (s, dt) next = do
                     s' <- genStrLit s
@@ -462,17 +439,11 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
         genDT = \case
             M.DLeaf l -> genDecisionLeaf l
             M.DSwitch selector cs def -> genDecisionSwitchIx selector cs def
-            M.DSwitchStr selector cs def ->
-                genDecisionSwitchStr selector cs def
-    in genDT
+            M.DSwitchStr selector cs def -> genDecisionSwitchStr selector cs def
+    in  genDT
 
 genTailCases
-    :: Type
-    -> Selections Operand
-    -> [Name]
-    -> [DecisionTree]
-    -> DecisionTree
-    -> Gen ()
+    :: Type -> Selections Operand -> [Name] -> [DecisionTree] -> DecisionTree -> Gen ()
 genTailCases tbody selections variantLs variantDts def = do
     genTailDecisionTree tbody def selections
     forM_ (zip variantLs variantDts) $ \(l, dt) -> do
@@ -480,18 +451,12 @@ genTailCases tbody selections variantLs variantDts def = do
         genTailDecisionTree tbody dt selections
 
 genCases
-    :: Type
-    -> Selections Operand
-    -> [Name]
-    -> [DecisionTree]
-    -> DecisionTree
-    -> Gen Val
+    :: Type -> Selections Operand -> [Name] -> [DecisionTree] -> DecisionTree -> Gen Val
 genCases tbody selections variantLs variantDts def = do
     nextL <- newName "next"
-    let genDT dt = liftA2
-            (,)
-            (getLocal =<< genDecisionTree tbody dt selections)
-            (use currentBlockLabel)
+    let genDT dt = liftA2 (,)
+                          (getLocal =<< genDecisionTree tbody dt selections)
+                          (use currentBlockLabel)
     v <- genDT def
     let genCase l dt = do
             commitToNewBlock (br nextL) l
@@ -512,7 +477,7 @@ selAs totVariants ts matchee = do
 selSub :: Span -> Word32 -> Operand -> Gen Operand
 selSub span' i matchee =
     let tagOffset = if span' > 1 then 1 else 0
-    in emitReg "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
+    in  emitReg "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
 
 selDeref :: Operand -> Gen Operand
 selDeref x = emitAnonReg (load x)
@@ -524,17 +489,14 @@ genCtion (i, span', dataType, as) = do
         Just w -> pure (VLocal (ConstantOperand (LLConst.Int w i)))
         Nothing -> do
             as' <- mapM genExpr as
-            let tag = maybe
-                    id
-                    ((:) . VLocal . ConstantOperand . flip LLConst.Int i)
-                    (tagBitWidth span')
+            let tag = maybe id
+                            ((:) . VLocal . ConstantOperand . flip LLConst.Int i)
+                            (tagBitWidth span')
             s <- getLocal =<< genStruct (tag as')
             let t = typeOf s
             let tgeneric = genDatatypeRef dataType
             pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
-            p <- emitReg
-                "ction_ptr_structural"
-                (bitcast pGeneric (LLType.ptr t))
+            p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
             emitDo (store s p)
             pure (VVar pGeneric)
 
@@ -581,9 +543,8 @@ transmute t u x = case (t, u) of
     (IntegerType _, FloatingPointType _) -> bitcast'
     (IntegerType _, VectorType _ _) -> bitcast'
 
-    (PointerType pt _, PointerType pu _)
-        | pt == pu -> pure x
-        | otherwise -> bitcast'
+    (PointerType pt _, PointerType pu _) | pt == pu -> pure x
+                                         | otherwise -> bitcast'
     (PointerType _ _, IntegerType _) ->
         getLocal x >>= \x' -> emitAnonReg (ptrtoint x' u) <&> VLocal
     (PointerType _ _, _) -> stackCast
@@ -593,9 +554,8 @@ transmute t u x = case (t, u) of
     (FloatingPointType _, IntegerType _) -> bitcast'
     (FloatingPointType _, VectorType _ _) -> bitcast'
 
-    (VectorType _ vt, VectorType _ vu)
-        | vt == vu -> pure x
-        | otherwise -> bitcast'
+    (VectorType _ vt, VectorType _ vu) | vt == vu -> pure x
+                                       | otherwise -> bitcast'
     (VectorType _ _, IntegerType _) -> bitcast'
     (VectorType _ _, FloatingPointType _) -> bitcast'
 
@@ -608,8 +568,7 @@ transmute t u x = case (t, u) of
   where
     transmuteIce = ice $ "transmute " ++ show t ++ " to " ++ show u
     bitcast' = getLocal x >>= \x' -> emitAnonReg (bitcast x' u) <&> VLocal
-    stackCast = getVar x
-        >>= \x' -> emitAnonReg (bitcast x' (LLType.ptr u)) <&> VVar
+    stackCast = getVar x >>= \x' -> emitAnonReg (bitcast x' (LLType.ptr u)) <&> VVar
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 = do

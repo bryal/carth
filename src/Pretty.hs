@@ -57,8 +57,7 @@ instance Pretty (Parsed.Id a) where
 
 prettyProg :: Int -> Parsed.Program -> String
 prettyProg d (Parsed.Program defs tdefs externs) =
-    let
-        prettyDef = \case
+    let prettyDef = \case
             (name, WithPos _ (Just scm, body)) -> concat
                 [ indent d ++ "(define: " ++ pretty name ++ "\n"
                 , indent (d + 4) ++ pretty' (d + 4) scm ++ "\n"
@@ -68,7 +67,7 @@ prettyProg d (Parsed.Program defs tdefs externs) =
                 [ indent d ++ "(define " ++ pretty name ++ "\n"
                 , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
                 ]
-    in unlines (map prettyDef defs ++ map pretty tdefs ++ map pretty externs)
+    in  unlines (map prettyDef defs ++ map pretty tdefs ++ map pretty externs)
 
 prettyExtern :: Int -> Parsed.Extern -> String
 prettyExtern _ (Parsed.Extern name t) =
@@ -97,9 +96,7 @@ prettyExpr' d = \case
     Parsed.Lit l -> pretty l
     Parsed.Var v -> Parsed.idstr v
     Parsed.App f x -> concat
-        [ "(" ++ pretty' (d + 1) f ++ "\n"
-        , indent (d + 1) ++ pretty' (d + 1) x ++ ")"
-        ]
+        ["(" ++ pretty' (d + 1) f ++ "\n", indent (d + 1) ++ pretty' (d + 1) x ++ ")"]
     Parsed.If pred' cons alt -> concat
         [ "(if " ++ pretty' (d + 4) pred' ++ "\n"
         , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
@@ -126,30 +123,24 @@ prettyExpr' d = \case
         concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
     Parsed.Match e cs -> concat
         [ "(match " ++ pretty' (d + 7) e
-        , precalate
-            ("\n" ++ indent (d + 2))
-            (map (prettyBracketPair (d + 2)) cs)
+        , precalate ("\n" ++ indent (d + 2)) (map (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
     Parsed.FunMatch cs -> concat
         [ "(fmatch"
-        , precalate
-            ("\n" ++ indent (d + 2))
-            (map (prettyBracketPair (d + 2)) cs)
+        , precalate ("\n" ++ indent (d + 2)) (map (prettyBracketPair (d + 2)) cs)
         , ")"
         ]
     Parsed.Ctor c -> pretty c
     Parsed.Sizeof t -> concat ["(sizeof ", pretty' (d + 8) t, ")"]
     Parsed.Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
     Parsed.Store x p -> concat
-        [ "(store " ++ pretty' (d + 7) x
-        , indent (d + 7) ++ pretty' (d + 7) p ++ ")"
-        ]
+        ["(store " ++ pretty' (d + 7) x, indent (d + 7) ++ pretty' (d + 7) p ++ ")"]
     Parsed.Transmute e -> concat ["(transmute ", pretty' (d + 11) e, ")"]
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
-prettyBracketPair d (a, b) = concat
-    ["[", pretty' (d + 1) a, "\n", indent (d + 1), pretty' (d + 1) b, "]"]
+prettyBracketPair d (a, b) =
+    concat ["[", pretty' (d + 1) a, "\n", indent (d + 1), pretty' (d + 1) b, "]"]
 
 prettyPat :: Parsed.Pat -> String
 prettyPat = \case
@@ -204,12 +195,11 @@ prettyTBox t = "(Box " ++ pretty t ++ ")"
 
 prettyTFun :: Parsed.Type -> Parsed.Type -> String
 prettyTFun a b =
-    let
-        (bParams, bBody) = f b
+    let (bParams, bBody) = f b
         f = \case
             Parsed.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
-    in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
+    in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
 prettyTPrim :: Parsed.TPrim -> String
 prettyTPrim = \case
@@ -244,12 +234,11 @@ prettyAnType = \case
 
 prettyAnTFun :: Inferred.Type -> Inferred.Type -> String
 prettyAnTFun a b =
-    let
-        (bParams, bBody) = f b
+    let (bParams, bBody) = f b
         f = \case
             Inferred.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
-    in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
+    in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
 
 instance Pretty M.Type where
@@ -264,9 +253,8 @@ prettyMonoType = \case
 
 prettyMonoTFun :: M.Type -> M.Type -> String
 prettyMonoTFun a b =
-    let
-        (bParams, bBody) = f b
+    let (bParams, bBody) = f b
         f = \case
             M.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
-    in concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
+    in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]

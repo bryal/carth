@@ -103,5 +103,4 @@ defToVarDefs = \case
     RecDefs ds -> map funDefToVarDef ds
 
 funDefToVarDef :: (String, WithPos (Scheme, WithPos Fun)) -> VarDef
-funDefToVarDef =
-    second (mapPosd (second (\(WithPos p f) -> Expr (Just p) (Fun f))))
+funDefToVarDef = second (mapPosd (second (\(WithPos p f) -> Expr (Just p) (Fun f))))

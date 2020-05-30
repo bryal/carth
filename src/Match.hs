@@ -56,22 +56,16 @@ type Match = ReaderT Env (StateT RedundantCases (ExceptT TypeErr Maybe))
 
 
 toDecisionTree
-    :: MTypeDefs
-    -> SrcPos
-    -> Type
-    -> [(Pat, Expr)]
-    -> ExceptT TypeErr Maybe DecisionTree
+    :: MTypeDefs -> SrcPos -> Type -> [(Pat, Expr)] -> ExceptT TypeErr Maybe DecisionTree
 toDecisionTree tds ePos tp cases =
-    let
-        rules = map (\(WithPos pos p, e) -> (p, (pos, Map.empty, e))) cases
+    let rules = map (\(WithPos pos p, e) -> (p, (pos, Map.empty, e))) cases
         redundantCases = map (getPos . fst) cases
-    in do
-        let env = Env { _tdefs = tds, _tpat = tp, _exprPos = ePos }
-        (d, redundantCases') <- runStateT
-            (runReaderT (compile rules) env)
-            redundantCases
-        forM_ redundantCases' $ throwError . RedundantCase
-        pure (switchify d)
+    in  do
+            let env = Env { _tdefs = tds, _tpat = tp, _exprPos = ePos }
+            (d, redundantCases') <- runStateT (runReaderT (compile rules) env)
+                                              redundantCases
+            forM_ redundantCases' $ throwError . RedundantCase
+            pure (switchify d)
 
 compile :: [(Pat', Rhs)] -> Match DecisionTree'
 compile = disjunct (Neg Set.empty)
@@ -98,26 +92,24 @@ missingPat t descr = case t of
 
 missingPat' :: [String] -> Descr -> Match String
 missingPat' vs =
-    let
-        allVariants = Map.fromList (zip [0 ..] vs)
+    let allVariants = Map.fromList (zip [0 ..] vs)
         variant' = \case
             Con (VariantIx v) _ _ -> v
             Con (VariantStr _) _ _ -> ice "variant' of Con VariantStr"
-    in \case
-        Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
-            (Map.withoutKeys allVariants (Set.map variant' cs))
-        Pos (Con (VariantStr _) _ _) _ -> ice "missingPat' of Con VariantStr"
-        Pos (Con (VariantIx v) _ argTs') dargs ->
-            let
-                i = fromIntegral v
-                s = if i < length vs
-                    then vs !! i
-                    else ice "variant >= type number of variants in missingPat'"
-            in if null dargs
-                then pure s
-                else do
-                    ps <- zipWithM missingPat argTs' dargs
-                    pure ("(" ++ s ++ precalate " " ps ++ ")")
+    in  \case
+            Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
+                (Map.withoutKeys allVariants (Set.map variant' cs))
+            Pos (Con (VariantStr _) _ _) _ -> ice "missingPat' of Con VariantStr"
+            Pos (Con (VariantIx v) _ argTs') dargs ->
+                let i = fromIntegral v
+                    s = if i < length vs
+                        then vs !! i
+                        else ice "variant >= type number of variants in missingPat'"
+                in  if null dargs
+                        then pure s
+                        else do
+                            ps <- zipWithM missingPat argTs' dargs
+                            pure ("(" ++ s ++ precalate " " ps ++ ")")
 
 match
     :: Access
@@ -131,7 +123,7 @@ match
 match obj descr ctx work rhs rules = \case
     PVar (Inferred.TypedVar (Inferred.WithPos _ x) tx) ->
         let x' = TypedVar x tx
-        in conjunct (augment descr ctx) (addBind x' obj rhs) rules work
+        in  conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
     PBox (WithPos _ p) -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->
@@ -140,15 +132,11 @@ match obj descr ctx work rhs rules = \case
             disjunct' newDescr = disjunct (buildDescr newDescr ctx work) rules
 
             conjunct' :: Match DecisionTree'
-            conjunct' = conjunct
-                ((pcon, []) : ctx)
-                rhs
-                rules
-                ((pargs, getoargs, getdargs) : work)
+            conjunct' =
+                conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs =
-                args (\i -> Sel i (span pcon) (As obj (span pcon) (argTs pcon)))
+            getoargs = args (\i -> Sel i (span pcon) (As obj (span pcon) (argTs pcon)))
 
             getdargs :: [Descr]
             getdargs = case descr of
@@ -157,13 +145,14 @@ match obj descr ctx work rhs rules = \case
 
             args :: (Word32 -> a) -> [a]
             args f = map f (take (arity pcon) [0 ..])
-        in case staticMatch pcon descr of
-            Yes -> conjunct'
-            No -> disjunct' descr
-            Maybe -> do
-                yes <- conjunct'
-                no <- disjunct' (addneg pcon descr)
-                pure (IfEq obj pcon yes no)
+        in
+            case staticMatch pcon descr of
+                Yes -> conjunct'
+                No -> disjunct' descr
+                Maybe -> do
+                    yes <- conjunct'
+                    no <- disjunct' (addneg pcon descr)
+                    pure (IfEq obj pcon yes no)
 
 conjunct :: Ctx -> Rhs -> [(Pat', Rhs)] -> Work -> Match DecisionTree'
 conjunct ctx rhs@(casePos, binds, e) rules = \case
@@ -202,12 +191,10 @@ augment descr = \case
 
 staticMatch :: Con -> Descr -> Answer
 staticMatch = curry $ \case
-    (pcon, Pos c _)
-        | pcon == c -> Yes
-        | otherwise -> No
+    (pcon, Pos c _) | pcon == c -> Yes
+                    | otherwise -> No
     (pcon, Neg cs) | Set.member pcon cs -> No
-    (Con (VariantIx _) span' _, Neg cs)
-        | span' == 1 + fromIntegral (Set.size cs) -> Yes
+    (Con (VariantIx _) span' _, Neg cs) | span' == 1 + fromIntegral (Set.size cs) -> Yes
     _ -> Maybe
 
 addneg :: Con -> Descr -> Descr

@@ -32,8 +32,7 @@ substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Let def body -> Let (substDef s def) (substExpr s body)
     FunMatch f -> FunMatch (substFunMatch s f)
-    Ctor i span' (tx, tts) ps ->
-        Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
+    Ctor i span' (tx, tts) ps -> Ctor i span' (tx, map (subst s) tts) (map (subst s) ps)
     Sizeof t -> Sizeof (subst s t)
     Deref e -> Deref (substExpr s e)
     Store x p -> Store (substExpr s x) (substExpr s p)

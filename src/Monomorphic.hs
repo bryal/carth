@@ -2,15 +2,7 @@
            , FlexibleInstances, FlexibleContexts #-}
 
 -- | Monomorphic AST as a result of monomorphization
-module Monomorphic
-    ( module Monomorphic
-    , TPrim(..)
-    , Const(..)
-    , VariantIx
-    , Span
-    , tUnit
-    )
-where
+module Monomorphic (module Monomorphic, TPrim(..), Const(..), VariantIx, Span, tUnit) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -106,8 +98,7 @@ fvExpr' = \case
     If p c a -> fvIf p c a
     Fun (p, (b, _)) -> fvFun p b
     Let d (Expr _ e) ->
-        let bs = defToVarDefs d
-        in fvLet (unzip (map (second (snd . unpos)) bs)) e
+        let bs = defToVarDefs d in fvLet (unzip (map (second (snd . unpos)) bs)) e
     Match e dt _ -> Set.union (freeVars e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)
     Sizeof _t -> Set.empty
@@ -121,9 +112,7 @@ fvDecisionTree = \case
     DLeaf (bs, e) -> Set.difference (freeVars e) (Set.fromList (map fst bs))
     DSwitch _ cs def -> fvDSwitch (Map.elems cs) def
     DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
-  where
-    fvDSwitch es def =
-        Set.unions $ fvDecisionTree def : map fvDecisionTree es
+    where fvDSwitch es def = Set.unions $ fvDecisionTree def : map fvDecisionTree es
 
 defToVarDefs :: Def -> [(TypedVar, WithPos ([Type], Expr'))]
 defToVarDefs = \case

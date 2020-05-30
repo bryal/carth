@@ -43,8 +43,7 @@ both f (a0, a1) = (f a0, f a1)
 firstM :: (Bitraversable t, Applicative f) => (a -> f a') -> t a b -> f (t a' b)
 firstM = flip bimapM pure
 
-secondM
-    :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
+secondM :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
 
 locallySet :: MonadReader s m => Lens' s a -> a -> m r -> m r
@@ -53,12 +52,10 @@ locallySet l = locally l . const
 locally :: MonadReader s m => Lens' s a -> (a -> a) -> m r -> m r
 locally l f = local (over l f)
 
-augment1
-    :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> (k, v) -> m a -> m a
+augment1 :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> (k, v) -> m a -> m a
 augment1 l = locally l . uncurry Map.insert
 
-augment
-    :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
+augment :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
 augment l = locally l . Map.union
 
 scribe :: (MonadWriter t m, Monoid s) => Lens s t a b -> b -> m ()

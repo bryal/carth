@@ -46,9 +46,8 @@ withExternSigs es ga = do
         t' <- genType' t
         pure
             ( TypedVar name t
-            , ConstantOperand $ LLConst.GlobalReference
-                (LLType.ptr t')
-                (mkName ("_wrapper_" ++ name))
+            , ConstantOperand
+                $ LLConst.GlobalReference (LLType.ptr t') (mkName ("_wrapper_" ++ name))
             )
     augment env (Map.fromList es') ga
 
@@ -79,25 +78,20 @@ genWrapper pos externName rt paramTs =
                     passByRef rt >>= \case
                         True -> do
                             out <- emitReg "out" (alloca rt)
-                            let
-                                f = ConstantOperand $ LLConst.GlobalReference
-                                    (LLType.ptr $ FunctionType
-                                        LLType.void
-                                        (typeOf out : ats)
-                                        False
+                            let f = ConstantOperand $ LLConst.GlobalReference
+                                    (LLType.ptr $ FunctionType LLType.void
+                                                               (typeOf out : ats)
+                                                               False
                                     )
                                     fname
                             emitDo $ callExtern f ((out, [SRet]) : as)
                             pure (VVar out)
                         False ->
-                            let
-                                f = ConstantOperand $ LLConst.GlobalReference
+                            let f = ConstantOperand $ LLConst.GlobalReference
                                     (LLType.ptr $ FunctionType rt ats False)
                                     fname
-                            in
-                                if rt == LLType.void
-                                    then emitDo (callExtern f as)
-                                        $> VLocal litUnit
+                            in  if rt == LLType.void
+                                    then emitDo (callExtern f as) $> VLocal litUnit
                                     else fmap VLocal $ emitAnonReg $ WithRetType
                                         (callExtern f as)
                                         rt
@@ -108,30 +102,20 @@ genWrapper pos externName rt paramTs =
                         (p : ps) -> do
                             pts <- mapM (\(TypedVar _ t) -> genType t) ps
                             let bt = foldr closureType rt pts
-                            genLambda
-                                fvs
-                                p
-                                (genWrapper' (fvs ++ [p]) ps $> (), bt)
+                            genLambda fvs p (genWrapper' (fvs ++ [p]) ps $> (), bt)
                     if typeOf r == typeUnit
                         then commitFinalFuncBlock retVoid $> LLType.void
                         else commitFinalFuncBlock (ret r) $> typeOf r
             let wrapperName = "_wrapper_" ++ externName
             assign lambdaParentFunc (Just wrapperName)
             let fname = mkName (wrapperName ++ "_func")
-            (f, gs) <-
-                locallySet srcPos (Just pos)
-                    $ genFunDef
-                        ( fname
-                        , []
-                        , pos
-                        , firstParam
-                        , genWrapper' [firstParam] restParams
-                        )
+            (f, gs) <- locallySet srcPos (Just pos)
+                $ genFunDef
+                      (fname, [], pos, firstParam, genWrapper' [firstParam] restParams)
             let fref = LLConst.GlobalReference (LLType.ptr (typeOf f)) fname
             let captures = LLConst.Null (LLType.ptr typeUnit)
             let closure = litStruct [captures, fref]
-            let closureDef = simpleGlobConst
-                    (mkName ("_wrapper_" ++ externName))
-                    (typeOf closure)
-                    closure
+            let closureDef = simpleGlobConst (mkName ("_wrapper_" ++ externName))
+                                             (typeOf closure)
+                                             closure
             pure (GlobalDefinition closureDef : GlobalDefinition f : gs)

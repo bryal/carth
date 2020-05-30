@@ -1,14 +1,7 @@
 {-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, TupleSections #-}
 
 -- | Type annotated AST as a result of typechecking
-module Inferred
-    ( module Inferred
-    , WithPos(..)
-    , TVar(..)
-    , TPrim(..)
-    , Const(..)
-    )
-where
+module Inferred (module Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) where
 
 import Data.Set (Set)
 import qualified Data.Set as Set

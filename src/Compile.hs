@@ -69,22 +69,20 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             flip
                     catch
                     (\case
-                        EncodeException msg ->
-                            ice $ "LLVM encode exception:\n" ++ msg
+                        EncodeException msg -> ice $ "LLVM encode exception:\n" ++ msg
                     )
                 $ withModuleFromAST ctx amod
                 $ \mod -> do
-                    verbose cfg ("   Verifying LLVM")
-                    when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
-                    catch (verify mod) $ \case
-                        VerifyException msg ->
-                            ice $ "LLVM verification exception:\n" ++ msg
-                    withPassManager (optPasses optLvl tm) $ \passman -> do
-                        verbose cfg "   Optimizing"
-                        _ <- runPassManager passman mod
-                        when (getDebug cfg)
-                            $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
-                        f cfg tm mod
+                      verbose cfg ("   Verifying LLVM")
+                      when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                      catch (verify mod) $ \case
+                          VerifyException msg ->
+                              ice $ "LLVM verification exception:\n" ++ msg
+                      withPassManager (optPasses optLvl tm) $ \passman -> do
+                          verbose cfg "   Optimizing"
+                          _ <- runPassManager passman mod
+                          when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
+                          f cfg tm mod
 
 codegen' :: DataLayout -> FilePath -> Monomorphic.Program -> IO LLAST.Module
 codegen' dl f pgm = case codegen dl f pgm of
@@ -159,28 +157,23 @@ orcJitModule cfg tm mod = do
 --   running process, which includes all shared object code added with
 --   `Linking.loadLibraryPermanently`. Disjoint from the compile and linking
 --   layer.
-resolver
-    :: CompileLayer cl
-    => cl
-    -> MangledSymbol
-    -> IO (Either JITSymbolError JITSymbol)
+resolver :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
 resolver compLay symb =
     let
-        flags = JITSymbolFlags
-            { jitSymbolWeak = False
-            , jitSymbolCommon = False
-            , jitSymbolAbsolute = False
-            , jitSymbolExported = True
-            }
+        flags = JITSymbolFlags { jitSymbolWeak = False
+                               , jitSymbolCommon = False
+                               , jitSymbolAbsolute = False
+                               , jitSymbolExported = True
+                               }
         err = fromString ("Error resolving symbol: " ++ show symb)
         findInLlvmModules = CL.findSymbol compLay symb False
-        findInSharedObjects = getSymbolAddressInProcess symb <&> \addr ->
-            if addr == 0
-                then Left (JITSymbolError err)
-                else Right (JITSymbol addr flags)
-    in findInLlvmModules >>= \case
-        Right js -> pure (Right js)
-        Left _ -> findInSharedObjects
+        findInSharedObjects = getSymbolAddressInProcess symb <&> \addr -> if addr == 0
+            then Left (JITSymbolError err)
+            else Right (JITSymbol addr flags)
+    in
+        findInLlvmModules >>= \case
+            Right js -> pure (Right js)
+            Left _ -> findInSharedObjects
 
 -- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing,
 --   so this is a workaround.
@@ -198,38 +191,32 @@ withMyTargetMachine codeGenOpt f = do
     (target, _) <- lookupTarget Nothing triple
     withTargetOptions $ \toptions -> do
         options <- peekTargetOptions toptions
-        pokeTargetOptions
-            (options { guaranteedTailCallOptimization = True })
-            toptions
-        withTargetMachine
-            target
-            triple
-            cpu
-            features
-            toptions
-            Reloc.PIC
-            CodeModel.Default
-            codeGenOpt
-            f
+        pokeTargetOptions (options { guaranteedTailCallOptimization = True }) toptions
+        withTargetMachine target
+                          triple
+                          cpu
+                          features
+                          toptions
+                          Reloc.PIC
+                          CodeModel.Default
+                          codeGenOpt
+                          f
 
 optPasses :: CodeGenOpt.Level -> TargetMachine -> PassSetSpec
 optPasses level tm =
-    let
-        levelN = case level of
+    let levelN = case level of
             CodeGenOpt.None -> 0
             CodeGenOpt.Less -> 1
             CodeGenOpt.Default -> 2
             CodeGenOpt.Aggressive -> 3
-    in
-        CuratedPassSetSpec
-            { optLevel = Just levelN
-            , sizeLevel = Nothing
-            , unitAtATime = Nothing
-            , simplifyLibCalls = Nothing
-            , loopVectorize = Nothing
-            , superwordLevelParallelismVectorize = Nothing
-            , useInlinerWithThreshold = Nothing
-            , dataLayout = Nothing
-            , targetLibraryInfo = Nothing
-            , targetMachine = Just tm
-            }
+    in  CuratedPassSetSpec { optLevel = Just levelN
+                           , sizeLevel = Nothing
+                           , unitAtATime = Nothing
+                           , simplifyLibCalls = Nothing
+                           , loopVectorize = Nothing
+                           , superwordLevelParallelismVectorize = Nothing
+                           , useInlinerWithThreshold = Nothing
+                           , dataLayout = Nothing
+                           , targetLibraryInfo = Nothing
+                           , targetMachine = Just tm
+                           }

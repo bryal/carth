@@ -119,33 +119,28 @@ instance Typed Val where
 --
 --   The signature definition, the parameter-loading, and the result return are
 --   all done according to the calling convention.
-genFunDef
-    :: (Name, [TypedVar], SrcPos, TypedVar, Gen Type)
-    -> Gen' (Global, [Definition])
+genFunDef :: (Name, [TypedVar], SrcPos, TypedVar, Gen Type) -> Gen' (Global, [Definition])
 genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs srcPoss) <-
-        runWriterT $ do
+    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs srcPoss) <- runWriterT $ do
             -- Two equal SrcPos's in different scopes are not equal at the
             -- metadata level. Reset cache every scope.
-            assign srcPosToMetadata Map.empty
-            (capturesParam, captureLocals) <- genExtractCaptures
-            pt' <- genType pt
-            px' <- newName px
-            let pRef = LocalReference pt' px'
-            rt' <- withLocal ptv pRef (withLocals captureLocals genBody)
-            let fParams' =
-                    [uncurry Parameter capturesParam [], Parameter pt' px' []]
-            pure (rt', fParams')
+        assign srcPosToMetadata Map.empty
+        (capturesParam, captureLocals) <- genExtractCaptures
+        pt' <- genType pt
+        px' <- newName px
+        let pRef = LocalReference pt' px'
+        rt' <- withLocal ptv pRef (withLocals captureLocals genBody)
+        let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
+        pure (rt', fParams')
     (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
     ss <- mapM globStrVar globStrings
     ls <- fmap
         concat
         (mapM (fmap (uncurry ((:) . GlobalDefinition)) . genFunDef) lambdaFuncs)
     ps <- mapM (defineSrcPos (MDRef funScopeMdId)) srcPoss
-    let f =
-            internFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
+    let f = internFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
     pure (f, concat ss ++ ls ++ (funScopeMdDef : ps))
   where
     globStrVar (strName, s) = do
@@ -153,23 +148,18 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         let bytes = UTF8.String.encode s
             len = length bytes
             tInner = ArrayType (fromIntegral len) i8
-            defInner = simpleGlobConst
-                name_inner
-                tInner
-                (LLConst.Array i8 (map litI8' bytes))
+            defInner =
+                simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
             ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
-            array = litStructNamed
-                ("Array", [M.TPrim TNat8])
-                [ptrBytes, litI64' len]
+            array = litStructNamed ("Array", [M.TPrim TNat8]) [ptrBytes, litI64' len]
             str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobConst strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
     genExtractCaptures = do
         capturesName <- newName "captures"
         let capturesPtrGenericType = LLType.ptr typeUnit
-        let capturesPtrGeneric =
-                LocalReference capturesPtrGenericType capturesName
+        let capturesPtrGeneric = LocalReference capturesPtrGenericType capturesName
         let capturesParam = (capturesPtrGenericType, capturesName)
         fmap (capturesParam, ) $ if null fvs
             then pure []
@@ -179,9 +169,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                     (bitcast capturesPtrGeneric (LLType.ptr capturesType))
                 captures <- emitAnonReg (load capturesPtr)
                 captureVals <- mapM
-                    (\(TypedVar x _, i) ->
-                        emitReg x =<< extractvalue captures [i]
-                    )
+                    (\(TypedVar x _, i) -> emitReg x =<< extractvalue captures [i])
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
     defineSrcPos funScopeMdRef (SrcPos _ line col, mdId) = do
@@ -202,40 +190,36 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                 )
             )
     funMetadataSubprog =
-        let
-            SrcPos path line _ = dpos
+        let SrcPos path line _ = dpos
             -- TODO: Maybe only define this once and cache MDRef somewhere?
             fileNode =
-                let (dir, file) = splitFileName path
-                in
-                    LLSubprog.File
-                        { LLSubprog.filename = fromString file
-                        , LLSubprog.directory = fromString dir
-                        , LLSubprog.checksum = Nothing
-                        }
-        in LLOp.Subprogram
-            { LLSubprog.scope = Just (MDInline (LLOp.DIFile fileNode))
-            , LLSubprog.name = nameSBString name
-            , LLSubprog.linkageName = nameSBString name
-            , LLSubprog.file = Just (MDInline fileNode)
-            , LLSubprog.line = fromIntegral line
-            , LLSubprog.type' = Just
-                (MDInline (LLOp.SubroutineType [] 0 []))
-            , LLSubprog.localToUnit = True
-            , LLSubprog.definition = True
-            , LLSubprog.scopeLine = fromIntegral line
-            , LLSubprog.containingType = Nothing
-            , LLSubprog.virtuality = LLOp.NoVirtuality
-            , LLSubprog.virtualityIndex = 0
-            , LLSubprog.thisAdjustment = 0
-            , LLSubprog.flags = []
-            , LLSubprog.optimized = False
-            , LLSubprog.unit = Just compileUnitRef
-            , LLSubprog.templateParams = []
-            , LLSubprog.declaration = Nothing
-            , LLSubprog.retainedNodes = []
-            , LLSubprog.thrownTypes = []
-            }
+                    let (dir, file) = splitFileName path
+                    in  LLSubprog.File { LLSubprog.filename = fromString file
+                                       , LLSubprog.directory = fromString dir
+                                       , LLSubprog.checksum = Nothing
+                                       }
+        in  LLOp.Subprogram
+                { LLSubprog.scope = Just (MDInline (LLOp.DIFile fileNode))
+                , LLSubprog.name = nameSBString name
+                , LLSubprog.linkageName = nameSBString name
+                , LLSubprog.file = Just (MDInline fileNode)
+                , LLSubprog.line = fromIntegral line
+                , LLSubprog.type' = Just (MDInline (LLOp.SubroutineType [] 0 []))
+                , LLSubprog.localToUnit = True
+                , LLSubprog.definition = True
+                , LLSubprog.scopeLine = fromIntegral line
+                , LLSubprog.containingType = Nothing
+                , LLSubprog.virtuality = LLOp.NoVirtuality
+                , LLSubprog.virtualityIndex = 0
+                , LLSubprog.thisAdjustment = 0
+                , LLSubprog.flags = []
+                , LLSubprog.optimized = False
+                , LLSubprog.unit = Just compileUnitRef
+                , LLSubprog.templateParams = []
+                , LLSubprog.declaration = Nothing
+                , LLSubprog.retainedNodes = []
+                , LLSubprog.thrownTypes = []
+                }
     nameSBString = \case
         Name s -> s
         UnName n -> fromString (show n)
@@ -256,9 +240,7 @@ genLambda fvXs p body = do
     captures <- if null fvXs
         then pure (null' (LLType.ptr typeUnit))
         else do
-            tcaptures <- fmap
-                typeStruct
-                (mapM (\(TypedVar _ t) -> genType t) fvXs)
+            tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
             captures' <- genHeapAllocGeneric tcaptures
             populateCaptures captures' fvXs
             pure captures'
@@ -273,14 +255,10 @@ populateCaptures ptrGeneric fvXs = do
 genLambda' :: TypedVar -> (Gen (), Type) -> Val -> [TypedVar] -> Gen Val
 genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
     fname <- use lambdaParentFunc >>= \case
-        Just s ->
-            fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
+        Just s -> fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
         Nothing -> newName "func"
     ft <- genType pt <&> \pt' -> closureFunType pt' bt
-    let
-        f = VLocal $ ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr ft)
-            fname
+    let f = VLocal $ ConstantOperand $ LLConst.GlobalReference (LLType.ptr ft) fname
     pos <- view (srcPos . to (fromMaybe (ice "srcPos is Nothing in genLambda")))
     scribe outFuncs [(fname, fvXs, pos, p, b $> bt)]
     genStruct [captures, f]
@@ -294,24 +272,22 @@ compileUnitId = MetadataNodeID 0
 runGen' :: Monad m => StateT St (ReaderT Env m) a -> m a
 runGen' g = runReaderT (evalStateT g initSt) initEnv
   where
-    initEnv = Env
-        { _env = Map.empty
-        , _enumTypes = Map.empty
-        , _dataTypes = Map.empty
-        , _builtins = Map.empty
-        , _srcPos = Nothing
-        }
-    initSt = St
-        { _currentBlockLabel = "entry"
-        , _currentBlockInstrs = []
-        , _registerCount = 0
-        , _metadataCount = 3
-        , _lambdaParentFunc = Nothing
-        , _outerLambdaN = 1
+    initEnv = Env { _env = Map.empty
+                  , _enumTypes = Map.empty
+                  , _dataTypes = Map.empty
+                  , _builtins = Map.empty
+                  , _srcPos = Nothing
+                  }
+    initSt = St { _currentBlockLabel = "entry"
+                , _currentBlockInstrs = []
+                , _registerCount = 0
+                , _metadataCount = 3
+                , _lambdaParentFunc = Nothing
+                , _outerLambdaN = 1
              -- TODO: Maybe add a pass before this that just generates all
              --       SrcPos:s, separately and more cleanly?
-        , _srcPosToMetadata = Map.empty
-        }
+                , _srcPosToMetadata = Map.empty
+                }
 
 internFunc
     :: Name
@@ -320,25 +296,24 @@ internFunc
     -> [BasicBlock]
     -> [(ShortByteString, MDRef MDNode)]
     -> Global
-internFunc n ps rt bs meta = Function
-    { LLGlob.linkage = LLLink.External
-    , LLGlob.visibility = LLVis.Hidden
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = LLCallConv.Fast
-    , LLGlob.returnAttributes = []
-    , LLGlob.returnType = rt
-    , LLGlob.name = n
-    , LLGlob.parameters = (ps, False)
-    , LLGlob.functionAttributes = []
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.garbageCollectorName = Nothing
-    , LLGlob.prefix = Nothing
-    , LLGlob.basicBlocks = bs
-    , LLGlob.personalityFunction = Nothing
-    , LLGlob.metadata = meta
-    }
+internFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.External
+                                      , LLGlob.visibility = LLVis.Hidden
+                                      , LLGlob.dllStorageClass = Nothing
+                                      , LLGlob.callingConvention = LLCallConv.Fast
+                                      , LLGlob.returnAttributes = []
+                                      , LLGlob.returnType = rt
+                                      , LLGlob.name = n
+                                      , LLGlob.parameters = (ps, False)
+                                      , LLGlob.functionAttributes = []
+                                      , LLGlob.section = Nothing
+                                      , LLGlob.comdat = Nothing
+                                      , LLGlob.alignment = 0
+                                      , LLGlob.garbageCollectorName = Nothing
+                                      , LLGlob.prefix = Nothing
+                                      , LLGlob.basicBlocks = bs
+                                      , LLGlob.personalityFunction = Nothing
+                                      , LLGlob.metadata = meta
+                                      }
 
 externFunc
     :: Name
@@ -347,25 +322,24 @@ externFunc
     -> [BasicBlock]
     -> [(ShortByteString, MDRef MDNode)]
     -> Global
-externFunc n ps rt bs meta = Function
-    { LLGlob.linkage = LLLink.External
-    , LLGlob.visibility = LLVis.Default
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = LLCallConv.C
-    , LLGlob.returnAttributes = []
-    , LLGlob.returnType = rt
-    , LLGlob.name = n
-    , LLGlob.parameters = (ps, False)
-    , LLGlob.functionAttributes = []
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.garbageCollectorName = Nothing
-    , LLGlob.prefix = Nothing
-    , LLGlob.basicBlocks = bs
-    , LLGlob.personalityFunction = Nothing
-    , LLGlob.metadata = meta
-    }
+externFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.External
+                                      , LLGlob.visibility = LLVis.Default
+                                      , LLGlob.dllStorageClass = Nothing
+                                      , LLGlob.callingConvention = LLCallConv.C
+                                      , LLGlob.returnAttributes = []
+                                      , LLGlob.returnType = rt
+                                      , LLGlob.name = n
+                                      , LLGlob.parameters = (ps, False)
+                                      , LLGlob.functionAttributes = []
+                                      , LLGlob.section = Nothing
+                                      , LLGlob.comdat = Nothing
+                                      , LLGlob.alignment = 0
+                                      , LLGlob.garbageCollectorName = Nothing
+                                      , LLGlob.prefix = Nothing
+                                      , LLGlob.basicBlocks = bs
+                                      , LLGlob.personalityFunction = Nothing
+                                      , LLGlob.metadata = meta
+                                      }
 
 simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
 simpleGlobVar name t = simpleGlobVar' False name t . Just
@@ -434,10 +408,9 @@ genStruct :: [Val] -> Gen Val
 genStruct xs = do
     xs' <- mapM getLocal xs
     let t = typeStruct (map typeOf xs')
-    fmap VLocal $ foldlM
-        (\s (i, x) -> emitAnonReg (insertvalue s x [i]))
-        (undef t)
-        (zip [0 ..] xs')
+    fmap VLocal $ foldlM (\s (i, x) -> emitAnonReg (insertvalue s x [i]))
+                         (undef t)
+                         (zip [0 ..] xs')
 
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
@@ -488,22 +461,19 @@ call
     -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
     -> InstructionMetadata
     -> Instruction
-call callconv tailkind f as meta = Call
-    { tailCallKind = tailkind
-    , callingConvention = callconv
-    , returnAttributes = []
-    , function = Right f
-    , arguments = as
-    , functionAttributes = []
-    , metadata = meta
-    }
+call callconv tailkind f as meta = Call { tailCallKind = tailkind
+                                        , callingConvention = callconv
+                                        , returnAttributes = []
+                                        , function = Right f
+                                        , arguments = as
+                                        , functionAttributes = []
+                                        , metadata = meta
+                                        }
 
 withBuiltins :: Gen' a -> Gen' a
 withBuiltins ga = builtinExterns
     >>= \es -> augment builtins (Map.union builtinsHidden es) ga
-  where
-    builtinExterns =
-        mapM (fmap snd . genExternTypeSig) Monomorphize.builtinExterns
+    where builtinExterns = mapM (fmap snd . genExternTypeSig) Monomorphize.builtinExterns
 
 defineBuiltinsHidden :: [Definition]
 defineBuiltinsHidden = map
@@ -513,9 +483,7 @@ defineBuiltinsHidden = map
 builtinsHidden :: Map String ([Parameter], Type)
 builtinsHidden = Map.fromList
     [ ( "carth_str_eq"
-      , ( [ Parameter typeStr (mkName "s1") []
-          , Parameter typeStr (mkName "s2") []
-          ]
+      , ( [Parameter typeStr (mkName "s1") [], Parameter typeStr (mkName "s2") []]
         , typeBool
         )
       )
@@ -555,8 +523,7 @@ passByRef' :: Type -> Gen' Bool
 passByRef' = \case
     NamedTypeReference x -> view (dataTypes . to (Map.lookup x)) >>= \case
         Just ts -> passByRef' (typeStruct ts)
-        Nothing ->
-            ice $ "passByRef': No dataType for NamedTypeReference " ++ show x
+        Nothing -> ice $ "passByRef': No dataType for NamedTypeReference " ++ show x
     -- Simple scalar types. They go in registers.
     VoidType -> pure False
     IntegerType _ -> pure False
@@ -620,33 +587,29 @@ genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 --   actual function, which takes as first parameter the captures-pointer, and
 --   as second parameter the argument.
 closureType :: Type -> Type -> Type
-closureType a r =
-    typeStruct [LLType.ptr typeUnit, LLType.ptr (closureFunType a r)]
+closureType a r = typeStruct [LLType.ptr typeUnit, LLType.ptr (closureFunType a r)]
 
 -- The type of the function itself within the closure
 closureFunType :: Type -> Type -> Type
-closureFunType a r = FunctionType
-    { resultType = r
-    , argumentTypes = [LLType.ptr typeUnit, a]
-    , isVarArg = False
-    }
+closureFunType a r = FunctionType { resultType = r
+                                  , argumentTypes = [LLType.ptr typeUnit, a]
+                                  , isVarArg = False
+                                  }
 
 genCapturesType :: [M.TypedVar] -> Gen Type
 genCapturesType = fmap typeStruct . mapM (\(M.TypedVar _ t) -> genType t)
 
 genVariantType :: Monad m => M.Span -> [M.Type] -> Gen'T m [Type]
 genVariantType totVariants =
-    fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants))
-        . mapM genType'
+    fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants)) . mapM genType'
 
 tagBitWidth :: M.Span -> Maybe Word32
-tagBitWidth span'
-    | span' <= 2 ^ (0 :: Integer) = Nothing
-    | span' <= 2 ^ (8 :: Integer) = Just 8
-    | span' <= 2 ^ (16 :: Integer) = Just 16
-    | span' <= 2 ^ (32 :: Integer) = Just 32
-    | span' <= 2 ^ (64 :: Integer) = Just 64
-    | otherwise = ice $ "tagBitWidth: span' = " ++ show span'
+tagBitWidth span' | span' <= 2 ^ (0 :: Integer) = Nothing
+                  | span' <= 2 ^ (8 :: Integer) = Just 8
+                  | span' <= 2 ^ (16 :: Integer) = Just 16
+                  | span' <= 2 ^ (32 :: Integer) = Just 32
+                  | span' <= 2 ^ (64 :: Integer) = Just 64
+                  | otherwise = ice $ "tagBitWidth: span' = " ++ show span'
 
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and
 --       impl of `getTypeAllocSize`.
@@ -709,8 +672,7 @@ emitDo :: Instr -> Gen ()
 emitNamedReg :: Name -> FunInstr -> Gen Operand
 (emitDo, emitNamedReg) =
     ( emit' Do
-    , \reg (WithRetType instr rt) ->
-        emit' (reg :=) instr $> LocalReference rt reg
+    , \reg (WithRetType instr rt) -> emit' (reg :=) instr $> LocalReference rt reg
     )
   where
     emit' :: (Instruction -> Named Instruction) -> Instr -> Gen ()
@@ -774,14 +736,12 @@ lookupDatatype :: Monad m => Name -> Gen'T m Type
 lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
     Just 0 -> pure typeUnit
     Just w -> pure (IntegerType w)
-    Nothing -> fmap
-        (maybe (ice ("Undefined datatype " ++ show x)) typeStruct)
-        (view (dataTypes . to (Map.lookup x)))
+    Nothing -> fmap (maybe (ice ("Undefined datatype " ++ show x)) typeStruct)
+                    (view (dataTypes . to (Map.lookup x)))
 
 extractvalue :: Operand -> [Word32] -> Gen FunInstr
-extractvalue struct is = fmap
-    (WithRetType (ExtractValue struct is))
-    (getIndexed (typeOf struct) (map fromIntegral is))
+extractvalue struct is = fmap (WithRetType (ExtractValue struct is))
+                              (getIndexed (typeOf struct) (map fromIntegral is))
   where
     getIndexed = foldlM $ \t i -> getMembers t <&> \us -> if i < length us
         then us !! i
@@ -792,8 +752,7 @@ extractvalue struct is = fmap
     getMembers = \case
         NamedTypeReference x -> getMembers =<< lift (lookupDatatype x)
         StructureType _ members -> pure members
-        t ->
-            ice $ "Tried to get member types of non-struct type " ++ show t
+        t -> ice $ "Tried to get member types of non-struct type " ++ show t
 
 undef :: Type -> Operand
 undef = ConstantOperand . LLConst.Undef
@@ -832,24 +791,22 @@ insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
 insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)
 
 store :: Operand -> Operand -> Instr
-store srcVal destPtr meta = Store
-    { volatile = False
-    , address = destPtr
-    , value = srcVal
-    , maybeAtomicity = Nothing
-    , alignment = 0
-    , metadata = meta
-    }
+store srcVal destPtr meta = Store { volatile = False
+                                  , address = destPtr
+                                  , value = srcVal
+                                  , maybeAtomicity = Nothing
+                                  , alignment = 0
+                                  , metadata = meta
+                                  }
 
 load :: Operand -> FunInstr
 load p = WithRetType
-    (\meta -> Load
-        { volatile = False
-        , address = p
-        , maybeAtomicity = Nothing
-        , alignment = 0
-        , metadata = meta
-        }
+    (\meta -> Load { volatile = False
+                   , address = p
+                   , maybeAtomicity = Nothing
+                   , alignment = 0
+                   , metadata = meta
+                   }
     )
     (getPointee (typeOf p))
 
@@ -931,9 +888,8 @@ mangleName = \case
     (x, us) -> x ++ mangleInst us
 
 mangleInst :: [M.Type] -> String
-mangleInst ts = if not (null ts)
-    then "<" ++ intercalate ", " (map mangleType ts) ++ ">"
-    else ""
+mangleInst ts =
+    if not (null ts) then "<" ++ intercalate ", " (map mangleType ts) ++ ">" else ""
 
 mangleType :: M.Type -> String
 mangleType = \case

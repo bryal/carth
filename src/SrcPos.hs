@@ -35,5 +35,5 @@ unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
 
 prettySrcPos :: SrcPos -> String
-prettySrcPos (SrcPos f l c) = sourcePosPretty
-    (SourcePos f (mkPos (fromIntegral l)) (mkPos (fromIntegral c)))
+prettySrcPos (SrcPos f l c) =
+    sourcePosPretty (SourcePos f (mkPos (fromIntegral l)) (mkPos (fromIntegral c)))

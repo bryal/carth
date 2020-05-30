@@ -7,15 +7,7 @@
 --       If a parser has a variant with a "ns_" prefix, that variant does not
 --       consume succeding space, while the unprefixed variant does.
 
-module Parse
-    ( Parser
-    , Source
-    , parse
-    , parse'
-    , parseTokenTreeOrRest
-    , toplevels
-    )
-where
+module Parse (Parser, Source, parse, parse', parseTokenTreeOrRest, toplevels) where
 
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
@@ -62,8 +54,7 @@ parseModule
     -> [String]
     -> IO (Either String ([Def], [TypeDef], [Extern]))
 parseModule filepath dir m visiteds nexts =
-    let
-        readModuleIn modPaths = do
+    let readModuleIn modPaths = do
             let fs = do
                     p <- modPaths
                     let pm = p </> m
@@ -90,15 +81,15 @@ parseModule filepath dir m visiteds nexts =
             next : nexts' -> fmap
                 (fmap (\(ds', ts', es') -> (ds ++ ds', ts ++ ts', es ++ es')))
                 (parseModule filepath dir next (Set.insert m visiteds) nexts')
-    in if Set.member m visiteds
-        then advance ([], [], [], [])
-        else do
-            -- TODO: make dir absolute to make debug work when binary is moved?
-            modPaths <- fmap (dir :) modulePaths
-            (src, f) <- readModuleIn modPaths
-            case parse' toplevels f src of
-                Left e -> pure (Left e)
-                Right r -> advance r
+    in  if Set.member m visiteds
+            then advance ([], [], [], [])
+            else do
+             -- TODO: make dir absolute to make debug work when binary is moved?
+                modPaths <- fmap (dir :) modulePaths
+                (src, f) <- readModuleIn modPaths
+                case parse' toplevels f src of
+                    Left e -> pure (Left e)
+                    Right r -> advance r
 
 parse' :: Parser a -> FilePath -> Source -> Either String a
 parse' p name src = first errorBundlePretty (Mega.parse p name src)
@@ -108,14 +99,9 @@ parse' p name src = first errorBundlePretty (Mega.parse p name src)
 parseTokenTreeOrRest :: Source -> Either String String
 parseTokenTreeOrRest = parse' tokenTreeOrRest ""
   where
-    tokenTreeOrRest =
-        fmap fst (Mega.match (try ns_tokenTree <|> (restOfInput $> ())))
+    tokenTreeOrRest = fmap fst (Mega.match (try ns_tokenTree <|> (restOfInput $> ())))
     ns_tokenTree = choice
-        [ ns_strlit $> ()
-        , ns_ident $> ()
-        , ns_num $> ()
-        , ns_parens (many tokenTree) $> ()
-        ]
+        [ns_strlit $> (), ns_ident $> (), ns_num $> (), ns_parens (many tokenTree) $> ()]
     tokenTree = andSkipSpaceAfter ns_tokenTree
     restOfInput = many Mega.anySingle
 
@@ -130,9 +116,7 @@ toplevels = do
         topPos <- getSrcPos
         parens $ choice
             [ fmap (\i (is, ds, ts, es) -> (i : is, ds, ts, es)) import'
-            , fmap
-                (\d (is, ds, ts, es) -> (is, d : ds, ts, es))
-                (def topPos)
+            , fmap (\d (is, ds, ts, es) -> (is, d : ds, ts, es)) (def topPos)
             , fmap (\t (is, ds, ts, es) -> (is, ds, t : ts, es)) typedef
             , fmap (\e (is, ds, ts, es) -> (is, ds, ts, e : es)) extern
             ]
@@ -193,18 +177,7 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
     eConstructor = fmap Ctor big
     var = fmap Var small
     pexpr = parens $ choice
-        [ funMatch
-        , match
-        , if'
-        , fun
-        , let'
-        , typeAscr
-        , sizeof
-        , deref
-        , store
-        , transmute
-        , app
-        ]
+        [funMatch, match, if', fun, let', typeAscr, sizeof, deref, store, transmute, app]
     funMatch = reserved "fmatch" *> fmap FunMatch cases
     match = reserved "match" *> liftA2 Match expr cases
     cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
@@ -213,10 +186,7 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         reserved "fun"
         params <- parens (some pat)
         body <- expr
-        pure $ unpos $ foldr
-            (\p b -> WithPos (getPos p) (FunMatch [(p, b)]))
-            body
-            params
+        pure $ unpos $ foldr (\p b -> WithPos (getPos p) (FunMatch [(p, b)])) body params
     let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
     binding = getSrcPos >>= \p -> parens (varBinding p <|> funBinding p)
     varBinding pos = do
@@ -245,10 +215,9 @@ ns_num :: Parser Expr'
 ns_num = do
     neg <- option False (char '-' $> True)
     a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
-    let e = either
-            (\n -> Int (if neg then -n else n))
-            (\x -> F64 (if neg then -x else x))
-            a
+    let e = either (\n -> Int (if neg then -n else n))
+                   (\x -> F64 (if neg then -x else x))
+                   a
     pure (Lit e)
 
 strlit :: Parser String
@@ -283,8 +252,7 @@ type_ :: Parser Type
 type_ = nonptype <|> parens ptype
 
 nonptype :: Parser Type
-nonptype = choice
-    [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big]
+nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big]
   where
     tprim = try $ do
         s <- big
@@ -329,9 +297,7 @@ big = fmap Id (special <|> normal)
         let c = head s
         if (isUpper c || [c] == ":")
             then pure s
-            else
-                fail
-                    "Big identifier must start with an uppercase letter or colon."
+            else fail "Big identifier must start with an uppercase letter or colon."
 
 small :: Parser (Id 'Small)
 small = fmap Id (special <|> normal)
@@ -341,17 +307,14 @@ small = fmap Id (special <|> normal)
         s <- identifier
         let c = head s
         if (isUpper c || [c] == ":")
-            then
-                fail
-                    "Small identifier must not start with an uppercase letter or colon."
+            then fail "Small identifier must not start with an uppercase letter or colon."
             else pure s
 
 identifier :: Parser String
 identifier = do
     name <- ident
     if elem name reserveds
-        then unexpected
-            (Label (NonEmpty.fromList ("reserved word " ++ show name)))
+        then unexpected (Label (NonEmpty.fromList ("reserved word " ++ show name)))
         else pure name
 
 ident :: Parser String
@@ -361,11 +324,7 @@ ns_ident :: Parser String
 ns_ident = label "identifier" $ liftA2 (:) identStart (many identLetter)
   where
     identStart =
-        choice
-            [ letterChar
-            , otherChar
-            , try (oneOf "-+" <* notFollowedBy digitChar)
-            ]
+        choice [letterChar, otherChar, try (oneOf "-+" <* notFollowedBy digitChar)]
     identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
 
 reserved :: String -> Parser ()
@@ -423,7 +382,5 @@ withPos = liftA2 WithPos getSrcPos
 
 getSrcPos :: Parser SrcPos
 getSrcPos = fmap
-    (\(SourcePos f l c) ->
-        SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c))
-    )
+    (\(SourcePos f l c) -> SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c)))
     getSourcePos
