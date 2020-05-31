@@ -47,8 +47,25 @@ monomorphize (Checked.Program (Topo defs) tdefs externs) = evalMono $ do
     defs' <- foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
                    (mono callMain $> [])
                    defs
-    tdefs' <- instTypeDefs tdefs
+    tdefs' <- instTypeDefs =<< use (tdefInsts . to Set.toList)
     pure (Program (Topo defs') tdefs' externs')
+  where
+    instTypeDefs :: [TConst] -> Mono TypeDefs
+    instTypeDefs = \case
+        [] -> pure []
+        inst : insts -> do
+            oldTdefInsts <- use tdefInsts
+            tdef' <- instTypeDef tdefs inst
+            newTdefInsts <- use tdefInsts
+            let newInsts = Set.difference newTdefInsts oldTdefInsts
+            tdefs' <- instTypeDefs (Set.toList newInsts ++ insts)
+            pure (tdef' : tdefs')
+
+    instTypeDef :: Checked.TypeDefs -> TConst -> Mono (TConst, [VariantTypes])
+    instTypeDef tdefs (x, ts) = do
+        let (tvs, vs) = Map.findWithDefault (ice "lookup' failed in instTypeDef") x tdefs
+        vs' <- augment tvBinds (Map.fromList (zip tvs ts)) (mapM (mapM monotype) vs)
+        pure ((x, ts), vs')
 
 builtinExterns :: Map String Type
 builtinExterns = evalMono (mapM monotype Checked.builtinExterns)
@@ -151,6 +168,12 @@ monoDecisionTree = \case
         def' <- monoDecisionTree def
         pure (f obj' cs' def')
 
+    lookups :: Ord k => [k] -> Map k v -> [(k, v)]
+    lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
+
+    deletes :: (Foldable t, Ord k) => t k -> Map k v -> Map k v
+    deletes = flip (foldr Map.delete)
+
 monoAccess :: Checked.Access -> Mono Access
 monoAccess = \case
     Checked.Obj -> pure Obj
@@ -168,11 +191,12 @@ monoCtion i span' (tdefName, tdefArgs) as = do
 addDefInst :: String -> Type -> Mono ()
 addDefInst x t1 = do
     use defInsts <&> Map.lookup x >>= \case
-        -- If x is not in insts, it's a function parameter. Ignore.
+        -- If x is not in insts, it's not a polytype variable that can be instantiated,
+        -- but a function parameter or sumesuch. Ignore.
         Nothing -> pure ()
         Just xInsts -> when (not (Map.member t1 xInsts)) $ do
             (Forall _ t2, body) <- view
-                (envDefs . to (lookup' (ice (x ++ " not in defs")) x))
+                (envDefs . to (Map.findWithDefault (ice (x ++ " not in defs")) x))
             _ <- mfix $ \body' -> do
                 -- The instantiation must be in the environment when
                 -- monomorphizing the body, or we may infinitely recurse.
@@ -181,24 +205,27 @@ addDefInst x t1 = do
                 insertInst t1 (instTs, body')
                 augment tvBinds boundTvs (fmap expr' (mono body))
             pure ()
-    where insertInst t b = modifying defInsts (Map.adjust (Map.insert t b) x)
+  where
+    insertInst t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
-bindTvs :: Checked.Type -> Type -> Map TVar Type
-bindTvs a b = case (a, b) of
-    (Checked.TVar v, t) -> Map.singleton v t
-    (Checked.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-    (Checked.TBox t0, TBox t1) -> bindTvs t0 t1
-    (Checked.TPrim _, TPrim _) -> Map.empty
-    (Checked.TConst (_, ts0), TConst (_, ts1)) -> Map.unions (zipWith bindTvs ts0 ts1)
-    (Checked.TPrim _, _) -> err
-    (Checked.TFun _ _, _) -> err
-    (Checked.TBox _, _) -> err
-    (Checked.TConst _, _) -> err
-    where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
+    bindTvs :: Checked.Type -> Type -> Map TVar Type
+    bindTvs a b = case (a, b) of
+        (Checked.TVar v, t) -> Map.singleton v t
+        (Checked.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
+        (Checked.TBox t0, TBox t1) -> bindTvs t0 t1
+        (Checked.TPrim _, TPrim _) -> Map.empty
+        (Checked.TConst (_, ts0), TConst (_, ts1)) ->
+            Map.unions (zipWith bindTvs ts0 ts1)
+        (Checked.TPrim _, _) -> err
+        (Checked.TFun _ _, _) -> err
+        (Checked.TBox _, _) -> err
+        (Checked.TConst _, _) -> err
+        where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: Checked.Type -> Mono Type
 monotype = \case
-    Checked.TVar v -> view (tvBinds . to (lookup' (ice (show v ++ " not in tvBinds")) v))
+    Checked.TVar v ->
+        view (tvBinds . to (Map.findWithDefault (ice (show v ++ " not in tvBinds")) v))
     Checked.TPrim c -> pure (TPrim c)
     Checked.TFun a b -> liftA2 TFun (monotype a) (monotype b)
     Checked.TBox t -> fmap TBox (monotype t)
@@ -207,33 +234,3 @@ monotype = \case
         let tdefInst = (c, ts')
         modifying tdefInsts (Set.insert tdefInst)
         pure (TConst tdefInst)
-
-instTypeDefs :: Checked.TypeDefs -> Mono TypeDefs
-instTypeDefs tdefs = do
-    insts <- use (tdefInsts . to Set.toList)
-    instTypeDefs' tdefs insts
-
-instTypeDefs' :: Checked.TypeDefs -> [TConst] -> Mono TypeDefs
-instTypeDefs' tdefs = \case
-    [] -> pure []
-    inst : insts -> do
-        oldTdefInsts <- use tdefInsts
-        tdef' <- instTypeDef tdefs inst
-        newTdefInsts <- use tdefInsts
-        let newInsts = Set.difference newTdefInsts oldTdefInsts
-        tdefs' <- instTypeDefs' tdefs (Set.toList newInsts ++ insts)
-        pure (tdef' : tdefs')
-instTypeDef :: Checked.TypeDefs -> TConst -> Mono (TConst, [VariantTypes])
-instTypeDef tdefs (x, ts) = do
-    let (tvs, vs) = lookup' (ice "lookup' failed in instTypeDef") x tdefs
-    vs' <- augment tvBinds (Map.fromList (zip tvs ts)) (mapM (mapM monotype) vs)
-    pure ((x, ts), vs')
-
-lookup' :: Ord k => v -> k -> Map k v -> v
-lookup' = Map.findWithDefault
-
-lookups :: Ord k => [k] -> Map k v -> [(k, v)]
-lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
-
-deletes :: (Foldable t, Ord k) => t k -> Map k v -> Map k v
-deletes = flip (foldr Map.delete)
