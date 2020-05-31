@@ -9,13 +9,12 @@ import Control.Applicative (liftA2, liftA3)
 import Lens.Micro.Platform (makeLenses, view, use, modifying, to)
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Writer
 import Data.Functor
 import Data.Bifunctor
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
-import qualified Data.Set as Set
-import Data.Set (Set)
 import Data.Bitraversable
 
 import Misc
@@ -32,55 +31,60 @@ makeLenses ''Env
 
 data Insts = Insts
     { _defInsts :: Map String (Map Type ([Type], Expr'))
-    , _tdefInsts :: Set TConst
     }
 makeLenses ''Insts
 
+type DataInst = TConst
+
 -- | The monomorphization monad
-type Mono = StateT Insts (Reader Env)
+type Mono = WriterT [DataInst] (StateT Insts (Reader Env))
 
 monomorphize :: Checked.Program -> Program
-monomorphize (Checked.Program (Topo defs) tdefs externs) = evalMono $ do
-    externs' <- mapM (\(x, (t, p)) -> fmap (\t' -> (x, t', p)) (monotype t))
-                     (Map.toList externs)
-    let callMain = noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType))
-    defs' <- foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
-                   (mono callMain $> [])
-                   defs
-    tdefs' <- instTypeDefs =<< use (tdefInsts . to Set.toList)
-    pure (Program (Topo defs') tdefs' externs')
+monomorphize (Checked.Program (Topo defs) datas externs) =
+    let
+        callMain = noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType))
+        monoExterns = mapM (\(x, (t, p)) -> fmap (\t' -> (x, t', p)) (monotype t))
+                           (Map.toList externs)
+        monoDefs = foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
+                         (mono callMain $> [])
+                         defs
+        ((externs', defs'), dataInsts) = evalMono (liftA2 (,) monoExterns monoDefs)
+        datas' = instDatas (builtinDataInsts ++ dataInsts)
+    in
+        Program (Topo defs') datas' externs'
   where
-    instTypeDefs :: [TConst] -> Mono TypeDefs
-    instTypeDefs = \case
-        [] -> pure []
-        inst : insts -> do
-            oldTdefInsts <- use tdefInsts
-            tdef' <- instTypeDef tdefs inst
-            newTdefInsts <- use tdefInsts
-            let newInsts = Set.difference newTdefInsts oldTdefInsts
-            tdefs' <- instTypeDefs (Set.toList newInsts ++ insts)
-            pure (tdef' : tdefs')
+    instDatas :: [DataInst] -> Datas
+    instDatas = instDatas' Map.empty
 
-    instTypeDef :: Checked.TypeDefs -> TConst -> Mono (TConst, [VariantTypes])
-    instTypeDef tdefs (x, ts) = do
-        let (tvs, vs) = Map.findWithDefault (ice "lookup' failed in instTypeDef") x tdefs
-        vs' <- augment tvBinds (Map.fromList (zip tvs ts)) (mapM (mapM monotype) vs)
-        pure ((x, ts), vs')
+    instDatas' :: Datas -> [DataInst] -> Datas
+    instDatas' dones = \case
+        [] -> dones
+        inst : rest -> if Map.member inst dones
+            then instDatas' dones rest
+            else
+                let (variants, more) = instData inst
+                in  instDatas' (Map.insert inst variants dones) (more ++ rest)
+
+    instData :: TConst -> ([VariantTypes], [DataInst])
+    instData (x, ts) =
+        let (tvars, variants) =
+                    Map.findWithDefault (ice "instData no such TConst in datas") x datas
+            s = Map.fromList (zip tvars ts)
+            (variants', moreInsts) = runWriter (mapM (mapM (monotype' s)) variants)
+        in  (variants', moreInsts)
+
+    -- We must manually add instantiations for types that occur in generated code and is
+    -- not "detected" by the monomorphization pass, or the types won't be defined.
+    builtinDataInsts = [("Str", []), tUnit, ("Bool", [])]
 
 builtinExterns :: Map String Type
-builtinExterns = evalMono (mapM monotype Checked.builtinExterns)
+builtinExterns = fst $ evalMono (mapM monotype Checked.builtinExterns)
 
-evalMono :: Mono a -> a
-evalMono ma = runReader (evalStateT ma initInsts) initEnv
-
--- We must manually add instantiations for types that occur in generated code
--- and is not "detected" by the monomorphization pass, or the types won't be
--- defined.
-initInsts :: Insts
-initInsts = Insts Map.empty (Set.fromList [("Str", []), tUnit, ("Bool", [])])
-
-initEnv :: Env
-initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }
+evalMono :: Mono a -> (a, [DataInst])
+evalMono ma = runReader (evalStateT (runWriterT ma) initInsts) initEnv
+  where
+    initInsts = Insts Map.empty
+    initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }
 
 mono :: Checked.Expr -> Mono Expr
 mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
@@ -212,7 +216,7 @@ addDefInst x t1 = do
     bindTvs a b = case (a, b) of
         (Checked.TVar v, t) -> Map.singleton v t
         (Checked.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-        (Checked.TBox t0, TBox t1) -> bindTvs t0 t1
+        (Checked.TBox t, TBox u) -> bindTvs t u
         (Checked.TPrim _, TPrim _) -> Map.empty
         (Checked.TConst (_, ts0), TConst (_, ts1)) ->
             Map.unions (zipWith bindTvs ts0 ts1)
@@ -223,14 +227,22 @@ addDefInst x t1 = do
         where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: Checked.Type -> Mono Type
-monotype = \case
-    Checked.TVar v ->
-        view (tvBinds . to (Map.findWithDefault (ice (show v ++ " not in tvBinds")) v))
-    Checked.TPrim c -> pure (TPrim c)
-    Checked.TFun a b -> liftA2 TFun (monotype a) (monotype b)
-    Checked.TBox t -> fmap TBox (monotype t)
-    Checked.TConst (c, ts) -> do
-        ts' <- mapM monotype ts
-        let tdefInst = (c, ts')
-        modifying tdefInsts (Set.insert tdefInst)
-        pure (TConst tdefInst)
+monotype t = view tvBinds >>= \s -> monotype' s t
+
+monotype' :: MonadWriter [TConst] m => Map TVar Type -> Checked.Type -> m Type
+monotype' s t = let t' = subst s t in tell (findTypeInsts t') $> t'
+
+findTypeInsts :: Type -> [TConst]
+findTypeInsts = \case
+    TPrim _ -> []
+    TFun a b -> findTypeInsts a ++ findTypeInsts b
+    TBox a -> findTypeInsts a
+    TConst inst@(_, ts) -> inst : (findTypeInsts =<< ts)
+
+subst :: Map TVar Type -> Checked.Type -> Type
+subst s = \case
+    Checked.TVar v -> Map.findWithDefault (ice ("Monomorphize.subst: " ++ show v)) v s
+    Checked.TPrim c -> TPrim c
+    Checked.TFun a b -> TFun (subst s a) (subst s b)
+    Checked.TBox t -> TBox (subst s t)
+    Checked.TConst (c, ts) -> TConst (c, map (subst s) ts)

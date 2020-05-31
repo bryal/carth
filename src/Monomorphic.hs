@@ -73,10 +73,10 @@ data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (TypedVar, WithPos ([Type], Expr'))
 type RecDefs = [FunDef]
 type FunDef = (TypedVar, WithPos ([Type], Fun))
-type TypeDefs = [(TConst, [VariantTypes])]
+type Datas = Map TConst [VariantTypes]
 type Externs = [(String, Type, SrcPos)]
 
-data Program = Program Defs TypeDefs Externs
+data Program = Program Defs Datas Externs
     deriving (Show)
 
 

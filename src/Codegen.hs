@@ -140,9 +140,9 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
 --   enumeration, which is represented as a single integer, equal to the size it
 --   would have been as a tag. If further there's only a single variant, the
 --   data-type is represented as `{}`.
-defineDataTypes :: TypeDefs -> Gen'T Identity (Map Name Word32, Map Name [Type])
-defineDataTypes tds = do
-    let (enums, datas) = partition (all null . snd) tds
+defineDataTypes :: Datas -> Gen'T Identity (Map Name Word32, Map Name [Type])
+defineDataTypes datasEnums = do
+    let (enums, datas) = partition (all null . snd) (Map.toList datasEnums)
     let enums' = Map.fromList $ map
             (\(tc, vs) ->
                 ( mkName (mangleTConst tc)
