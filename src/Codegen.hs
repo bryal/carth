@@ -56,9 +56,9 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
                   es <- genExterns externs
                   funDefs' <- mapM genGlobFunDef funDefs
                   varDecls <- mapM genGlobVarDecl varDefs
-                  init_ <- genInit varDefs
+                  init_ <- genInit moduleFilePath varDefs
                   main <- genMain
-                  let ds = main : init_ : join funDefs' ++ varDecls
+                  let ds = main : init_ ++ join funDefs' ++ varDecls
                   pure (tdefs'', es, ds)
     pure $ Module
         { moduleName = fromString ((takeBaseName moduleFilePath))
@@ -167,14 +167,16 @@ defineDataTypes tds = do
 
 genMain :: Gen' Definition
 genMain = do
+    let tDummyCaptures = LLType.ptr typeUnit
+    let tDummyParam = typeUnit
     let init_ = ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr (FunctionType LLType.void [] False))
+            (LLType.ptr (FunctionType LLType.void [tDummyCaptures, tDummyParam] False))
             (mkName "carth_init")
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ _ <- execWriterT $ do
         emitDo' =<< callBuiltin "install_stackoverflow_handler" []
-        emitDo (callExtern init_ [])
+        emitDo (callIntern Nothing init_ [(null' tDummyCaptures, []), (litUnit, [])])
         f <- lookupVar (TypedVar "main" mainType)
         _ <- app Nothing f (VLocal litUnit)
         commitFinalFuncBlock (ret (litI32 0))
@@ -185,15 +187,14 @@ separateFunDefs = partitionWith $ \(lhs, WithPos dpos (ts, e)) -> case e of
     Fun f -> Left (lhs, WithPos dpos (ts, f))
     _ -> Right (lhs, WithPos dpos (ts, e))
 
-genInit :: [VarDef] -> Gen' Definition
-genInit ds = do
-    assign currentBlockLabel (mkName "entry")
-    assign currentBlockInstrs []
-    Out basicBlocks _ _ _ <- execWriterT $ do
-        forM_ ds genDefineGlobVar
-        commitFinalFuncBlock retVoid
-    pure $ GlobalDefinition
-        (externFunc (mkName "carth_init") [] LLType.void basicBlocks [])
+genInit :: FilePath -> [VarDef] -> Gen' [Definition]
+genInit moduleFp ds = do
+    let name = mkName "carth_init"
+    let pos = SrcPos moduleFp 1 1
+    let param = TypedVar "_" (TConst tUnit)
+    let genDefs =
+            forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
+    fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], pos, param, genDefs)
 
 genDefineGlobVar :: VarDef -> Gen ()
 genDefineGlobVar (TypedVar v _, WithPos pos (ts, e)) = do
