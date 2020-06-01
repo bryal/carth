@@ -442,3 +442,22 @@ Features and other stuff to do/implement in/around Carth.
   Check out
   https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
   tips!
+* INACTIVE Streamline learning the language
+  Not that getting users is a primary concern, but if someone is
+  indeed curious, I don't want them to be scared off by the process of
+  getting started seeming complex.
+
+  https://news.ycombinator.com/item?id=23347357
+  https://www.hillelwayne.com/post/learning-a-language/
+* NEXT Unify the different ASTs / IRs
+  It's just kinda messy right now. Many files must be changed when
+  touching just about any part of the AST representation. Also, takes
+  up a lot of lines for not much apparent gain. Use some kind of
+  attribute-tag to change the AST for different stages. Like:
+
+  #+BEGIN_SRC haskell
+  type Expr attr = Expr attr (Expr' attr)
+
+  type ParsedExpr = Expr (Type, SrcPos)
+  type CheckedExpr = Expr CheckedType
+  #+END_SRC
