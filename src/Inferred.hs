@@ -135,7 +135,9 @@ defSigs :: Def -> [(String, Scheme)]
 defSigs = \case
     VarDef d -> [defSig d]
     RecDefs ds -> map defSig ds
-    where defSig d = (fst d, fst (unpos (snd d)))
+
+defSig :: (String, WithPos (Scheme, a)) -> (String, Scheme)
+defSig d = (fst d, fst (unpos (snd d)))
 
 flattenDefs :: Defs -> [(String, WithPos (Scheme, Expr))]
 flattenDefs (Topo defs) = defToVarDefs =<< defs

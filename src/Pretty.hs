@@ -102,23 +102,17 @@ prettyExpr' d = \case
         , indent (d + 4) ++ pretty' (d + 4) cons ++ "\n"
         , indent (d + 2) ++ pretty' (d + 2) alt ++ ")"
         ]
-    Parsed.Let binds body -> concat
-        [ "(let ["
+    Parsed.Let1 bind body -> concat
+        [ "(let1 "
+        , prettyDef (d + 6) bind
+        , "\n" ++ indent (d + 2) ++ pretty' (d + 2) body ++ ")"
+        ]
+    Parsed.LetRec binds body -> concat
+        [ "(let ("
         , intercalate ("\n" ++ indent (d + 6)) (map (prettyDef (d + 6)) binds)
-        , "]\n"
+        , ")\n"
         , indent (d + 2) ++ pretty' (d + 2) body ++ ")"
         ]
-      where
-        prettyDef d' = \case
-            (name, WithPos _ (Just scm, dbody)) -> concat
-                [ "[: " ++ pretty' (d' + 3) name ++ "\n"
-                , indent (d' + 3) ++ pretty' (d' + 3) scm ++ "\n"
-                , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
-                ]
-            (name, WithPos _ (Nothing, dbody)) -> concat
-                [ "[" ++ pretty' (d' + 1) name ++ "\n"
-                , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ "]"
-                ]
     Parsed.TypeAscr e t ->
         concat ["(: ", pretty' (d + 3) e, "\n", pretty' (d + 3) t, ")"]
     Parsed.Match e cs -> concat
@@ -137,6 +131,18 @@ prettyExpr' d = \case
     Parsed.Store x p -> concat
         ["(store " ++ pretty' (d + 7) x, indent (d + 7) ++ pretty' (d + 7) p ++ ")"]
     Parsed.Transmute e -> concat ["(transmute ", pretty' (d + 11) e, ")"]
+
+prettyDef :: Int -> Parsed.Def -> String
+prettyDef d' = \case
+    (name, WithPos _ (Just scm, dbody)) -> concat
+        [ "(: " ++ pretty' (d' + 3) name ++ "\n"
+        , indent (d' + 3) ++ pretty' (d' + 3) scm ++ "\n"
+        , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ ")"
+        ]
+    (name, WithPos _ (Nothing, dbody)) -> concat
+        [ "(" ++ pretty' (d' + 1) name ++ "\n"
+        , indent (d' + 1) ++ pretty' (d' + 1) dbody ++ ")"
+        ]
 
 prettyBracketPair :: (Pretty a, Pretty b) => Int -> (a, b) -> String
 prettyBracketPair d (a, b) =

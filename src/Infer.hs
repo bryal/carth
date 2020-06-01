@@ -127,15 +127,17 @@ inferDefsComponents = flip foldr (pure (Topo [])) $ \scc inferRest -> do
         AcyclicSCC vert -> fmap VarDef (inferVarDef vert)
         CyclicSCC verts -> fmap RecDefs (inferRecDefs verts)
 
-    inferVarDef :: Parsed.Def -> Infer VarDef
-    inferVarDef (lhs, WithPos defPos (mayscm, body)) = do
+inferVarDef :: Parsed.Def -> Infer VarDef
+inferRecDefs :: [Parsed.Def] -> Infer RecDefs
+(inferVarDef, inferRecDefs) = (inferVarDef', inferRecDefs')
+  where
+    inferVarDef' (lhs, WithPos defPos (mayscm, body)) = do
         t <- fresh
         body' <- inferDef t lhs mayscm (getPos body) (infer body)
         scm <- generalize t
         pure (idstr lhs, WithPos defPos (scm, body'))
 
-    inferRecDefs :: [Parsed.Def] -> Infer RecDefs
-    inferRecDefs ds = do
+    inferRecDefs' ds = do
         ts <- replicateM (length ds) fresh
         let dummyScms = map (Forall Set.empty) ts
         let (names, poss) = unzip (map (bimap idstr getPos) ds)
@@ -190,7 +192,11 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected tBool) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
-    Parsed.Let defs b -> do
+    Parsed.Let1 def body -> do
+        def' <- inferVarDef def
+        (t, body') <- augment1 envDefs (defSig def') (infer body)
+        pure (t, Let (VarDef def') body')
+    Parsed.LetRec defs b -> do
         Topo defs' <- inferDefs defs
         let withDef def inferX = do
                 (tx, x') <- withLocals (defSigs def) inferX

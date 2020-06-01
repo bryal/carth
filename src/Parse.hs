@@ -154,7 +154,7 @@ def' schemeParser topPos = varDef <|> funDef
     parenDef = try (getSrcPos >>= (parens . def))
     body = withPos $ do
         ds <- many parenDef
-        if null ds then expr' else fmap (Let ds) expr
+        if null ds then expr' else fmap (LetRec ds) expr
     varDef = do
         name <- small
         scm <- schemeParser
@@ -177,7 +177,20 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
     eConstructor = fmap Ctor big
     var = fmap Var small
     pexpr = parens $ choice
-        [funMatch, match, if', fun, let', typeAscr, sizeof, deref, store, transmute, app]
+        [ funMatch
+        , match
+        , if'
+        , fun
+        , let1
+        , let'
+        , letrec
+        , typeAscr
+        , sizeof
+        , deref
+        , store
+        , transmute
+        , app
+        ]
     funMatch = reserved "fmatch" *> fmap FunMatch cases
     match = reserved "match" *> liftA2 Match expr cases
     cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
@@ -187,8 +200,18 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         params <- parens (some pat)
         body <- expr
         pure $ unpos $ foldr (\p b -> WithPos (getPos p) (FunMatch [(p, b)])) body params
-    let' = reserved "let" *> liftA2 Let (parens (many binding)) expr
-    binding = getSrcPos >>= \p -> parens (varBinding p <|> funBinding p)
+    let1 = reserved "let1" *> getSrcPos >>= \p -> liftA2 Let1 (binding p) expr
+    let' = do
+        reserved "let"
+        bs <- parens (many pbinding)
+        e <- expr
+        pure $ unpos $ foldr
+            (\(lhs, rhs) x -> WithPos (getPos rhs) (Let1 (lhs, rhs) x))
+            e
+            bs
+    letrec = reserved "letrec" *> liftA2 LetRec (parens (many pbinding)) expr
+    pbinding = getSrcPos >>= parens . binding
+    binding p = varBinding p <|> funBinding p
     varBinding pos = do
         lhs <- small
         rhs <- expr
@@ -352,7 +375,9 @@ reserveds =
     , "match"
     , "if"
     , "fun"
+    , "let1"
     , "let"
+    , "letrec"
     , "data"
     , "sizeof"
     , "deref"

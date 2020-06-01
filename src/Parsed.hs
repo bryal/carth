@@ -69,7 +69,8 @@ data Expr'
     | Var (Id 'Small)
     | App Expr Expr
     | If Expr Expr Expr
-    | Let [Def] Expr
+    | Let1 Def Expr
+    | LetRec [Def] Expr
     | TypeAscr Expr Type
     | Match Expr [(Pat, Expr)]
     | FunMatch [(Pat, Expr)]
@@ -127,7 +128,9 @@ fvExpr = unpos >>> \case
     Var x -> Set.singleton x
     App f a -> fvApp f a
     If p c a -> fvIf p c a
-    Let bs e -> fvLet (unzip (map (second (snd . unpos)) bs)) e
+    Let1 (lhs, WithPos _ (_, rhs)) e ->
+        Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
+    LetRec ds e -> fvLet (unzip (map (second (snd . unpos)) ds)) e
     TypeAscr e _t -> freeVars e
     Match e cs -> fvMatch e cs
     FunMatch cs -> fvCases cs

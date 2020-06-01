@@ -20,13 +20,13 @@
           (fun (_) None))))
 
 (define (skip-while pred xs)
-  (let ((skip-while' (fun (xs)
-                       (match (next xs)
-                         (case (Some (Pair x xs'))
-                               (if (pred x)
-                                   (skip-while' xs')
-                                 (Some (Pair x xs'))))
-                         (case None None)))))
+  (letrec ((skip-while' (fun (xs)
+                          (match (next xs)
+                            (case (Some (Pair x xs'))
+                                  (if (pred x)
+                                      (skip-while' xs')
+                                    (Some (Pair x xs'))))
+                            (case None None)))))
     (Iter (fun (_) (skip-while' xs)))))
 
 (define (for xs f) (foldl (const f) Unit xs))
@@ -40,10 +40,10 @@
 
 (define: (foldl f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
-  (let ((foldl' (fun ((Pair acc xs))
-                  (match (next xs)
-                    (case (Some (Pair x xs'))
-                          (foldl' (Pair (f acc x) xs')))
-                    (case None
-                          acc)))))
+  (letrec ((foldl' (fun ((Pair acc xs))
+                     (match (next xs)
+                       (case (Some (Pair x xs'))
+                             (foldl' (Pair (f acc x) xs')))
+                       (case None
+                             acc)))))
     (foldl' (Pair acc xs))))
