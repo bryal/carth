@@ -6,15 +6,14 @@
 module Monomorphize (monomorphize, builtinExterns) where
 
 import Control.Applicative (liftA2, liftA3)
-import Lens.Micro.Platform (makeLenses, view, use, modifying, to)
 import Control.Monad.Reader
-import Control.Monad.State
 import Control.Monad.Writer
 import Data.Functor
 import Data.Bifunctor
 import Data.Map.Strict (Map)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
-import Data.Maybe
 import Data.Bitraversable
 
 import Misc
@@ -23,21 +22,23 @@ import qualified Checked
 import Checked (noPos, TVar(..), Scheme(..))
 import Monomorphic
 
-data Env = Env
-    { _envDefs :: Map String (Scheme, Checked.Expr)
-    , _tvBinds :: Map TVar Type
-    }
-makeLenses ''Env
-
-data Insts = Insts
-    { _defInsts :: Map String (Map Type ([Type], Expr'))
-    }
-makeLenses ''Insts
+type Env = Map TVar Type
 
 type DataInst = TConst
+newtype DefInsts = DefInsts (Map String (Set Type))
+
+type Mono' = WriterT [DataInst] (Reader Env)
 
 -- | The monomorphization monad
-type Mono = WriterT [DataInst] (StateT Insts (Reader Env))
+type Mono = WriterT DefInsts Mono'
+
+
+instance Semigroup DefInsts where
+    DefInsts a <> DefInsts b = DefInsts $ Map.unionWith Set.union a b
+
+instance Monoid DefInsts where
+    mempty = DefInsts $ Map.empty
+
 
 monomorphize :: Checked.Program -> Program
 monomorphize (Checked.Program (Topo defs) datas externs) =
@@ -48,7 +49,10 @@ monomorphize (Checked.Program (Topo defs) datas externs) =
         monoDefs = foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
                          (mono callMain $> [])
                          defs
-        ((externs', defs'), dataInsts) = evalMono (liftA2 (,) monoExterns monoDefs)
+        ((externs', defs'), (DefInsts _defInsts, dataInsts)) =
+            evalMono (liftA2 (,) monoExterns monoDefs)
+        -- TODO: defInsts should only contain externs at this point. Sanity check this
+        --       when in debug mode?
         datas' = instDatas (builtinDataInsts ++ dataInsts)
     in
         Program (Topo defs') datas' externs'
@@ -80,22 +84,20 @@ monomorphize (Checked.Program (Topo defs) datas externs) =
 builtinExterns :: Map String Type
 builtinExterns = fst $ evalMono (mapM monotype Checked.builtinExterns)
 
-evalMono :: Mono a -> (a, [DataInst])
-evalMono ma = runReader (evalStateT (runWriterT ma) initInsts) initEnv
-  where
-    initInsts = Insts Map.empty
-    initEnv = Env { _envDefs = Map.empty, _tvBinds = Map.empty }
+evalMono :: Mono a -> (a, (DefInsts, [DataInst]))
+evalMono ma =
+    (\((a, b), c) -> (a, (b, c))) (runReader (runWriterT (runWriterT ma)) Map.empty)
 
 mono :: Checked.Expr -> Mono Expr
 mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Lit c -> pure (Lit c)
     Checked.Var (Checked.TypedVar x t) -> do
         t' <- monotype t
-        addDefInst x t'
+        tell (DefInsts (Map.singleton x (Set.singleton t')))
         pure (Var (TypedVar x t'))
     Checked.App f a rt -> liftA3 App (mono f) (mono a) (monotype rt)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
-    Checked.Fun (p, b) -> monoFun p b
+    Checked.Fun f -> fmap (Fun) (monoFun f)
     Checked.Let d e -> monoLet pos d e
     Checked.Match e cs tbody -> monoMatch e cs tbody
     Checked.Ction v span' inst as -> monoCtion v span' inst as
@@ -106,15 +108,13 @@ mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Transmute xpos x t u ->
         liftA3 (Transmute xpos) (mono x) (monotype t) (monotype u)
 
-monoFun :: (String, Checked.Type) -> (Checked.Expr, Checked.Type) -> Mono Expr'
-monoFun (p, tp) (b, bt) = do
-    parentInst <- use (defInsts . to (Map.lookup p))
-    modifying defInsts (Map.delete p)
-    tp' <- monotype tp
-    b' <- mono b
-    bt' <- monotype bt
-    maybe (pure ()) (modifying defInsts . Map.insert p) parentInst
-    pure (Fun (TypedVar p tp', (b', bt')))
+monoFun :: Checked.Fun -> Mono Fun
+monoFun ((p, tp), (b, bt)) = do
+    censor (mapDefInsts (Map.delete p)) $ do
+        tp' <- monotype tp
+        b' <- mono b
+        bt' <- monotype bt
+        pure (TypedVar p tp', (b', bt'))
 
 monoLet :: Maybe SrcPos -> Checked.Def -> Checked.Expr -> Mono Expr'
 monoLet pos d e = do
@@ -128,23 +128,49 @@ monoLet' def ma = case def of
     Checked.RecDefs ds -> fmap (first (pure . RecDefs)) (monoLetRecs ds ma)
 
 monoLetVar :: Checked.VarDef -> Mono a -> Mono ([VarDef], a)
-monoLetVar (lhs, rhs) monoBody = do
-    parentInsts <- use (defInsts . to (Map.lookup lhs))
-    modifying defInsts (Map.insert lhs Map.empty)
-    body' <- augment1 envDefs (lhs, unpos rhs) monoBody
-    dInsts <- use (defInsts . to (Map.! lhs))
-    mapM_ (modifying defInsts . Map.insert lhs) parentInsts
-    let ds' = Map.toList dInsts <&> \(t, (us, dbody)) ->
-            (TypedVar lhs t, WithPos (getPos rhs) (us, dbody))
-    pure (ds', body')
+monoLetVar (lhs, WithPos rhsPos (rhsScm, rhs)) monoBody = do
+    (body', DefInsts defInsts) <- lift (runWriterT monoBody)
+    tell (DefInsts (Map.delete lhs defInsts))
+    rhss' <- case Map.lookup lhs defInsts of
+        Nothing -> pure []
+        Just instTs -> mapM
+            (\instT -> fmap (instT, ) (genInst rhsScm (fmap expr' (mono rhs)) instT))
+            (Set.toList instTs)
+    pure (map (\(t, rhs') -> (TypedVar lhs t, WithPos rhsPos rhs')) rhss', body')
 
 monoLetRecs :: Checked.RecDefs -> Mono a -> Mono (RecDefs, a)
-monoLetRecs ds ma = foldr
-    (\d1 mb -> monoLetVar (Checked.funDefToVarDef d1) mb
-        <&> \(d1's, (d2s, b)) -> (map funDefFromVarDef d1's ++ d2s, b)
-    )
-    (fmap ([], ) ma)
-    ds
+monoLetRecs ds monoBody = do
+    (body', DefInsts defInsts) <- lift (runWriterT monoBody)
+    let defs = Map.fromList ds
+    let monoLetRecs'
+            :: Map TypedVar (WithPos ([Type], Fun))
+            -> Map String (Set Type)
+            -> Mono RecDefs
+        monoLetRecs' defs' insts = do
+            let (insts', otherInsts) =
+                    Map.partitionWithKey (\k _ -> Map.member k defs) insts
+            tell (DefInsts otherInsts)
+            let insts'' = filter
+                    (not . flip Map.member defs')
+                    (Map.toList insts' >>= \(x, ts) -> map (TypedVar x) (Set.toList ts))
+            if null insts''
+                then pure (Map.toList defs')
+                else do
+                    let genInst' (TypedVar x t) =
+                            let WithPos p (scm, WithPos _ f) = defs Map.! x
+                            in  fmap ((TypedVar x t, ) . WithPos p)
+                                     (genInst scm (monoFun f) t)
+                    (newDefs, DefInsts newInsts) <- lift
+                        (runWriterT (mapM genInst' insts''))
+                    monoLetRecs' (Map.union (Map.fromList newDefs) defs') newInsts
+    ds' <- monoLetRecs' Map.empty defInsts
+    pure (ds', body')
+
+genInst :: Scheme -> Mono a -> Type -> Mono ([Type], a)
+genInst (Forall _ rhsT) monoRhs instT = do
+    let boundTvs = bindTvs rhsT instT
+    rhs' <- local (Map.union boundTvs) monoRhs
+    pure (Map.elems boundTvs, rhs')
 
 monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr'
 monoMatch e dt tbody = liftA3 Match (mono e) (monoDecisionTree dt) (monotype tbody)
@@ -156,24 +182,20 @@ monoDecisionTree = \case
     Checked.DLeaf (bs, e) -> do
         let bs' = Map.toList bs
         let ks = map (\((Checked.TypedVar x _), _) -> x) bs'
-        parentInsts <- use (defInsts . to (lookups ks))
-        modifying defInsts (deletes ks)
-        bs'' <- mapM
-            (bimapM (\(Checked.TypedVar x t) -> fmap (TypedVar x) (monotype t)) monoAccess
-            )
-            bs'
-        e' <- mono e
-        modifying defInsts (Map.union (Map.fromList parentInsts))
-        pure (DLeaf (bs'', e'))
+        censor (mapDefInsts (deletes ks)) $ do
+            bs'' <- mapM
+                (bimapM (\(Checked.TypedVar x t) -> fmap (TypedVar x) (monotype t))
+                        monoAccess
+                )
+                bs'
+            e' <- mono e
+            pure (DLeaf (bs'', e'))
   where
     monoDecisionSwitch obj cs def f = do
         obj' <- monoAccess obj
         cs' <- mapM monoDecisionTree cs
         def' <- monoDecisionTree def
         pure (f obj' cs' def')
-
-    lookups :: Ord k => [k] -> Map k v -> [(k, v)]
-    lookups ks m = catMaybes (map (\k -> fmap (k, ) (Map.lookup k m)) ks)
 
     deletes :: (Foldable t, Ord k) => t k -> Map k v -> Map k v
     deletes = flip (foldr Map.delete)
@@ -192,42 +214,22 @@ monoCtion i span' (tdefName, tdefArgs) as = do
     as' <- mapM mono as
     pure (Ction (i, span', tdefInst, as'))
 
-addDefInst :: String -> Type -> Mono ()
-addDefInst x t1 = do
-    use defInsts <&> Map.lookup x >>= \case
-        -- If x is not in insts, it's not a polytype variable that can be instantiated,
-        -- but a function parameter or sumesuch. Ignore.
-        Nothing -> pure ()
-        Just xInsts -> when (not (Map.member t1 xInsts)) $ do
-            (Forall _ t2, body) <- view
-                (envDefs . to (Map.findWithDefault (ice (x ++ " not in defs")) x))
-            _ <- mfix $ \body' -> do
-                -- The instantiation must be in the environment when
-                -- monomorphizing the body, or we may infinitely recurse.
-                let boundTvs = bindTvs t2 t1
-                    instTs = Map.elems boundTvs
-                insertInst t1 (instTs, body')
-                augment tvBinds boundTvs (fmap expr' (mono body))
-            pure ()
-  where
-    insertInst t b = modifying defInsts (Map.adjust (Map.insert t b) x)
 
-    bindTvs :: Checked.Type -> Type -> Map TVar Type
-    bindTvs a b = case (a, b) of
-        (Checked.TVar v, t) -> Map.singleton v t
-        (Checked.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
-        (Checked.TBox t, TBox u) -> bindTvs t u
-        (Checked.TPrim _, TPrim _) -> Map.empty
-        (Checked.TConst (_, ts0), TConst (_, ts1)) ->
-            Map.unions (zipWith bindTvs ts0 ts1)
-        (Checked.TPrim _, _) -> err
-        (Checked.TFun _ _, _) -> err
-        (Checked.TBox _, _) -> err
-        (Checked.TConst _, _) -> err
-        where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
+bindTvs :: Checked.Type -> Type -> Map TVar Type
+bindTvs a b = case (a, b) of
+    (Checked.TVar v, t) -> Map.singleton v t
+    (Checked.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
+    (Checked.TBox t, TBox u) -> bindTvs t u
+    (Checked.TPrim _, TPrim _) -> Map.empty
+    (Checked.TConst (_, ts0), TConst (_, ts1)) -> Map.unions (zipWith bindTvs ts0 ts1)
+    (Checked.TPrim _, _) -> err
+    (Checked.TFun _ _, _) -> err
+    (Checked.TBox _, _) -> err
+    (Checked.TConst _, _) -> err
+    where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: Checked.Type -> Mono Type
-monotype t = view tvBinds >>= \s -> monotype' s t
+monotype t = ask >>= \s -> lift (monotype' s t)
 
 monotype' :: MonadWriter [TConst] m => Map TVar Type -> Checked.Type -> m Type
 monotype' s t = let t' = subst s t in tell (findTypeInsts t') $> t'
@@ -246,3 +248,6 @@ subst s = \case
     Checked.TFun a b -> TFun (subst s a) (subst s b)
     Checked.TBox t -> TBox (subst s t)
     Checked.TConst (c, ts) -> TConst (c, map (subst s) ts)
+
+mapDefInsts :: (Map String (Set Type) -> Map String (Set Type)) -> DefInsts -> DefInsts
+mapDefInsts f (DefInsts m) = (DefInsts (f m))
