@@ -233,7 +233,7 @@ compileDecisionTrees tdefs = compDefs
                 args = map (noPos . Checked.Var . uncurry Checked.TypedVar) params
             in  pure $ snd $ foldr
                     (\(p, pt) (bt, b) ->
-                        (Inferred.TFun pt bt, Checked.Fun ((p, pt), (noPos b, bt)))
+                        (Inferred.TFun pt bt, Checked.Fun ((p, pt), (withPos pos b, bt)))
                     )
                     (Inferred.TConst inst, Checked.Ction v span' inst args)
                     params
