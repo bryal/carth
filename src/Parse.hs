@@ -170,18 +170,23 @@ def' schemeParser topPos = varDef <|> funDef
 expr :: Parser Expr
 expr = withPos expr'
 
+data BindingLhs
+    = VarLhs (Id 'Small)
+    | FunLhs (Id 'Small) [Pat]
+    | CaseVarLhs Pat
+
 expr' :: Parser Expr'
 expr' = choice [var, estr, num, eConstructor, pexpr]
   where
     estr = fmap (Lit . Str) strlit
     eConstructor = fmap Ctor big
     var = fmap Var small
-    pexpr = parens $ choice
+    pexpr = getSrcPos >>= \p -> parens $ choice
         [ funMatch
         , match
         , if'
         , fun
-        , let1
+        , let1 p
         , let'
         , letrec
         , typeAscr
@@ -200,27 +205,44 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         params <- parens (some pat)
         body <- expr
         pure $ unpos $ foldr (\p b -> WithPos (getPos p) (FunMatch [(p, b)])) body params
-    let1 = reserved "let1" *> getSrcPos >>= \p -> liftA2 Let1 (binding p) expr
+    let1 p = reserved "let1" *> (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
+        VarLhs lhs -> liftA2 Let1 (varBinding p lhs) expr
+        FunLhs name params -> liftA2 Let1 (funBinding p name params) expr
+        CaseVarLhs lhs -> liftA2 Match expr (fmap (pure . (lhs, )) expr)
     let' = do
         reserved "let"
         bs <- parens (many pbinding)
         e <- expr
         pure $ unpos $ foldr
-            (\(lhs, rhs) x -> WithPos (getPos rhs) (Let1 (lhs, rhs) x))
+            (\b x -> case b of
+                Left (lhs, rhs) -> WithPos (getPos rhs) (Let1 (lhs, rhs) x)
+                Right (lhs, rhs) -> WithPos (getPos rhs) (Match rhs [(lhs, x)])
+            )
             e
             bs
+      where
+        pbinding = getSrcPos >>= parens . binding
+        binding p = (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
+            VarLhs lhs -> fmap Left (varBinding p lhs)
+            FunLhs name params -> fmap Left (funBinding p name params)
+            CaseVarLhs lhs -> fmap (Right . (lhs, )) expr
     letrec = reserved "letrec" *> liftA2 LetRec (parens (many pbinding)) expr
-    pbinding = getSrcPos >>= parens . binding
-    binding p = varBinding p <|> funBinding p
-    varBinding pos = do
-        lhs <- small
+      where
+        pbinding = getSrcPos >>= parens . binding
+        binding p = (varLhs <|> funLhs) >>= \case
+            VarLhs lhs -> varBinding p lhs
+            FunLhs name params -> funBinding p name params
+            CaseVarLhs _ -> ice "binding: CaseVarLhs unreachable"
+    varLhs = fmap VarLhs small
+    funLhs = parens (liftA2 FunLhs small (some pat))
+    caseVarLhs = fmap CaseVarLhs pat
+    varBinding pos lhs = do
         rhs <- expr
         pure (lhs, WithPos pos (Nothing, rhs))
-    funBinding pos = do
-        (name, params) <- parens (liftM2 (,) small (some pat))
+    funBinding pos name params = do
         b <- expr
         let f = foldr (WithPos pos . FunMatch . pure .* (,)) b params
-        pure (name, (WithPos pos (Nothing, f)))
+        pure (name, WithPos pos (Nothing, f))
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
     sizeof = reserved "sizeof" *> fmap Sizeof type_
     deref = reserved "deref" *> fmap Deref expr
