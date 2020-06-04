@@ -127,9 +127,6 @@ prettyExpr' d = \case
         ]
     Parsed.Ctor c -> pretty c
     Parsed.Sizeof t -> concat ["(sizeof ", pretty' (d + 8) t, ")"]
-    Parsed.Deref e -> concat ["(deref ", pretty' (d + 7) e, ")"]
-    Parsed.Store x p -> concat
-        ["(store " ++ pretty' (d + 7) x, indent (d + 7) ++ pretty' (d + 7) p ++ ")"]
 
 prettyDef :: Int -> Parsed.Def -> String
 prettyDef d' = \case

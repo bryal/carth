@@ -182,19 +182,7 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
     eConstructor = fmap Ctor big
     var = fmap Var small
     pexpr = getSrcPos >>= \p -> parens $ choice
-        [ funMatch
-        , match
-        , if'
-        , fun
-        , let1 p
-        , let'
-        , letrec
-        , typeAscr
-        , sizeof
-        , deref
-        , store
-        , app
-        ]
+        [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
     funMatch = reserved "fmatch" *> fmap FunMatch cases
     match = reserved "match" *> liftA2 Match expr cases
     cases = many (parens (reserved "case" *> (liftA2 (,) pat expr)))
@@ -244,8 +232,6 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         pure (name, WithPos pos (Nothing, f))
     typeAscr = reserved ":" *> liftA2 TypeAscr expr type_
     sizeof = reserved "sizeof" *> fmap Sizeof type_
-    deref = reserved "deref" *> fmap Deref expr
-    store = reserved "store" *> liftA2 Store expr expr
     app = do
         rator <- expr
         rands <- some expr
@@ -400,8 +386,6 @@ reserveds =
     , "letrec"
     , "data"
     , "sizeof"
-    , "deref"
-    , "store"
     , "import"
     , "case"
     , "id@"

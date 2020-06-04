@@ -217,16 +217,6 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.FunMatch cases -> fmap (second FunMatch) (inferFunMatch cases)
     Parsed.Ctor c -> inferExprConstructor c
     Parsed.Sizeof t -> fmap ((TPrim TInt, ) . Sizeof) (checkType pos t)
-    Parsed.Deref x -> do
-        t <- fresh
-        (tx, x') <- infer x
-        unify (Expected (TBox t)) (Found (getPos x) tx)
-        pure (t, Deref x')
-    Parsed.Store x p -> do
-        (tx, x') <- infer x
-        (tp, p') <- infer p
-        unify (Expected (TBox tx)) (Found (getPos p) tp)
-        pure (tp, Store x' p')
 
 inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do

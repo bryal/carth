@@ -3,7 +3,7 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
 
-import LLVM.AST hiding (args, Store)
+import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
@@ -254,8 +254,6 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Match e cs tbody -> genMatch e cs =<< genType tbody
         Ction c -> genCtion c
         Sizeof t -> (VLocal . litI64 . fromIntegral) <$> ((lift . sizeof) =<< genType t)
-        Deref e -> genDeref e
-        Store x p -> genStore x p
         Absurd t -> fmap (VLocal . undef) (genType t)
 
 genExprLambda :: TypedVar -> (Expr, M.Type) -> Gen Val
@@ -477,9 +475,6 @@ selSub span' i matchee =
     let tagOffset = if span' > 1 then 1 else 0
     in  emitReg "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
 
-selDeref :: Operand -> Gen Operand
-selDeref x = emitAnonReg (load x)
-
 genCtion :: M.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
     lookupEnum dataType & lift >>= \case
@@ -497,19 +492,6 @@ genCtion (i, span', dataType, as) = do
             p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
             emitDo (store s p)
             pure (VVar pGeneric)
-
-genDeref :: Expr -> Gen Val
-genDeref e = genExpr e >>= \case
-    VVar x -> fmap VVar (selDeref x)
-    VLocal x -> pure (VVar x)
-
-genStore :: Expr -> Expr -> Gen Val
-genStore x p = do
-    x' <- getLocal =<< genExpr x
-    p' <- genExpr p
-    p'' <- getLocal p'
-    emitDo (store x' p'')
-    pure p'
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 = do

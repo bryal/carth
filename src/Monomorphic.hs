@@ -59,8 +59,6 @@ data Expr'
     | Match Expr DecisionTree Type
     | Ction Ction
     | Sizeof Type
-    | Deref Expr
-    | Store Expr Expr
     | Absurd Type
     deriving (Show)
 
@@ -101,8 +99,6 @@ fvExpr' = \case
     Match e dt _ -> Set.union (freeVars e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)
     Sizeof _t -> Set.empty
-    Deref e -> freeVars e
-    Store x p -> Set.union (freeVars x) (freeVars p)
     Absurd _ -> Set.empty
 
 fvDecisionTree :: DecisionTree -> Set TypedVar

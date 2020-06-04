@@ -64,8 +64,6 @@ data Expr'
     | Match Expr DecisionTree Type
     | Ction VariantIx Span TConst [Expr]
     | Sizeof Type
-    | Deref Expr
-    | Store Expr Expr
     | Absurd Type
     deriving (Show)
 

@@ -471,7 +471,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
             genWrapInLambdas rt' [] (drop (length as) xts)
                 $ \bes -> mapM lookupVar bes >>= \bs -> f (as ++ bs)
     let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
-    let wrap2 (xt, rt, f) = wrap [xt, xt] rt (\xs -> f (xs !! 0) (xs !! 1))
+    let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
     case g of
         "+" -> wrap2 $ arithm add add fadd t
         "-" -> wrap2 $ arithm sub sub fsub t
@@ -497,11 +497,18 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 Just p -> (a, genType b, \x -> genTransmute p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
             _ -> noInst
+        "deref" -> wrap1 $ case t of
+            M.TFun a b -> (a, genType b, genDeref)
+            _ -> noInst
+        "store" -> wrap2 $ case t of
+            M.TFun a (M.TFun b c) -> (a, b, genType c, genStore)
+            _ -> noInst
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
     arithm u s f = \case
         M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c ->
             ( a
+            , a
             , genType a
             , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
                 then liftA2 u (getLocal x) (getLocal y)
@@ -513,6 +520,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
     bitwise u s = \case
         M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c && (isInt p || isNat p) ->
             ( a
+            , a
             , genType a
             , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
                 then liftA2 u (getLocal x) (getLocal y)
@@ -522,6 +530,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
     rel u s f = \case
         M.TFun a@(M.TPrim p) (M.TFun b _) | a == b ->
             ( a
+            , a
             , pure typeBool
             , \x y ->
                 fmap VLocal . emitAnonReg . flip zext i8 =<< emitAnonReg =<< if isNat p
@@ -540,6 +549,16 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         if sa == sb
             then transmute a' b' x
             else throwError (TransmuteErr pos (a, sa) (b, sb))
+    genDeref :: Val -> Gen Val
+    genDeref = \case
+        VVar x -> fmap VVar (selDeref x)
+        VLocal x -> pure (VVar x)
+    genStore :: Val -> Val -> Gen Val
+    genStore x p = do
+        x' <- getLocal x
+        p' <- getLocal p
+        emitDo (store x' p')
+        pure p
     isNat = \case
         TNat8 -> True
         TNat16 -> True
@@ -554,6 +573,9 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         _ -> False
     noInst =
         ice $ "No instance of builtin virtual function " ++ g ++ " for type " ++ pretty t
+
+selDeref :: Operand -> Gen Operand
+selDeref x = emitAnonReg (load x)
 
 -- | Assumes that the from-type and to-type are of the same size.
 transmute :: Type -> Type -> Val -> Gen Val

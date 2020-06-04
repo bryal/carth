@@ -76,8 +76,6 @@ data Expr'
     | FunMatch [(Pat, Expr)]
     | Ctor (Id 'Big)
     | Sizeof Type
-    | Deref Expr
-    | Store Expr Expr
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
@@ -135,8 +133,6 @@ fvExpr = unpos >>> \case
     FunMatch cs -> fvCases cs
     Ctor _ -> Set.empty
     Sizeof _t -> Set.empty
-    Deref e -> fvExpr e
-    Store x p -> Set.union (fvExpr x) (fvExpr p)
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)

@@ -95,8 +95,6 @@ data Expr'
     | FunMatch FunMatch
     | Ctor VariantIx Span TConst [Type]
     | Sizeof Type
-    | Deref Expr
-    | Store Expr Expr
     deriving Show
 
 type Expr = WithPos Expr'
@@ -158,6 +156,10 @@ builtinVirtuals =
               , ("<", relScm)
               , ("<=", relScm)
               , ("transmute", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
+              , ("deref", Forall (Set.fromList [tva]) (TFun (TBox ta) ta))
+              , ( "store"
+                , Forall (Set.fromList [tva]) (TFun ta (TFun (TBox ta) (TBox ta)))
+                )
               ]
 
 defSigs :: Def -> [(String, Scheme)]

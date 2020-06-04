@@ -171,8 +171,6 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
             forM_ instTs (boundInType pos)
             forM_ ts (boundInType pos)
         Inferred.Sizeof _t -> pure ()
-        Inferred.Deref x -> boundInExpr x
-        Inferred.Store x p -> boundInExpr x *> boundInExpr p
     boundInType :: SrcPos -> Inferred.Type -> Bound
     boundInType pos = \case
         Inferred.TVar tv -> do
@@ -235,5 +233,3 @@ compileDecisionTrees tdefs = compDefs
                     (Inferred.TConst inst, Checked.Ction v span' inst args)
                     params
         Inferred.Sizeof t -> pure (Checked.Sizeof t)
-        Inferred.Deref x -> fmap Checked.Deref (compExpr x)
-        Inferred.Store x p -> liftA2 Checked.Store (compExpr x) (compExpr p)
