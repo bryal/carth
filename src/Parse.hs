@@ -193,7 +193,6 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
         , sizeof
         , deref
         , store
-        , transmute
         , app
         ]
     funMatch = reserved "fmatch" *> fmap FunMatch cases
@@ -247,7 +246,6 @@ expr' = choice [var, estr, num, eConstructor, pexpr]
     sizeof = reserved "sizeof" *> fmap Sizeof type_
     deref = reserved "deref" *> fmap Deref expr
     store = reserved "store" *> liftA2 Store expr expr
-    transmute = reserved "transmute" *> fmap Transmute expr
     app = do
         rator <- expr
         rands <- some expr
@@ -404,7 +402,6 @@ reserveds =
     , "sizeof"
     , "deref"
     , "store"
-    , "transmute"
     , "import"
     , "case"
     , "id@"

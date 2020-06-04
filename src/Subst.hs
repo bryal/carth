@@ -36,7 +36,6 @@ substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     Sizeof t -> Sizeof (subst s t)
     Deref e -> Deref (substExpr s e)
     Store x p -> Store (substExpr s x) (substExpr s p)
-    Transmute e t u -> Transmute (substExpr s e) (subst s t) (subst s u)
 
 substFunMatch :: Subst -> FunMatch -> FunMatch
 substFunMatch s (cs, tp, tb) = ((substCases s cs), (subst s tp), (subst s tb))

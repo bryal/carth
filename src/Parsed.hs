@@ -78,7 +78,6 @@ data Expr'
     | Sizeof Type
     | Deref Expr
     | Store Expr Expr
-    | Transmute Expr
     deriving (Show, Eq)
 
 type Expr = WithPos Expr'
@@ -138,7 +137,6 @@ fvExpr = unpos >>> \case
     Sizeof _t -> Set.empty
     Deref e -> fvExpr e
     Store x p -> Set.union (fvExpr x) (fvExpr p)
-    Transmute e -> fvExpr e
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)

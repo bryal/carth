@@ -97,7 +97,6 @@ data Expr'
     | Sizeof Type
     | Deref Expr
     | Store Expr Expr
-    | Transmute Expr Type Type
     deriving Show
 
 type Expr = WithPos Expr'
@@ -133,8 +132,11 @@ builtinExterns = Map.fromList $ map
 
 builtinVirtuals :: Map String Scheme
 builtinVirtuals =
-    let tva = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0) "a"))
+    let tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0) a))
+        tva = tv "a"
         ta = TVar tva
+        tvb = tv "b"
+        tb = TVar tvb
         arithScm = Forall (Set.fromList [tva]) (TFun ta (TFun ta ta))
         bitwiseScm = arithScm
         relScm = Forall (Set.fromList [tva]) (TFun ta (TFun ta tBool))
@@ -155,6 +157,7 @@ builtinVirtuals =
               , (">=", relScm)
               , ("<", relScm)
               , ("<=", relScm)
+              , ("transmute", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
               ]
 
 defSigs :: Def -> [(String, Scheme)]

@@ -105,8 +105,6 @@ mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Deref x -> fmap Deref (mono x)
     Checked.Store x p -> liftA2 Store (mono x) (mono p)
     Checked.Absurd t -> fmap Absurd (monotype t)
-    Checked.Transmute xpos x t u ->
-        liftA3 (Transmute xpos) (mono x) (monotype t) (monotype u)
 
 monoFun :: Checked.Fun -> Mono Fun
 monoFun ((p, tp), (b, bt)) = do

@@ -465,10 +465,12 @@ lookupVar' x = do
 genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) aes = do
     as <- sequence aes
+    pos <- view srcPos
     let wrap xts genRt f = do
             rt' <- genRt
             genWrapInLambdas rt' [] (drop (length as) xts)
                 $ \bes -> mapM lookupVar bes >>= \bs -> f (as ++ bs)
+    let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
     let wrap2 (xt, rt, f) = wrap [xt, xt] rt (\xs -> f (xs !! 0) (xs !! 1))
     case g of
         "+" -> wrap2 $ arithm add add fadd t
@@ -490,6 +492,11 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         ">=" -> wrap2 $ rel LLIPred.UGE LLIPred.SGE LLFPred.OGE t
         "<" -> wrap2 $ rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
         "<=" -> wrap2 $ rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
+        "transmute" -> wrap1 $ case t of
+            M.TFun a b -> case pos of
+                Just p -> (a, genType b, \x -> genTransmute p x a b)
+                Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
+            _ -> noInst
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
     arithm u s f = \case
@@ -524,6 +531,15 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                         else liftA2 (fcmp f) (getLocal x) (getLocal y)
             )
         _ -> noInst
+    genTransmute :: SrcPos -> Val -> M.Type -> M.Type -> Gen Val
+    genTransmute pos x a b = do
+        a' <- genType a
+        b' <- genType b
+        sa <- lift (sizeof a')
+        sb <- lift (sizeof b')
+        if sa == sb
+            then transmute a' b' x
+            else throwError (TransmuteErr pos (a, sa) (b, sb))
     isNat = \case
         TNat8 -> True
         TNat16 -> True
@@ -538,6 +554,53 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         _ -> False
     noInst =
         ice $ "No instance of builtin virtual function " ++ g ++ " for type " ++ pretty t
+
+-- | Assumes that the from-type and to-type are of the same size.
+transmute :: Type -> Type -> Val -> Gen Val
+transmute t u x = case (t, u) of
+    (FunctionType _ _ _, _) -> transmuteIce
+    (_, FunctionType _ _ _) -> transmuteIce
+    (MetadataType, _) -> transmuteIce
+    (_, MetadataType) -> transmuteIce
+    (LabelType, _) -> transmuteIce
+    (_, LabelType) -> transmuteIce
+    (TokenType, _) -> transmuteIce
+    (_, TokenType) -> transmuteIce
+    (VoidType, _) -> transmuteIce
+    (_, VoidType) -> transmuteIce
+
+    (IntegerType _, IntegerType _) -> bitcast'
+    (IntegerType _, PointerType _ _) ->
+        getLocal x >>= \x' -> emitAnonReg (inttoptr x' u) <&> VLocal
+    (IntegerType _, FloatingPointType _) -> bitcast'
+    (IntegerType _, VectorType _ _) -> bitcast'
+
+    (PointerType pt _, PointerType pu _) | pt == pu -> pure x
+                                         | otherwise -> bitcast'
+    (PointerType _ _, IntegerType _) ->
+        getLocal x >>= \x' -> emitAnonReg (ptrtoint x' u) <&> VLocal
+    (PointerType _ _, _) -> stackCast
+    (_, PointerType _ _) -> stackCast
+
+    (FloatingPointType _, FloatingPointType _) -> pure x
+    (FloatingPointType _, IntegerType _) -> bitcast'
+    (FloatingPointType _, VectorType _ _) -> bitcast'
+
+    (VectorType _ vt, VectorType _ vu) | vt == vu -> pure x
+                                       | otherwise -> bitcast'
+    (VectorType _ _, IntegerType _) -> bitcast'
+    (VectorType _ _, FloatingPointType _) -> bitcast'
+
+    (StructureType _ _, _) -> stackCast
+    (_, StructureType _ _) -> stackCast
+    (ArrayType _ _, _) -> stackCast
+    (_, ArrayType _ _) -> stackCast
+    (NamedTypeReference _, _) -> stackCast
+    (_, NamedTypeReference _) -> stackCast
+  where
+    transmuteIce = ice $ "transmute " ++ show t ++ " to " ++ show u
+    bitcast' = getLocal x >>= \x' -> emitAnonReg (bitcast x' u) <&> VLocal
+    stackCast = getVar x >>= \x' -> emitAnonReg (bitcast x' (LLType.ptr u)) <&> VVar
 
 callBuiltin :: String -> [Operand] -> Gen FunInstr
 callBuiltin f as = do

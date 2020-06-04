@@ -67,7 +67,6 @@ data Expr'
     | Deref Expr
     | Store Expr Expr
     | Absurd Type
-    | Transmute SrcPos Expr Type Type
     deriving (Show)
 
 data Expr = Expr (Maybe SrcPos) Expr'

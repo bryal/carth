@@ -257,7 +257,6 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Deref e -> genDeref e
         Store x p -> genStore x p
         Absurd t -> fmap (VLocal . undef) (genType t)
-        Transmute epos e t u -> genTransmute epos e t u
 
 genExprLambda :: TypedVar -> (Expr, M.Type) -> Gen Val
 genExprLambda p (b, bt) = do
@@ -511,63 +510,6 @@ genStore x p = do
     p'' <- getLocal p'
     emitDo (store x' p'')
     pure p'
-
-genTransmute :: SrcPos -> Expr -> M.Type -> M.Type -> Gen Val
-genTransmute pos e t u = do
-    t' <- genType t
-    u' <- genType u
-    st <- lift (sizeof t')
-    su <- lift (sizeof u')
-    if st == su
-        then genExpr e >>= transmute t' u'
-        else throwError (TransmuteErr pos (t, st) (u, su))
-
--- | Assumes that the from-type and to-type are of the same size.
-transmute :: Type -> Type -> Val -> Gen Val
-transmute t u x = case (t, u) of
-    (FunctionType _ _ _, _) -> transmuteIce
-    (_, FunctionType _ _ _) -> transmuteIce
-    (MetadataType, _) -> transmuteIce
-    (_, MetadataType) -> transmuteIce
-    (LabelType, _) -> transmuteIce
-    (_, LabelType) -> transmuteIce
-    (TokenType, _) -> transmuteIce
-    (_, TokenType) -> transmuteIce
-    (VoidType, _) -> transmuteIce
-    (_, VoidType) -> transmuteIce
-
-    (IntegerType _, IntegerType _) -> bitcast'
-    (IntegerType _, PointerType _ _) ->
-        getLocal x >>= \x' -> emitAnonReg (inttoptr x' u) <&> VLocal
-    (IntegerType _, FloatingPointType _) -> bitcast'
-    (IntegerType _, VectorType _ _) -> bitcast'
-
-    (PointerType pt _, PointerType pu _) | pt == pu -> pure x
-                                         | otherwise -> bitcast'
-    (PointerType _ _, IntegerType _) ->
-        getLocal x >>= \x' -> emitAnonReg (ptrtoint x' u) <&> VLocal
-    (PointerType _ _, _) -> stackCast
-    (_, PointerType _ _) -> stackCast
-
-    (FloatingPointType _, FloatingPointType _) -> pure x
-    (FloatingPointType _, IntegerType _) -> bitcast'
-    (FloatingPointType _, VectorType _ _) -> bitcast'
-
-    (VectorType _ vt, VectorType _ vu) | vt == vu -> pure x
-                                       | otherwise -> bitcast'
-    (VectorType _ _, IntegerType _) -> bitcast'
-    (VectorType _ _, FloatingPointType _) -> bitcast'
-
-    (StructureType _ _, _) -> stackCast
-    (_, StructureType _ _) -> stackCast
-    (ArrayType _ _, _) -> stackCast
-    (_, ArrayType _ _) -> stackCast
-    (NamedTypeReference _, _) -> stackCast
-    (_, NamedTypeReference _) -> stackCast
-  where
-    transmuteIce = ice $ "transmute " ++ show t ++ " to " ++ show u
-    bitcast' = getLocal x >>= \x' -> emitAnonReg (bitcast x' u) <&> VLocal
-    stackCast = getVar x >>= \x' -> emitAnonReg (bitcast x' (LLType.ptr u)) <&> VVar
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 = do
