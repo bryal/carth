@@ -8,15 +8,17 @@
 (define (next (Iter it)) (it Unit))
 (define next! (<o unwrap! next))
 
-(define (xrange a b) (take (-i b a)       (range-from a)))
-(define (range  a b) (take (inc (-i b a)) (range-from a)))
+(define: (xrange a b) (Fun Int Int (Iter Int))
+  (take (- b a)       (range-from a)))
+(define: (range  a b) (Fun Int Int (Iter Int))
+  (take (inc (- b a)) (range-from a)))
 
 (define (range-from a)
   (Iter (fun (_) (Some (Pair a (range-from (inc a)))))))
 
 (define (take n xs)
-  (Iter (if (>i n 0)
-            (fun (_) (map-maybe (map-snd (take (-i n 1))) (next xs)))
+  (Iter (if (> n 0)
+            (fun (_) (map-maybe (map-snd (take (- n 1))) (next xs)))
           (fun (_) None))))
 
 (define (skip-while pred xs)

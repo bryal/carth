@@ -55,7 +55,10 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 inferTopDefs
     :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr (Defs, Subst)
 inferTopDefs tdefs ctors externs defs =
-    let initEnv = Env { _envTypeDefs = tdefs, _envDefs = Map.empty, _envCtors = ctors }
+    let initEnv = Env { _envTypeDefs = tdefs
+                      , _envDefs = builtinVirtuals
+                      , _envCtors = ctors
+                      }
         initSt = St { _tvCount = 0, _substs = Map.empty }
     in  evalStateT (runReaderT inferTopDefs' initEnv) initSt
   where

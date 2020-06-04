@@ -181,7 +181,7 @@ prettyStr s = '"' : (s >>= showChar) ++ "\""
 
 prettyScheme :: (Pretty p, Pretty t) => Set p -> t -> String
 prettyScheme ps t =
-    concat ["(forall [" ++ spcPretty (Set.toList ps) ++ "] ", pretty t ++ ")"]
+    concat ["(forall (" ++ spcPretty (Set.toList ps) ++ ") ", pretty t ++ ")"]
 
 prettyType :: Parsed.Type -> String
 prettyType = \case

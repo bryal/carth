@@ -5,30 +5,8 @@
 (extern cos (Fun F64 F64))
 (extern tan (Fun F64 F64))
 
-(define (inc n) (+i n 1))
-(define (dec n) (-i n 1))
-
-(extern +i (Fun Int Int Int))
-(extern -i (Fun Int Int Int))
-(extern *i (Fun Int Int Int))
-(extern /i (Fun Int Int Int))
-(extern =i (Fun Int Int Bool))
-(extern >i (Fun Int Int Bool))
-(define (>=i a b) (or (>i a b) (=i a b)))
-(define (<i  a b) (not (>=i a b)))
-(define (<=i a b) (not (>i a b)))
-(extern remi (Fun Int Int Int))
-
-(extern +f (Fun F64 F64 F64))
-(extern -f (Fun F64 F64 F64))
-(extern *f (Fun F64 F64 F64))
-(extern /f (Fun F64 F64 F64))
-(extern =f (Fun F64 F64 Bool))
-(extern >f (Fun F64 F64 Bool))
-(define (>=f a b) (or (>f a b) (=f a b)))
-(define (<f  a b) (not (>=f a b)))
-(define (<=f a b) (not (>f a b)))
-(extern remf (Fun F64 F64 F64))
+(define (inc n) (+ n 1))
+(define (dec n) (- n 1))
 
 (define (and p q) (if p q    False))
 (define (or  p q) (if p True q))
@@ -36,4 +14,4 @@
 (define not (fmatch (case True False)
                     (case False True)))
 
-(define (divisible? n m) (=i (remi n m) 0))
+(define (divisible? n m) (= (rem n m) 0))

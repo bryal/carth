@@ -38,6 +38,8 @@ import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Linkage as LLLink
 import qualified LLVM.AST.Visibility as LLVis
+import qualified LLVM.AST.IntegerPredicate as LLIPred
+import qualified LLVM.AST.FloatingPointPredicate as LLFPred
 import qualified LLSubprog
 
 import Misc
@@ -225,6 +227,33 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         Name s -> s
         UnName n -> fromString (show n)
 
+genTailWrapInLambdas
+    :: Type -> [TypedVar] -> [M.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
+genTailWrapInLambdas rt fvs ps genBody =
+    genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r -> if typeOf r == typeUnit
+        then commitFinalFuncBlock retVoid $> LLType.void
+        else commitFinalFuncBlock (ret r) $> typeOf r
+
+genWrapInLambdas :: Type -> [TypedVar] -> [M.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
+genWrapInLambdas rt fvs pts genBody = do
+    case pts of
+        [] -> genBody fvs
+        (pt : pts') -> do
+            let p = TypedVar ("x" ++ show (length fvs)) pt
+            bt <- foldr closureType rt <$> mapM genType pts'
+            genWrapInLambdas' rt fvs p pts' genBody bt
+
+genWrapInLambdas'
+    :: Type
+    -> [TypedVar]
+    -> TypedVar
+    -> [M.Type]
+    -> ([TypedVar] -> Gen Val)
+    -> Type
+    -> Gen Val
+genWrapInLambdas' rt fvs p ps' genBody bt =
+    genLambda fvs p (genTailWrapInLambdas rt (fvs ++ [p]) ps' genBody $> (), bt)
+
 -- TODO: Eta-conversion
 -- | A lambda is a pair of a captured environment and a function.  The captured
 --   environment must be on the heap, since the closure value needs to be of
@@ -254,14 +283,14 @@ populateCaptures ptrGeneric fvXs = do
     emitDo (store captures ptr)
 
 genLambda' :: TypedVar -> (Gen (), Type) -> Val -> [TypedVar] -> Gen Val
-genLambda' p@(TypedVar _ pt) (b, bt) captures fvXs = do
+genLambda' p@(TypedVar _ pt) (genBody, bt) captures fvXs = do
     fname <- use lambdaParentFunc >>= \case
         Just s -> fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
         Nothing -> newName "func"
     ft <- genType pt <&> \pt' -> closureFunType pt' bt
     let f = VLocal $ ConstantOperand $ LLConst.GlobalReference (LLType.ptr ft) fname
     pos <- view (srcPos . to (fromMaybe (ice "srcPos is Nothing in genLambda")))
-    scribe outFuncs [(fname, fvXs, pos, p, b $> bt)]
+    scribe outFuncs [(fname, fvXs, pos, p, genBody $> bt)]
     genStruct [captures, f]
 
 compileUnitRef :: MDRef LLOp.DICompileUnit
@@ -424,11 +453,91 @@ genStackAllocated v = do
     emitDo (store v ptr)
     pure ptr
 
-lookupVar :: MonadReader Env m => TypedVar -> m Val
-lookupVar x = do
-    view (env . to (Map.lookup x)) >>= \case
-        Just var -> pure (VVar var)
-        Nothing -> ice $ "Undefined variable " ++ show x
+lookupVar :: TypedVar -> Gen Val
+lookupVar x = lookupVar' x >>= \case
+    Just y -> pure y
+    Nothing -> genAppBuiltinVirtual x []
+
+lookupVar' :: MonadReader Env m => TypedVar -> m (Maybe Val)
+lookupVar' x = do
+    view (env . to (Map.lookup x)) >>= pure . fmap VVar
+
+genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
+genAppBuiltinVirtual (TypedVar g t) aes = do
+    as <- sequence aes
+    let wrap xts genRt f = do
+            rt' <- genRt
+            genWrapInLambdas rt' [] (drop (length as) xts)
+                $ \bes -> mapM lookupVar bes >>= \bs -> f (as ++ bs)
+    let wrap2 (xt, rt, f) = wrap [xt, xt] rt (\xs -> f (xs !! 0) (xs !! 1))
+    case g of
+        "+" -> wrap2 $ arithm add add fadd t
+        "-" -> wrap2 $ arithm sub sub fsub t
+        "*" -> wrap2 $ arithm mul mul fmul t
+        "/" -> wrap2 $ arithm udiv sdiv fdiv t
+        "rem" -> wrap2 $ arithm urem srem frem t
+        "shift-l" -> wrap2 $ bitwise shl shl t
+        "shift-r" -> wrap2 $ bitwise lshr ashr t
+        "bit-and" -> wrap2 $ bitwise and' and' t
+        "bit-or" -> wrap2 $ bitwise or' or' t
+        "bit-xor" -> wrap2 $ bitwise xor xor t
+        -- NOTE: When comparing floats, one or both operands may be NaN. We can use either
+        -- the `o` or `u` prefix to change how NaNs are treated by `fcmp`. I'm not sure,
+        -- but I think that always using `o` will result in the most predictable code.
+        "=" -> wrap2 $ rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ t
+        "/=" -> wrap2 $ rel LLIPred.NE LLIPred.NE LLFPred.ONE t
+        ">" -> wrap2 $ rel LLIPred.UGT LLIPred.SGT LLFPred.OGT t
+        ">=" -> wrap2 $ rel LLIPred.UGE LLIPred.SGE LLFPred.OGE t
+        "<" -> wrap2 $ rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
+        "<=" -> wrap2 $ rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
+        _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
+  where
+    arithm u s f = \case
+        M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c ->
+            ( a
+            , genType a
+            , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
+                then liftA2 u (getLocal x) (getLocal y)
+                else if isInt p
+                    then liftA2 s (getLocal x) (getLocal y)
+                    else liftA2 f (getLocal x) (getLocal y)
+            )
+        _ -> noInst
+    bitwise u s = \case
+        M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c && (isInt p || isNat p) ->
+            ( a
+            , genType a
+            , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
+                then liftA2 u (getLocal x) (getLocal y)
+                else liftA2 s (getLocal x) (getLocal y)
+            )
+        _ -> noInst
+    rel u s f = \case
+        M.TFun a@(M.TPrim p) (M.TFun b _) | a == b ->
+            ( a
+            , pure typeBool
+            , \x y ->
+                fmap VLocal . emitAnonReg . flip zext i8 =<< emitAnonReg =<< if isNat p
+                    then liftA2 (icmp u) (getLocal x) (getLocal y)
+                    else if isInt p
+                        then liftA2 (icmp s) (getLocal x) (getLocal y)
+                        else liftA2 (fcmp f) (getLocal x) (getLocal y)
+            )
+        _ -> noInst
+    isNat = \case
+        TNat8 -> True
+        TNat16 -> True
+        TNat32 -> True
+        TNat -> True
+        _ -> False
+    isInt = \case
+        TInt8 -> True
+        TInt16 -> True
+        TInt32 -> True
+        TInt -> True
+        _ -> False
+    noInst =
+        ice $ "No instance of builtin virtual function " ++ g ++ " for type " ++ pretty t
 
 callBuiltin :: String -> [Operand] -> Gen FunInstr
 callBuiltin f as = do
@@ -776,6 +885,66 @@ retVoid = Ret Nothing []
 switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
 switch x def cs = Switch x def cs []
 
+add :: Operand -> Operand -> FunInstr
+add a b = WithRetType (Add False False a b) (typeOf a)
+
+fadd :: Operand -> Operand -> FunInstr
+fadd a b = WithRetType (FAdd noFastMathFlags a b) (typeOf a)
+
+sub :: Operand -> Operand -> FunInstr
+sub a b = WithRetType (Sub False False a b) (typeOf a)
+
+fsub :: Operand -> Operand -> FunInstr
+fsub a b = WithRetType (FSub noFastMathFlags a b) (typeOf a)
+
+mul :: Operand -> Operand -> FunInstr
+mul a b = WithRetType (Mul False False a b) (typeOf a)
+
+fmul :: Operand -> Operand -> FunInstr
+fmul a b = WithRetType (FMul noFastMathFlags a b) (typeOf a)
+
+udiv :: Operand -> Operand -> FunInstr
+udiv a b = WithRetType (UDiv False a b) (typeOf a)
+
+sdiv :: Operand -> Operand -> FunInstr
+sdiv a b = WithRetType (SDiv False a b) (typeOf a)
+
+fdiv :: Operand -> Operand -> FunInstr
+fdiv a b = WithRetType (FDiv noFastMathFlags a b) (typeOf a)
+
+urem :: Operand -> Operand -> FunInstr
+urem a b = WithRetType (URem a b) (typeOf a)
+
+srem :: Operand -> Operand -> FunInstr
+srem a b = WithRetType (SRem a b) (typeOf a)
+
+frem :: Operand -> Operand -> FunInstr
+frem a b = WithRetType (FRem noFastMathFlags a b) (typeOf a)
+
+shl :: Operand -> Operand -> FunInstr
+shl a b = WithRetType (Shl False False a b) (typeOf a)
+
+lshr :: Operand -> Operand -> FunInstr
+lshr a b = WithRetType (LShr False a b) (typeOf a)
+
+ashr :: Operand -> Operand -> FunInstr
+ashr a b = WithRetType (AShr False a b) (typeOf a)
+
+and' :: Operand -> Operand -> FunInstr
+and' a b = WithRetType (And a b) (typeOf a)
+
+or' :: Operand -> Operand -> FunInstr
+or' a b = WithRetType (Or a b) (typeOf a)
+
+xor :: Operand -> Operand -> FunInstr
+xor a b = WithRetType (Xor a b) (typeOf a)
+
+icmp :: LLIPred.IntegerPredicate -> Operand -> Operand -> FunInstr
+icmp p a b = WithRetType (ICmp p a b) i1
+
+fcmp :: LLFPred.FloatingPointPredicate -> Operand -> Operand -> FunInstr
+fcmp p a b = WithRetType (FCmp p a b) i1
+
 bitcast :: Operand -> Type -> FunInstr
 bitcast x t = WithRetType (BitCast x t) t
 
@@ -787,6 +956,9 @@ ptrtoint x t = WithRetType (PtrToInt x t) t
 
 trunc :: Operand -> Type -> FunInstr
 trunc x t = WithRetType (Trunc x t) t
+
+zext :: Operand -> Type -> FunInstr
+zext x t = WithRetType (ZExt x t) t
 
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
 insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)

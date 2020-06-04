@@ -28,7 +28,7 @@ import Data.Functor
 import Data.Functor.Identity
 import Data.Bifunctor
 import Control.Applicative
-import Lens.Micro.Platform (use, assign)
+import Lens.Micro.Platform (use, assign, view)
 
 import Misc
 import SrcPos
@@ -246,7 +246,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
     parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> genConst c
-        Var (TypedVar x t) -> lookupVar (TypedVar x t)
+        Var x -> lookupVar x
         App f e _ -> genApp f e
         If p c a -> genIf p c a
         Fun (p, b) -> assign lambdaParentFunc parent *> genExprLambda p b
@@ -278,32 +278,30 @@ genStrLit s = do
     pure $ VVar $ ConstantOperand (LLConst.GlobalReference (LLType.ptr typeStr) var)
 
 genTailApp :: Expr -> Expr -> Gen ()
-genTailApp fe' ae' =
-    genBetaReduceApp genTailExpr genTailReturn (app (Just Tail)) (fe', [ae'])
+genTailApp fe' ae' = genBetaReduceApp genTailExpr genTailReturn Tail (fe', [ae'])
 
 genApp :: Expr -> Expr -> Gen Val
-genApp fe' ae' = genBetaReduceApp genExpr pure (app (Just NoTail)) (fe', [ae'])
+genApp fe' ae' = genBetaReduceApp genExpr pure NoTail (fe', [ae'])
 
 -- | Beta-reduction and closure application
 genBetaReduceApp
-    :: (Expr -> Gen a)
-    -> (Val -> Gen a)
-    -> (Val -> Val -> Gen Val)
-    -> (Expr, [Expr])
-    -> Gen a
-genBetaReduceApp genExpr' returnMethod app' = \case
-    (Expr _ (Fun (p, (b, _))), ae : aes) -> do
-        a <- genExpr ae
-        withVal p a (genBetaReduceApp genExpr' returnMethod app' (b, aes))
-    (Expr _ (App fe ae _), aes) ->
-        genBetaReduceApp genExpr' returnMethod app' (fe, ae : aes)
-    (fe, []) -> genExpr' fe
-    (fe, aes) -> do
-        f <- genExpr fe
-        as <- mapM genExpr (init aes)
-        closure <- foldlM (app (Just NoTail)) f as
-        arg <- genExpr (last aes)
-        returnMethod =<< app' closure arg
+    :: (Expr -> Gen a) -> (Val -> Gen a) -> TailCallKind -> (Expr, [Expr]) -> Gen a
+genBetaReduceApp genExpr' returnMethod tail' applic = view env >>= \env' ->
+    case applic of
+        (Expr _ (Fun (p, (b, _))), ae : aes) -> do
+            a <- genExpr ae
+            withVal p a (genBetaReduceApp genExpr' returnMethod tail' (b, aes))
+        (Expr _ (App fe ae _), aes) ->
+            genBetaReduceApp genExpr' returnMethod tail' (fe, ae : aes)
+        (fe, []) -> genExpr' fe
+        (Expr _ (Var x), aes) | not (Map.member x env') ->
+            returnMethod =<< genAppBuiltinVirtual x (map genExpr aes)
+        (fe, aes) -> do
+            f <- genExpr fe
+            as <- mapM genExpr (init aes)
+            closure <- foldlM (app (Just NoTail)) f as
+            arg <- genExpr (last aes)
+            returnMethod =<< app (Just tail') closure arg
 
 app :: Maybe TailCallKind -> Val -> Val -> Gen Val
 app tailkind closure a = do

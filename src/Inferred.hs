@@ -126,10 +126,36 @@ ftv = \case
     TBox t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
 
-builtinExterns :: Map String (Inferred.Type, SrcPos)
+builtinExterns :: Map String (Type, SrcPos)
 builtinExterns = Map.fromList $ map
     (second (, SrcPos "<builtin>" 0 0))
     [("GC_malloc", TFun (TPrim TInt) (TBox (TConst tUnit)))]
+
+builtinVirtuals :: Map String Scheme
+builtinVirtuals =
+    let tva = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0) "a"))
+        ta = TVar tva
+        arithScm = Forall (Set.fromList [tva]) (TFun ta (TFun ta ta))
+        bitwiseScm = arithScm
+        relScm = Forall (Set.fromList [tva]) (TFun ta (TFun ta tBool))
+    in  Map.fromList
+            $ [ ("+", arithScm)
+              , ("-", arithScm)
+              , ("*", arithScm)
+              , ("/", arithScm)
+              , ("rem", arithScm)
+              , ("shift-l", bitwiseScm)
+              , ("shift-r", bitwiseScm)
+              , ("bit-and", bitwiseScm)
+              , ("bit-or", bitwiseScm)
+              , ("bit-xor", bitwiseScm)
+              , ("=", relScm)
+              , ("/=", relScm)
+              , (">", relScm)
+              , (">=", relScm)
+              , ("<", relScm)
+              , ("<=", relScm)
+              ]
 
 defSigs :: Def -> [(String, Scheme)]
 defSigs = \case
