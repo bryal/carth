@@ -131,7 +131,8 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         pt' <- genType pt
         px' <- newName px
         let pRef = LocalReference pt' px'
-        rt' <- withLocal ptv pRef (withLocals captureLocals genBody)
+        rt' <- locallySet srcPos (Just dpos)
+            $ withLocal ptv pRef (withLocals captureLocals genBody)
         let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
         pure (rt', fParams')
     (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
