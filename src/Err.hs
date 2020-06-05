@@ -87,7 +87,10 @@ printGenErr = \case
             ++ (" (" ++ show sizet ++ " bytes)")
             ++ ("\nTarget type: " ++ pretty u)
             ++ (" (" ++ show sizeu ++ " bytes)")
-
+    NoBulitinVirtualInstance p x t ->
+        posd p
+            $ ("Builtin virtual function " ++ x)
+            ++ (" cannot be instantiated to type " ++ pretty t)
 
 posd :: SrcPos -> Message -> IO ()
 posd (pos@(SrcPos f lineN colN)) msg = do

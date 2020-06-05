@@ -52,6 +52,7 @@ import SrcPos
 
 data GenErr
     = TransmuteErr SrcPos (M.Type, Word64) (M.Type, Word64)
+    | NoBulitinVirtualInstance SrcPos String M.Type
 
 type Instr = InstructionMetadata -> Instruction
 
@@ -472,74 +473,86 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 $ \bes -> mapM lookupVar bes >>= \bs -> f (as ++ bs)
     let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
     let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
+    let noInst = throwError $ NoBulitinVirtualInstance
+            (fromMaybe
+                (ice "genAppBuiltinVirtual: no srcpos when throwing noInst error!")
+                pos
+            )
+            g
+            t
+    let arithm u s f = \case
+            M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c -> pure
+                ( a
+                , a
+                , genType a
+                , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
+                    then liftA2 u (getLocal x) (getLocal y)
+                    else if isInt p
+                        then liftA2 s (getLocal x) (getLocal y)
+                        else liftA2 f (getLocal x) (getLocal y)
+                )
+            _ -> noInst
+    let bitwise u s = \case
+            M.TFun a@(M.TPrim p) (M.TFun b c)
+                | a == b && a == c && (isInt p || isNat p) -> pure
+                    ( a
+                    , a
+                    , genType a
+                    , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
+                        then liftA2 u (getLocal x) (getLocal y)
+                        else liftA2 s (getLocal x) (getLocal y)
+                    )
+            _ -> noInst
+    let rel u s f = \case
+            M.TFun a@(M.TPrim p) (M.TFun b _) | a == b -> pure
+                ( a
+                , a
+                , pure typeBool
+                , \x y ->
+                    fmap VLocal
+                        . emitAnonReg
+                        . flip zext i8
+                        =<< emitAnonReg
+                        =<< if isNat p
+                                then liftA2 (icmp u) (getLocal x) (getLocal y)
+                                else if isInt p
+                                    then liftA2 (icmp s) (getLocal x) (getLocal y)
+                                    else liftA2 (fcmp f) (getLocal x) (getLocal y)
+                )
+            _ -> noInst
     case g of
-        "+" -> wrap2 $ arithm add add fadd t
-        "-" -> wrap2 $ arithm sub sub fsub t
-        "*" -> wrap2 $ arithm mul mul fmul t
-        "/" -> wrap2 $ arithm udiv sdiv fdiv t
-        "rem" -> wrap2 $ arithm urem srem frem t
-        "shift-l" -> wrap2 $ bitwise shl shl t
-        "shift-r" -> wrap2 $ bitwise lshr ashr t
-        "bit-and" -> wrap2 $ bitwise and' and' t
-        "bit-or" -> wrap2 $ bitwise or' or' t
-        "bit-xor" -> wrap2 $ bitwise xor xor t
+        "+" -> wrap2 =<< arithm add add fadd t
+        "-" -> wrap2 =<< arithm sub sub fsub t
+        "*" -> wrap2 =<< arithm mul mul fmul t
+        "/" -> wrap2 =<< arithm udiv sdiv fdiv t
+        "rem" -> wrap2 =<< arithm urem srem frem t
+        "shift-l" -> wrap2 =<< bitwise shl shl t
+        "shift-r" -> wrap2 =<< bitwise lshr ashr t
+        "bit-and" -> wrap2 =<< bitwise and' and' t
+        "bit-or" -> wrap2 =<< bitwise or' or' t
+        "bit-xor" -> wrap2 =<< bitwise xor xor t
         -- NOTE: When comparing floats, one or both operands may be NaN. We can use either
         -- the `o` or `u` prefix to change how NaNs are treated by `fcmp`. I'm not sure,
         -- but I think that always using `o` will result in the most predictable code.
-        "=" -> wrap2 $ rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ t
-        "/=" -> wrap2 $ rel LLIPred.NE LLIPred.NE LLFPred.ONE t
-        ">" -> wrap2 $ rel LLIPred.UGT LLIPred.SGT LLFPred.OGT t
-        ">=" -> wrap2 $ rel LLIPred.UGE LLIPred.SGE LLFPred.OGE t
-        "<" -> wrap2 $ rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
-        "<=" -> wrap2 $ rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
-        "transmute" -> wrap1 $ case t of
+        "=" -> wrap2 =<< rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ t
+        "/=" -> wrap2 =<< rel LLIPred.NE LLIPred.NE LLFPred.ONE t
+        ">" -> wrap2 =<< rel LLIPred.UGT LLIPred.SGT LLFPred.OGT t
+        ">=" -> wrap2 =<< rel LLIPred.UGE LLIPred.SGE LLFPred.OGE t
+        "<" -> wrap2 =<< rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
+        "<=" -> wrap2 =<< rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
+        "transmute" -> wrap1 =<< case t of
             M.TFun a b -> case pos of
-                Just p -> (a, genType b, \x -> genTransmute p x a b)
+                Just p -> pure (a, genType b, \x -> genTransmute p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
             _ -> noInst
-        "deref" -> wrap1 $ case t of
-            M.TFun a b -> (a, genType b, genDeref)
+        "deref" -> wrap1 =<< case t of
+            M.TFun a b -> pure (a, genType b, genDeref)
             _ -> noInst
-        "store" -> wrap2 $ case t of
-            M.TFun a (M.TFun b c) -> (a, b, genType c, genStore)
+        "store" -> wrap2 =<< case t of
+            M.TFun a (M.TFun b c) -> pure (a, b, genType c, genStore)
             _ -> noInst
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
-    arithm u s f = \case
-        M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c ->
-            ( a
-            , a
-            , genType a
-            , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
-                then liftA2 u (getLocal x) (getLocal y)
-                else if isInt p
-                    then liftA2 s (getLocal x) (getLocal y)
-                    else liftA2 f (getLocal x) (getLocal y)
-            )
-        _ -> noInst
-    bitwise u s = \case
-        M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c && (isInt p || isNat p) ->
-            ( a
-            , a
-            , genType a
-            , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
-                then liftA2 u (getLocal x) (getLocal y)
-                else liftA2 s (getLocal x) (getLocal y)
-            )
-        _ -> noInst
-    rel u s f = \case
-        M.TFun a@(M.TPrim p) (M.TFun b _) | a == b ->
-            ( a
-            , a
-            , pure typeBool
-            , \x y ->
-                fmap VLocal . emitAnonReg . flip zext i8 =<< emitAnonReg =<< if isNat p
-                    then liftA2 (icmp u) (getLocal x) (getLocal y)
-                    else if isInt p
-                        then liftA2 (icmp s) (getLocal x) (getLocal y)
-                        else liftA2 (fcmp f) (getLocal x) (getLocal y)
-            )
-        _ -> noInst
     genTransmute :: SrcPos -> Val -> M.Type -> M.Type -> Gen Val
     genTransmute pos x a b = do
         a' <- genType a
@@ -571,8 +584,6 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         TInt32 -> True
         TInt -> True
         _ -> False
-    noInst =
-        ice $ "No instance of builtin virtual function " ++ g ++ " for type " ++ pretty t
 
 selDeref :: Operand -> Gen Operand
 selDeref x = emitAnonReg (load x)
