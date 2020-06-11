@@ -788,14 +788,14 @@ passByRef' = \case
 genRetType :: M.Type -> Gen Type
 genRetType = lift . genRetType'
 
-genRetType' :: Monad m => M.Type -> Gen'T m Type
+genRetType' :: MonadReader Env m => M.Type -> m Type
 genRetType' = fmap (\t -> if t == typeUnit then LLType.void else t) . genType'
 
 genType :: M.Type -> Gen Type
 genType = lift . genType'
 
 -- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: Monad m => M.Type -> Gen'T m Type
+genType' :: MonadReader Env m => M.Type -> m Type
 genType' = \case
     M.TPrim tc -> pure $ case tc of
         M.TNat8 -> i8
@@ -836,7 +836,7 @@ closureFunType a r = FunctionType { resultType = r
 genCapturesType :: [M.TypedVar] -> Gen Type
 genCapturesType = fmap typeStruct . mapM (\(M.TypedVar _ t) -> genType t)
 
-genVariantType :: Monad m => M.Span -> [M.Type] -> Gen'T m [Type]
+genVariantType :: MonadReader Env m => M.Span -> [M.Type] -> m [Type]
 genVariantType totVariants =
     fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants)) . mapM genType'
 
@@ -862,7 +862,7 @@ tagBitWidth span' | span' <= 2 ^ (0 :: Integer) = Nothing
 --
 --   See the [System V ABI docs](https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf)
 --   for more info.
-sizeof :: Monad m => Type -> Gen'T m Word64
+sizeof :: MonadReader Env m => Type -> m Word64
 sizeof = \case
     NamedTypeReference x -> sizeof =<< lookupDatatype x
     IntegerType bits -> pure (fromIntegral (toBytesCeil bits))
@@ -889,7 +889,7 @@ sizeof = \case
         size <- sizeof u
         pure (accSize + padding + size)
 
-alignmentof :: Monad m => Type -> Gen'T m Word64
+alignmentof :: MonadReader Env m => Type -> m Word64
 alignmentof = \case
     NamedTypeReference x -> alignmentof =<< lookupDatatype x
     StructureType _ [] -> pure 0
@@ -963,13 +963,13 @@ newMetadataId = lift newMetadataId'
 newMetadataId' :: Gen' MetadataNodeID
 newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
 
-lookupEnum :: Monad m => M.TConst -> Gen'T m (Maybe Word32)
+lookupEnum :: MonadReader Env m => M.TConst -> m (Maybe Word32)
 lookupEnum tc = view (enumTypes . to (tconstLookup tc))
 
 tconstLookup :: M.TConst -> Map Name a -> Maybe a
 tconstLookup = Map.lookup . mkName . mangleTConst
 
-lookupDatatype :: Monad m => Name -> Gen'T m Type
+lookupDatatype :: MonadReader Env m => Name -> m Type
 lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
     Just 0 -> pure typeUnit
     Just w -> pure (IntegerType w)
