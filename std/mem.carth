@@ -1,3 +1,7 @@
 (define: (box x)
     (forall (a) (Fun a (Box a)))
   (store x (transmute (id@"GC_malloc" (sizeof a)))))
+
+(define: cast-ptr
+    (forall (a b) (Fun (Box a) (Box b)))
+  transmute)

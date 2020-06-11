@@ -213,7 +213,10 @@ prettyTPrim = \case
     Parsed.TInt16 -> "Int16"
     Parsed.TInt32 -> "Int32"
     Parsed.TInt -> "Int"
-    Parsed.TF64 -> "Double"
+    Parsed.TF16 -> "F16"
+    Parsed.TF32 -> "F32"
+    Parsed.TF64 -> "F64"
+    Parsed.TF128 -> "F128"
 
 prettyTVar :: Parsed.TVar -> String
 prettyTVar = \case

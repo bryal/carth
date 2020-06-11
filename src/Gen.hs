@@ -806,7 +806,10 @@ genType' = \case
         M.TInt16 -> i16
         M.TInt32 -> i32
         M.TInt -> i64
+        M.TF16 -> half
+        M.TF32 -> float
         M.TF64 -> double
+        M.TF128 -> fp128
     M.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
     M.TBox t -> fmap LLType.ptr (genType' t)
     M.TConst tc -> lookupEnum tc <&> \case

@@ -8,6 +8,8 @@
 (define (inc n) (+ n 1))
 (define (dec n) (- n 1))
 
+(define (square x) (* x x))
+
 (define (and p q) (if p q    False))
 (define (or  p q) (if p True q))
 
@@ -15,3 +17,12 @@
                     (case False True)))
 
 (define (divisible? n m) (= (rem n m) 0))
+
+(define (powi x y)
+  (define (go acc x y)
+    (if (= y 0)
+        acc
+      (if (divisible? y 2)
+          (go acc (square x) (/ y 2))
+        (go (* acc x) x (dec y)))))
+  (go (cast 1) x y))

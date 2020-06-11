@@ -294,7 +294,10 @@ nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . ids
             "Int16" -> pure TInt16
             "Int32" -> pure TInt32
             "Int" -> pure TInt
+            "F16" -> pure TF16
+            "F32" -> pure TF32
             "F64" -> pure TF64
+            "F128" -> pure TF128
             s' -> fail $ "Undefined type constant " ++ s'
 
 ptype :: Parser Type

@@ -31,7 +31,10 @@ data TPrim
     | TInt16
     | TInt32
     | TInt
+    | TF16
+    | TF32
     | TF64
+    | TF128
     deriving (Show, Eq, Ord)
 
 type TConst = (String, [Type])
