@@ -52,6 +52,7 @@ import SrcPos
 
 data GenErr
     = TransmuteErr SrcPos (M.Type, Word64) (M.Type, Word64)
+    | CastErr SrcPos M.Type M.Type
     | NoBulitinVirtualInstance SrcPos String M.Type
 
 type Instr = InstructionMetadata -> Instruction
@@ -487,14 +488,14 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 , genType a
                 , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
                     then liftA2 u (getLocal x) (getLocal y)
-                    else if isInt p
+                    else if isInt' p
                         then liftA2 s (getLocal x) (getLocal y)
                         else liftA2 f (getLocal x) (getLocal y)
                 )
             _ -> noInst
     let bitwise u s = \case
             M.TFun a@(M.TPrim p) (M.TFun b c)
-                | a == b && a == c && (isInt p || isNat p) -> pure
+                | a == b && a == c && (isInt' p || isNat p) -> pure
                     ( a
                     , a
                     , genType a
@@ -515,7 +516,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                         =<< emitAnonReg
                         =<< if isNat p
                                 then liftA2 (icmp u) (getLocal x) (getLocal y)
-                                else if isInt p
+                                else if isInt' p
                                     then liftA2 (icmp s) (getLocal x) (getLocal y)
                                     else liftA2 (fcmp f) (getLocal x) (getLocal y)
                 )
@@ -545,6 +546,11 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 Just p -> pure (a, genType b, \x -> genTransmute p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
             _ -> noInst
+        "cast" -> wrap1 =<< case t of
+            M.TFun a b -> case pos of
+                Just p -> pure (a, genType b, \x -> genCast p x a b)
+                Nothing -> ice "genAppBuiltinVirtual: cast: srcPos is Nothing"
+            _ -> noInst
         "deref" -> wrap1 =<< case t of
             M.TFun a b -> pure (a, genType b, genDeref)
             _ -> noInst
@@ -562,6 +568,28 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         if sa == sb
             then transmute a' b' x
             else throwError (TransmuteErr pos (a, sa) (b, sb))
+    genCast :: SrcPos -> Val -> M.Type -> M.Type -> Gen Val
+    genCast pos x a b = do
+        a' <- genType a
+        b' <- genType b
+        let emit' instr = getLocal x >>= \x' -> emitAnonReg (instr x' b') <&> VLocal
+        case (a', b') of
+            _ | a' == b' -> pure x
+            (IntegerType w1, IntegerType w2) ->
+                emit' $ if w2 < w1 then trunc else if isInt a then sext else zext
+            (FloatingPointType f1, FloatingPointType f2) -> case (f1, f2) of
+                (HalfFP, _) -> emit' fpext
+                (_, HalfFP) -> emit' fptrunc
+                (FloatFP, _) -> emit' fpext
+                (_, FloatFP) -> emit' fptrunc
+                (DoubleFP, _) -> emit' fpext
+                (_, DoubleFP) -> emit' fptrunc
+                _ -> throwError (CastErr pos a b)
+            (IntegerType _, FloatingPointType _) ->
+                emit' $ if isInt a then sitofp else uitofp
+            (FloatingPointType _, IntegerType _) ->
+                emit' $ if isInt b then fptosi else fptoui
+            _ -> throwError (CastErr pos a b)
     genDeref :: Val -> Gen Val
     genDeref = \case
         VVar x -> fmap VVar (selDeref x)
@@ -579,6 +607,9 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         TNat -> True
         _ -> False
     isInt = \case
+        M.TPrim p -> isInt' p
+        _ -> False
+    isInt' = \case
         TInt8 -> True
         TInt16 -> True
         TInt32 -> True
@@ -1055,6 +1086,27 @@ trunc x t = WithRetType (Trunc x t) t
 
 zext :: Operand -> Type -> FunInstr
 zext x t = WithRetType (ZExt x t) t
+
+sext :: Operand -> Type -> FunInstr
+sext x t = WithRetType (SExt x t) t
+
+fptrunc :: Operand -> Type -> FunInstr
+fptrunc x t = WithRetType (FPTrunc x t) t
+
+fpext :: Operand -> Type -> FunInstr
+fpext x t = WithRetType (FPExt x t) t
+
+fptoui :: Operand -> Type -> FunInstr
+fptoui x t = WithRetType (FPToUI x t) t
+
+fptosi :: Operand -> Type -> FunInstr
+fptosi x t = WithRetType (FPToSI x t) t
+
+uitofp :: Operand -> Type -> FunInstr
+uitofp x t = WithRetType (UIToFP x t) t
+
+sitofp :: Operand -> Type -> FunInstr
+sitofp x t = WithRetType (SIToFP x t) t
 
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
 insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)

@@ -160,6 +160,7 @@ builtinVirtuals =
               , ( "store"
                 , Forall (Set.fromList [tva]) (TFun ta (TFun (TBox ta) (TBox ta)))
                 )
+              , ("cast", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
               ]
 
 defSigs :: Def -> [(String, Scheme)]
