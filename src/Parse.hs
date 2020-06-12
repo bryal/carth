@@ -259,7 +259,6 @@ pat :: Parser Pat
 pat = choice [patInt, patStr, patCtor, patVar, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
-    int = andSkipSpaceAfter (Lexer.signed empty Lexer.decimal)
     patStr = liftA2 PStr getSrcPos strlit
     patCtor = fmap (\x -> PConstruction (getPos x) x []) big
     patVar = fmap PVar small
@@ -283,24 +282,17 @@ type_ = nonptype <|> parens ptype
 nonptype :: Parser Type
 nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big]
   where
-    tprim = try $ do
-        s <- big
-        case idstr s of
-            "Nat8" -> pure (TNat 8)
-            "Nat16" -> pure (TNat 16)
-            "Nat32" -> pure (TNat 32)
-            "Nat64" -> pure (TNat 64)
-            "Nat" -> pure TNatSize
-            "Int8" -> pure (TInt 8)
-            "Int16" -> pure (TInt 16)
-            "Int32" -> pure (TInt 32)
-            "Int64" -> pure (TInt 64)
-            "Int" -> pure TIntSize
-            "F16" -> pure TF16
-            "F32" -> pure TF32
-            "F64" -> pure TF64
-            "F128" -> pure TF128
-            s' -> fail $ "Undefined type constant " ++ s'
+    tprim = try $ andSkipSpaceAfter
+        (choice
+                [ string "Nat" *> (fmap TNat ns_word <|> pure TNatSize)
+                , string "Int" *> (fmap TInt ns_word <|> pure TIntSize)
+                , string "F16" $> TF16
+                , string "F32" $> TF32
+                , string "F64" $> TF64
+                , string "F128" $> TF128
+                ]
+        <* notFollowedBy identLetter
+        )
 
 ptype :: Parser Type
 ptype = choice [tfun, tbox, tapp]
@@ -321,6 +313,12 @@ parens = andSkipSpaceAfter . ns_parens
 
 ns_parens :: Parser a -> Parser a
 ns_parens = between (symbol "(") (string ")")
+
+int :: Num a => Parser a
+int = andSkipSpaceAfter (Lexer.signed empty ns_word)
+
+ns_word :: Num a => Parser a
+ns_word = Lexer.decimal
 
 big :: Parser (Id 'Big)
 big = fmap Id (special <|> normal)
@@ -359,7 +357,9 @@ ns_ident = label "identifier" $ liftA2 (:) identStart (many identLetter)
   where
     identStart =
         choice [letterChar, otherChar, try (oneOf "-+" <* notFollowedBy digitChar)]
-    identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
+
+identLetter :: Parser Char
+identLetter = letterChar <|> otherChar <|> oneOf "-+" <|> digitChar
 
 reserved :: String -> Parser ()
 reserved x = do
