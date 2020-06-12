@@ -6,8 +6,7 @@
 
 (define (sieve xs)
   (Iter (fun (_)
-          (match (next! xs)
-            (case (Pair x xs')
-                  (Some (Pair x
-                              (sieve (filter (<o not (flip divisible? x))
-                                             xs')))))))))
+          (let1 (Pair x xs') (next! xs)
+            (Some (Pair x
+                        (sieve (filter (<o not (flip divisible? x))
+                                       xs'))))))))
