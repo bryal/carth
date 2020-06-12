@@ -49,7 +49,7 @@ withExternSigs es ga = do
             , ConstantOperand
                 $ LLConst.GlobalReference (LLType.ptr t') (mkName ("_wrapper_" ++ name))
             )
-    augment env (Map.fromList es') ga
+    augment globalEnv (Map.fromList es') ga
 
 genExterns :: [(String, M.Type, SrcPos)] -> Gen' [Definition]
 genExterns = fmap join . mapM genExtern

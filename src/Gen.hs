@@ -65,7 +65,8 @@ data FunInstr = WithRetType Instr Type
 data Env = Env
     -- TODO: Could operands in env be Val instead? I.e., either stack-allocated
     --       or local?
-    { _env :: Map TypedVar Operand -- ^ Environment of stack allocated variables
+    { _localEnv :: Map TypedVar Operand -- ^ Environment of stack allocated variables
+    , _globalEnv :: Map TypedVar Operand
     , _enumTypes :: Map Name Word32
     , _dataTypes :: Map Name [Type]
     , _builtins :: Map String ([Parameter], Type)
@@ -304,7 +305,8 @@ compileUnitId = MetadataNodeID 0
 runGen' :: Monad m => StateT St (ReaderT Env m) a -> m a
 runGen' g = runReaderT (evalStateT g initSt) initEnv
   where
-    initEnv = Env { _env = Map.empty
+    initEnv = Env { _localEnv = Map.empty
+                  , _globalEnv = Map.empty
                   , _enumTypes = Map.empty
                   , _dataTypes = Map.empty
                   , _builtins = Map.empty
@@ -423,7 +425,7 @@ withVars = withXs withVar
 -- | Takes a local, stack allocated value, and runs a generator in the
 --   environment with the variable
 withVar :: TypedVar -> Operand -> Gen a -> Gen a
-withVar x v = locally env (Map.insert x v)
+withVar x v = locally localEnv (Map.insert x v)
 
 withVals :: [(TypedVar, Val)] -> Gen a -> Gen a
 withVals = withXs withVal
@@ -461,8 +463,8 @@ lookupVar x = lookupVar' x >>= \case
     Nothing -> genAppBuiltinVirtual x []
 
 lookupVar' :: MonadReader Env m => TypedVar -> m (Maybe Val)
-lookupVar' x = do
-    view (env . to (Map.lookup x)) >>= pure . fmap VVar
+lookupVar' x =
+    ask <&> \e -> fmap VVar (Map.lookup x (_localEnv e) <|> Map.lookup x (_globalEnv e))
 
 genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) aes = do

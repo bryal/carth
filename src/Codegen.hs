@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts, RankNTypes #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
@@ -14,6 +14,7 @@ import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
 import Data.String
 import System.FilePath
+import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.Except
 import qualified Data.Map as Map
@@ -26,9 +27,8 @@ import Data.List
 import Data.Function
 import Data.Functor
 import Data.Functor.Identity
-import Data.Bifunctor
 import Control.Applicative
-import Lens.Micro.Platform (use, assign, view)
+import Lens.Micro.Platform (use, assign, Lens')
 
 import Misc
 import SrcPos
@@ -51,7 +51,8 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
             $ augment dataTypes tdefs''
             $ withBuiltins
             $ withExternSigs externs
-            $ withGlobDefSigs (map (second unpos) defs')
+            $ withGlobFunDefSigs funDefs
+            $ withGlobVarDefSigs varDefs
             $ do
                   es <- genExterns externs
                   funDefs' <- mapM genGlobFunDef funDefs
@@ -78,8 +79,33 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
                                   ]
         }
   where
-    withGlobDefSigs sigs ga = do
-        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
+    withGlobFunDefSigs = withGlobDefSigs globalEnv
+    -- TODO: This is a workaround for global vars not being registered in the GC when
+    --       running in JIT.
+    --
+    --       The plan is to keep global defs in globalEnv, and not capture these in
+    --       closures, as they can always be reached at the top, regardless of the scope
+    --       etc. The bug is that when running for example "sieve.carth" with the JIT
+    --       interpreter, it freezes/crashes after just a few houndred iterations (not
+    --       when compiling though, which is wierd). After some trial an error, my current
+    --       hypothesis is that global non-function variables can require heap allocations
+    --       when being initialized in `init`, but the static locations that the created
+    --       values are stored in are not registered as roots in the Boehm GC, so some
+    --       values that are actually in use are garbage collected after a little while.
+    --
+    --       By keeping the global non-function vars in the `localEnv`, all values in use
+    --       are guaranteed to be in captured envs and reachable when starting at the
+    --       stack / the registers.
+    withGlobVarDefSigs = withGlobDefSigs localEnv
+
+    withGlobDefSigs
+        :: MonadReader Env m
+        => Lens' Env (Map TypedVar Operand)
+        -> [(TypedVar, WithPos ([M.Type], e))]
+        -> m x
+        -> m x
+    withGlobDefSigs env sigs ga = do
+        sigs' <- forM sigs $ \(v@(TypedVar x t), WithPos _ (us, _)) -> do
             t' <- genType' t
             pure
                 ( v
@@ -258,7 +284,7 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
 
 genExprLambda :: TypedVar -> (Expr, M.Type) -> Gen Val
 genExprLambda p (b, bt) = do
-    let fvXs = Set.toList (Set.delete p (freeVars b))
+    fvXs <- lambdaBodyFreeVars p b
     bt' <- genRetType bt
     genLambda fvXs p (genTailExpr b, bt')
 
@@ -283,22 +309,21 @@ genApp fe' ae' = genBetaReduceApp genExpr pure NoTail (fe', [ae'])
 -- | Beta-reduction and closure application
 genBetaReduceApp
     :: (Expr -> Gen a) -> (Val -> Gen a) -> TailCallKind -> (Expr, [Expr]) -> Gen a
-genBetaReduceApp genExpr' returnMethod tail' applic = view env >>= \env' ->
-    case applic of
-        (Expr _ (Fun (p, (b, _))), ae : aes) -> do
-            a <- genExpr ae
-            withVal p a (genBetaReduceApp genExpr' returnMethod tail' (b, aes))
-        (Expr _ (App fe ae _), aes) ->
-            genBetaReduceApp genExpr' returnMethod tail' (fe, ae : aes)
-        (fe, []) -> genExpr' fe
-        (Expr _ (Var x), aes) | not (Map.member x env') ->
-            returnMethod =<< genAppBuiltinVirtual x (map genExpr aes)
-        (fe, aes) -> do
-            f <- genExpr fe
-            as <- mapM genExpr (init aes)
-            closure <- foldlM (app (Just NoTail)) f as
-            arg <- genExpr (last aes)
-            returnMethod =<< app (Just tail') closure arg
+genBetaReduceApp genExpr' returnMethod tail' applic = ask >>= \env -> case applic of
+    (Expr _ (Fun (p, (b, _))), ae : aes) -> do
+        a <- genExpr ae
+        withVal p a (genBetaReduceApp genExpr' returnMethod tail' (b, aes))
+    (Expr _ (App fe ae _), aes) ->
+        genBetaReduceApp genExpr' returnMethod tail' (fe, ae : aes)
+    (fe, []) -> genExpr' fe
+    (Expr _ (Var x), aes) | isNothing (lookupVar' x env) ->
+        returnMethod =<< genAppBuiltinVirtual x (map genExpr aes)
+    (fe, aes) -> do
+        f <- genExpr fe
+        as <- mapM genExpr (init aes)
+        closure <- foldlM (app (Just NoTail)) f as
+        arg <- genExpr (last aes)
+        returnMethod =<< app (Just tail') closure arg
 
 app :: Maybe TailCallKind -> Val -> Val -> Gen Val
 app tailkind closure a = do
@@ -360,7 +385,7 @@ genLet' def genBody = case def of
     RecDefs ds -> do
         (binds, cs) <- fmap unzip $ forM ds $ \case
             (lhs, WithPos _ (_, (p, (fb, fbt)))) -> do
-                let fvXs = Set.toList (Set.delete p (freeVars fb))
+                fvXs <- lambdaBodyFreeVars p fb
                 tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
                 captures <- genHeapAllocGeneric tcaptures
                 fbt' <- genRetType fbt
@@ -370,6 +395,12 @@ genLet' def genBody = case def of
         withVars binds $ do
             forM_ cs (uncurry populateCaptures)
             genBody
+
+lambdaBodyFreeVars :: MonadReader Env m => TypedVar -> Expr -> m [TypedVar]
+lambdaBodyFreeVars param body = ask <&> \env ->
+    let globsToNotCapture = Set.difference (Map.keysSet (_globalEnv env))
+                                           (Map.keysSet (_localEnv env))
+    in  Set.toList $ Set.difference (Set.delete param (freeVars body)) globsToNotCapture
 
 genTailMatch :: Expr -> DecisionTree -> Type -> Gen ()
 genTailMatch m dt tbody = do
