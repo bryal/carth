@@ -157,7 +157,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                 simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
             ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
-            array = litStructNamed ("Array", [M.TPrim TNat8]) [ptrBytes, litI64' len]
+            array = litStructNamed ("Array", [M.TPrim (TNat 8)]) [ptrBytes, litI64' len]
             str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobConst strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
@@ -486,11 +486,9 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 ( a
                 , a
                 , genType a
-                , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
-                    then liftA2 u (getLocal x) (getLocal y)
-                    else if isInt' p
-                        then liftA2 s (getLocal x) (getLocal y)
-                        else liftA2 f (getLocal x) (getLocal y)
+                , \x y ->
+                    let op = if isInt' p then s else if isFloat p then f else u
+                    in  fmap VLocal . emitAnonReg =<< liftA2 op (getLocal x) (getLocal y)
                 )
             _ -> noInst
     let bitwise u s = \case
@@ -510,15 +508,14 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 , a
                 , pure typeBool
                 , \x y ->
-                    fmap VLocal
-                        . emitAnonReg
-                        . flip zext i8
-                        =<< emitAnonReg
-                        =<< if isNat p
-                                then liftA2 (icmp u) (getLocal x) (getLocal y)
-                                else if isInt' p
-                                    then liftA2 (icmp s) (getLocal x) (getLocal y)
-                                    else liftA2 (fcmp f) (getLocal x) (getLocal y)
+                    let op = if isInt' p
+                            then icmp s
+                            else if isFloat p then fcmp f else icmp u
+                    in  fmap VLocal
+                            . emitAnonReg
+                            . flip zext i8
+                            =<< emitAnonReg
+                            =<< liftA2 op (getLocal x) (getLocal y)
                 )
             _ -> noInst
     case g of
@@ -601,19 +598,21 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         emitDo (store x' p')
         pure p
     isNat = \case
-        TNat8 -> True
-        TNat16 -> True
-        TNat32 -> True
-        TNat -> True
+        TNat _ -> True
+        TNatSize -> True
         _ -> False
     isInt = \case
         M.TPrim p -> isInt' p
         _ -> False
     isInt' = \case
-        TInt8 -> True
-        TInt16 -> True
-        TInt32 -> True
-        TInt -> True
+        TInt _ -> True
+        TIntSize -> True
+        _ -> False
+    isFloat = \case
+        TF16 -> True
+        TF32 -> True
+        TF64 -> True
+        TF128 -> True
         _ -> False
 
 selDeref :: Operand -> Gen Operand
@@ -798,14 +797,10 @@ genType = lift . genType'
 genType' :: MonadReader Env m => M.Type -> m Type
 genType' = \case
     M.TPrim tc -> pure $ case tc of
-        M.TNat8 -> i8
-        M.TNat16 -> i16
-        M.TNat32 -> i32
-        M.TNat -> i64
-        M.TInt8 -> i8
-        M.TInt16 -> i16
-        M.TInt32 -> i32
-        M.TInt -> i64
+        M.TNat w -> IntegerType w
+        M.TNatSize -> i64
+        M.TInt w -> IntegerType w
+        M.TIntSize -> i64
         M.TF16 -> half
         M.TF32 -> float
         M.TF64 -> double

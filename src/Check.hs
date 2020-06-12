@@ -101,9 +101,12 @@ builtinDataTypes' :: [(String, [TVar], [(String, [Inferred.Type])])]
 builtinDataTypes' =
     [ ( "Array"
       , [TVImplicit 0]
-      , [("Array", [Inferred.TBox (Inferred.TVar (TVImplicit 0)), Inferred.TPrim TNat])]
+      , [ ( "Array"
+          , [Inferred.TBox (Inferred.TVar (TVImplicit 0)), Inferred.TPrim TNatSize]
+          )
+        ]
       )
-    , ("Str", [], [("Str", [Inferred.TConst ("Array", [Inferred.TPrim TNat8])])])
+    , ("Str", [], [("Str", [Inferred.TConst ("Array", [Inferred.TPrim (TNat 8)])])])
     , ( "Pair"
       , [TVImplicit 0, TVImplicit 1]
       , [("Pair", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]

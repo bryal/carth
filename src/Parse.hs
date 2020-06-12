@@ -286,14 +286,16 @@ nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . ids
     tprim = try $ do
         s <- big
         case idstr s of
-            "Nat8" -> pure TNat8
-            "Nat16" -> pure TNat16
-            "Nat32" -> pure TNat32
-            "Nat" -> pure TNat
-            "Int8" -> pure TInt8
-            "Int16" -> pure TInt16
-            "Int32" -> pure TInt32
-            "Int" -> pure TInt
+            "Nat8" -> pure (TNat 8)
+            "Nat16" -> pure (TNat 16)
+            "Nat32" -> pure (TNat 32)
+            "Nat64" -> pure (TNat 64)
+            "Nat" -> pure TNatSize
+            "Int8" -> pure (TInt 8)
+            "Int16" -> pure (TInt 16)
+            "Int32" -> pure (TInt 32)
+            "Int64" -> pure (TInt 64)
+            "Int" -> pure TIntSize
             "F16" -> pure TF16
             "F32" -> pure TF32
             "F64" -> pure TF64

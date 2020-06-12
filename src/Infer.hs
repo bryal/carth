@@ -216,7 +216,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (tbody, App f matchee' tbody)
     Parsed.FunMatch cases -> fmap (second FunMatch) (inferFunMatch cases)
     Parsed.Ctor c -> inferExprConstructor c
-    Parsed.Sizeof t -> fmap ((TPrim TInt, ) . Sizeof) (checkType pos t)
+    Parsed.Sizeof t -> fmap ((TPrim TIntSize, ) . Sizeof) (checkType pos t)
 
 inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do
@@ -252,7 +252,7 @@ inferPat pat = fmap (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss)) (inferPat' 
   where
     inferPat' = \case
         Parsed.PConstruction pos c ps -> inferPatConstruction pos c ps
-        Parsed.PInt _ n -> pure (TPrim TInt, intToPCon n 64, Map.empty)
+        Parsed.PInt _ n -> pure (TPrim TIntSize, intToPCon n 64, Map.empty)
         Parsed.PStr _ s ->
             let span' = ice "span of Con with VariantStr"
                 p = PCon (Con (VariantStr s) span' []) []
@@ -315,7 +315,7 @@ lookupEnvConstructor (Id (WithPos pos cx)) =
 
 litType :: Const -> Type
 litType = \case
-    Int _ -> TPrim TInt
+    Int _ -> TPrim TIntSize
     F64 _ -> TPrim TF64
     Str _ -> typeStr
 

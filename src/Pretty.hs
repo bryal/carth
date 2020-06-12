@@ -205,14 +205,10 @@ prettyTFun a b =
 
 prettyTPrim :: Parsed.TPrim -> String
 prettyTPrim = \case
-    Parsed.TNat8 -> "Nat8"
-    Parsed.TNat16 -> "Nat16"
-    Parsed.TNat32 -> "Nat32"
-    Parsed.TNat -> "Nat"
-    Parsed.TInt8 -> "Int8"
-    Parsed.TInt16 -> "Int16"
-    Parsed.TInt32 -> "Int32"
-    Parsed.TInt -> "Int"
+    Parsed.TNat w -> "Nat" ++ show w
+    Parsed.TNatSize -> "Nat"
+    Parsed.TInt w -> "Int" ++ show w
+    Parsed.TIntSize -> "Int"
     Parsed.TF16 -> "F16"
     Parsed.TF32 -> "F32"
     Parsed.TF64 -> "F64"

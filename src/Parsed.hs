@@ -7,6 +7,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Bifunctor
 import Control.Arrow ((>>>))
+import Data.Word
 
 import SrcPos
 import FreeVars
@@ -23,14 +24,10 @@ data TVar
     deriving (Show, Eq, Ord)
 
 data TPrim
-    = TNat8
-    | TNat16
-    | TNat32
-    | TNat
-    | TInt8
-    | TInt16
-    | TInt32
-    | TInt
+    = TNat Word32
+    | TNatSize
+    | TInt Word32
+    | TIntSize
     | TF16
     | TF32
     | TF64
