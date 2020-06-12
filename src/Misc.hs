@@ -55,8 +55,8 @@ locally l f = local (over l f)
 augment1 :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> (k, v) -> m a -> m a
 augment1 l = locally l . uncurry Map.insert
 
-augment :: (MonadReader e m, Ord k) => Lens' e (Map k v) -> Map k v -> m a -> m a
-augment l = locally l . Map.union
+augment :: (MonadReader s m, Monoid a) => Lens' s a -> a -> m x -> m x
+augment l = locally l . mappend
 
 scribe :: (MonadWriter t m, Monoid s) => Lens s t a b -> b -> m ()
 scribe l b = tell (set l b mempty)
