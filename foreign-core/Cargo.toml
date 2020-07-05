@@ -4,7 +4,7 @@ version = "0.3.1"
 authors = ["JoJo <jo@jo.zone>"]
 edition = "2018"
 description = "The foreign part of Carths core"
-homepage = "https://carth.jo.zone"
+homepage = "https://carth.pink"
 repository = "https://gitlab.com/JoJoZ/carth"
 license = "AGPL-3.0-or-later"
 

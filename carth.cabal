@@ -3,7 +3,7 @@ cabal-version: 2.2
 name:           carth
 version:        0.0.4.0
 description:    Please see the README on GitHub at <https://github.com/bryal/carth#readme>
-homepage:       https://carth.jo.zone
+homepage:       https://carth.pink
 author:         Johan Johansson
 maintainer:     jo@jo.zone
 copyright:      2020 Johan Johansson
