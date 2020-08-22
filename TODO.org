@@ -299,6 +299,9 @@ Features and other stuff to do/implement in/around Carth.
 * INACTIVE Web playground
   Like play.rustlang.org
 
+  https://play.rust-lang.org/help
+  https://github.com/google/nsjail
+
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
@@ -461,3 +464,17 @@ Features and other stuff to do/implement in/around Carth.
   type ParsedExpr = Expr (Type, SrcPos)
   type CheckedExpr = Expr CheckedType
   #+END_SRC
+* INACTIVE Use algebraic effects instead of mtl
+  Not 100% about this one -- maybe my monad use is simple enough that
+  there wouldn't actually be any gain? But still, I'd like to learn
+  effects, so maybe it's worth trying out.
+
+  Polysemy seems like the best one, but I'd have to do a little
+  research. https://github.com/thma/PolysemyCleanArchitecture/tree/3a9354a5c31eaf03009e389ce49b318881a2460f#readme
+* INACTIVE GRIN as alternative to LLVM and some of my own Codegen
+  https://github.com/grin-compiler/grin
+
+  GRIN seems promising. I wouldn't have to perform as complex
+  transformations from Carth IR to LLVM, instead transforming to this
+  more functional IR. GRIN might also be able to perform more
+  optimizations.
