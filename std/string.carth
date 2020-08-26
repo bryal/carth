@@ -39,3 +39,17 @@
 ;;? string is actually only of the ASCII subset.
 (define (string/bytes (Str xs))
   (array/iter xs))
+
+;;? Show an integer in hexadecimal notation
+(define: (show-hex n) (Fun Int Str)
+  (define: (it n) (Fun Int (Iter Nat8))
+    (if (= n 0)
+        iter/nil
+      (let ((x (bit-and 0b1111 n))
+            (c (if (< x 0xa)
+                   (+ 48 x)
+                 (+ 97 (- x 0xa)))))
+        (iter/cons (cast c) (it (shift-r n 4))))))
+  (if (= n 0)
+      "0x0"
+    (str-append "0x" (Str (array/collect (reverse (it n)))))))
