@@ -1,0 +1,41 @@
+(import array)
+
+;;? Iterate over the unicode scalar values / code points / UTF-32 values of the
+;;? string.
+;;?
+;;? A `Str` is UTF-8, so this function essentially converts from UTF-8 to UTF-32
+;;? on the fly in the form of a lazy iterator.
+;;?
+;;? Note that a code point may not match your idea of what a character
+;;? is. Iteration over grapheme clusters may instead be what you really want.
+(define: (string/codepoints s)
+    (Fun Str (Iter Nat32))
+  (define: (init-byte b)
+      (Fun Nat8 (Pair Nat8 Nat))
+    (if (= (cast 0) (bit-and b (cast 0b10000000)))
+        (Pair b (cast 0))
+      (if (= (cast 0) (bit-and b (cast 0b00100000)))
+          (Pair (bit-and b (cast 0b00011111)) (cast 1))
+        (if (= (cast 0) (bit-and b (cast 0b00010000)))
+            (Pair (bit-and b (cast 0b00001111)) (cast 2))
+          (Pair (bit-and b (cast 0b00000111)) (cast 3))))))
+  (define: cont-byte (Fun Nat8 Nat8) (bit-and (cast 0b00111111)))
+  (define: (join a b) (Fun Nat32 Nat8 Nat32)
+    (+ (shift-l (cast a) (cast 6))
+       (cast (cont-byte b))))
+  (define (go bs)
+    (Iter
+     (fun (_)
+       (map-maybe (fun ((Pair b0 bs'))
+                    (let1 (Pair b0' n) (init-byte b0)
+                      (Pair (foldl join (cast b0') (take (cast n) bs'))
+                            (go (skip (cast n) bs')))))
+                  (next bs)))))
+  (go (string/bytes s)))
+
+;;? Iterate over the indivitual bytes of a string.
+;;?
+;;? Note that a single byte only represents a whole "character" if your UTF-8
+;;? string is actually only of the ASCII subset.
+(define (string/bytes (Str xs))
+  (array/iter xs))

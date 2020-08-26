@@ -6,6 +6,7 @@
 (import memo)
 (import mem)
 (import array)
+(import string)
 
 (define (car (Pair a _)) a)
 (define (cdr (Pair _ b)) b)
