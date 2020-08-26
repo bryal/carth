@@ -6,11 +6,11 @@
 (import memo)
 (import mem)
 
-(define (fst (Pair a _)) a)
-(define (snd (Pair _ b)) b)
+(define (car (Pair a _)) a)
+(define (cdr (Pair _ b)) b)
 
-(define (map-fst f (Pair a b)) (Pair (f a) b))
-(define (map-snd f (Pair a b)) (Pair a (f b)))
+(define (map-car f (Pair a b)) (Pair (f a) b))
+(define (map-cdr f (Pair a b)) (Pair a (f b)))
 (define (map-both f g (Pair a b)) (Pair (f a) (g b)))
 
 (define: (undefined x)
