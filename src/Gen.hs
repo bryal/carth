@@ -238,24 +238,12 @@ genTailWrapInLambdas rt fvs ps genBody =
         else commitFinalFuncBlock (ret r) $> typeOf r
 
 genWrapInLambdas :: Type -> [TypedVar] -> [M.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
-genWrapInLambdas rt fvs pts genBody = do
-    case pts of
-        [] -> genBody fvs
-        (pt : pts') -> do
-            let p = TypedVar ("x" ++ show (length fvs)) pt
-            bt <- foldr closureType rt <$> mapM genType pts'
-            genWrapInLambdas' rt fvs p pts' genBody bt
-
-genWrapInLambdas'
-    :: Type
-    -> [TypedVar]
-    -> TypedVar
-    -> [M.Type]
-    -> ([TypedVar] -> Gen Val)
-    -> Type
-    -> Gen Val
-genWrapInLambdas' rt fvs p ps' genBody bt =
-    genLambda fvs p (genTailWrapInLambdas rt (fvs ++ [p]) ps' genBody $> (), bt)
+genWrapInLambdas rt fvs pts genBody = case pts of
+    [] -> genBody fvs
+    (pt : pts') -> do
+        let p = TypedVar ("x" ++ show (length fvs)) pt
+        bt <- foldr closureType rt <$> mapM genType pts'
+        genLambda fvs p (genTailWrapInLambdas rt (fvs ++ [p]) pts' genBody $> (), bt)
 
 -- TODO: Eta-conversion
 -- | A lambda is a pair of a captured environment and a function.  The captured
@@ -468,25 +456,31 @@ lookupVar' x =
 
 genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) aes = do
-    -- FIXME: The arguments are not generated in the same scope as the application if the
-    --        builtin virtual is partially applied. If it's fully applied, there's no
-    --        problem, as no additional wrapping lambda scope will be created, and the
-    --        local references to the argument values will be valid. If it's not applied
-    --        at all, there's no problem, as there are no generated arguments to try to
-    --        reach in the first place. Only partial application is a problem.
+    -- TODO: The arguments are not generated in the same scope as the application if the
+    --       builtin virtual is partially applied. If it's fully applied, there's no
+    --       problem, as no additional wrapping lambda scope will be created, and the
+    --       local references to the argument values will be valid. If it's not applied
+    --       at all, there's no problem, as there are no generated arguments to try to
+    --       reach in the first place. Only partial application is a problem.
     --
-    --        One solution could be to generate functions with all parameters, i.e. not
-    --        partially applied, and do that only once. Then, partial application is as
-    --        simple as looking up the global, single function definition, and partially
-    --        apply it. The normal function generation logic will handle variable
-    --        capturing and closure generation. Only full application would be a special
-    --        case.
+    --       Currently, we fully wrap the virtual in lambdas, and then immediately apply
+    --       with the generated arguments in the local scope. This is inefficient, as
+    --       we'll be generating a ton of identical functions for all the times the same
+    --       builtin virtual is used.
+    --
+    --       One better solution could be to generate functions with all parameters,
+    --       i.e. not partially applied, and do that only once. Either at start for all
+    --       possible types, or here, and use some kind of caching/memoization. Then,
+    --       partial application is as simple as looking up the global, single function
+    --       definition, and partially apply it. The normal function generation logic will
+    --       handle variable capturing and closure generation. Only full application would
+    --       be a special case.
     as <- sequence aes
     pos <- view srcPos
-    let wrap xts genRt f = do
+    let wrap xts genRt op = do
             rt' <- genRt
-            genWrapInLambdas rt' [] (drop (length as) xts)
-                $ \bes -> mapM lookupVar bes >>= \bs -> f (as ++ bs)
+            f <- genWrapInLambdas rt' [] xts (op <=< mapM lookupVar)
+            apps Nothing f as
     let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
     let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
     let noInst = throwError $ NoBulitinVirtualInstance
@@ -629,6 +623,24 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         TF64 -> True
         TF128 -> True
         _ -> False
+
+apps :: Maybe TailCallKind -> Val -> [Val] -> Gen Val
+apps tailkind f = \case
+    [] -> pure f
+    a : [] -> app tailkind f a
+    a : as -> app (Just NoTail) f a >>= \f' -> apps tailkind f' as
+
+app :: Maybe TailCallKind -> Val -> Val -> Gen Val
+app tailkind closure a = do
+    closure' <- getLocal closure
+    captures <- emitReg "captures" =<< extractvalue closure' [0]
+    f <- emitReg "function" =<< extractvalue closure' [1]
+    a' <- getLocal a
+    let as = [(captures, []), (a', [])]
+    let rt = getFunRet (getPointee (typeOf f))
+    fmap VLocal $ if rt == LLType.void
+        then emitDo (callIntern tailkind f as) $> litUnit
+        else emitAnonReg $ WithRetType (callIntern tailkind f as) rt
 
 selDeref :: Operand -> Gen Operand
 selDeref x = emitAnonReg (load x)

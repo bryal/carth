@@ -325,18 +325,6 @@ genBetaReduceApp genExpr' returnMethod tail' applic = ask >>= \env -> case appli
         arg <- genExpr (last aes)
         returnMethod =<< app (Just tail') closure arg
 
-app :: Maybe TailCallKind -> Val -> Val -> Gen Val
-app tailkind closure a = do
-    closure' <- getLocal closure
-    captures <- emitReg "captures" =<< extractvalue closure' [0]
-    f <- emitReg "function" =<< extractvalue closure' [1]
-    a' <- getLocal a
-    let as = [(captures, []), (a', [])]
-    let rt = getFunRet (getPointee (typeOf f))
-    fmap VLocal $ if rt == LLType.void
-        then emitDo (callIntern tailkind f as) $> litUnit
-        else emitAnonReg $ WithRetType (callIntern tailkind f as) rt
-
 genTailIf :: Expr -> Expr -> Expr -> Gen ()
 genTailIf pred' conseq alt = do
     predV <- genExpr pred'
