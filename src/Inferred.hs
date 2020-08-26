@@ -146,6 +146,7 @@ builtinVirtuals =
               , ("rem", arithScm)
               , ("shift-l", bitwiseScm)
               , ("shift-r", bitwiseScm)
+              , ("ashift-r", bitwiseScm)
               , ("bit-and", bitwiseScm)
               , ("bit-or", bitwiseScm)
               , ("bit-xor", bitwiseScm)

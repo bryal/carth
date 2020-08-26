@@ -535,6 +535,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         "rem" -> wrap2 =<< arithm urem srem frem t
         "shift-l" -> wrap2 =<< bitwise shl shl t
         "shift-r" -> wrap2 =<< bitwise lshr ashr t
+        "ashift-r" -> wrap2 =<< bitwise ashr ashr t
         "bit-and" -> wrap2 =<< bitwise and' and' t
         "bit-or" -> wrap2 =<< bitwise or' or' t
         "bit-xor" -> wrap2 =<< bitwise xor xor t
