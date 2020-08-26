@@ -1,6 +1,13 @@
+(import std)
+
 (data (Maybe a)
   None
   (Some a))
+
+(define (maybe b f)
+  (fmatch
+    (case (Some a) (f a))
+    (case None     b)))
 
 (define unwrap!
   (fmatch (case (Some x) x)
