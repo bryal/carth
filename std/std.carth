@@ -41,7 +41,11 @@
 (define (seq   a b) b)
 
 (define (<o f g a) (f (g a)))
+(define (<oo f g a b) (f (g a b)))
+(define (<ooo f g a b c) (f (g a b c)))
 (define (o> f g a) (g (f a)))
+(define (oo> f g a b) (g (f a b)))
+(define (ooo> f g a b c) (g (f a b c)))
 
 (define (flip f a b) (f b a))
 
