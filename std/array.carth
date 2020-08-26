@@ -1,0 +1,21 @@
+(import iter)
+(import mem)
+
+(define: (array/iter (Array ptr len))
+    (forall (a) (Fun (Array a) (Iter a)))
+  (map (<o deref (<o (ptr/+ ptr) cast))
+       (xrange 0 (cast len))))
+
+(define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
+  (let ((n (iter/length xs))
+        (ptr (: (transmute (id@"GC_malloc" (* (sizeof a) n))) (Box a))))
+    (foldl (fun (v (Pair i x)) (array/insert i x v))
+           (Array ptr (cast n))
+           (enumerate xs))))
+
+(define: (array/insert i x (Array ptr n))
+    (forall (a) (Fun Nat a (Array a) (Array a)))
+  (if (>= i n)
+      (panic "array/insert after end of array")
+    (seq (store x (ptr/+ ptr i))
+         (Array ptr n))))
