@@ -9,3 +9,16 @@
 (define (map-maybe f)
   (fmatch (case (Some x) (Some (f x)))
           (case None None)))
+
+(define (maybe/map2 f) (maybe/lift2 (<oo Some f)))
+
+(define (maybe/lift2 f ma mb)
+  (maybe/bindr ma (fun (a) (maybe/bindr mb (f a)))))
+
+(define (maybe/bind f)
+  (fmatch
+    (case (Some a) (f a))
+    (case None None)))
+
+(define maybe/bindl maybe/bind)
+(define maybe/bindr (flip maybe/bind))
