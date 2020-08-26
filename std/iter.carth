@@ -5,6 +5,21 @@
 (data (Iter a)
   (Iter (Fun Unit (Maybe (Pair a (Iter a))))))
 
+(define iter/nil
+  (Iter (fun (_) None)))
+
+(define (iter/once x)
+  (iter/cons x iter/nil))
+
+(define (iter/cons x xs)
+  (Iter (fun (_) (Some (Pair x xs)))))
+
+(define (iter/chain xs ys)
+  (Iter (fun (_) (maybe (next ys)
+                        (fun ((Pair x xs'))
+                          (Some (Pair x (iter/chain xs' ys))))
+                        (next xs)))))
+
 (define (next (Iter it)) (it Unit))
 (define next! (<o unwrap! next))
 
@@ -20,6 +35,14 @@
   (Iter (if (> n 0)
             (fun (_) (map-maybe (map-cdr (take (- n 1))) (next xs)))
           (fun (_) None))))
+
+(define: (skip n xs)
+    (forall (a) (Fun Nat (Iter a) (Iter a)))
+  (if (= n (cast 0))
+      xs
+    (match (next xs)
+      (case None iter/nil)
+      (case (Some (Pair _ xs)) (skip (dec n) xs)))))
 
 (define (skip-while pred xs)
   (letrec ((skip-while' (fun (xs)
@@ -42,10 +65,25 @@
 
 (define: (foldl f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
-  (letrec ((foldl' (fun ((Pair acc xs))
-                     (match (next xs)
-                       (case (Some (Pair x xs'))
-                             (foldl' (Pair (f acc x) xs')))
-                       (case None
-                             acc)))))
-    (foldl' (Pair acc xs))))
+  (define (foldl' (Pair acc xs))
+    (match (next xs)
+      (case (Some (Pair x xs'))
+            (foldl' (Pair (f acc x) xs')))
+      (case None
+            acc)))
+  (foldl' (Pair acc xs)))
+
+(define (reverse xs)
+  (define (rev xs a)
+    (maybe a (fun ((Pair x xs')) (rev xs' (iter/cons x a))) (next xs)))
+  (rev xs iter/nil))
+
+(define (iter/length xs)
+  (foldl (<o const inc) 0 xs))
+
+(define enumerate (zip (range-from (: (cast 0) Nat))))
+
+(define (zip xs ys)
+  (Iter (fun (_) (maybe/map2 (fun ((Pair x xs') (Pair y ys'))
+                               (Pair (Pair x y) (zip xs' ys')))
+                             (next xs) (next ys)))))
