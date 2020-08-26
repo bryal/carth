@@ -468,18 +468,19 @@ lookupVar' x =
 
 genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) aes = do
-    -- TODO/FIXME: The arguments are not generated in the same scope as the application if
-    --       the builtin virtual is partially applied. If it's fully applied, there's no
-    --       problem, as no additional wrapping lambda scope will be created, and the
-    --       local references to the argument values will be valid. If it's not applied at
-    --       all, there's no problem, as there are no generated arguments to try to reach
-    --       in the first place. Only partial application is a problem.
+    -- FIXME: The arguments are not generated in the same scope as the application if the
+    --        builtin virtual is partially applied. If it's fully applied, there's no
+    --        problem, as no additional wrapping lambda scope will be created, and the
+    --        local references to the argument values will be valid. If it's not applied
+    --        at all, there's no problem, as there are no generated arguments to try to
+    --        reach in the first place. Only partial application is a problem.
     --
-    --       One solution could be to generate functions with all parameters, i.e. not
-    --       partially applied, and do that only once. Then, partial application is as
-    --       simple as looking up the global, single function definition, and partially
-    --       apply it. The normal function generation logic will handle variable capturing
-    --       and closure generation. Only full application would be a special case.
+    --        One solution could be to generate functions with all parameters, i.e. not
+    --        partially applied, and do that only once. Then, partial application is as
+    --        simple as looking up the global, single function definition, and partially
+    --        apply it. The normal function generation logic will handle variable
+    --        capturing and closure generation. Only full application would be a special
+    --        case.
     as <- sequence aes
     pos <- view srcPos
     let wrap xts genRt f = do
