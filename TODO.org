@@ -478,3 +478,12 @@ Features and other stuff to do/implement in/around Carth.
   transformations from Carth IR to LLVM, instead transforming to this
   more functional IR. GRIN might also be able to perform more
   optimizations.
+* TODO Testing
+  To detect regressions & ensure examples are up-to-date and valid.
+
+  I'm thinking something quite simple -- create a directory test/ or
+  some such, and fill it with .carth tests/examples. As part of `stack
+  test`, make sure all of them compile. Also, the first line(s) of the
+  file could be a special kind of comment that specifies what inputs
+  to run the program for, what outputs to expect, and what stdout to
+  expect.
