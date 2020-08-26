@@ -243,11 +243,17 @@ num = andSkipSpaceAfter ns_num
 ns_num :: Parser Expr'
 ns_num = do
     neg <- option False (char '-' $> True)
-    a <- eitherP (try (Lexer.decimal <* notFollowedBy (char '.'))) Lexer.float
-    let e = either (\n -> Int (if neg then -n else n))
+    a <- eitherP (try (ns_nat <* notFollowedBy (char '.'))) Lexer.float
+    let e = either ((\n -> Int (if neg then -n else n)) . fromIntegral)
                    (\x -> F64 (if neg then -x else x))
                    a
     pure (Lit e)
+
+ns_nat :: Parser Word
+ns_nat = choice [ string "0b" *> Lexer.binary
+                , string "0x" *> Lexer.hexadecimal
+                , Lexer.decimal
+                ]
 
 strlit :: Parser String
 strlit = andSkipSpaceAfter ns_strlit
