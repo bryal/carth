@@ -7,6 +7,9 @@ import Data.List
 import Data.Bifunctor
 import qualified Data.Set as Set
 import Data.Set (Set)
+import LLVM.AST (Module)
+import LLVM.Pretty ()
+import qualified Data.Text.Prettyprint.Doc as Prettyprint
 
 import Misc
 import SrcPos
@@ -259,3 +262,7 @@ prettyMonoTFun a b =
             M.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
     in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
+
+
+instance Pretty Module where
+    pretty' _ = show . Prettyprint.pretty

@@ -58,12 +58,14 @@ library
     , filepath
     , llvm-hs
     , llvm-hs-pure
+    , llvm-hs-pretty
     , megaparsec
     , microlens-platform
     , mtl
     , process
     , template-haskell
     , utf8-string
+    , prettyprinter
   default-language: Haskell2010
 
 executable carth

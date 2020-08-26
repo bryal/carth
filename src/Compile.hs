@@ -36,6 +36,7 @@ import Conf
 import qualified Monomorphic
 import Codegen
 import Err
+import Pretty
 
 
 compile :: FilePath -> CompileConfig -> Monomorphic.Program -> IO ()
@@ -66,6 +67,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             layout <- getTargetMachineDataLayout tm
             verbose cfg ("   Generating LLVM")
             amod <- codegen' layout file pgm
+            when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
             flip
                     catch
                     (\case
