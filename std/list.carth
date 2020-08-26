@@ -50,3 +50,11 @@
   (cons x0 (list4 x1 x2 x3 x4)))
 (define (list6 x0 x1 x2 x3 x4 x5)
   (cons x0 (list5 x1 x2 x3 x4 x5)))
+
+(define (list/iter xs)
+  (Iter (fun (Unit)
+          (match xs
+            (case (Cons (Box (Pair y ys)))
+                  (Some (Pair y (list/iter ys))))
+            (case Nil
+                  None)))))
