@@ -25,6 +25,7 @@ import qualified Parsed
 import Parsed (Id(..), IdCase(..), idstr)
 import Err
 import Inferred hiding (Id)
+import TypeAst hiding (TConst)
 
 
 newtype ExpectedType = Expected Type
@@ -165,8 +166,8 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
 checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
 checkScheme = curry $ \case
     ("main", Nothing) -> pure (Just (Forall Set.empty mainType))
-    ("main", Just s@(Parsed.Forall pos vs t))
-        | Set.size vs /= 0 || t /= Parsed.mainType -> throwError (WrongMainType pos s)
+    ("main", Just s@(Parsed.Forall pos vs t)) | Set.size vs /= 0 || t /= mainType ->
+        throwError (WrongMainType pos s)
     (_, Nothing) -> pure Nothing
     (_, Just (Parsed.Forall pos vs t)) -> do
         t' <- checkType pos t

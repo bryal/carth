@@ -44,6 +44,7 @@ import qualified LLSubprog
 
 import Misc
 import Pretty
+import qualified TypeAst
 import qualified Monomorphic as M
 import Monomorphic (TypedVar(..), TPrim(..))
 import qualified Monomorphize
@@ -1199,7 +1200,7 @@ litUnit :: Operand
 litUnit = ConstantOperand (litStruct [])
 
 typeStr :: Type
-typeStr = NamedTypeReference (mkName (mangleTConst ("Str", [])))
+typeStr = NamedTypeReference (mkName (mangleTConst TypeAst.tStr'))
 
 typeBool :: Type
 typeBool = i8
@@ -1242,7 +1243,7 @@ mangleType :: M.Type -> String
 mangleType = \case
     M.TPrim c -> pretty c
     M.TFun p r -> mangleTConst ("Fun", [p, r])
-    M.TBox t -> mangleTConst ("Box", [t])
+    M.TBox t -> mangleTConst (TypeAst.tBox' t)
     M.TConst tc -> mangleTConst tc
 
 mangleTConst :: M.TConst -> String

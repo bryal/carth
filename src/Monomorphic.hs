@@ -15,9 +15,11 @@ import Misc
 import SrcPos
 import Checked (VariantIx, Span)
 import FreeVars
-import Parsed (Const(..), TPrim(..), tUnit)
+import Parsed (Const(..))
+import TypeAst hiding (TConst)
+import qualified TypeAst
 
-type TConst = (String, [Type])
+type TConst = TypeAst.TConst Type
 
 data Type
     = TPrim TPrim
@@ -77,6 +79,12 @@ data Program = Program Defs Datas Externs
     deriving (Show)
 
 
+instance TypeAst Type where
+    tprim = TPrim
+    tconst = TConst
+    tfun = TFun
+    tbox = TBox
+
 instance FreeVars Expr TypedVar where
     freeVars (Expr _ e) = fvExpr' e
 
@@ -117,6 +125,3 @@ funDefFromVarDef :: VarDef -> (TypedVar, WithPos ([Type], Fun))
 funDefFromVarDef = second $ mapPosd $ second $ \case
     Fun f -> f
     e -> ice $ "funDefFromVarDef on non-positioned function " ++ show e
-
-mainType :: Type
-mainType = TFun (TConst tUnit) (TConst tUnit)

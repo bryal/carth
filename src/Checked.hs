@@ -20,9 +20,9 @@ import Data.Bifunctor
 
 import Misc
 import SrcPos
+import TypeAst hiding (TConst)
 import Inferred
     ( TVar(..)
-    , TPrim(..)
     , TConst
     , Type(..)
     , Scheme(..)
@@ -30,7 +30,6 @@ import Inferred
     , VariantIx
     , Span
     , Con(..)
-    , mainType
     )
 import qualified Inferred
 

@@ -35,6 +35,7 @@ import SrcPos
 import FreeVars
 import qualified Monomorphic as M
 import Monomorphic hiding (Type, Const)
+import TypeAst
 import Selections
 import Gen
 import Extern
@@ -217,7 +218,7 @@ genInit :: FilePath -> [VarDef] -> Gen' [Definition]
 genInit moduleFp ds = do
     let name = mkName "carth_init"
     let pos = SrcPos moduleFp 1 1
-    let param = TypedVar "_" (TConst tUnit)
+    let param = TypedVar "_" tUnit
     let genDefs =
             forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
     fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], pos, param, genDefs)

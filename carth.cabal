@@ -45,6 +45,7 @@ library
       SrcPos
       Subst
       Err
+      TypeAst
   other-modules:
   hs-source-dirs:
       src

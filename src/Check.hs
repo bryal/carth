@@ -19,11 +19,12 @@ import Misc
 import SrcPos
 import Subst
 import qualified Parsed
-import Parsed (Id(..), TVar(..), TPrim(..), idstr)
+import Parsed (Id(..), TVar(..), idstr)
 import Err
 import qualified Inferred
 import Match
 import Infer
+import TypeAst
 import qualified Checked
 import Checked (withPos, noPos)
 
@@ -106,7 +107,7 @@ builtinDataTypes' =
           )
         ]
       )
-    , ("Str", [], [("Str", [Inferred.TConst ("Array", [Inferred.TPrim (TNat 8)])])])
+    , ("Str", [], [("Str", [tArray (Inferred.TPrim (TNat 8))])])
     , ( "Pair"
       , [TVImplicit 0, TVImplicit 1]
       , [("Pair", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]

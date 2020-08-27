@@ -12,8 +12,10 @@ import Lens.Micro.Platform (makeLenses)
 
 import Misc
 import qualified Parsed
-import Parsed (TVar(..), TPrim(..), Const(..), tUnit)
+import Parsed (TVar(..), Const(..))
 import SrcPos
+import TypeAst hiding (TConst)
+import qualified TypeAst
 
 
 data TypeErr
@@ -40,7 +42,7 @@ data TypeErr
     | ConflictingVarDef SrcPos String
     deriving Show
 
-type TConst = (String, [Type])
+type TConst = TypeAst.TConst Type
 
 data Type
     = TVar TVar
@@ -114,6 +116,12 @@ instance Eq Con where
 instance Ord Con where
     compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
 
+instance TypeAst Type where
+    tprim = TPrim
+    tconst = TConst
+    tfun = TFun
+    tbox = TBox
+
 
 ftv :: Type -> Set TVar
 ftv = \case
@@ -126,7 +134,7 @@ ftv = \case
 builtinExterns :: Map String (Type, SrcPos)
 builtinExterns = Map.fromList $ map
     (second (, SrcPos "<builtin>" 0 0))
-    [("GC_malloc", TFun (TPrim TIntSize) (TBox (TConst tUnit)))]
+    [("GC_malloc", tfun (TPrim TIntSize) (TBox tUnit))]
 
 builtinVirtuals :: Map String Scheme
 builtinVirtuals =
@@ -135,9 +143,9 @@ builtinVirtuals =
         ta = TVar tva
         tvb = tv "b"
         tb = TVar tvb
-        arithScm = Forall (Set.fromList [tva]) (TFun ta (TFun ta ta))
+        arithScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta ta))
         bitwiseScm = arithScm
-        relScm = Forall (Set.fromList [tva]) (TFun ta (TFun ta tBool))
+        relScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta tBool))
     in  Map.fromList
             $ [ ("+", arithScm)
               , ("-", arithScm)
@@ -179,9 +187,3 @@ defToVarDefs :: Def -> [(String, WithPos (Scheme, Expr))]
 defToVarDefs = \case
     VarDef d -> [d]
     RecDefs ds -> map (second (mapPosd (second (mapPosd FunMatch)))) ds
-
-mainType :: Type
-mainType = TFun (TConst tUnit) (TConst tUnit)
-
-tBool :: Type
-tBool = TConst ("Bool", [])

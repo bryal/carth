@@ -21,6 +21,7 @@ import SrcPos
 import qualified Checked
 import Checked (noPos, TVar(..), Scheme(..))
 import Monomorphic
+import TypeAst hiding (TConst)
 
 type Env = Map TVar Type
 
@@ -79,7 +80,7 @@ monomorphize (Checked.Program (Topo defs) datas externs) =
 
     -- We must manually add instantiations for types that occur in generated code and is
     -- not "detected" by the monomorphization pass, or the types won't be defined.
-    builtinDataInsts = [("Str", []), tUnit, ("Bool", [])]
+    builtinDataInsts = [tStr', tUnit', tBool']
 
 builtinExterns :: Map String Type
 builtinExterns = fst $ evalMono (mapM monotype Checked.builtinExterns)

@@ -1,16 +1,16 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
            , MultiParamTypeClasses, KindSignatures, DataKinds #-}
 
-module Parsed where
+module Parsed (module Parsed, TPrim(..), TConst) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Bifunctor
 import Control.Arrow ((>>>))
-import Data.Word
 
 import SrcPos
 import FreeVars
+import TypeAst
 
 
 data IdCase = Big | Small
@@ -23,26 +23,13 @@ data TVar
     | TVImplicit Int
     deriving (Show, Eq, Ord)
 
-data TPrim
-    = TNat Word32
-    | TNatSize
-    | TInt Word32
-    | TIntSize
-    | TF16
-    | TF32
-    | TF64
-    | TF128
-    deriving (Show, Eq, Ord)
-
-type TConst = (String, [Type])
-
 -- TODO: Now that AnnotAst.Type is not just an alias to Ast.Type, it makes sense
 --       to add SrcPos-itions to Ast.Type! Would simplify / improve error
 --       messages quite a bit.
 data Type
     = TVar TVar
     | TPrim TPrim
-    | TConst TConst
+    | TConst (TConst Type)
     | TFun Type Type
     | TBox Type
     deriving (Show, Eq, Ord)
@@ -94,6 +81,12 @@ data Extern = Extern (Id 'Small) Type
 data Program = Program [Def] [TypeDef] [Extern]
     deriving (Show, Eq)
 
+
+instance TypeAst Type where
+    tprim = TPrim
+    tconst = TConst
+    tfun = TFun
+    tbox = TBox
 
 instance Eq Pat where
     (==) = curry $ \case
@@ -150,9 +143,3 @@ bvPat = \case
 
 idstr :: Id a -> String
 idstr (Id (WithPos _ x)) = x
-
-mainType :: Type
-mainType = TFun (TConst tUnit) (TConst tUnit)
-
-tUnit :: (String, [a])
-tUnit = ("Unit", [])

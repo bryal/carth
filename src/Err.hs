@@ -4,6 +4,7 @@ module Err (module Err, TypeErr(..), GenErr(..)) where
 
 import Misc
 import SrcPos
+import TypeAst
 import qualified Parsed
 import Inferred
 import Pretty
@@ -66,7 +67,7 @@ printTypeErr = \case
     WrongMainType p s ->
         posd p
             $ "Incorrect type of `main`.\n"
-            ++ ("Expected: " ++ pretty mainType)
+            ++ ("Expected: " ++ pretty (mainType :: Type))
             ++ ("\nFound: " ++ pretty s)
     RecursiveVarDef (WithPos p x) ->
         posd p $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
