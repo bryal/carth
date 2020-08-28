@@ -22,18 +22,16 @@ getConfig = do
     let subCompile a = a == "c" || a == "compile"
     let subRun a = a == "r" || a == "run"
     case as of
-        a : as'
-            | subCompile a -> compileCfg as'
-            | subRun a -> runCfg as'
+        a : as' | subCompile a -> compileCfg as'
+                | subRun a -> runCfg as'
         a : _ | a == "-h" || a == "--help" -> do
             putStrLn usageSubs
             exitFailure
         "help" : [] -> do
             putStrLn usageSubs
             exitFailure
-        "help" : a : _
-            | subCompile a -> usageCompile
-            | subRun a -> usageRun
+        "help" : a : _ | subCompile a -> usageCompile
+                       | subRun a -> usageRun
         "version" : _ -> printVersion >> exitSuccess
         a : _ -> do
             putStrLn ("Error: `" ++ a ++ "` is not a valid subcommand\n")
@@ -120,16 +118,14 @@ usageRun = do
 
 compileOpts :: [OptDescr (CompileConfig -> CompileConfig)]
 compileOpts =
-    [ Option
-        []
-        ["cc"]
-        (ReqArg (\cc' c -> c { cCompiler = cc' }) "PROGRAM")
-        "C compiler to use for linking"
-    , Option
-        ['o']
-        ["outfile"]
-        (ReqArg (\f c -> c { cOutfile = f }) "FILE")
-        "Output filepath"
+    [ Option []
+             ["cc"]
+             (ReqArg (\cc' c -> c { cCompiler = cc' }) "PROGRAM")
+             "C compiler to use for linking"
+    , Option ['o']
+             ["outfile"]
+             (ReqArg (\f c -> c { cOutfile = f }) "FILE")
+             "Output filepath"
     , Option [] ["debug"] (NoArg (\c -> c { cDebug = True })) "Enable debugging"
     , Option ['v'] ["verbose"] (NoArg (\c -> c { cVerbose = True })) "Verbose output"
     ]

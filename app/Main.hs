@@ -67,8 +67,7 @@ parse f = Parse.parse f >>= \case
     Left e -> putStrLn (formatParseErr e) >> abort f
     Right p -> pure p
   where
-    formatParseErr e =
-        let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
+    formatParseErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
 typecheck' :: FilePath -> Parsed.Program -> IO Checked.Program
 typecheck' f p = case typecheck p of
