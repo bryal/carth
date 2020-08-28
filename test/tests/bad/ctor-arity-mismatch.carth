@@ -1,0 +1,7 @@
+;; CtorArityMismatch
+
+(data Integ (Integ Int))
+
+(define arity-mismatch-for-constructor
+  (match (Integ 1)
+    (case (Integ foo bar) foo)))

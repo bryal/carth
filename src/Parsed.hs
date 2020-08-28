@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
-           , MultiParamTypeClasses, KindSignatures, DataKinds #-}
+           , MultiParamTypeClasses, KindSignatures, DataKinds
+           , DeriveDataTypeable #-}
 
 module Parsed (module Parsed, TPrim(..), TConst) where
 
@@ -8,6 +9,7 @@ import Data.Set (Set)
 import Data.Bifunctor
 import Control.Arrow ((>>>))
 
+import Data.Data
 import SrcPos
 import FreeVars
 import TypeAst
@@ -16,12 +18,12 @@ import TypeAst
 data IdCase = Big | Small
 
 newtype Id (case' :: IdCase) = Id (WithPos String)
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Data)
 
 data TVar
     = TVExplicit (Id 'Small)
     | TVImplicit Int
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Data)
 
 -- TODO: Now that AnnotAst.Type is not just an alias to Ast.Type, it makes sense
 --       to add SrcPos-itions to Ast.Type! Would simplify / improve error
@@ -32,10 +34,10 @@ data Type
     | TConst (TConst Type)
     | TFun Type Type
     | TBox Type
-    deriving (Show, Eq, Ord)
+    deriving (Show, Eq, Ord, Data)
 
 data Scheme = Forall SrcPos (Set TVar) Type
-     deriving (Show, Eq)
+     deriving (Show, Eq, Data)
 
 data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]

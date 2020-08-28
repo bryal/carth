@@ -1,0 +1,3 @@
+;; RecTypeDef
+
+(data Foo (Foo Foo))

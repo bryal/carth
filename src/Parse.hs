@@ -250,10 +250,8 @@ ns_num = do
     pure (Lit e)
 
 ns_nat :: Parser Word
-ns_nat = choice [ string "0b" *> Lexer.binary
-                , string "0x" *> Lexer.hexadecimal
-                , Lexer.decimal
-                ]
+ns_nat =
+    choice [string "0b" *> Lexer.binary, string "0x" *> Lexer.hexadecimal, Lexer.decimal]
 
 strlit :: Parser String
 strlit = andSkipSpaceAfter ns_strlit

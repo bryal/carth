@@ -1,0 +1,4 @@
+;; ConflictingTypeDef
+
+(data Foo)
+(data Foo)

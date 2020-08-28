@@ -1,0 +1,5 @@
+;; InvalidUserTypeSig
+
+(define: (invalid-user-type-signature x)
+    (forall (a b c) (Fun a a))
+  x)

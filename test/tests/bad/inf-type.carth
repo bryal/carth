@@ -1,0 +1,3 @@
+;; InfType
+
+(define (infinite-type x) (infinite-type x infinite-type))

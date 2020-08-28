@@ -1,0 +1,4 @@
+;; TypeInstArityMismatch
+
+(data (Foo a) (Foo a))
+(data Bar (Bar Foo))

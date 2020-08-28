@@ -1,0 +1,3 @@
+;; UndefVar
+
+(define undef-var this-var-is-undefined)

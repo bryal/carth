@@ -1,0 +1,3 @@
+;; UndefType
+
+(extern foo (Fun Int Foo))

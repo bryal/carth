@@ -1,0 +1,3 @@
+;; InexhaustivePats
+
+(define foo (fmatch (case True 0)))

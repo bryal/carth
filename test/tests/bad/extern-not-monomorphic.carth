@@ -1,0 +1,3 @@
+;; ExternNotMonomorphic
+
+(extern foo (Fun a Int))

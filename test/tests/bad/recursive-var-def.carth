@@ -1,0 +1,3 @@
+;; RecursiveVarDef
+
+(define: foo Int (+ foo 1))

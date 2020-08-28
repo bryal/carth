@@ -1,0 +1,4 @@
+;; ConflictingVarDef
+
+(define foo +)
+(define foo -)

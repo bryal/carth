@@ -1,0 +1,3 @@
+;; ConflictingCtorDef
+
+(data Foo Bar Bar)

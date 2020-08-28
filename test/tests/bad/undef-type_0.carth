@@ -1,0 +1,3 @@
+;; UndefType
+
+(data Foo (Foo Bar))

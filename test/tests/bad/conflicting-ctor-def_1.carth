@@ -1,0 +1,4 @@
+;; ConflictingCtorDef
+
+(data Baz Baz)
+(data Quux Baz)

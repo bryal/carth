@@ -1,0 +1,3 @@
+;; WrongMainType
+
+(define: main Int (undefined Unit))

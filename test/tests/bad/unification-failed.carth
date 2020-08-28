@@ -1,0 +1,5 @@
+;; UnificationFailed
+
+(data Integ (Integ Int))
+
+(define type-mismatch (Integ True))
