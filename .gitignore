@@ -8,3 +8,4 @@
 *.untangled
 *.svg
 *.prof
+*.o

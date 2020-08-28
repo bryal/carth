@@ -1,4 +1,4 @@
-module Conf (Conf(..), CompileConfig(..), RunConfig(..), verbose, Config(..)) where
+module Conf where
 
 import Control.Monad
 
@@ -30,6 +30,14 @@ instance Config CompileConfig where
 instance Config RunConfig where
     getDebug = rDebug
     getVerbose = rVerbose
+
+defaultCompileConfig :: FilePath -> FilePath -> CompileConfig
+defaultCompileConfig inf outf = CompileConfig { cInfile = inf
+                                              , cOutfile = outf
+                                              , cCompiler = "cc"
+                                              , cDebug = False
+                                              , cVerbose = False
+                                              }
 
 verbose :: Config cfg => cfg -> String -> IO ()
 verbose cfg msg = when (getVerbose cfg) $ putStrLn msg

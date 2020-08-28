@@ -1,0 +1,11 @@
+(import std)
+
+(define (main unit)
+  (display (show-int (fib 11))))
+
+(define fib
+  (fmatch
+    (case 0 0)
+    (case 1 1)
+    (case n (+ (fib (- n 1))
+               (fib (- n 2))))))

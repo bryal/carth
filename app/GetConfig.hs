@@ -63,13 +63,7 @@ compileCfg args = do
             $ ("Error: Input file \"" ++ inf ++ "\" ")
             ++ "would be overwritten by the generated executable"
         exitFailure
-    let defaultCfg = CompileConfig
-            { cInfile = inf
-            , cOutfile = outf
-            , cCompiler = "cc"
-            , cDebug = False
-            , cVerbose = False
-            }
+    let defaultCfg = defaultCompileConfig inf outf
         cfg = foldl (&) defaultCfg fs
     pure (CompileConf cfg)
 

@@ -1,0 +1,19 @@
+(import std)
+
+(define (main Unit)
+  (for (range-from 0) big-allocation))
+
+(define (big-allocation n)
+  (let ((a (A n n n n))
+        (b (B a a a a))
+        (c (C b b b b))
+        (d (D c c c c))
+        (e (E d d d d)))
+    (seq (box (F e e e e)) (display (show-int n)))))
+
+(data A (A Int Int Int Int))
+(data B (B A A A A))
+(data C (C B B B B))
+(data D (D C C C C))
+(data E (E D D D D))
+(data F (F E E E E))
