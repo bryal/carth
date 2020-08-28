@@ -487,3 +487,15 @@ Features and other stuff to do/implement in/around Carth.
   file could be a special kind of comment that specifies what inputs
   to run the program for, what outputs to expect, and what stdout to
   expect.
+* TODO Optimize away zero-sized types before codegen
+  Handling zero-sized types is kind of annoying. Some things in LLVM,
+  like tail call optimization, doesn't works quite intuitively when
+  zero-sized types (e.g. ~{}~, ~{{}, {}}~) are involved. I therefore
+  think it would be a good idea to add a dedicated optimization pass
+  after monomorphization but before codegen that just gets rid of all
+  zero-sized types and operations on them. For example, a type like
+  ~(data Foo (Foo Bar Unit Baz))~ can be changed to ~(data Foo (Foo
+  Bar Baz))~ without affecting the size of the generated struct
+  etc. Also, a store of a ~{}~ into a ~{}*~ is really a no-op -- just
+  noise in the generated LLVM. Being able to assume no zero-sized
+  types in Gen/Codegen would be really nice, I think.
