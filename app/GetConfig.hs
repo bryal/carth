@@ -70,7 +70,7 @@ compileCfg args = do
 runCfg :: [String] -> IO Conf
 runCfg args = do
     (fs, inf) <- get args runOpts usageRun
-    let defaultCfg = RunConfig { rInfile = inf, rDebug = False, rVerbose = False }
+    let defaultCfg = defaultRunConfig inf
         cfg = foldl (&) defaultCfg fs
     pure (RunConf cfg)
 

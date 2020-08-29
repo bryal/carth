@@ -94,3 +94,6 @@ partitionWith f = foldl'
         Right c -> (bs, c : cs)
     )
     ([], [])
+
+rightToMaybe :: Either a b -> Maybe b
+rightToMaybe = either (const Nothing) Just

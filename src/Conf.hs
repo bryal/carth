@@ -39,5 +39,8 @@ defaultCompileConfig inf outf = CompileConfig { cInfile = inf
                                               , cVerbose = False
                                               }
 
+defaultRunConfig :: FilePath -> RunConfig
+defaultRunConfig inf = RunConfig { rInfile = inf, rDebug = False, rVerbose = False }
+
 verbose :: Config cfg => cfg -> String -> IO ()
 verbose cfg msg = when (getVerbose cfg) $ putStrLn msg
