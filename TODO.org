@@ -478,15 +478,6 @@ Features and other stuff to do/implement in/around Carth.
   transformations from Carth IR to LLVM, instead transforming to this
   more functional IR. GRIN might also be able to perform more
   optimizations.
-* TODO Testing
-  To detect regressions & ensure examples are up-to-date and valid.
-
-  I'm thinking something quite simple -- create a directory test/ or
-  some such, and fill it with .carth tests/examples. As part of `stack
-  test`, make sure all of them compile. Also, the first line(s) of the
-  file could be a special kind of comment that specifies what inputs
-  to run the program for, what outputs to expect, and what stdout to
-  expect.
 * TODO Optimize away zero-sized types before codegen
   Handling zero-sized types is kind of annoying. Some things in LLVM,
   like tail call optimization, doesn't works quite intuitively when
@@ -513,3 +504,14 @@ Features and other stuff to do/implement in/around Carth.
   functions not optimized away, or unsafePerformIO returns something
   like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
   ensure the result is sized.
+
+* TODO Pair notation
+  ~(Pair _ _)~ sucks to type, and pairs are or will be common. An idea:
+
+  #+BEGIN_EXAMPLE
+  [a . b] => (Pair a b)
+  [a b c] => (Pair a (Pair b (Pair c Unit)))
+  [a b . c] => (Pair a (Pair b c))
+  [a . [b . c]] => —"—
+  [a . b . c] => invalid
+  #+END_EXAMPLE
