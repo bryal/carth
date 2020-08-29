@@ -101,79 +101,9 @@ fn from_carth_str<'s>(s: &'s Str) -> &'s str {
     }
 }
 
-#[export_name = "+i"]
-pub extern "C" fn add_int(a: i64, b: i64) -> i64 {
-    a + b
-}
-
-#[export_name = "-i"]
-pub extern "C" fn sub_int(a: i64, b: i64) -> i64 {
-    a - b
-}
-
-#[export_name = "*i"]
-pub extern "C" fn mul_int(a: i64, b: i64) -> i64 {
-    a * b
-}
-
-#[export_name = "/i"]
-pub extern "C" fn div_int(a: i64, b: i64) -> i64 {
-    a / b
-}
-
-#[export_name = "remi"]
-pub extern "C" fn rem_int(a: i64, b: i64) -> i64 {
-    a % b
-}
-
-#[export_name = ">i"]
-pub extern "C" fn gt_int(a: i64, b: i64) -> bool {
-    a > b
-}
-
-#[export_name = "=i"]
-pub extern "C" fn eq_int(a: i64, b: i64) -> bool {
-    a == b
-}
-
 #[export_name = "show-int"]
 pub extern "C" fn show_int(n: i64) -> Str {
     Str::new(&n.to_string())
-}
-
-#[export_name = "+f"]
-pub extern "C" fn add_f64(a: f64, b: f64) -> f64 {
-    a + b
-}
-
-#[export_name = "-f"]
-pub extern "C" fn sub_f64(a: f64, b: f64) -> f64 {
-    a - b
-}
-
-#[export_name = "*f"]
-pub extern "C" fn mul_f64(a: f64, b: f64) -> f64 {
-    a * b
-}
-
-#[export_name = "/f"]
-pub extern "C" fn div_f64(a: f64, b: f64) -> f64 {
-    a / b
-}
-
-#[export_name = "remf"]
-pub extern "C" fn rem_f64(a: f64, b: f64) -> f64 {
-    a % b
-}
-
-#[export_name = ">f"]
-pub extern "C" fn gt_f64(a: f64, b: f64) -> bool {
-    a > b
-}
-
-#[export_name = "=f"]
-pub extern "C" fn eq_f64(a: f64, b: f64) -> bool {
-    a == b
 }
 
 #[export_name = "show-f64"]
@@ -185,4 +115,17 @@ pub extern "C" fn show_f64(n: f64) -> Str {
 pub extern "C" fn panic(s: Str) {
     eprintln!("*** Panic: {}", from_carth_str(&s));
     std::process::abort()
+}
+
+// NOTE: This is a hack to ensure that Rust links in libm.
+//
+//       It seems that if no non-dead code makes use of functions from libm, then rustc or
+//       cargo won't link with libm. However, we need that to happen, as when running a
+//       Carth program with the JIT, there is no shared library for libm to load, so we
+//       need the libm functionality to be included in libforeign_core.so.
+//
+// TODO: Find some other way of ensuring libm is linked with when creating the shared lib.
+#[no_mangle]
+pub extern "C" fn dummy_ensure_rust_links_libm(a: f64) -> f64 {
+    f64::sin(a)
 }
