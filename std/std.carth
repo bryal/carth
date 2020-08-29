@@ -24,9 +24,18 @@
 (define (panic msg)
   (seq (-panic msg) (undefined Unit)))
 
+(data Cmp
+  Lt Eq Gt)
+
+(define (int/cmp a b)
+  (if (< a b) Lt
+    (if (= a b) Eq
+      Gt)))
+
 ;;; Strings
 
 (extern show-int (Fun Int Str))
+(extern show-nat (Fun Nat Str))
 (extern show-f64 (Fun F64 Str))
 
 (extern str-append (Fun Str Str Str))

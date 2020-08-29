@@ -1,6 +1,8 @@
 (import iter)
 (import mem)
 
+(define (array/length (Array _ n)) n)
+
 (define: (array/iter (Array ptr len))
     (forall (a) (Fun (Array a) (Iter a)))
   (map (<o deref (<o (ptr/+ ptr) cast))
@@ -19,3 +21,26 @@
       (panic "array/insert after end of array")
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
+
+(define (array/lookup i (Array ptr n))
+  (if (< i n)
+      (Some (deref (ptr/+ ptr i)))
+    None))
+
+(define array/lookup! (<oo unwrap! array/lookup))
+
+;;? Binary search
+;;?
+;;? If there are multiple matches, the index of any of them may be returned.
+(define: (array/find cmp x ys)
+    (forall (a) (Fun (Fun a a Cmp) a (Array a) (Maybe Nat)))
+  (define (go start end)
+    (if (= start end)
+        None
+      (let ((i (+ start (/ (- end start) (cast 2))))
+            (y (array/lookup! i ys)))
+        (match (cmp x y)
+          (case Eq (Some i))
+          (case Lt (go start i))
+          (case Gt (go (inc i) end))))))
+  (go (cast 0) (array/length ys)))

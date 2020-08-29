@@ -106,6 +106,11 @@ pub extern "C" fn show_int(n: i64) -> Str {
     Str::new(&n.to_string())
 }
 
+#[export_name = "show-nat"]
+pub extern "C" fn show_nat(n: u64) -> Str {
+    Str::new(&n.to_string())
+}
+
 #[export_name = "show-f64"]
 pub extern "C" fn show_f64(n: f64) -> Str {
     Str::new(&n.to_string())

@@ -537,3 +537,22 @@ Features and other stuff to do/implement in/around Carth.
   [a . [b . c]] => —"—
   [a . b . c] => invalid
   #+END_EXAMPLE
+* NEXT Some algorithms & data structures
+  We need good collections & algs for sorting etc. if Carth is going
+  to be of any use to anyone. Would also be a good way to add to the
+  set of test-programs & find the worst pain points of current Carth.
+
+  Many of these have implementations to look at and compare to on
+  [[rosettacode.org]].
+
+  This list is sort of off the top of my head, so some might not be
+  good fits in a purely functional language. Look at some resource on
+  persistend data structures as well.
+
+  - Priority queue
+  - Binary tree
+  - B-tree
+  - Random number generator
+  - Binary search
+  - bubble, insertion, selection sort
+  - quicksort
