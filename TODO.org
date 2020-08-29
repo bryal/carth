@@ -499,3 +499,17 @@ Features and other stuff to do/implement in/around Carth.
   etc. Also, a store of a ~{}~ into a ~{}*~ is really a no-op -- just
   noise in the generated LLVM. Being able to assume no zero-sized
   types in Gen/Codegen would be really nice, I think.
+
+  One issue: If you get rid of all ZSTs, what happens to a function
+  with return-type Unit? What does it now return? One option could be
+  to have add a special LLVM-Void type that just marks that the
+  function should return void later. Another, more interesting option,
+  would be to simply remove all functions and function-calls where the
+  only remaining return type is a ZST, since, in purely functional
+  programming, such a function can't do anything anyways. This would
+  work, as long as *all* functions with side-effects are marked with
+  IO & the RealWorld of IO is not a ZST & unsafePerformIO is known to
+  the compiler and is (one of) the only (potentially) ZST-returning
+  functions not optimized away, or unsafePerformIO returns something
+  like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
+  ensure the result is sized.
