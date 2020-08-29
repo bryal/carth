@@ -33,8 +33,8 @@ import Lens.Micro.Platform (use, assign, Lens')
 import Misc
 import SrcPos
 import FreeVars
-import qualified Monomorphic as M
-import Monomorphic hiding (Type, Const)
+import qualified Optimized as Ast
+import Optimized hiding (Type, Const)
 import TypeAst
 import Selections
 import Gen
@@ -102,7 +102,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
     withGlobDefSigs
         :: MonadReader Env m
         => Lens' Env (Map TypedVar Operand)
-        -> [(TypedVar, WithPos ([M.Type], e))]
+        -> [(TypedVar, WithPos ([Ast.Type], e))]
         -> m x
         -> m x
     withGlobDefSigs env sigs ga = do
@@ -281,13 +281,13 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
         Sizeof t -> (VLocal . litI64 . fromIntegral) <$> ((lift . sizeof) =<< genType t)
         Absurd t -> fmap (VLocal . undef) (genType t)
 
-genExprLambda :: TypedVar -> (Expr, M.Type) -> Gen Val
+genExprLambda :: TypedVar -> (Expr, Ast.Type) -> Gen Val
 genExprLambda p (b, bt) = do
     fvXs <- lambdaBodyFreeVars p b
     bt' <- genRetType bt
     genLambda fvXs p (genTailExpr b, bt')
 
-genConst :: M.Const -> Gen Val
+genConst :: Ast.Const -> Gen Val
 genConst = \case
     Int n -> pure (VLocal (litI64 n))
     F64 x -> pure (VLocal (litF64 x))
@@ -451,9 +451,9 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
             join (foldrM genCase (genDT def selections') cs')
 
         genDT = \case
-            M.DLeaf l -> genDecisionLeaf l
-            M.DSwitch selector cs def -> genDecisionSwitchIx selector cs def
-            M.DSwitchStr selector cs def -> genDecisionSwitchStr selector cs def
+            Ast.DLeaf l -> genDecisionLeaf l
+            Ast.DSwitch selector cs def -> genDecisionSwitchIx selector cs def
+            Ast.DSwitchStr selector cs def -> genDecisionSwitchStr selector cs def
     in  genDT
 
 genTailCases
@@ -479,7 +479,7 @@ genCases tbody selections variantLs variantDts def = do
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnonReg (phi (v : vs)))
 
-selAs :: Span -> [M.Type] -> Operand -> Gen Operand
+selAs :: Span -> [Ast.Type] -> Operand -> Gen Operand
 selAs totVariants ts matchee = do
     tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
     let tgeneric = typeOf matchee
@@ -493,7 +493,7 @@ selSub span' i matchee =
     let tagOffset = if span' > 1 then 1 else 0
     in  emitReg "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
 
-genCtion :: M.Ction -> Gen Val
+genCtion :: Ast.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
     lookupEnum dataType & lift >>= \case
         Just 0 -> pure (VLocal litUnit)

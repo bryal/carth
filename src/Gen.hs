@@ -45,16 +45,16 @@ import qualified LLSubprog
 import Misc
 import Pretty
 import qualified TypeAst
-import qualified Monomorphic as M
-import Monomorphic (TypedVar(..), TPrim(..))
+import qualified Optimized as Ast
+import Optimized (TypedVar(..), TPrim(..))
 import qualified Monomorphize
 import SrcPos
 
 
 data GenErr
-    = TransmuteErr SrcPos (M.Type, Word64) (M.Type, Word64)
-    | CastErr SrcPos M.Type M.Type
-    | NoBulitinVirtualInstance SrcPos String M.Type
+    = TransmuteErr SrcPos (Ast.Type, Word64) (Ast.Type, Word64)
+    | CastErr SrcPos Ast.Type Ast.Type
+    | NoBulitinVirtualInstance SrcPos String Ast.Type
 
 type Instr = InstructionMetadata -> Instruction
 
@@ -159,7 +159,8 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                 simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
             ptrBytes = LLConst.BitCast inner typeGenericPtr
-            array = litStructNamed ("Array", [M.TPrim (TNat 8)]) [ptrBytes, litI64' len]
+            array =
+                litStructNamed ("Array", [Ast.TPrim (TNat 8)]) [ptrBytes, litI64' len]
             str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobConst strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
@@ -231,13 +232,13 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         UnName n -> fromString (show n)
 
 genTailWrapInLambdas
-    :: Type -> [TypedVar] -> [M.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
+    :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
 genTailWrapInLambdas rt fvs ps genBody =
     genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r -> if typeOf r == typeUnit
         then commitFinalFuncBlock retVoid $> LLType.void
         else commitFinalFuncBlock (ret r) $> typeOf r
 
-genWrapInLambdas :: Type -> [TypedVar] -> [M.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
+genWrapInLambdas :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
 genWrapInLambdas rt fvs pts genBody = case pts of
     [] -> genBody fvs
     (pt : pts') -> do
@@ -491,7 +492,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
             g
             t
     let arithm u s f = \case
-            M.TFun a@(M.TPrim p) (M.TFun b c) | a == b && a == c -> pure
+            Ast.TFun a@(Ast.TPrim p) (Ast.TFun b c) | a == b && a == c -> pure
                 ( a
                 , a
                 , genType a
@@ -501,7 +502,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                 )
             _ -> noInst
     let bitwise u s = \case
-            M.TFun a@(M.TPrim p) (M.TFun b c)
+            Ast.TFun a@(Ast.TPrim p) (Ast.TFun b c)
                 | a == b && a == c && (isInt' p || isNat p) -> pure
                     ( a
                     , a
@@ -512,7 +513,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                     )
             _ -> noInst
     let rel u s f = \case
-            M.TFun a@(M.TPrim p) (M.TFun b _) | a == b -> pure
+            Ast.TFun a@(Ast.TPrim p) (Ast.TFun b _) | a == b -> pure
                 ( a
                 , a
                 , pure typeBool
@@ -549,24 +550,24 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         "<" -> wrap2 =<< rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
         "<=" -> wrap2 =<< rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
         "transmute" -> wrap1 =<< case t of
-            M.TFun a b -> case pos of
+            Ast.TFun a b -> case pos of
                 Just p -> pure (a, genType b, \x -> genTransmute p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
             _ -> noInst
         "cast" -> wrap1 =<< case t of
-            M.TFun a b -> case pos of
+            Ast.TFun a b -> case pos of
                 Just p -> pure (a, genType b, \x -> genCast p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: cast: srcPos is Nothing"
             _ -> noInst
         "deref" -> wrap1 =<< case t of
-            M.TFun a b -> pure (a, genType b, genDeref)
+            Ast.TFun a b -> pure (a, genType b, genDeref)
             _ -> noInst
         "store" -> wrap2 =<< case t of
-            M.TFun a (M.TFun b c) -> pure (a, b, genType c, genStore)
+            Ast.TFun a (Ast.TFun b c) -> pure (a, b, genType c, genStore)
             _ -> noInst
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
-    genTransmute :: SrcPos -> Val -> M.Type -> M.Type -> Gen Val
+    genTransmute :: SrcPos -> Val -> Ast.Type -> Ast.Type -> Gen Val
     genTransmute pos x a b = do
         a' <- genType a
         b' <- genType b
@@ -575,7 +576,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         if sa == sb
             then transmute a' b' x
             else throwError (TransmuteErr pos (a, sa) (b, sb))
-    genCast :: SrcPos -> Val -> M.Type -> M.Type -> Gen Val
+    genCast :: SrcPos -> Val -> Ast.Type -> Ast.Type -> Gen Val
     genCast pos x a b = do
         a' <- genType a
         b' <- genType b
@@ -612,7 +613,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
         TNatSize -> True
         _ -> False
     isInt = \case
-        M.TPrim p -> isInt' p
+        Ast.TPrim p -> isInt' p
         _ -> False
     isInt' = \case
         TInt _ -> True
@@ -754,7 +755,7 @@ builtinsHidden = Map.fromList
     , ("install_stackoverflow_handler", ([], LLType.void))
     ]
 
-genExternTypeSig :: M.Type -> Gen' (([M.Type], Type), ([Parameter], Type))
+genExternTypeSig :: Ast.Type -> Gen' (([Ast.Type], Type), ([Parameter], Type))
 genExternTypeSig t = do
     let (pts, rt) = uncurryType t
     when (null pts) $ ice "genExternTypeSig of non-function"
@@ -770,9 +771,9 @@ genExternTypeSig t = do
     pure ((pts, rt'), (ps', rt''))
   where
 
-    uncurryType :: M.Type -> ([M.Type], M.Type)
+    uncurryType :: Ast.Type -> ([Ast.Type], Ast.Type)
     uncurryType = \case
-        M.TFun a b -> first (a :) (uncurryType b)
+        Ast.TFun a b -> first (a :) (uncurryType b)
         x -> ([], x)
 
 passByRef :: Type -> Gen Bool
@@ -812,35 +813,35 @@ passByRef' = \case
     LabelType -> ice "passByRef of LabelType"
     TokenType -> ice "passByRef of TokenTyp"
 
-genRetType :: M.Type -> Gen Type
+genRetType :: Ast.Type -> Gen Type
 genRetType = lift . genRetType'
 
-genRetType' :: MonadReader Env m => M.Type -> m Type
+genRetType' :: MonadReader Env m => Ast.Type -> m Type
 genRetType' = fmap (\t -> if t == typeUnit then LLType.void else t) . genType'
 
-genType :: M.Type -> Gen Type
+genType :: Ast.Type -> Gen Type
 genType = lift . genType'
 
 -- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: MonadReader Env m => M.Type -> m Type
+genType' :: MonadReader Env m => Ast.Type -> m Type
 genType' = \case
-    M.TPrim tc -> pure $ case tc of
-        M.TNat w -> IntegerType w
-        M.TNatSize -> i64
-        M.TInt w -> IntegerType w
-        M.TIntSize -> i64
-        M.TF16 -> half
-        M.TF32 -> float
-        M.TF64 -> double
-        M.TF128 -> fp128
-    M.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
-    M.TBox t -> fmap LLType.ptr (genType' t)
-    M.TConst tc -> lookupEnum tc <&> \case
+    Ast.TPrim tc -> pure $ case tc of
+        Ast.TNat w -> IntegerType w
+        Ast.TNatSize -> i64
+        Ast.TInt w -> IntegerType w
+        Ast.TIntSize -> i64
+        Ast.TF16 -> half
+        Ast.TF32 -> float
+        Ast.TF64 -> double
+        Ast.TF128 -> fp128
+    Ast.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
+    Ast.TBox t -> fmap LLType.ptr (genType' t)
+    Ast.TConst tc -> lookupEnum tc <&> \case
         Just 0 -> typeUnit
         Just w -> IntegerType w
         Nothing -> genDatatypeRef tc
 
-genDatatypeRef :: M.TConst -> Type
+genDatatypeRef :: Ast.TConst -> Type
 genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 
 -- | A `Fun` is a closure, and follows a certain calling convention
@@ -857,14 +858,14 @@ closureFunType :: Type -> Type -> Type
 closureFunType a r =
     FunctionType { resultType = r, argumentTypes = [typeGenericPtr, a], isVarArg = False }
 
-genCapturesType :: [M.TypedVar] -> Gen Type
-genCapturesType = fmap typeStruct . mapM (\(M.TypedVar _ t) -> genType t)
+genCapturesType :: [Ast.TypedVar] -> Gen Type
+genCapturesType = fmap typeStruct . mapM (\(Ast.TypedVar _ t) -> genType t)
 
-genVariantType :: MonadReader Env m => M.Span -> [M.Type] -> m [Type]
+genVariantType :: MonadReader Env m => Ast.Span -> [Ast.Type] -> m [Type]
 genVariantType totVariants =
     fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants)) . mapM genType'
 
-tagBitWidth :: M.Span -> Maybe Word32
+tagBitWidth :: Ast.Span -> Maybe Word32
 tagBitWidth span' | span' <= 2 ^ (0 :: Integer) = Nothing
                   | span' <= 2 ^ (8 :: Integer) = Just 8
                   | span' <= 2 ^ (16 :: Integer) = Just 16
@@ -987,10 +988,10 @@ newMetadataId = lift newMetadataId'
 newMetadataId' :: Gen' MetadataNodeID
 newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
 
-lookupEnum :: MonadReader Env m => M.TConst -> m (Maybe Word32)
+lookupEnum :: MonadReader Env m => Ast.TConst -> m (Maybe Word32)
 lookupEnum tc = view (enumTypes . to (tconstLookup tc))
 
-tconstLookup :: M.TConst -> Map Name a -> Maybe a
+tconstLookup :: Ast.TConst -> Map Name a -> Maybe a
 tconstLookup = Map.lookup . mkName . mangleTConst
 
 lookupDatatype :: MonadReader Env m => Name -> m Type
@@ -1189,7 +1190,7 @@ litStruct = LLConst.Struct Nothing False
 --       type. Specifically, I have observed this behaviour i phi-nodes. To
 --       guard against it (until fixed upstream, hopefully), store the value in
 --       a variable beforehand.
-litStructNamed :: M.TConst -> [LLConst.Constant] -> LLConst.Constant
+litStructNamed :: Ast.TConst -> [LLConst.Constant] -> LLConst.Constant
 litStructNamed t xs =
     let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
 
@@ -1226,7 +1227,7 @@ getIntBitWidth = \case
     LLType.IntegerType w -> w
     t -> ice $ "Tried to get bit width of non-integer type " ++ show t
 
-mangleName :: (String, [M.Type]) -> String
+mangleName :: (String, [Ast.Type]) -> String
 mangleName = \case
     -- Instead of dealing with changing entrypoint name and startfiles, just
     -- call the outermost, compiler generated main `main`, and the user-defined
@@ -1235,16 +1236,16 @@ mangleName = \case
     ("main", _) -> ice "mangleName of `main` of non-empty instantiation"
     (x, us) -> x ++ mangleInst us
 
-mangleInst :: [M.Type] -> String
+mangleInst :: [Ast.Type] -> String
 mangleInst ts =
     if not (null ts) then "<" ++ intercalate ", " (map mangleType ts) ++ ">" else ""
 
-mangleType :: M.Type -> String
+mangleType :: Ast.Type -> String
 mangleType = \case
-    M.TPrim c -> pretty c
-    M.TFun p r -> mangleTConst ("Fun", [p, r])
-    M.TBox t -> mangleTConst (TypeAst.tBox' t)
-    M.TConst tc -> mangleTConst tc
+    Ast.TPrim c -> pretty c
+    Ast.TFun p r -> mangleTConst ("Fun", [p, r])
+    Ast.TBox t -> mangleTConst (TypeAst.tBox' t)
+    Ast.TConst tc -> mangleTConst tc
 
-mangleTConst :: M.TConst -> String
+mangleTConst :: Ast.TConst -> String
 mangleTConst (c, ts) = c ++ mangleInst ts

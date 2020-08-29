@@ -15,7 +15,7 @@ import Misc
 import SrcPos
 import qualified Parsed
 import qualified Inferred
-import qualified Monomorphic as M
+import qualified Optimized as Ast
 
 
 -- Pretty print starting at some indentation depth
@@ -245,21 +245,21 @@ prettyAnTFun a b =
     in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
 
-instance Pretty M.Type where
+instance Pretty Ast.Type where
     pretty' _ = prettyMonoType
 
-prettyMonoType :: M.Type -> String
+prettyMonoType :: Ast.Type -> String
 prettyMonoType = \case
-    M.TPrim c -> pretty c
-    M.TFun a b -> prettyMonoTFun a b
-    M.TBox t -> prettyTBox t
-    M.TConst tc -> prettyTConst tc
+    Ast.TPrim c -> pretty c
+    Ast.TFun a b -> prettyMonoTFun a b
+    Ast.TBox t -> prettyTBox t
+    Ast.TConst tc -> prettyTConst tc
 
-prettyMonoTFun :: M.Type -> M.Type -> String
+prettyMonoTFun :: Ast.Type -> Ast.Type -> String
 prettyMonoTFun a b =
     let (bParams, bBody) = f b
         f = \case
-            M.TFun a' b' -> first (a' :) (f b')
+            Ast.TFun a' b' -> first (a' :) (f b')
             t -> ([], t)
     in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 

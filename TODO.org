@@ -513,6 +513,20 @@ Features and other stuff to do/implement in/around Carth.
    5. ???
    6. Profit.
 
+** Sketch 2
+   Maybe do the flattening thing so there is only one zero sized type,
+   but don't optimize away operations returning Unit completely. It
+   would still be nice to be able to expect side effects and panics to
+   happen. Also, RealWorld wouldn't have to have a size and actually
+   impact performance.
+
+   Just flatten all ZSTs to the single ZST (Unit?); remove ZST
+   variables (replace ZST var lookup w Unit literal); perform function
+   applications, if, & fun pretty much as normal; in let, don't
+   actually store the unit. Just compute the RHS; match is mostly
+   unaffected I think?; constructions of ZSTs become nested
+   seq:s. Yeah, I think that's it.
+
 * TODO Pair notation
   ~(Pair _ _)~ sucks to type, and pairs are or will be common. An idea:
 

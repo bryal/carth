@@ -38,6 +38,8 @@ library
       Misc
       Monomorphic
       Monomorphize
+      Optimize
+      Optimized
       Parse
       Parsed
       Pretty

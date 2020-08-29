@@ -33,16 +33,16 @@ import Prelude hiding (mod)
 
 import Misc
 import Conf
-import qualified Monomorphic
+import qualified Optimized as Ast
 import Codegen
 import Err
 import Pretty
 
 
-compile :: FilePath -> CompileConfig -> Monomorphic.Program -> IO ()
+compile :: FilePath -> CompileConfig -> Ast.Program -> IO ()
 compile = handleProgram compileModule
 
-run :: FilePath -> RunConfig -> Monomorphic.Program -> IO ()
+run :: FilePath -> RunConfig -> Ast.Program -> IO ()
 run = handleProgram orcJitModule
 
 handleProgram
@@ -50,7 +50,7 @@ handleProgram
     => (cfg -> TargetMachine -> Module -> IO ())
     -> FilePath
     -> cfg
-    -> Monomorphic.Program
+    -> Ast.Program
     -> IO ()
 handleProgram f file cfg pgm = withContext $ \ctx ->
     -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize
@@ -86,7 +86,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                           when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                           f cfg tm mod
 
-codegen' :: DataLayout -> FilePath -> Monomorphic.Program -> IO LLAST.Module
+codegen' :: DataLayout -> FilePath -> Ast.Program -> IO LLAST.Module
 codegen' dl f pgm = case codegen dl f pgm of
     Right m -> pure m
     Left e -> printGenErr e *> abort f

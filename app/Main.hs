@@ -15,7 +15,8 @@ import Conf
 import GetConfig
 import Compile
 import Monomorphize
-import qualified Monomorphic
+import Optimize
+import qualified Optimized as Ast
 import qualified Parse
 import EnvVars
 
@@ -48,7 +49,7 @@ runFile cfg = do
     run f cfg mon
     putStrLn ""
 
-frontend :: Config cfg => cfg -> FilePath -> IO Monomorphic.Program
+frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
     let d = getDebug cfg
     verbose cfg ("   Parsing")
@@ -60,7 +61,9 @@ frontend cfg f = do
     verbose cfg ("   Monomorphizing")
     let mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
-    pure mon
+    let opt = optimize mon
+    when d $ writeFile ".dbg.opt" (show opt)
+    pure opt
 
 parse :: FilePath -> IO Parsed.Program
 parse f = Parse.parse f >>= \case

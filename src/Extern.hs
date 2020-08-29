@@ -35,12 +35,12 @@ import Data.Functor
 
 import Misc
 import SrcPos
-import qualified Monomorphic as M
-import Monomorphic hiding (Type, Const)
+import qualified Optimized as Ast
+import Optimized hiding (Type, Const)
 import Gen
 
 
-withExternSigs :: [(String, M.Type, SrcPos)] -> Gen' a -> Gen' a
+withExternSigs :: [(String, Ast.Type, SrcPos)] -> Gen' a -> Gen' a
 withExternSigs es ga = do
     es' <- forM es $ \(name, t, _) -> do
         t' <- genType' t
@@ -51,17 +51,17 @@ withExternSigs es ga = do
             )
     augment globalEnv (Map.fromList es') ga
 
-genExterns :: [(String, M.Type, SrcPos)] -> Gen' [Definition]
+genExterns :: [(String, Ast.Type, SrcPos)] -> Gen' [Definition]
 genExterns = fmap join . mapM genExtern
 
-genExtern :: (String, M.Type, SrcPos) -> Gen' [Definition]
+genExtern :: (String, Ast.Type, SrcPos) -> Gen' [Definition]
 genExtern (name, t, pos) = do
     ((pts, rt), (ps, rt')) <- genExternTypeSig t
     let externDef = GlobalDefinition (externFunc (mkName name) ps rt' [] [])
     wrapperDefs <- genWrapper pos name rt pts
     pure (externDef : wrapperDefs)
 
-genWrapper :: SrcPos -> String -> Type -> [M.Type] -> Gen' [Definition]
+genWrapper :: SrcPos -> String -> Type -> [Ast.Type] -> Gen' [Definition]
 genWrapper pos externName rt = \case
     [] -> ice "genWrapper of empty param list"
     (firstParamT : restParamTs) -> do

@@ -16,7 +16,8 @@ import Parse
 import Check
 import Compile
 import Monomorphize
-import qualified Monomorphic
+import Optimize
+import qualified Optimized as Ast
 import Conf
 
 spec :: Spec
@@ -66,7 +67,7 @@ compile' f =
             Nothing -> pure False
             Just ast -> compile f cfg ast $> True
 
-frontend :: FilePath -> IO (Maybe Monomorphic.Program)
+frontend :: FilePath -> IO (Maybe Ast.Program)
 frontend f = parse f <&> \case
     Left _ -> Nothing
-    Right ast -> fmap monomorphize (rightToMaybe (typecheck ast))
+    Right ast -> fmap (optimize . monomorphize) (rightToMaybe (typecheck ast))

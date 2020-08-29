@@ -8,7 +8,7 @@ import Data.Word
 import Control.Monad
 
 import Misc
-import Monomorphic
+import Optimized
 
 
 type Selections a = Map Access a
