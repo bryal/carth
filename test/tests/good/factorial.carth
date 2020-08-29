@@ -1,0 +1,9 @@
+;; 2432902008176640000
+
+(import std)
+
+(define (main Unit)
+  (display (show-int (factorial 20))))
+
+(define (factorial n)
+  (foldl * 1 (range 1 n)))

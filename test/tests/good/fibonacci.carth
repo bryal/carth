@@ -1,0 +1,13 @@
+;; 7540113804746346429
+
+(import std)
+
+(define (main Unit)
+  (display (show-int (fib 92))))
+
+(define fib
+  (define (fib' a b n)
+    (if (= n 0)
+        a
+      (fib' b (+ a b) (dec n))))
+  (fib' 0 1))

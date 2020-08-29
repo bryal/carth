@@ -1,0 +1,5 @@
+;; Hello, World!
+
+(import std)
+
+(define (main Unit) (display "Hello, World!"))
