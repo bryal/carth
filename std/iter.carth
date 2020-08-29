@@ -33,7 +33,7 @@
 
 (define (take n xs)
   (Iter (if (> n 0)
-            (fun (_) (map-maybe (map-cdr (take (- n 1))) (next xs)))
+            (fun (_) (maybe/map (map-cdr (take (- n 1))) (next xs)))
           (fun (_) None))))
 
 (define: (skip n xs)
@@ -57,10 +57,10 @@
 (define (for xs f) (foldl (const f) Unit xs))
 
 (define (map f xs)
-  (Iter (fun (_) (map-maybe (map-both f (map f)) (next xs)))))
+  (Iter (fun (_) (maybe/map (map-both f (map f)) (next xs)))))
 
 (define (filter pred xs)
-  (Iter (fun (_) (map-maybe (map-cdr (filter pred))
+  (Iter (fun (_) (maybe/map (map-cdr (filter pred))
                             (next (skip-while (<o not pred) xs))))))
 
 (define: (foldl f acc xs)

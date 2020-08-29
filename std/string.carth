@@ -26,7 +26,7 @@
   (define (go bs)
     (Iter
      (fun (_)
-       (map-maybe (fun ((Pair b0 bs'))
+       (maybe/map (fun ((Pair b0 bs'))
                     (let1 (Pair b0' n) (init-byte b0)
                       (Pair (foldl join (cast b0') (take (cast n) bs'))
                             (go (skip (cast n) bs')))))

@@ -13,7 +13,7 @@
   (fmatch (case (Some x) x)
           (case None (panic "unwrap! of None"))))
 
-(define (map-maybe f)
+(define (maybe/map f)
   (fmatch (case (Some x) (Some (f x)))
           (case None None)))
 
