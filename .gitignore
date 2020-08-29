@@ -1,11 +1,19 @@
-.stack-work/
+# Ignoring binaries:
+# 1. Ignore all
+*
+# 2. Unignore files with extensions
+!*.*
+# 3. Unignore directories
+!*/
+# Now, proceed as usual...
+
 *~
 .dbg.*
-/examples/*
-!/examples/*.carth
-/dist-newstyle/
-/dist/
 *.untangled
 *.svg
 *.prof
 *.o
+
+.stack-work/
+/dist-newstyle/
+/dist/
