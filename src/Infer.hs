@@ -217,7 +217,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (tbody, App f matchee' tbody)
     Parsed.FunMatch cases -> fmap (second FunMatch) (inferFunMatch cases)
     Parsed.Ctor c -> inferExprConstructor c
-    Parsed.Sizeof t -> fmap ((TPrim TIntSize, ) . Sizeof) (checkType pos t)
+    Parsed.Sizeof t -> fmap ((TPrim TNatSize, ) . Sizeof) (checkType pos t)
 
 inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do
