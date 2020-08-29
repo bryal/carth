@@ -40,6 +40,12 @@
 
 ;;; Function
 
+(define (uncurry f (Pair a b)) (f a b))
+(define (curry f a b) (f (Pair a b)))
+
+(define (<| f a) (f a))
+(define (|> a f) (f a))
+
 (define (const a b) a)
 (define (seq   a b) b)
 
