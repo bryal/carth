@@ -194,16 +194,15 @@ defineDataTypes datasEnums = do
 
 genMain :: Gen' Definition
 genMain = do
-    let tDummyCaptures = LLType.ptr typeUnit
     let tDummyParam = typeUnit
     let init_ = ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr (FunctionType LLType.void [tDummyCaptures, tDummyParam] False))
+            (LLType.ptr (FunctionType LLType.void [typeGenericPtr, tDummyParam] False))
             (mkName "carth_init")
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     Out basicBlocks _ _ _ <- execWriterT $ do
         emitDo' =<< callBuiltin "install_stackoverflow_handler" []
-        emitDo (callIntern Nothing init_ [(null' tDummyCaptures, []), (litUnit, [])])
+        emitDo (callIntern Nothing init_ [(null' typeGenericPtr, []), (litUnit, [])])
         f <- lookupVar (TypedVar "main" mainType)
         _ <- app Nothing f (VLocal litUnit)
         commitFinalFuncBlock (ret (litI32 0))
@@ -245,8 +244,7 @@ genGlobFunDef (TypedVar v _, WithPos dpos (ts, (p, (body, rt)))) = do
     let fName = mkName (name ++ "_func")
     (f, gs) <- genFunDef (fName, [], dpos, p, genTailExpr body *> genRetType rt)
     let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
-    let capturesType = LLType.ptr typeUnit
-    let captures = LLConst.Null capturesType
+    let captures = LLConst.Null typeGenericPtr
     let closure = litStruct [captures, fRef]
     let closureDef = simpleGlobConst (mkName name) (typeOf closure) closure
     pure (GlobalDefinition closureDef : GlobalDefinition f : gs)

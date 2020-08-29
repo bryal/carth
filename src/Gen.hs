@@ -158,16 +158,15 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             defInner =
                 simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
-            ptrBytes = LLConst.BitCast inner (LLType.ptr i8)
+            ptrBytes = LLConst.BitCast inner typeGenericPtr
             array = litStructNamed ("Array", [M.TPrim (TNat 8)]) [ptrBytes, litI64' len]
             str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobConst strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
     genExtractCaptures = do
         capturesName <- newName "captures"
-        let capturesPtrGenericType = LLType.ptr typeUnit
-        let capturesPtrGeneric = LocalReference capturesPtrGenericType capturesName
-        let capturesParam = (capturesPtrGenericType, capturesName)
+        let capturesPtrGeneric = LocalReference typeGenericPtr capturesName
+        let capturesParam = (typeGenericPtr, capturesName)
         fmap (capturesParam, ) $ if null fvs
             then pure []
             else do
@@ -260,7 +259,7 @@ genWrapInLambdas rt fvs pts genBody = case pts of
 genLambda :: [TypedVar] -> TypedVar -> (Gen (), Type) -> Gen Val
 genLambda fvXs p body = do
     captures <- if null fvXs
-        then pure (null' (LLType.ptr typeUnit))
+        then pure (null' typeGenericPtr)
         else do
             tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
             captures' <- genHeapAllocGeneric tcaptures
@@ -851,14 +850,12 @@ genDatatypeRef = NamedTypeReference . mkName . mangleTConst
 --   actual function, which takes as first parameter the captures-pointer, and
 --   as second parameter the argument.
 closureType :: Type -> Type -> Type
-closureType a r = typeStruct [LLType.ptr typeUnit, LLType.ptr (closureFunType a r)]
+closureType a r = typeStruct [typeGenericPtr, LLType.ptr (closureFunType a r)]
 
 -- The type of the function itself within the closure
 closureFunType :: Type -> Type -> Type
-closureFunType a r = FunctionType { resultType = r
-                                  , argumentTypes = [LLType.ptr typeUnit, a]
-                                  , isVarArg = False
-                                  }
+closureFunType a r =
+    FunctionType { resultType = r, argumentTypes = [typeGenericPtr, a], isVarArg = False }
 
 genCapturesType :: [M.TypedVar] -> Gen Type
 genCapturesType = fmap typeStruct . mapM (\(M.TypedVar _ t) -> genType t)
@@ -1204,6 +1201,9 @@ typeStr = NamedTypeReference (mkName (mangleTConst TypeAst.tStr'))
 
 typeBool :: Type
 typeBool = i8
+
+typeGenericPtr :: Type
+typeGenericPtr = LLType.ptr i8
 
 typeUnit :: Type
 typeUnit = typeStruct []

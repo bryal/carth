@@ -101,7 +101,7 @@ genWrapper pos externName rt = \case
         (f, gs) <- locallySet srcPos (Just pos)
             $ genFunDef (fname, [], pos, firstParam, genWrapper' [firstParam] restParamTs)
         let fref = LLConst.GlobalReference (LLType.ptr (typeOf f)) fname
-        let captures = LLConst.Null (LLType.ptr typeUnit)
+        let captures = LLConst.Null typeGenericPtr
         let closure = litStruct [captures, fref]
         let closureDef = simpleGlobConst (mkName ("_wrapper_" ++ externName))
                                          (typeOf closure)

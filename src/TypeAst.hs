@@ -30,6 +30,9 @@ class TypeAst t where
 mainType :: TypeAst t => t
 mainType = tfun tUnit tUnit
 
+tByte :: TypeAst t => t
+tByte = tprim (TNat 8)
+
 tBox' :: t -> TConst t
 tBox' t = ("Box", [t])
 

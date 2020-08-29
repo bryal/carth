@@ -135,7 +135,7 @@ ftv = \case
 builtinExterns :: Map String (Type, SrcPos)
 builtinExterns = Map.fromList $ map
     (second (, SrcPos "<builtin>" 0 0))
-    [("GC_malloc", tfun (TPrim TIntSize) (TBox tUnit))]
+    [("GC_malloc", tfun (TPrim TIntSize) (TBox tByte))]
 
 builtinVirtuals :: Map String Scheme
 builtinVirtuals =
