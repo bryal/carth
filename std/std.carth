@@ -7,6 +7,7 @@
 (import mem)
 (import array)
 (import string)
+(import queue)
 
 (define (car (Pair a _)) a)
 (define (cdr (Pair _ b)) b)

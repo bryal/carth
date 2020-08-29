@@ -23,6 +23,9 @@
 (define (next (Iter it)) (it Unit))
 (define next! (<o unwrap! next))
 
+(define (iter/nth n)
+  (<o (maybe/map car) (<o next (skip n))))
+
 (define: (xrange a b) (Fun Int Int (Iter Int))
   (take (- b a)       (range-from a)))
 (define: (range  a b) (Fun Int Int (Iter Int))

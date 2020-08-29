@@ -18,6 +18,10 @@
   (fmatch (case (Cons (Box (Pair _ xs))) xs)
           (case Nil (panic "rest! of empty list"))))
 
+(define list/uncons
+  (fmatch (case (Cons (Box p)) (Some p))
+          (case Nil None)))
+
 (define last
   (fmatch (case (Cons (Box (Pair x Nil))) (Some x))
           (case (Cons (Box (Pair _ xs))) (last xs))
@@ -34,6 +38,13 @@
   (fmatch (case (Cons (Box (Pair _ Nil))) Nil)
           (case (Cons (Box (Pair x xs))) (list/cons x (init! xs)))
           (case Nil (panic "init! of empty list"))))
+
+(define list/nil? (fmatch (case Nil True) (case _ False)))
+
+(define (list/reverse xs)
+  (define (rev xs a)
+    (maybe a (fun ((Pair x xs')) (rev xs' (list/cons x a))) (list/uncons xs)))
+  (rev xs Nil))
 
 (define (list/cons x xs)
   (Cons (box (Pair x xs))))

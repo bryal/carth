@@ -1,0 +1,18 @@
+;; FIFO (First In, First Out) queue
+(data (Queue a)
+  (Queue (List a) (List a)))
+
+(define queue/empty
+  (Queue Nil Nil))
+
+(define (queue/push x (Queue in out))
+  (Queue (list/cons x in) out))
+
+(define queue/pop
+  (fmatch (case (Queue Nil Nil)
+                None)
+          (case (Queue in Nil)
+                (let1 (Pair x out) (unwrap! (list/uncons (list/reverse in)))
+                  (Some (Pair (Queue Nil out) x))))
+          (case (Queue in (Cons (Box (Pair x out'))))
+                (Some (Pair (Queue in out') x)))))
