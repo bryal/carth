@@ -505,6 +505,14 @@ Features and other stuff to do/implement in/around Carth.
   like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
   ensure the result is sized.
 
+** Sketch
+   1. Make basically everything use SizedUnit instead of Unit.
+   2. Make sure everything works. No segfaults etc.
+   3. Add pass optimizing away ZSTs.
+   4. Move things "back" to either Unit or RealWorld, make sure everything works.
+   5. ???
+   6. Profit.
+
 * TODO Pair notation
   ~(Pair _ _)~ sucks to type, and pairs are or will be common. An idea:
 
