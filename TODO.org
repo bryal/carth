@@ -527,16 +527,6 @@ Features and other stuff to do/implement in/around Carth.
    unaffected I think?; constructions of ZSTs become nested
    seq:s. Yeah, I think that's it.
 
-* TODO Pair notation
-  ~(Pair _ _)~ sucks to type, and pairs are or will be common. An idea:
-
-  #+BEGIN_EXAMPLE
-  [a . b] => (Pair a b)
-  [a b c] => (Pair a (Pair b (Pair c Unit)))
-  [a b . c] => (Pair a (Pair b c))
-  [a . [b . c]] => —"—
-  [a . b . c] => invalid
-  #+END_EXAMPLE
 * NEXT Some algorithms & data structures
   We need good collections & algs for sorting etc. if Carth is going
   to be of any use to anyone. Would also be a good way to add to the

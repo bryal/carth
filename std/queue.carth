@@ -1,3 +1,5 @@
+(import list)
+
 ;; FIFO (First In, First Out) queue
 (data (Queue a)
   (Queue (List a) (List a)))
@@ -12,7 +14,7 @@
   (fmatch (case (Queue Nil Nil)
                 None)
           (case (Queue in Nil)
-                (let1 (Pair x out) (unwrap! (list/uncons (list/reverse in)))
-                  (Some (Pair (Queue Nil out) x))))
-          (case (Queue in (Cons (Box (Pair x out'))))
-                (Some (Pair (Queue in out') x)))))
+                (let1 [x out] (unwrap! (list/uncons (list/reverse in)))
+                  (Some [(Queue Nil out) x])))
+          (case (Queue in (LCons (Box [x out'])))
+                (Some [(Queue in out') x]))))

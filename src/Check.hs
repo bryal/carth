@@ -108,9 +108,9 @@ builtinDataTypes' =
         ]
       )
     , ("Str", [], [("Str", [tArray (Inferred.TPrim (TNat 8))])])
-    , ( "Pair"
+    , ( "Cons"
       , [TVImplicit 0, TVImplicit 1]
-      , [("Pair", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
+      , [("Cons", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
       )
     , ("Unit", [], [("Unit", [])])
     , ("Bool", [], [("False", []), ("True", [])])

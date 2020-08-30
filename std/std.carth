@@ -9,12 +9,34 @@
 (import string)
 (import queue)
 
-(define (car (Pair a _)) a)
-(define (cdr (Pair _ b)) b)
+(define (car      [x . _])           x)
+(define (cadr     [_ x . _])         x)
+(define (caddr    [_ _ x . _])       x)
+(define (cadddr   [_ _ _ x . _])     x)
+(define (caddddr  [_ _ _ _ x . _])   x)
 
-(define (map-car f (Pair a b)) (Pair (f a) b))
-(define (map-cdr f (Pair a b)) (Pair a (f b)))
-(define (map-both f g (Pair a b)) (Pair (f a) (g b)))
+(define (cdr      [_ . x])           x)
+(define (cddr     [_ _ . x])         x)
+(define (cdddr    [_ _ _ . x])       x)
+(define (cddddr   [_ _ _ _ . x])     x)
+(define (cdddddr  [_ _ _ _ _ . x])   x)
+
+(define (map-car     f [a . b]) [(f a) . b])
+(define (map-cadr    f [a . b]) [a . (map-car f b)])
+(define (map-caddr   f [a . b]) [a . (map-cadr f b)])
+(define (map-cadddr  f [a . b]) [a . (map-caddr f b)])
+(define (map-caddddr f [a . b]) [a . (map-cadddr f b)])
+
+(define (map-cdr     f [a . b]) [a . (f b)])
+(define (map-cddr    f [a . b]) [a . (map-cdr f b)])
+(define (map-cdddr   f [a . b]) [a . (map-cddr f b)])
+(define (map-cddddr  f [a . b]) [a . (map-cdddr f b)])
+(define (map-cdddddr f [a . b]) [a . (map-cddddr f b)])
+
+(define (map-cons f g [a . b]) [(f a) . (g b)])
+
+(define (map-two f g [a b]) [(f a) (g b)])
+(define (map-three f g h [a b c]) [(f a) (g b) (h c)])
 
 (define: (undefined x)
     (forall (a) (Fun Unit a))
@@ -49,8 +71,8 @@
 
 ;;; Function
 
-(define (uncurry f (Pair a b)) (f a b))
-(define (curry f a b) (f (Pair a b)))
+(define (uncurry f [a b]) (f a b))
+(define (curry f a b) (f [a b]))
 
 (define (<| f a) (f a))
 (define (|> a f) (f a))

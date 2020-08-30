@@ -7,11 +7,11 @@
        (<o display fizzbuzz')))
 
 (define (fizzbuzz' n)
-  (match (Pair (divisible? n 3) (divisible? n 5))
-    (case (Pair False False) (my-show-int n))
-    (case (Pair True False) "Fizz")
-    (case (Pair False True) "Buzz")
-    (case (Pair True True) "Fizzbuzz")))
+  (match [(divisible? n 3) (divisible? n 5)]
+    (case [False False] (my-show-int n))
+    (case [True  False] "Fizz")
+    (case [False True ] "Buzz")
+    (case [True  True ] "Fizzbuzz")))
 
 (define my-show-int
   (fmatch

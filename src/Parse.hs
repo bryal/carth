@@ -176,10 +176,26 @@ data BindingLhs
     | CaseVarLhs Pat
 
 expr' :: Parser Expr'
-expr' = choice [var, estr, num, eConstructor, pexpr]
+expr' = choice [var, estr, num, eConstructor, etuple, pexpr]
   where
     estr = fmap (Lit . Str) strlit
     eConstructor = fmap Ctor big
+    -- FIXME: These positions are completely wack. Gotta get a separate variant in the AST
+    --        for pairs. Similar to Box.
+    etuple =
+        fmap unpos
+            $ tuple expr (\p -> WithPos p (Ctor (Id (WithPos p "Unit"))))
+            $ \l r ->
+                  let p = getPos l
+                  in  WithPos
+                          p
+                          (App
+                              (WithPos
+                                  p
+                                  (App (WithPos p (Ctor (Id (WithPos p "Cons")))) l)
+                              )
+                              r
+                          )
     var = fmap Var small
     pexpr = getSrcPos >>= \p -> parens $ choice
         [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
@@ -260,12 +276,14 @@ ns_strlit :: Parser String
 ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
 pat :: Parser Pat
-pat = choice [patInt, patStr, patCtor, patVar, ppat]
+pat = choice [patInt, patStr, patCtor, patVar, patTuple, ppat]
   where
     patInt = liftA2 PInt getSrcPos int
     patStr = liftA2 PStr getSrcPos strlit
     patCtor = fmap (\x -> PConstruction (getPos x) x []) big
     patVar = fmap PVar small
+    patTuple = tuple pat (\p -> PConstruction p (Id (WithPos p "Unit")) [])
+        $ \l r -> let p = getPos l in PConstruction p (Id (WithPos p "Cons")) [l, r]
     ppat = do
         pos <- getSrcPos
         parens (choice [patBox pos, patCtion pos])
@@ -284,7 +302,8 @@ type_ :: Parser Type
 type_ = nonptype <|> parens ptype
 
 nonptype :: Parser Type
-nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big]
+nonptype = choice
+    [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big, ttuple]
   where
     tprim = try $ andSkipSpaceAfter
         (choice
@@ -297,6 +316,16 @@ nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . ids
                 ]
         <* notFollowedBy identLetter
         )
+    ttuple = tuple type_ (const (TConst ("Unit", []))) $ \l r -> TConst ("Cons", [l, r])
+
+tuple :: Parser a -> (SrcPos -> a) -> (a -> a -> a) -> Parser a
+tuple p unit f = brackets $ do
+    a <- p
+    as <- many (try p)
+    let ls = a : as
+    pos <- getSrcPos
+    r <- option (unit pos) (try (reserved "." *> p))
+    pure $ foldr f r ls
 
 ptype :: Parser Type
 ptype = choice [tfun, tbox, tapp]
@@ -317,6 +346,12 @@ parens = andSkipSpaceAfter . ns_parens
 
 ns_parens :: Parser a -> Parser a
 ns_parens = between (symbol "(") (string ")")
+
+brackets :: Parser a -> Parser a
+brackets = andSkipSpaceAfter . ns_brackets
+
+ns_brackets :: Parser a -> Parser a
+ns_brackets = between (symbol "[") (string "]")
 
 int :: Num a => Parser a
 int = andSkipSpaceAfter (Lexer.signed empty ns_word)
@@ -380,6 +415,7 @@ symbol = Lexer.symbol space
 reserveds :: [String]
 reserveds =
     [ ":"
+    , "."
     , "Fun"
     , "Box"
     , "define"

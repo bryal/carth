@@ -11,7 +11,7 @@
 (define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
   (let ((n (iter/length xs))
         (ptr (: (transmute (id@"GC_malloc" (* (sizeof a) (cast n)))) (Box a))))
-    (foldl (fun (v (Pair i x)) (array/insert i x v))
+    (foldl (fun (v [i x]) (array/insert i x v))
            (Array ptr (cast n))
            (enumerate xs))))
 
