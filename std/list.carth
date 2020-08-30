@@ -1,53 +1,53 @@
 (import std)
 
 (data (List a)
-  (Cons (Box (Pair a (List a))))
+  (LCons (Box [a (List a)]))
   Nil)
 
 (define first
-  (fmatch (case (Cons (Box (Pair x _))) (Some x))
+  (fmatch (case (LCons (Box [x _])) (Some x))
           (case Nil None)))
 (define first!
-  (fmatch (case (Cons (Box (Pair x _))) x)
+  (fmatch (case (LCons (Box [x _])) x)
           (case Nil (panic "first! of empty list"))))
 
 (define rest
-  (fmatch (case (Cons (Box (Pair _ xs))) (Some xs))
+  (fmatch (case (LCons (Box [_ xs])) (Some xs))
           (case Nil None)))
 (define rest!
-  (fmatch (case (Cons (Box (Pair _ xs))) xs)
+  (fmatch (case (LCons (Box [_ xs])) xs)
           (case Nil (panic "rest! of empty list"))))
 
 (define list/uncons
-  (fmatch (case (Cons (Box p)) (Some p))
+  (fmatch (case (LCons (Box p)) (Some p))
           (case Nil None)))
 
 (define last
-  (fmatch (case (Cons (Box (Pair x Nil))) (Some x))
-          (case (Cons (Box (Pair _ xs))) (last xs))
+  (fmatch (case (LCons (Box [x Nil])) (Some x))
+          (case (LCons (Box [_ xs])) (last xs))
           (case Nil None)))
 (define last!
-  (fmatch (case (Cons (Box (Pair x Nil))) x)
-          (case (Cons (Box (Pair _ xs))) (last! xs))
+  (fmatch (case (LCons (Box [x Nil])) x)
+          (case (LCons (Box [_ xs])) (last! xs))
           (case Nil (panic "last! of empty list"))))
 
 (define init
   (fmatch (case Nil None)
           (case xs (Some (init! xs)))))
 (define init!
-  (fmatch (case (Cons (Box (Pair _ Nil))) Nil)
-          (case (Cons (Box (Pair x xs))) (list/cons x (init! xs)))
+  (fmatch (case (LCons (Box [_ Nil])) Nil)
+          (case (LCons (Box [x xs])) (list/cons x (init! xs)))
           (case Nil (panic "init! of empty list"))))
 
 (define list/nil? (fmatch (case Nil True) (case _ False)))
 
 (define (list/reverse xs)
   (define (rev xs a)
-    (maybe a (fun ((Pair x xs')) (rev xs' (list/cons x a))) (list/uncons xs)))
+    (maybe a (fun ([x xs']) (rev xs' (list/cons x a))) (list/uncons xs)))
   (rev xs Nil))
 
 (define (list/cons x xs)
-  (Cons (box (Pair x xs))))
+  (LCons (box [x xs])))
 
 (define (list1 x)
   (list/cons x Nil))
@@ -65,7 +65,7 @@
 (define (list/iter xs)
   (Iter (fun (Unit)
           (match xs
-            (case (Cons (Box (Pair y ys)))
-                  (Some (Pair y (list/iter ys))))
+            (case (LCons (Box [y ys]))
+                  (Some [y (list/iter ys)]))
             (case Nil
                   None)))))

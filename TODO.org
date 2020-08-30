@@ -504,14 +504,3 @@ Features and other stuff to do/implement in/around Carth.
   functions not optimized away, or unsafePerformIO returns something
   like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
   ensure the result is sized.
-
-* TODO Pair notation
-  ~(Pair _ _)~ sucks to type, and pairs are or will be common. An idea:
-
-  #+BEGIN_EXAMPLE
-  [a . b] => (Pair a b)
-  [a b c] => (Pair a (Pair b (Pair c Unit)))
-  [a b . c] => (Pair a (Pair b c))
-  [a . [b . c]] => —"—
-  [a . b . c] => invalid
-  #+END_EXAMPLE
