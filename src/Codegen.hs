@@ -235,6 +235,25 @@ genGlobVarDecl (TypedVar v t, WithPos _ (ts, _)) = do
     t' <- genType' t
     pure (GlobalDefinition (simpleGlobVar name t' (LLConst.Undef t')))
 
+-- TODO: Detect when a fun def is nested lambdas, like (define (foo a b) (+ a b)). Now,
+--       nested functions wrappers are generated for the currying that handle boilerplate
+--       closure capturing, but only the outermost, fully curried function is actually
+--       exposed as a variable, and if you apply the function with all arguments, like
+--       (foo 1 2), it has to needlessly go through all the wrapping stuff of putting in
+--       closures and directly extracting again.
+--
+--       It would be a serious optimization to handle saturated (i.e., fully applied)
+--       calls specially. Just generate an extra, innermost function that takes the params
+--       as a tuple, and does no closure-extraction stuff, then generate the currying
+--       wrappers around that.
+--
+--       Look at how Haskell does
+--       it. https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/rts/haskell-execution/function-calls. Seems
+--       very reasonable. They handle 4 different cases when compiling a call: Unknown
+--       function, Known function - saturated call, Known function - too few arguments,
+--       and Known function - too many arguments.
+--
+--       Additional reading: http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.134.9317&rep=rep1&type=pdf
 genGlobFunDef :: FunDef -> Gen' [Definition]
 genGlobFunDef (TypedVar v _, WithPos dpos (ts, (p, (body, rt)))) = do
     let var = (v, ts)
