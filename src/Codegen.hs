@@ -28,7 +28,7 @@ import Data.Function
 import Data.Functor
 import Data.Functor.Identity
 import Control.Applicative
-import Lens.Micro.Platform (use, assign, Lens')
+import Lens.Micro.Platform (use, assign, Lens', view)
 
 import Misc
 import SrcPos
@@ -302,7 +302,8 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
 
 genExprLambda :: TypedVar -> (Expr, Ast.Type) -> Gen Val
 genExprLambda p (b, bt) = do
-    fvXs <- lambdaBodyFreeVars p b
+    fvXs <- view localEnv <&> \locals ->
+        Set.toList (Set.intersection (Set.delete p (freeVars b)) (Map.keysSet locals))
     bt' <- genRetType bt
     genLambda fvXs p (genTailExpr b, bt')
 
@@ -391,7 +392,9 @@ genLet' def genBody = case def of
     RecDefs ds -> do
         (binds, cs) <- fmap unzip $ forM ds $ \case
             (lhs, WithPos _ (_, (p, (fb, fbt)))) -> do
-                fvXs <- lambdaBodyFreeVars p fb
+                fvXs <- view localEnv <&> \locals ->
+                    let locals' = Set.insert lhs (Map.keysSet locals)
+                    in  Set.toList (Set.intersection (Set.delete p (freeVars fb)) locals')
                 tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
                 captures <- genHeapAllocGeneric tcaptures
                 fbt' <- genRetType fbt
@@ -401,12 +404,6 @@ genLet' def genBody = case def of
         withVars binds $ do
             forM_ cs (uncurry populateCaptures)
             genBody
-
-lambdaBodyFreeVars :: MonadReader Env m => TypedVar -> Expr -> m [TypedVar]
-lambdaBodyFreeVars param body = ask <&> \env ->
-    let globsToNotCapture = Set.difference (Map.keysSet (_globalEnv env))
-                                           (Map.keysSet (_localEnv env))
-    in  Set.toList $ Set.difference (Set.delete param (freeVars body)) globsToNotCapture
 
 genTailMatch :: Expr -> DecisionTree -> Type -> Gen ()
 genTailMatch m dt tbody = do
