@@ -481,8 +481,11 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
     pos <- view srcPos
     let wrap xts genRt op = do
             rt' <- genRt
-            f <- genWrapInLambdas rt' [] xts (op <=< mapM lookupVar)
-            apps Nothing f as
+            if length as == length xts
+                then op as
+                else do
+                    f <- genWrapInLambdas rt' [] xts (op <=< mapM lookupVar)
+                    apps Nothing f as
     let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
     let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
     let noInst = throwError $ NoBuiltinVirtualInstance
