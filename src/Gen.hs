@@ -54,7 +54,7 @@ import SrcPos
 data GenErr
     = TransmuteErr SrcPos (Ast.Type, Word64) (Ast.Type, Word64)
     | CastErr SrcPos Ast.Type Ast.Type
-    | NoBulitinVirtualInstance SrcPos String Ast.Type
+    | NoBuiltinVirtualInstance SrcPos String Ast.Type
 
 type Instr = InstructionMetadata -> Instruction
 
@@ -475,7 +475,8 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
     --       partial application is as simple as looking up the global, single function
     --       definition, and partially apply it. The normal function generation logic will
     --       handle variable capturing and closure generation. Only full application would
-    --       be a special case.
+    --       be a special case. Sort of the same thinking as for normal function calls,
+    --       see https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/rts/haskell-execution/function-calls
     as <- sequence aes
     pos <- view srcPos
     let wrap xts genRt op = do
@@ -484,7 +485,7 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
             apps Nothing f as
     let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
     let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
-    let noInst = throwError $ NoBulitinVirtualInstance
+    let noInst = throwError $ NoBuiltinVirtualInstance
             (fromMaybe
                 (ice "genAppBuiltinVirtual: no srcpos when throwing noInst error!")
                 pos
@@ -634,6 +635,9 @@ apps tailkind f = \case
 
 app :: Maybe TailCallKind -> Val -> Val -> Gen Val
 app tailkind closure a = do
+    -- TODO: Cache the loaded & extracted closure components for the next time the
+    --       function is called in the same scope! Probably just a Reader with `closure`
+    --       as key and `(captures, f)` as value.
     closure' <- getLocal closure
     captures <- emitReg "captures" =<< extractvalue closure' [0]
     f <- emitReg "function" =<< extractvalue closure' [1]

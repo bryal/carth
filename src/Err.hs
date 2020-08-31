@@ -89,7 +89,7 @@ printGenErr = \case
             ++ ("\nTarget type: " ++ pretty u)
             ++ (" (" ++ show sizeu ++ " bytes)")
     CastErr p t u -> posd p $ "Cannot cast " ++ pretty t ++ " to " ++ pretty u
-    NoBulitinVirtualInstance p x t ->
+    NoBuiltinVirtualInstance p x t ->
         posd p
             $ ("Builtin virtual function " ++ x)
             ++ (" cannot be instantiated to type " ++ pretty t)
