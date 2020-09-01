@@ -1,0 +1,13 @@
+;; 8189
+
+(import std)
+
+(define (main Unit)
+  (display (show-nat (ackermann (cast 3) (cast 10)))))
+
+(define: (ackermann m n) (Fun Nat Nat Nat)
+  (if (= m (cast 0))
+      (+ n (cast 1))
+    (if (= n (cast 0))
+        (ackermann (- m (cast 1)) (cast 1))
+      (ackermann (- m (cast 1)) (ackermann m (- n (cast 1)))))))
