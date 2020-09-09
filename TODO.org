@@ -52,6 +52,9 @@ Features and other stuff to do/implement in/around Carth.
    #+END_SRC
 
 * NEXT Typeclasses
+  Need some kind of system like type classes for ad hoc
+  polymorphism. Maybe Haskell style type classes, Agda style
+  implicits, or Ocaml style modules. Not sure.
 ** Agda style classes w implicit args
    https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/glasgow_exts.html#implicit-parameters
 
@@ -192,85 +195,42 @@ Features and other stuff to do/implement in/around Carth.
      }
    #+END_SRC
 
-* Memory model
-  How do we handle the heap? Garbage collection like Haskell?
-  Ownership and borrowing like Rust? Something in between?
+* INACTIVE Custom GC
+  Until we get linear types, and even then, we'll need some form of
+  GC. Boehm's seems to be working well enough, but a conservative
+  collector is not ideal, and I think it would be a fun project to
+  write my own GC.
 
-  Should heap allocations be explicit or implicit? Even if we go with
-  a Haskell-like model, should there be an explicit ~Box a~ type?
-** NEXT Consider something Rust-like
-  I.e. affine/linear types, lifetimes, little/no GC by default.
-  Would allow writing real-time applications like games.
+  There are many problems with refcounting: Generated llvm ir/asm gets
+  polluted; While performance is more predictable, it's typically
+  worse overall; Cycle breaking would either require using weak refs
+  where appropriate, which would in turn require user input or an
+  advanced implementation, or a periodic cycle breaker, which would be
+  costly performance wise. So tracing GC is probably a good idea.
 
-  E.g. GHC seems to prefer throughput over latency, so very long
-  pauses are possible when you're working with a nontrial amount of
-  data. "You're actually doing pretty well to have a 51ms pause time
-  with over 200Mb of live data.".
+  GHC seems to prefer throughput over latency, so very long pauses are
+  possible when you're working with a nontrial amount of data. "You're
+  actually doing pretty well to have a 51ms pause time with over 200Mb
+  of live data.".
 
-  Lifetimes could fit in with Higher Kinded Types quite
-  naturally. Instead of just having the kind ~*~ (aka. ~type~), you'd
-  have two kinds: ~type~ and ~lifetime~. You could then have a type
-  like ~Ref 'a Int~ where ~Ref~ is a type operator with kind ~lifetime
-  -> type -> type~.
-
-  Another option could be to add ways of controlling when GC happens
+  It could be interesting to add ways of controlling when GC happens
   so you can reduce spikes of latency. Haskell has ~performGC :: IO
   ()~ that does this. [[https://old.reddit.com/r/haskell/comments/6d891n/has_anyone_noticed_gc_pause_lag_in_haskell/di0vqb0/][Here is a gameboy]] who eliminates spikes at the
   cost of overall performance by calling ~performGC~ every frame.
 
   [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
 
-** Garbage collector
-   Until we get linear types, and probably even then, we'll need some
-   form of GC.
+  A tracing GC would be quite separate from the rest of the
+  program. The only pollution would be calls to the allocator (not
+  much different from the current sitch w malloc) and
+  (de)registrations of local variables in Let forms (a total of two
+  function calls per heap allocated variable).
 
-   There are many problems with refcounting: Generated llvm ir/asm gets
-   polluted; While performance is more predictable, it's typically
-   worse overall; Cycle breaking would either require using weak refs
-   where appropriate, which would in turn require user input or an
-   advanced implementation, or a periodic cycle breaker, which would be
-   costly performance wise. So tracing GC is probably a good idea.
+  Implementing a tracing GC would be a fun challenge, and I'm sure it
+  could be fun to try different algorithms etc.
 
-*** NEXT Boehms GC
-    Simplest way to get rudimentary, but decently performant, GC.
+  Look at https://github.com/mkirchner/gc.
 
-*** INACTIVE DIY Garbage collector
-    A tracing GC would be quite separate from the rest of the
-    program. The only pollution would be calls to the allocator (not
-    much different from the current sitch w malloc) and
-    (de)registrations of local variables in Let forms (a total of two
-    function calls per heap allocated variable).
-
-    Implementing a tracing GC would also be a fun challenge, and I'm
-    sure it could be fun to try different algorithms etc.
-
-    Look at https://github.com/mkirchner/gc.
-
-**** How it would work
-     Basically, instead of calling =malloc=, the alloc function of the
-     GC is called. This function keeps track of either the number of
-     calls, the time, or the current sum of allocated space, and
-     periodically performs a mark-and-sweep, walking through the object
-     graph and marking objects not directly or indirectly referenced by
-     a "root" node for sweeping.
-
-     Root nodes are global variables and all local variables visible in
-     the current scope. Global variables can be registered in the main
-     wrapper, while local variables could be registered right after
-     they've been created (in a Let, Match, ...). They would then be
-     unregistered right before the function returns (or in the case of
-     tail calls, right before the tail call). Registering could happen
-     directly in the GC alloc routine.
-
-** Merging affine/linear types and GC
-   Best of both worlds? Maybe.
-
-   I don't think I want memory management to be quite as explicit and
-   cumbersome as in Rust, especially wrt lifetimes. An alternative
-   could be to just add linear types to allow for structures that
-   require mutability, like HashMap, but not borrowing. This would not
-   enable us to write *the most* performant code, but we'd be able to
-   do a lot better than with just GC--games may be quite possible.
 * INACTIVE Effect system
 
 * INACTIVE Macros?
@@ -296,11 +256,19 @@ Features and other stuff to do/implement in/around Carth.
 * INACTIVE Hoogle equivalent
   https://wiki.haskell.org/Hoogle
 
-* INACTIVE Web playground
+* INACTIVE Playground
   Like play.rustlang.org
 
   https://play.rust-lang.org/help
   https://github.com/google/nsjail
+
+  Might actually be pretty easy by making use of Guix
+  containers. Sandboxes the filesystem, and doesn't give network
+  access unless `--network` is provided.
+
+  #+BEGIN_EXAMPLE
+  guix environment --container --ad-hoc coreutils clang carth
+  #+END_EXAMPLE
 
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
@@ -313,32 +281,25 @@ Features and other stuff to do/implement in/around Carth.
   Like a typechecker-pass but for generated documentation. Verify that
   all links are alive, that examples compile and produce the expected
   output, etc.
-* INACTIVE Guarantee no stack overflow for tail recursion
-  We should guarantee that directly (and indirectly?) recursive
-  function call should not cause the stack usage to grow
-  indefinitely. Tail call elimination or trampolining should take
-  place. Will need to look into what LLVM can do, and what's possible
-  on different platforms. Hopefully we won't have to resort to
-  trampolining--that seems slow.
 * Standard library (std, stdlib)
-** INACTIVE Prefer somewhat big / wide stdlib
-   Small / bad standard library + good package manager => npm / cargo
-   situation, where everything has sooo many dependencies. Having a dep
-   is not bad per say, but when the numbers completely blow up, like in
-   rust- and javascript-land, things can get messy. The best way to
-   avoid this, I think, is having a standard library that has you
-   covered for most common things.
+  Prefer somewhat big / wide stdlib. Small / bad standard library +
+  good package manager => npm / cargo situation, where everything has
+  sooo many dependencies. Having a dep is not bad per say, but when
+  the numbers completely blow up, like in rust- and javascript-land,
+  things can get messy. The best way to avoid this, I think, is having
+  a standard library that has you covered for most common things.
 
-   Examples of libraries in other ecosystems that should be part of the
-   stdlib: `is-even` in JavaScript, `composition` in Haskell, `rand` in
-   Rust.
+  Examples of libraries in other ecosystems that should be part of the
+  stdlib: `is-even` in JavaScript, `composition` in Haskell, `rand` in
+  Rust.
 
-   Go seems to have done this relatively well. Their stdlib has
-   everything from JPEG codec, to a webserver. The stdlib shouldn't
-   have everything though, as that will add a bunch of legacy cruft
-   over time, like in Java. Would not be as much of a problem if we're
-   not afraid of releasing new major versions removing deprecated
-   stuff.
+  Go seems to have done this relatively well. Their stdlib has
+  everything from JPEG codec, to a webserver. The stdlib shouldn't
+  have everything though, as that will add a bunch of legacy cruft
+  over time, like in Java. Would not be as much of a problem if we're
+  not afraid of releasing new major versions removing deprecated
+  stuff.
+
 ** INACTIVE Concurrency / parallelism primitives
    Mutex, semaphore, etc.
 
@@ -352,7 +313,30 @@ Features and other stuff to do/implement in/around Carth.
    priority inversion which is a problem with spinlocks.
    https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
    https://matklad.github.io/2020/01/04/mutexes-are-faster-than-spinlocks.html
+
+* NEXT Some algorithms & data structures
+  We need good collections & algs for sorting etc. if Carth is going
+  to be of any use to anyone. Would also be a good way to add to the
+  set of test-programs & find the worst pain points of current Carth.
+
+  Many of these have implementations to look at and compare to on
+  [[rosettacode.org]].
+
+  This list is sort of off the top of my head, so some might not be
+  good fits in a purely functional language. Look at some resource on
+  persistend data structures as well.
+
+  - Priority queue
+  - Binary tree
+  - B-tree
+  - Random number generator
+  - Binary search
+  - bubble, insertion, selection sort
+  - quicksort
+
 * INACTIVE "Global" memoization
+  This is just an idea I had, and may or may not be wise to implement.
+
   Add a special function for "memoized application" that acts like the
   application function (in Haskell, ($) :: (a -> b) -> a -> b), the
   difference being that it stores the result in a global, hidden Map
@@ -368,12 +352,6 @@ Features and other stuff to do/implement in/around Carth.
   as memoized, and then it's always memoized, not just certain
   applications. Also, there could then be a unique Map for each such
   function.
-* NEXT Recursive ~let~ a mistake?
-  Some guy on the internet said recursive let by default was a serious
-  design mistake of Haskell. It think they may be right. It's easy to
-  accidentally cause infinite loops in Haskell due to that. Shadowing
-  by default would make more sense, then having a special form of
-  ~let~ for recursive bindings, say, ~let-rec~.
 * INACTIVE Async I/O
   Zig seems to have a smart solution that doesn't require a separate
   `async` version of the standard library, unlike Rust with
@@ -385,13 +363,7 @@ Features and other stuff to do/implement in/around Carth.
 
 * INACTIVE Boxing to allow for dynamic linking
   Boxing vs monomorphization. Boxing results in smaller binary and
-  dynamically-linkable interface,bot results in slower code.
-
-  Maybe monomorphize all package-internal code, and box all
-  public-facing functions?
-
-* INACTIVE Public polymorphic functions in compiled library
-  Keywords: boxing, dynamic linking
+  dynamically-linkable interface, but results in slower code.
 
   When compiling a library, especially a dynamically linked one, how
   do we allow the export of polymorphic functions? We can't really use
@@ -401,20 +373,22 @@ Features and other stuff to do/implement in/around Carth.
   FFI would become more complicated.
 
   Maybe monomorphize all package-internal code, and require boxing for
-  all public-facing polymorphic functions? Should require some keyword
+  all public-facing polymorphic functions? Could require some keyword
   or special form, like `boxed`, to make it clear when the FFI will be
   affected.
 * NEXT Add separate pass before Codegen to compile SrcPos:s
   I think it could be done purely and independently from rest of codegen. Would be more clean.
-* NEXT Refactor Codegen
-  It's getting big, complex, and unwieldy. Probably buggy as well.
+* NEXT Refactor & document Codegen & Gen
+  It's getting big, complex, and unwieldy. Probably buggy as
+  well. There's also a distinct lack of documentation. Always takes a
+  sec for me to remember what some badly named function actually does.
 * INACTIVE Use GADTs in Infer
 * NEXT Have a look at LLVM.IRBuilder
   Might simplify my Codegen
 
   https://hackage.haskell.org/package/llvm-hs-pure-9.0.0/docs/LLVM-IRBuilder-Module.html#v:function
 
-* NEXT Add basic repl
+* INACTIVE Add basic repl
   Add a basic repl based on the JIT. Something very similar to
   http://www.stephendiehl.com/llvm/.
 
@@ -425,21 +399,13 @@ Features and other stuff to do/implement in/around Carth.
 * TODO Un-generalize module Selections
   Since we now use JIT instead of interpreter, only Codegen uses
   Selections, and we could make it simpler by inlining it.
-* TODO Type aliases
-* TODO Return instead of phi-nodes at edges of match/if in tail pos
-  Probably needed for our sibling call optimization to work in
-  branches.
-* NEXT Playground
-  Might actually be pretty easy by making use of Guix
-  containers. Sandboxes the filesystem, and doesn't give network
-  access unless `--network` is provided.
+* NEXT Type aliases
+  Like ~type String = [Char]~ in Haskell.
 
-  #+BEGIN_EXAMPLE
-  guix environment --container --ad-hoc coreutils clang carth
-  #+END_EXAMPLE
-* TODO Compute glob vars at runtime
-* NEXT Compute glob vars at compiletime
-* NEXT Compile-time eval in arbitrary contexts
+* INACTIVE Compute glob vars at compiletime
+  I'm not 100% sure this is a good idea anymore. Need to think about
+  this.
+* INACTIVE Compile-time eval in arbitrary contexts
   As a step towards something like dependent types
 * INACTIVE Benchmark, profile, optimize
   Check out
@@ -505,44 +471,23 @@ Features and other stuff to do/implement in/around Carth.
   like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
   ensure the result is sized.
 
-** Sketch
-   1. Make basically everything use SizedUnit instead of Unit.
-   2. Make sure everything works. No segfaults etc.
-   3. Add pass optimizing away ZSTs.
-   4. Move things "back" to either Unit or RealWorld, make sure everything works.
-   5. ???
-   6. Profit.
+  Maybe do the flattening thing so there is only one zero sized type,
+  but don't optimize away operations returning Unit completely. It
+  would still be nice to be able to expect side effects and panics to
+  happen. Also, RealWorld wouldn't have to have a size and actually
+  impact performance.
 
-** Sketch 2
-   Maybe do the flattening thing so there is only one zero sized type,
-   but don't optimize away operations returning Unit completely. It
-   would still be nice to be able to expect side effects and panics to
-   happen. Also, RealWorld wouldn't have to have a size and actually
-   impact performance.
+  Just flatten all ZSTs to the single ZST (Unit?); remove ZST
+  variables (replace ZST var lookup w Unit literal); perform function
+  applications, if, & fun pretty much as normal; in let, don't
+  actually store the unit. Just compute the RHS; match is mostly
+  unaffected I think?; constructions of ZSTs become nested
+  seq:s. Yeah, I think that's it.
 
-   Just flatten all ZSTs to the single ZST (Unit?); remove ZST
-   variables (replace ZST var lookup w Unit literal); perform function
-   applications, if, & fun pretty much as normal; in let, don't
-   actually store the unit. Just compute the RHS; match is mostly
-   unaffected I think?; constructions of ZSTs become nested
-   seq:s. Yeah, I think that's it.
+* INACTIVE Builtin parsing of C header files
+  I think Zig has this, and in Rust you can use the external tool
+  ~bindgen~ to generate Rust declarations for C headers ahead of time.
 
-* NEXT Some algorithms & data structures
-  We need good collections & algs for sorting etc. if Carth is going
-  to be of any use to anyone. Would also be a good way to add to the
-  set of test-programs & find the worst pain points of current Carth.
-
-  Many of these have implementations to look at and compare to on
-  [[rosettacode.org]].
-
-  This list is sort of off the top of my head, so some might not be
-  good fits in a purely functional language. Look at some resource on
-  persistend data structures as well.
-
-  - Priority queue
-  - Binary tree
-  - B-tree
-  - Random number generator
-  - Binary search
-  - bubble, insertion, selection sort
-  - quicksort
+  I just think it would be nice to not need to manually translate
+  header files to use external libraries like OpenGL or SDL or
+  whatever.
