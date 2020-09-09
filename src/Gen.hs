@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts
-           , TemplateHaskell #-}
+           , TemplateHaskell, DuplicateRecordFields #-}
 
 -- | Code generation operations, generally not restricted to be used with AST
 --   inputs. Basically an abstraction over llvm-hs. Reusable operations that can
@@ -40,7 +40,6 @@ import qualified LLVM.AST.Linkage as LLLink
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.IntegerPredicate as LLIPred
 import qualified LLVM.AST.FloatingPointPredicate as LLFPred
-import qualified LLSubprog
 
 import Misc
 import Pretty
@@ -201,32 +200,31 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             -- TODO: Maybe only define this once and cache MDRef somewhere?
             fileNode =
                     let (dir, file) = splitFileName path
-                    in  LLSubprog.File { LLSubprog.filename = fromString file
-                                       , LLSubprog.directory = fromString dir
-                                       , LLSubprog.checksum = Nothing
-                                       }
-        in  LLOp.Subprogram
-                { LLSubprog.scope = Just (MDInline (LLOp.DIFile fileNode))
-                , LLSubprog.name = nameSBString name
-                , LLSubprog.linkageName = nameSBString name
-                , LLSubprog.file = Just (MDInline fileNode)
-                , LLSubprog.line = fromIntegral line
-                , LLSubprog.type' = Just (MDInline (LLOp.SubroutineType [] 0 []))
-                , LLSubprog.localToUnit = True
-                , LLSubprog.definition = True
-                , LLSubprog.scopeLine = fromIntegral line
-                , LLSubprog.containingType = Nothing
-                , LLSubprog.virtuality = LLOp.NoVirtuality
-                , LLSubprog.virtualityIndex = 0
-                , LLSubprog.thisAdjustment = 0
-                , LLSubprog.flags = []
-                , LLSubprog.optimized = False
-                , LLSubprog.unit = Just compileUnitRef
-                , LLSubprog.templateParams = []
-                , LLSubprog.declaration = Nothing
-                , LLSubprog.retainedNodes = []
-                , LLSubprog.thrownTypes = []
-                }
+                    in  LLOp.File { LLOp.filename = fromString file
+                                  , LLOp.directory = fromString dir
+                                  , LLOp.checksum = Nothing
+                                  }
+        in  LLOp.Subprogram { LLOp.scope = Just (MDInline (LLOp.DIFile fileNode))
+                            , LLOp.name = nameSBString name
+                            , LLOp.linkageName = nameSBString name
+                            , LLOp.file = Just (MDInline fileNode)
+                            , LLOp.line = fromIntegral line
+                            , LLOp.type' = Just (MDInline (LLOp.SubroutineType [] 0 []))
+                            , LLOp.localToUnit = True
+                            , LLOp.definition = True
+                            , LLOp.scopeLine = fromIntegral line
+                            , LLOp.containingType = Nothing
+                            , LLOp.virtuality = LLOp.NoVirtuality
+                            , LLOp.virtualityIndex = 0
+                            , LLOp.thisAdjustment = 0
+                            , LLOp.flags = []
+                            , LLOp.optimized = False
+                            , LLOp.unit = Just compileUnitRef
+                            , LLOp.templateParams = []
+                            , LLOp.declaration = Nothing
+                            , LLOp.retainedNodes = []
+                            , LLOp.thrownTypes = []
+                            }
     nameSBString = \case
         Name s -> s
         UnName n -> fromString (show n)

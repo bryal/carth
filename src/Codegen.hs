@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts, RankNTypes #-}
+{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts, RankNTypes, DuplicateRecordFields #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
@@ -7,8 +7,6 @@ import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
-import qualified LLSubprog
-import qualified LLCompunit
 import qualified LLVM.AST.Operand as LLOp
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
@@ -130,31 +128,31 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
         , NamedMetadataDefinition "llvm.dbg.cu" [compileUnitId]
         , NamedMetadataDefinition "llvm.module.flags" [debugInfoVersionId]
         ]
-    compileUnitDef = LLCompunit.CompileUnit
-        { LLCompunit.language = let unstandardized_c = 1 in unstandardized_c
-        , LLCompunit.file = MDRef fileId
-        , LLCompunit.producer = "carth version alpha"
-        , LLCompunit.optimized = False
-        , LLCompunit.flags = ""
-        , LLCompunit.runtimeVersion = 0
-        , LLCompunit.splitDebugFileName = ""
-        , LLCompunit.emissionKind = LLOp.FullDebug
-        , LLCompunit.enums = []
-        , LLCompunit.retainedTypes = []
-        , LLCompunit.globals = []
-        , LLCompunit.imports = []
-        , LLCompunit.macros = []
-        , LLCompunit.dWOId = 0
-        , LLCompunit.splitDebugInlining = False
-        , LLCompunit.debugInfoForProfiling = False
-        , LLCompunit.nameTableKind = LLOp.NameTableKindNone
-        , LLCompunit.debugBaseAddress = False
+    compileUnitDef = LLOp.CompileUnit
+        { LLOp.language = let unstandardized_c = 1 in unstandardized_c
+        , LLOp.file = MDRef fileId
+        , LLOp.producer = "carth version alpha"
+        , LLOp.optimized = False
+        , LLOp.flags = ""
+        , LLOp.runtimeVersion = 0
+        , LLOp.splitDebugFileName = ""
+        , LLOp.emissionKind = LLOp.FullDebug
+        , LLOp.enums = []
+        , LLOp.retainedTypes = []
+        , LLOp.globals = []
+        , LLOp.imports = []
+        , LLOp.macros = []
+        , LLOp.dWOId = 0
+        , LLOp.splitDebugInlining = False
+        , LLOp.debugInfoForProfiling = False
+        , LLOp.nameTableKind = LLOp.NameTableKindNone
+        , LLOp.debugBaseAddress = False
         }
     fileDef =
         let (dir, file) = splitFileName moduleFilePath
-        in  LLOp.File { LLSubprog.filename = fromString file
-                      , LLSubprog.directory = fromString dir
-                      , LLSubprog.checksum = Nothing
+        in  LLOp.File { LLOp.filename = fromString file
+                      , LLOp.directory = fromString dir
+                      , LLOp.checksum = Nothing
                       }
 
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct

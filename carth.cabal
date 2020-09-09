@@ -32,8 +32,6 @@ library
       Infer
       Inferred
       Literate
-      LLCompunit
-      LLSubprog
       Match
       Misc
       Monomorphic
