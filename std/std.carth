@@ -63,17 +63,6 @@
 
 (extern str-append (Fun Str Str Str))
 
-;;; IO
-
-(extern unsafe-display-inline (Fun Str Unit))
-
-(define: (display-inline s real-world)
-    (Fun Str RealWorld [Unit RealWorld])
-  [(unsafe-display-inline s) real-world])
-
-(define (display s)
-  (display-inline (str-append s "\n")))
-
 ;;; Function
 
 (define (uncurry f [a b]) (f a b))

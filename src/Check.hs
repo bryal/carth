@@ -112,10 +112,26 @@ builtinDataTypes' =
       , [TVImplicit 0, TVImplicit 1]
       , [("Cons", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
       )
-    , ("Unit", [], [("Unit", [])])
+    , ("Unit", [], [unit'])
     , ("RealWorld", [], [("UnsafeRealWorld", [])])
     , ("Bool", [], [("False", []), ("True", [])])
+    , ( "IO"
+      , [TVImplicit 0]
+      , [ ( "IO"
+          , [ Inferred.TFun (tc ("RealWorld", [])) $ tc
+                  ( "Cons"
+                  , [ Inferred.TVar (TVImplicit 0)
+                    , tc ("Cons", [tc ("RealWorld", []), tc unit'])
+                    ]
+                  )
+            ]
+          )
+        ]
+      )
     ]
+  where
+    tc = Inferred.TConst
+    unit' = ("Unit", [])
 
 assertNoRec
     :: Inferred.TypeDefs

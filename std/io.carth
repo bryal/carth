@@ -1,28 +1,34 @@
 (import std)
 
 (define: (io/for xs f)
-    (forall (a) (Fun (Iter a)
-                     (Fun a RealWorld [Unit RealWorld])
-                     (Fun RealWorld [Unit RealWorld])))
-  (fun (real-world) [Unit (foldl (fun (real-world a) (cadr (f a real-world))) real-world xs)]))
+    (forall (a) (Fun (Iter a) (Fun a (IO Unit)) (IO Unit)))
+  (IO (fun (real-world)
+        [Unit (foldl (fun (real-world a) (cadr (perform-io (f a) real-world)))
+                     real-world
+                     xs)])))
 
-(define (io/pure a) (fun (real-world) [Unit real-world]))
+(define (io/pure a) (IO (fun (real-world) [Unit real-world])))
 
 (define (io/map f ma)
-  (o> (perform-io ma) (map-car f)))
+  (o> ma (map-car f)))
 
 (define (io/bind f ma)
-  (o> (perform-io ma) (uncurry (o> f perform-io))))
+  (o> ma (uncurry (o> f perform-io))))
 
 (define io/bindr (flip io/bind))
 
 (define: (unsafe-perform-io ma)
-    (forall (a) (Fun (Fun RealWorld [a RealWorld])
-                     [a RealWorld]))
-  (perform-io ma UnsafeRealWorld))
+    (forall (a) (Fun (IO a) a))
+  (car (perform-io ma UnsafeRealWorld)))
 
-(define: perform-io
-    (forall (a) (Fun (Fun RealWorld [a RealWorld])
-                     RealWorld
-                     [a RealWorld]))
-  <|)
+(define: (perform-io (IO ma))
+    (forall (a) (Fun (IO a) RealWorld [a RealWorld]))
+  ma)
+
+(extern unsafe-display-inline (Fun Str Unit))
+
+(define (display-inline s)
+  (io/pure (unsafe-display-inline s)))
+
+(define (display s)
+  (display-inline (str-append s "\n")))

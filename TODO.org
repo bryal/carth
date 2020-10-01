@@ -396,7 +396,7 @@ Features and other stuff to do/implement in/around Carth.
   Would probably require some memoization mechanism so that we don't
   unnecessarily check, monomorphise, and compile stuff we don't need
   to.
-* TODO Un-generalize module Selections
+* NEXT Un-generalize module Selections
   Since we now use JIT instead of interpreter, only Codegen uses
   Selections, and we could make it simpler by inlining it.
 * NEXT Type aliases

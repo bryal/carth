@@ -28,7 +28,10 @@ class TypeAst t where
     tbox :: t -> t
 
 mainType :: TypeAst t => t
-mainType = tfun tRealWorld (tTuple [tUnit, tRealWorld])
+mainType = tIO tUnit
+
+tIO :: TypeAst t => t -> t
+tIO a = tconst ("IO", [a])
 
 tByte :: TypeAst t => t
 tByte = tprim (TNat 8)
