@@ -444,18 +444,17 @@ Features and other stuff to do/implement in/around Carth.
   transformations from Carth IR to LLVM, instead transforming to this
   more functional IR. GRIN might also be able to perform more
   optimizations.
-* TODO Optimize away zero-sized types before codegen
-  Handling zero-sized types is kind of annoying. Some things in LLVM,
-  like tail call optimization, doesn't works quite intuitively when
-  zero-sized types (e.g. ~{}~, ~{{}, {}}~) are involved. I therefore
-  think it would be a good idea to add a dedicated optimization pass
-  after monomorphization but before codegen that just gets rid of all
+* INACTIVE Optimize away zero-sized types before codegen
+  It's bad that many operations on zero-sized types are currently
+  actually compiled to, in practice, a ton of no-ops. I think it might
+  be a good idea to add a dedicated optimization pass after
+  monomorphization but before codegen that just gets rid of all
   zero-sized types and operations on them. For example, a type like
   ~(data Foo (Foo Bar Unit Baz))~ can be changed to ~(data Foo (Foo
   Bar Baz))~ without affecting the size of the generated struct
   etc. Also, a store of a ~{}~ into a ~{}*~ is really a no-op -- just
   noise in the generated LLVM. Being able to assume no zero-sized
-  types in Gen/Codegen would be really nice, I think.
+  types in Gen/Codegen would also be really nice, I think.
 
   One issue: If you get rid of all ZSTs, what happens to a function
   with return-type Unit? What does it now return? One option could be
@@ -471,23 +470,11 @@ Features and other stuff to do/implement in/around Carth.
   like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
   ensure the result is sized.
 
-** Sketch
-   Maybe do the flattening thing so there is only one zero sized type,
-   but don't optimize away operations returning Unit completely. It
-   would still be nice to be able to expect side effects and panics to
-   happen. Also, RealWorld wouldn't have to have a size and actually
-   impact performance.
-
-   Just flatten all ZSTs to the single ZST (Unit?); remove ZST
-   variables (replace ZST var lookup w Unit literal); perform function
-   applications, if, & fun pretty much as normal; in let, don't
-   actually store the unit. Just compute the RHS; match is mostly
-   unaffected I think?; constructions of ZSTs become nested
-   seq:s. Yeah, I think that's it.
-
-** Sketch 2
-   But actually maybe do delete all Unit expressions? Would make
-   things simpler for sure...
+  Maybe do the flattening thing so there is only one zero sized type,
+  but don't optimize away operations returning Unit completely. It
+  would still be nice to be able to expect side effects and panics to
+  happen. Also, RealWorld wouldn't have to have a size and actually
+  impact performance.
 
 * INACTIVE Builtin parsing of C header files
   I think Zig has this, and in Rust you can use the external tool

@@ -232,7 +232,8 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
 genTailWrapInLambdas
     :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
 genTailWrapInLambdas rt fvs ps genBody =
-    genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r -> commitFinalFuncBlock (ret r) $> typeOf r
+    genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r ->
+        commitFinalFuncBlock (ret r) $> typeOf r
 
 genWrapInLambdas :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
 genWrapInLambdas rt fvs pts genBody = case pts of
