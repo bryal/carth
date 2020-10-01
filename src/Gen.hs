@@ -129,8 +129,8 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     ((rt, fParams), Out basicBlocks globStrings lambdaFuncs srcPoss) <- runWriterT $ do
-            -- Two equal SrcPos's in different scopes are not equal at the
-            -- metadata level. Reset cache every scope.
+        -- Two equal SrcPos's in different scopes are not equal at the
+        -- metadata level. Reset cache every scope.
         assign srcPosToMetadata Map.empty
         (capturesParam, captureLocals) <- genExtractCaptures
         pt' <- genType pt
@@ -232,9 +232,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
 genTailWrapInLambdas
     :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
 genTailWrapInLambdas rt fvs ps genBody =
-    genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r -> if typeOf r == typeUnit
-        then commitFinalFuncBlock retVoid $> LLType.void
-        else commitFinalFuncBlock (ret r) $> typeOf r
+    genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r -> commitFinalFuncBlock (ret r) $> typeOf r
 
 genWrapInLambdas :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
 genWrapInLambdas rt fvs pts genBody = case pts of
@@ -305,8 +303,8 @@ runGen' g = runReaderT (evalStateT g initSt) initEnv
                 , _metadataCount = 3
                 , _lambdaParentFunc = Nothing
                 , _outerLambdaN = 1
-             -- TODO: Maybe add a pass before this that just generates all
-             --       SrcPos:s, separately and more cleanly?
+                -- TODO: Maybe add a pass before this that just generates all
+                --       SrcPos:s, separately and more cleanly?
                 , _srcPosToMetadata = Map.empty
                 }
 
@@ -645,7 +643,8 @@ app tailkind closure a = do
     a' <- getLocal a
     let as = [(captures, []), (a', [])]
     let rt = getFunRet (getPointee (typeOf f))
-    fmap VLocal $ if rt == LLType.void
+    let returnsViaParam = rt == LLType.void
+    fmap VLocal $ if returnsViaParam
         then emitDo (callIntern tailkind f as) $> litUnit
         else emitAnonReg $ WithRetType (callIntern tailkind f as) rt
 
@@ -769,13 +768,12 @@ genExternTypeSig t = do
     ps <- forM pts' $ \pt' -> passByRef' pt' <&> \case
         True -> Parameter (LLType.ptr pt') anon [ByVal]
         False -> Parameter pt' anon []
-    rt' <- genRetType' rt
+    rt' <- genType' rt
     (rt'', ps') <- passByRef' rt' <&> \case
         True -> (LLType.void, Parameter (LLType.ptr rt') anon [SRet] : ps)
         False -> (rt', ps)
     pure ((pts, rt'), (ps', rt''))
   where
-
     uncurryType :: Ast.Type -> ([Ast.Type], Ast.Type)
     uncurryType = \case
         Ast.TFun a b -> first (a :) (uncurryType b)
@@ -818,12 +816,6 @@ passByRef' = \case
     LabelType -> ice "passByRef of LabelType"
     TokenType -> ice "passByRef of TokenTyp"
 
-genRetType :: Ast.Type -> Gen Type
-genRetType = lift . genRetType'
-
-genRetType' :: MonadReader Env m => Ast.Type -> m Type
-genRetType' = fmap (\t -> if t == typeUnit then LLType.void else t) . genType'
-
 genType :: Ast.Type -> Gen Type
 genType = lift . genType'
 
@@ -839,7 +831,7 @@ genType' = \case
         Ast.TF32 -> float
         Ast.TF64 -> double
         Ast.TF128 -> fp128
-    Ast.TFun a r -> liftA2 closureType (genType' a) (genRetType' r)
+    Ast.TFun a r -> liftA2 closureType (genType' a) (genType' r)
     Ast.TBox t -> fmap LLType.ptr (genType' t)
     Ast.TConst tc -> lookupEnum tc <&> \case
         Just 0 -> typeUnit
@@ -1200,7 +1192,7 @@ litStructNamed t xs =
     let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
 
 litUnit :: Operand
-litUnit = ConstantOperand (litStruct [])
+litUnit = ConstantOperand (LLConst.Array i8 [])
 
 typeStr :: Type
 typeStr = NamedTypeReference (mkName (mangleTConst TypeAst.tStr'))
@@ -1211,8 +1203,29 @@ typeBool = i8
 typeGenericPtr :: Type
 typeGenericPtr = LLType.ptr i8
 
+-- Why is Unit represented by a zero-length array instead of an empty struct? In short,
+-- it's to prevent LLVM from performing a certain optimization which later prevents
+-- tail-calls from being optimized.
+--
+-- The problem is that for tail recursive functions with return type Unit, LLVM optimizes
+--
+--   %x = tail call {} foo()
+--   ret {} %x
+--
+-- to
+--
+--   %x = tail call {} foo()
+--   ret {} zeroinitializer
+--
+-- However, this "optimization" prevents tail-call optimization from happening later, as
+-- TCO requires us to return either void or the local of the return value of the last
+-- call. zeroinitializer may have the same value as %x, but the optimizer doesn't
+-- recognize it as fulfilling the conditions, so TCO doesn't happen. By representing Unit
+-- as an empty array instead, this problem doesn't happen, because %x is simply not
+-- replaced with zeroinitializer by LLVM when the type is an array type. Don't know why
+-- this is the case, but it works out.
 typeUnit :: Type
-typeUnit = typeStruct []
+typeUnit = ArrayType 0 i8
 
 typeStruct :: [Type] -> Type
 typeStruct ts = StructureType { isPacked = False, elementTypes = ts }

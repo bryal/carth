@@ -259,7 +259,7 @@ genGlobFunDef (TypedVar v _, WithPos dpos (ts, (p, (body, rt)))) = do
     assign lambdaParentFunc (Just name)
     assign outerLambdaN 1
     let fName = mkName (name ++ "_func")
-    (f, gs) <- genFunDef (fName, [], dpos, p, genTailExpr body *> genRetType rt)
+    (f, gs) <- genFunDef (fName, [], dpos, p, genTailExpr body *> genType rt)
     let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
     let captures = LLConst.Null typeGenericPtr
     let closure = litStruct [captures, fRef]
@@ -279,9 +279,7 @@ genTailExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
             _ -> genExpr (Expr pos expr)
 
 genTailReturn :: Val -> Gen ()
-genTailReturn v = if typeOf v == typeUnit
-    then commitFinalFuncBlock retVoid
-    else commitFinalFuncBlock . ret =<< getLocal v
+genTailReturn v = commitFinalFuncBlock . ret =<< getLocal v
 
 genExpr :: Expr -> Gen Val
 genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
@@ -302,7 +300,7 @@ genExprLambda :: TypedVar -> (Expr, Ast.Type) -> Gen Val
 genExprLambda p (b, bt) = do
     fvXs <- view localEnv <&> \locals ->
         Set.toList (Set.intersection (Set.delete p (freeVars b)) (Map.keysSet locals))
-    bt' <- genRetType bt
+    bt' <- genType bt
     genLambda fvXs p (genTailExpr b, bt')
 
 genConst :: Ast.Const -> Gen Val
@@ -395,7 +393,7 @@ genLet' def genBody = case def of
                     in  Set.toList (Set.intersection (Set.delete p (freeVars fb)) locals')
                 tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
                 captures <- genHeapAllocGeneric tcaptures
-                fbt' <- genRetType fbt
+                fbt' <- genType fbt
                 lam <-
                     getVar =<< genLambda' p (genTailExpr fb, fbt') (VLocal captures) fvXs
                 pure ((lhs, lam), (captures, fvXs))
