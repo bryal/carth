@@ -1,10 +1,10 @@
 (import std)
 
-(define main fizzbuzz)
+(define (main real-world) (fizzbuzz real-world))
 
-(define (fizzbuzz Unit)
-  (for (range 1 100)
-       (<o display fizzbuzz')))
+(define fizzbuzz
+  (io/for (range 1 100)
+          (<o display fizzbuzz')))
 
 (define (fizzbuzz' n)
   (match [(divisible? n 3) (divisible? n 5)]

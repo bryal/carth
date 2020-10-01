@@ -28,7 +28,7 @@ class TypeAst t where
     tbox :: t -> t
 
 mainType :: TypeAst t => t
-mainType = tfun tUnit tUnit
+mainType = tfun tRealWorld (tTuple [tUnit, tRealWorld])
 
 tByte :: TypeAst t => t
 tByte = tprim (TNat 8)
@@ -44,6 +44,15 @@ tStr' = ("Str", [])
 
 tArray :: TypeAst t => t -> t
 tArray a = tconst ("Array", [a])
+
+tTuple :: TypeAst t => [t] -> t
+tTuple = foldr tCons tUnit
+
+tCons :: TypeAst t => t -> t -> t
+tCons car cdr = tconst ("Cons", [car, cdr])
+
+tRealWorld :: TypeAst t => t
+tRealWorld = tconst ("RealWorld", [])
 
 tUnit :: TypeAst t => t
 tUnit = tconst tUnit'

@@ -2,7 +2,7 @@
 
 (import std)
 
-(define (main Unit)
+(define main
   (display (show-nat (ackermann (cast 3) (cast 10)))))
 
 (define: (ackermann m n) (Fun Nat Nat Nat)

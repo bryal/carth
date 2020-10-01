@@ -80,7 +80,7 @@ pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
     s1 == s2
 }
 
-#[export_name = "display-inline"]
+#[export_name = "unsafe-display-inline"]
 pub extern "C" fn display_inline(s: Str) {
     let s = from_carth_str(&s);
     print!("{}", s);

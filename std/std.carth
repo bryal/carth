@@ -8,6 +8,7 @@
 (import array)
 (import string)
 (import queue)
+(import io)
 
 (define (car      [x . _])           x)
 (define (cadr     [_ x . _])         x)
@@ -64,7 +65,11 @@
 
 ;;; IO
 
-(extern display-inline (Fun Str Unit))
+(extern unsafe-display-inline (Fun Str Unit))
+
+(define: (display-inline s real-world)
+    (Fun Str RealWorld [Unit RealWorld])
+  [(unsafe-display-inline s) real-world])
 
 (define (display s)
   (display-inline (str-append s "\n")))

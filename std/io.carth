@@ -1,0 +1,28 @@
+(import std)
+
+(define: (io/for xs f)
+    (forall (a) (Fun (Iter a)
+                     (Fun a RealWorld [Unit RealWorld])
+                     (Fun RealWorld [Unit RealWorld])))
+  (fun (real-world) [Unit (foldl (fun (real-world a) (cadr (f a real-world))) real-world xs)]))
+
+(define (io/pure a) (fun (real-world) [Unit real-world]))
+
+(define (io/map f ma)
+  (o> (perform-io ma) (map-car f)))
+
+(define (io/bind f ma)
+  (o> (perform-io ma) (uncurry (o> f perform-io))))
+
+(define io/bindr (flip io/bind))
+
+(define: (unsafe-perform-io ma)
+    (forall (a) (Fun (Fun RealWorld [a RealWorld])
+                     [a RealWorld]))
+  (perform-io ma UnsafeRealWorld))
+
+(define: perform-io
+    (forall (a) (Fun (Fun RealWorld [a RealWorld])
+                     RealWorld
+                     [a RealWorld]))
+  <|)

@@ -1,7 +1,7 @@
 (import std)
 
-(define (main Unit)
-  (for (range-from 0) big-allocation))
+(define main
+  (io/for (range-from 0) big-allocation))
 
 (define (big-allocation n)
   (let ((a (A n n n n))

@@ -1,6 +1,6 @@
 (import std)
 
-(define (main unit)
+(define main
   (display (show-int (fib 11))))
 
 (define fib

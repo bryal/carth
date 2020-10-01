@@ -1192,6 +1192,9 @@ litStructNamed :: Ast.TConst -> [LLConst.Constant] -> LLConst.Constant
 litStructNamed t xs =
     let tname = mkName (mangleTConst t) in LLConst.Struct (Just tname) False xs
 
+litRealWorld :: Operand
+litRealWorld = litUnit
+
 litUnit :: Operand
 litUnit = ConstantOperand (LLConst.Array i8 [])
 

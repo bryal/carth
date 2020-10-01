@@ -2,7 +2,7 @@
 
 (import std)
 
-(define (main Unit)
+(define main
   (display (show-int (factorial 20))))
 
 (define (factorial n)

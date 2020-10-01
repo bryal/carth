@@ -82,7 +82,8 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                               ice $ "LLVM verification exception:\n" ++ msg
                       withPassManager (optPasses optLvl tm) $ \passman -> do
                           verbose cfg "   Optimizing"
-                          _ <- runPassManager passman mod
+                          r <- runPassManager passman mod
+                          when (not r) $ putStrLn "DEBUG: runPassManager returned False"
                           when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                           f cfg tm mod
 

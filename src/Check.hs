@@ -113,6 +113,7 @@ builtinDataTypes' =
       , [("Cons", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
       )
     , ("Unit", [], [("Unit", [])])
+    , ("RealWorld", [], [("UnsafeRealWorld", [])])
     , ("Bool", [], [("False", []), ("True", [])])
     ]
 
