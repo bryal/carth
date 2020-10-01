@@ -2,9 +2,9 @@
 
 (import std)
 
-(define (main real-world)
+(define main
   (let1 primes (sieve (range-from 2))
-    (display (show-int (unwrap! (iter/nth (cast 1000) primes))) real-world)))
+    (display (show-int (unwrap! (iter/nth (cast 1000) primes))))))
 
 (define (sieve xs)
   (Iter (fun (_)

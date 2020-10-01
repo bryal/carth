@@ -1,6 +1,6 @@
 (import std)
 
-(define (main real-world) (fizzbuzz real-world))
+(define main fizzbuzz)
 
 (define fizzbuzz
   (io/for (range 1 100)

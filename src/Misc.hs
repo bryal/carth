@@ -6,7 +6,6 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
-import Data.Foldable
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.State
@@ -88,8 +87,8 @@ splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
         pure $ (as ++) $ if not (null a) then [a] else []
 
 partitionWith :: (a -> Either b c) -> [a] -> ([b], [c])
-partitionWith f = foldl'
-    (\(bs, cs) x -> case f x of
+partitionWith f = foldr
+    (\x (bs, cs) -> case f x of
         Left b -> (b : bs, cs)
         Right c -> (bs, c : cs)
     )

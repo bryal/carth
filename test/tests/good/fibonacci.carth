@@ -2,8 +2,8 @@
 
 (import std)
 
-(define (main real-world)
-  (display (show-int (fib 92)) real-world))
+(define main
+  (display (show-int (fib 92))))
 
 (define fib
   (define (fib' a b n)
