@@ -491,3 +491,19 @@ Features and other stuff to do/implement in/around Carth.
   I just think it would be nice to not need to manually translate
   header files to use external libraries like OpenGL or SDL or
   whatever.
+* INACTIVE Investigate alternative linkers
+  Linking is one of the bottlenecks. However much caching etc I do in
+  the parser & typechecker etc, the linker still has to do everything
+  from scratch each time. I read somewhere that "gold" is a new GCC
+  linker? Try using that maybe, unless it's already in use?
+
+  https://news.ycombinator.com/item?id=24615916
+
+* INACTIVE Produce .so:s for debug builds
+  Linking is slow, so for debug builds we could try to split the
+  output by module into separate .so:s. Then we'd only have to rebuild
+  the .so of the affected module in incremental compilation.
+
+  https://news.ycombinator.com/item?id=24615916
+
+* INACTIVE Build Future into IO, or have both IO and AsyncIO?
