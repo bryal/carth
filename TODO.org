@@ -471,18 +471,23 @@ Features and other stuff to do/implement in/around Carth.
   like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
   ensure the result is sized.
 
-  Maybe do the flattening thing so there is only one zero sized type,
-  but don't optimize away operations returning Unit completely. It
-  would still be nice to be able to expect side effects and panics to
-  happen. Also, RealWorld wouldn't have to have a size and actually
-  impact performance.
+** Sketch
+   Maybe do the flattening thing so there is only one zero sized type,
+   but don't optimize away operations returning Unit completely. It
+   would still be nice to be able to expect side effects and panics to
+   happen. Also, RealWorld wouldn't have to have a size and actually
+   impact performance.
 
-  Just flatten all ZSTs to the single ZST (Unit?); remove ZST
-  variables (replace ZST var lookup w Unit literal); perform function
-  applications, if, & fun pretty much as normal; in let, don't
-  actually store the unit. Just compute the RHS; match is mostly
-  unaffected I think?; constructions of ZSTs become nested
-  seq:s. Yeah, I think that's it.
+   Just flatten all ZSTs to the single ZST (Unit?); remove ZST
+   variables (replace ZST var lookup w Unit literal); perform function
+   applications, if, & fun pretty much as normal; in let, don't
+   actually store the unit. Just compute the RHS; match is mostly
+   unaffected I think?; constructions of ZSTs become nested
+   seq:s. Yeah, I think that's it.
+
+** Sketch 2
+   But actually maybe do delete all Unit expressions? Would make
+   things simpler for sure...
 
 * INACTIVE Builtin parsing of C header files
   I think Zig has this, and in Rust you can use the external tool
@@ -507,3 +512,22 @@ Features and other stuff to do/implement in/around Carth.
   https://news.ycombinator.com/item?id=24615916
 
 * INACTIVE Build Future into IO, or have both IO and AsyncIO?
+
+* NEXT Some algorithms & data structures
+  We need good collections & algs for sorting etc. if Carth is going
+  to be of any use to anyone. Would also be a good way to add to the
+  set of test-programs & find the worst pain points of current Carth.
+
+  Many of these have implementations to look at and compare to on
+  [[rosettacode.org]].
+
+  This list is sort of off the top of my head, so some might not be
+  good fits in a purely functional language. Look at some resource on
+  persistend data structures as well.
+
+  - Priority queue
+  - Binary tree
+  - B-tree
+  - Random number generator
+  - bubble, insertion, selection sort
+  - quicksort
