@@ -202,7 +202,7 @@ genMain = do
         emitDo' =<< callBuiltin "install_stackoverflow_handler" []
         emitDo (callIntern Nothing init_ [(null' typeGenericPtr, []), (litUnit, [])])
         f <- lookupVar (TypedVar "main" mainType)
-        _ <- app Nothing f (VLocal litUnit)
+        _ <- app (Just NoTail) f (VLocal litRealWorld)
         commitFinalFuncBlock (ret (litI32 0))
     pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks []))
 
