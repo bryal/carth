@@ -1,0 +1,5 @@
+;; Count lines of stdin
+
+(import std)
+
+(define main (io/bind display (io/map (<o show-nat (<o count lines)) get-contents)))
