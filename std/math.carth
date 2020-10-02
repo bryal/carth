@@ -8,6 +8,11 @@
 (define (inc n) (+ n (cast 1)))
 (define (dec n) (- n (cast 1)))
 
+(define (neg x) (- 0 x))
+
+(define (min a b) (if (< a b) a b))
+(define (max a b) (if (> a b) a b))
+
 (define (square x) (* x x))
 
 (define (and p q) (if p q    False))

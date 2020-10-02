@@ -88,8 +88,9 @@
     (maybe a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
   (rev xs iter/nil))
 
-(define (iter/length xs)
-  (foldl (<o const inc) 0 xs))
+(define: (count xs)
+    (forall (a) (Fun (Iter a) Nat))
+  (foldl (<o const inc) (cast 0) xs))
 
 (define enumerate (zip (range-from (: (cast 0) Nat))))
 
