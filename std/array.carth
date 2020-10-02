@@ -40,6 +40,26 @@
     (if (< i (array/length xs))
         (Some i)
       None)))
+
+;;? Positive m: skip from beginning, take from end. Negative m: skip from end, take from
+;;? beginning.
+(define: (array/skip m (Array ptr n))
+    (forall (a) (Fun Int (Array a) (Array a)))
+  (if (< m 0)
+      (let1 m (min n (cast (neg m)))
+        (Array ptr (- n m)))
+    (let1 m (min n (cast m))
+      (Array (ptr/+ ptr m) (- n m)))))
+
+;;? Positive m: take from beginning, skip from end. Negative m: take from end, skip from
+;;? beginning.
+(define: (array/take m (Array ptr n))
+    (forall (a) (Fun Int (Array a) (Array a)))
+  (if (< m 0)
+      (let1 m (min n (cast (neg m)))
+        (Array (ptr/+ ptr (- n m)) m))
+    (Array ptr (min n (cast m)))))
+
 ;;? Binary search
 ;;?
 ;;? If there are multiple matches, the index of any of them may be returned.
@@ -55,3 +75,8 @@
           (case Lt (go start i))
           (case Gt (go (inc i) end))))))
   (go (cast 0) (array/length ys)))
+
+(define (array/split i (Array ptr n))
+  (if (< i n)
+      (Some [(Array ptr i) (Array (ptr/+ ptr i) (- n i))])
+    None))
