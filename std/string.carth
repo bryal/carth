@@ -56,3 +56,14 @@
   (if (= n 0)
       "0x0"
     (str-append "0x" (Str (array/collect (reverse (it n)))))))
+
+(define: (lines (Str s))
+    (Fun Str (Iter Str))
+  (define (lines' s)
+    (Iter (fun (Unit) (maybe/map (fun (i) (map-two Str
+                                                   (<o lines' (array/skip 1))
+                                                   (unwrap! (array/split i s))))
+                                 (array/find = (cast ascii-newline) s)))))
+  (lines' s))
+
+(define: ascii-newline Nat8 (cast 0xA))
