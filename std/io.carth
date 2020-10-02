@@ -9,11 +9,13 @@
 
 (define (io/pure a) (IO (fun (real-world) [Unit real-world])))
 
-(define (io/map f ma)
-  (o> ma (map-car f)))
+(define: (io/map f (IO ma))
+    (forall (a b) (Fun (Fun a b) (IO a) (IO b)))
+  (IO (o> ma (map-car f))))
 
-(define (io/bind f ma)
-  (o> ma (uncurry (o> f perform-io))))
+(define: (io/bind f (IO ma))
+    (forall (a b) (Fun (Fun a (IO b)) (IO a) (IO b)))
+  (IO (o> ma (uncurry (o> f perform-io)))))
 
 (define io/bindr (flip io/bind))
 
