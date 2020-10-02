@@ -9,7 +9,7 @@
        (xrange 0 (cast len))))
 
 (define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
-  (let ((n (iter/length xs))
+  (let ((n (count xs))
         (ptr (: (transmute (id@"GC_malloc" (* (sizeof a) (cast n)))) (Box a))))
     (foldl (fun (v [i x]) (array/insert i x v))
            (Array ptr (cast n))
@@ -29,6 +29,17 @@
 
 (define array/lookup! (<oo unwrap! array/lookup))
 
+;;? Returns index of the first occurence of the element in the array, if it *is* an element
+(define: (array/find eq? x xs)
+    (forall (a) (Fun (Fun a a Bool) a (Array a) (Maybe Nat)))
+  (array/find-by (= x) xs))
+
+;;? Returns the index of the first element that satisfies the predicate
+(define (array/find-by p xs)
+  (let1 i (count (take-while (<o not p) (array/iter xs)))
+    (if (< i (array/length xs))
+        (Some i)
+      None)))
 ;;? Binary search
 ;;?
 ;;? If there are multiple matches, the index of any of them may be returned.

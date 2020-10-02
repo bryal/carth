@@ -57,6 +57,13 @@
                             (case None None)))))
     (Iter (fun (_) (skip-while' xs)))))
 
+(define (take-while pred xs)
+  (Iter (fun (Unit) (maybe/bind (fun ([x xs'])
+                                  (if (pred x)
+                                      (Some [x (take-while pred xs')])
+                                    None))
+                                (next xs)))))
+
 (define (for xs f) (foldl (const f) Unit xs))
 
 (define (map f xs)
