@@ -19,6 +19,9 @@
 
 (define io/bindr (flip io/bind))
 
+(define (io/thenl mb ma) (io/bind (const mb) ma))
+(define (io/thenr ma mb) (io/bindr ma (const mb)))
+
 (define: (unsafe-perform-io ma)
     (forall (a) (Fun (IO a) a))
   (car (perform-io ma UnsafeRealWorld)))
