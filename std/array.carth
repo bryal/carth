@@ -32,7 +32,7 @@
 ;;? Binary search
 ;;?
 ;;? If there are multiple matches, the index of any of them may be returned.
-(define: (array/find cmp x ys)
+(define: (array/search cmp x ys)
     (forall (a) (Fun (Fun a a Cmp) a (Array a) (Maybe Nat)))
   (define (go start end)
     (if (= start end)
