@@ -3,7 +3,7 @@
 mod ffi;
 
 use libc::*;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::{alloc, mem, slice, str};
 
 #[no_mangle]
@@ -120,6 +120,15 @@ pub extern "C" fn show_f64(n: f64) -> Str {
 pub extern "C" fn panic(s: Str) {
     eprintln!("*** Panic: {}", from_carth_str(&s));
     std::process::abort()
+}
+
+#[export_name = "-get-contents"]
+pub extern "C" fn get_contents() -> Str {
+    let mut s = String::new();
+    io::stdin()
+        .read_to_string(&mut s)
+        .expect("read all of stdin");
+    Str::new(&s)
 }
 
 // NOTE: This is a hack to ensure that Rust links in libm.

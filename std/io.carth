@@ -37,3 +37,7 @@
 
 (define (display s)
   (display-inline (str-append s "\n")))
+
+(extern -get-contents (Fun RealWorld [Str RealWorld]))
+
+(define get-contents (IO -get-contents))
