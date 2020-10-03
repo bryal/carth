@@ -21,7 +21,7 @@
 (define not (fmatch (case True False)
                     (case False True)))
 
-(define (divisible? n m) (= (rem n m) 0))
+(define (divisible? n m) (= (rem n m) (cast 0)))
 
 (define (powi x y)
   (define (go acc x y)
