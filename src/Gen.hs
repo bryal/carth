@@ -443,6 +443,15 @@ genStackAllocated v = do
     emitDo (store v ptr)
     pure ptr
 
+-- | Must be used on globals when running in JIT, as Boehm GC only detects global var
+--   roots when it can scan some segment in the ELF.
+genGcAddRoot :: LLConst.Constant -> Gen ()
+genGcAddRoot globRef =
+    let p0 = LLConst.BitCast globRef (LLType.ptr i8)
+        ptrSize = litI64' 8
+        p1 = LLConst.GetElementPtr False p0 [ptrSize]
+    in  emitDo' =<< callBuiltin "GC_add_roots" [ConstantOperand p0, ConstantOperand p1]
+
 lookupVar :: TypedVar -> Gen Val
 lookupVar x = lookupVar' x >>= \case
     Just y -> pure y
@@ -758,6 +767,13 @@ builtinsHidden = Map.fromList
         )
       )
     , ("install_stackoverflow_handler", ([], LLType.void))
+    , ( "GC_add_roots"
+      , ( [ Parameter (LLType.ptr i8) (mkName "low_address") []
+          , Parameter (LLType.ptr i8) (mkName "high_address_plus_1") []
+          ]
+        , LLType.void
+        )
+      )
     ]
 
 genExternTypeSig :: Ast.Type -> Gen' (([Ast.Type], Type), ([Parameter], Type))

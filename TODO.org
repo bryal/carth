@@ -518,3 +518,9 @@ Features and other stuff to do/implement in/around Carth.
   - Random number generator
   - bubble, insertion, selection sort
   - quicksort
+* NEXT Don't actually define stuff like Str in the compiler
+  Just assume they're defined by the user. Would mean less stuff in
+  the compiler, and more in carth source. Both positives and
+  negatives. I feel it would be nice as a user to be able to inspect
+  the .carth source of the stdlib and actually see all the types and
+  stuff though.

@@ -50,8 +50,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
             $ augment dataTypes tdefs''
             $ withBuiltins
             $ withExternSigs externs
-            $ withGlobFunDefSigs funDefs
-            $ withGlobVarDefSigs varDefs
+            $ withGlobDefSigs globalEnv defs'
             $ do
                   es <- genExterns externs
                   funDefs' <- mapM genGlobFunDef funDefs
@@ -78,25 +77,6 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
                                   ]
         }
   where
-    withGlobFunDefSigs = withGlobDefSigs globalEnv
-    -- TODO: This is a workaround for global vars not being registered in the GC when
-    --       running in JIT.
-    --
-    --       The plan is to keep global defs in globalEnv, and not capture these in
-    --       closures, as they can always be reached at the top, regardless of the scope
-    --       etc. The bug is that when running for example "sieve.carth" with the JIT
-    --       interpreter, it freezes/crashes after just a few houndred iterations (not
-    --       when compiling though, which is wierd). After some trial an error, my current
-    --       hypothesis is that global non-function variables can require heap allocations
-    --       when being initialized in `init`, but the static locations that the created
-    --       values are stored in are not registered as roots in the Boehm GC, so some
-    --       values that are actually in use are garbage collected after a little while.
-    --
-    --       By keeping the global non-function vars in the `localEnv`, all values in use
-    --       are guaranteed to be in captured envs and reachable when starting at the
-    --       stack / the registers.
-    withGlobVarDefSigs = withGlobDefSigs localEnv
-
     withGlobDefSigs
         :: MonadReader Env m
         => Lens' Env (Map TypedVar Operand)
@@ -226,6 +206,8 @@ genDefineGlobVar (TypedVar v _, WithPos pos (ts, e)) = do
     let name = mkName (mangleName (v, ts))
     e' <- getLocal =<< genExpr (Expr (Just pos) e)
     let ref = LLConst.GlobalReference (LLType.ptr (typeOf e')) name
+    -- Fix for Boehm GC to detect global vars when running in JIT
+    genGcAddRoot ref
     emitDo (store e' (ConstantOperand ref))
 
 genGlobVarDecl :: VarDef -> Gen' Definition
