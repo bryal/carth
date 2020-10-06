@@ -67,3 +67,31 @@
   (lines' s))
 
 (define: ascii-newline Nat8 (cast 0xA))
+(define: ascii-minus Nat8 (cast 0x2D))
+(define: ascii-0 Nat8 (cast 0x30))
+(define: ascii-9 Nat8 (cast 0x39))
+
+(define (parse-int s)
+  (maybe/bindr (next (string/bytes s))
+               (fun ([c cs])
+                 (let1 [sign cs] (if (= c ascii-minus)
+                                     [-1 cs]
+                                   [1 (iter/cons c cs)])
+                   (maybe/map (<o (* sign) cast) (parse-nat' cs))))))
+
+(define (parse-nat s) (parse-nat' (string/bytes s)))
+(define (parse-nat' cs)
+  (define: (parse-nat'' [c cs])
+      (Fun [Nat8 (Iter Nat8)] (Maybe Nat))
+    (maybe/bindr (parse-digit c)
+                 (fun (x)
+                   (match (next cs)
+                     (case None (Some (cast x)))
+                     (case (Some nx)
+                           (maybe/map (fun (y) (+ (cast x) (* (cast 10) y)))
+                                      (parse-nat'' nx)))))))
+  (maybe/bindl parse-nat'' (next (reverse cs))))
+
+(define (digit? c) (and (>= c ascii-0) (<= c ascii-9)))
+
+(define (parse-digit c) (if (digit? c) (Some (- c ascii-0)) None))
