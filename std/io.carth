@@ -39,5 +39,7 @@
   (display-inline (str-append s "\n")))
 
 (extern -get-contents (Fun RealWorld [Str RealWorld]))
-
 (define get-contents (IO -get-contents))
+
+(extern unsafe-read-file (Fun Str (Maybe Str)))
+(define (read-file f) (IO (fun (real-world) [(unsafe-read-file f) real-world])))

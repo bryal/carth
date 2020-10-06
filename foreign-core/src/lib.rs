@@ -1,8 +1,10 @@
+#![feature(try_trait)]
 #![allow(non_camel_case_types)]
 
 mod ffi;
 
 use libc::*;
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::{alloc, mem, slice, str};
 
@@ -61,9 +63,32 @@ impl Str {
 }
 
 #[repr(C)]
-pub struct Pair<A, B> {
-    fst: A,
-    snd: B,
+pub enum Maybe<A> {
+    None,
+    Some(A),
+}
+
+impl<A> std::ops::Try for Maybe<A> {
+    type Ok = A;
+    type Error = std::option::NoneError;
+
+    #[inline]
+    fn into_result(self) -> Result<A, std::option::NoneError> {
+        match self {
+            Maybe::None => Err(std::option::NoneError),
+            Maybe::Some(x) => Ok(x),
+        }
+    }
+
+    #[inline]
+    fn from_ok(v: A) -> Self {
+        Maybe::Some(v)
+    }
+
+    #[inline]
+    fn from_error(_: std::option::NoneError) -> Self {
+        Maybe::None
+    }
 }
 
 // TODO: Do it properly.
@@ -129,6 +154,15 @@ pub extern "C" fn get_contents() -> Str {
         .read_to_string(&mut s)
         .expect("read all of stdin");
     Str::new(&s)
+}
+
+#[export_name = "unsafe-read-file"]
+pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
+    let fp = from_carth_str(&fp);
+    let mut f = File::open(fp).ok()?;
+    let mut s = String::new();
+    f.read_to_string(&mut s).ok()?;
+    Maybe::Some(Str::new(&s))
 }
 
 // NOTE: This is a hack to ensure that Rust links in libm.
