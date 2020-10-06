@@ -1,12 +1,3 @@
-# Ignoring binaries:
-# 1. Ignore all
-*
-# 2. Unignore files with extensions
-!*.*
-# 3. Unignore directories
-!*/
-# Now, proceed as usual...
-
 *~
 .dbg.*
 *.untangled
