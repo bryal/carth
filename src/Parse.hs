@@ -12,7 +12,6 @@ module Parse (Parser, Source, parse, parse', parseTokenTreeOrRest, toplevels) wh
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
-import Data.Bifunctor
 import Data.Maybe
 import Control.Applicative (liftA2)
 import qualified Text.Megaparsec as Mega
@@ -22,7 +21,6 @@ import qualified Text.Megaparsec.Char as Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Void
 import Data.List
 import System.FilePath
 import System.Directory
@@ -34,8 +32,7 @@ import Parsed
 import Literate
 import EnvVars
 
-type Parser = Parsec Void String
-type Source = String
+
 type Import = String
 
 
@@ -90,9 +87,6 @@ parseModule filepath dir m visiteds nexts =
                 case parse' toplevels f src of
                     Left e -> pure (Left e)
                     Right r -> advance r
-
-parse' :: Parser a -> FilePath -> Source -> Either String a
-parse' p name src = first errorBundlePretty (Mega.parse p name src)
 
 -- | For use in module TypeErr to get the length of the tokentree to draw a
 --   squiggly line under it.
@@ -265,6 +259,10 @@ ns_num = do
                    a
     pure (Lit e)
 
+int :: Parser Int
+int = andSkipSpaceAfter $ option id (char '-' $> negate) >>= \f ->
+    fmap (f . fromIntegral) ns_nat
+
 ns_nat :: Parser Word
 ns_nat =
     choice [string "0b" *> Lexer.binary, string "0x" *> Lexer.hexadecimal, Lexer.decimal]
@@ -307,8 +305,8 @@ nonptype = choice
   where
     tprim = try $ andSkipSpaceAfter
         (choice
-                [ string "Nat" *> (fmap TNat ns_word <|> pure TNatSize)
-                , string "Int" *> (fmap TInt ns_word <|> pure TIntSize)
+                [ string "Nat" *> (fmap TNat Lexer.decimal <|> pure TNatSize)
+                , string "Int" *> (fmap TInt Lexer.decimal <|> pure TIntSize)
                 , string "F16" $> TF16
                 , string "F32" $> TF32
                 , string "F64" $> TF64
@@ -352,12 +350,6 @@ brackets = andSkipSpaceAfter . ns_brackets
 
 ns_brackets :: Parser a -> Parser a
 ns_brackets = between (symbol "[") (string "]")
-
-int :: Num a => Parser a
-int = andSkipSpaceAfter (Lexer.signed empty ns_word)
-
-ns_word :: Num a => Parser a
-ns_word = Lexer.decimal
 
 big :: Parser (Id 'Big)
 big = fmap Id (special <|> normal)

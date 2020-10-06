@@ -6,6 +6,7 @@ import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
+import Data.Bifunctor
 import Control.Monad.Reader
 import Control.Monad.Writer
 import Control.Monad.State
@@ -17,8 +18,13 @@ import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import Data.Void
 
+
 newtype TopologicalOrder a = Topo [a]
     deriving Show
+
+type Parser = Parsec Void String
+type Source = String
+
 
 ice :: String -> a
 ice = error . ("Internal Compiler Error: " ++)
@@ -85,6 +91,9 @@ splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
         as <- many (try (manyTill anySingle (try (string sep))))
         a <- many anySingle
         pure $ (as ++) $ if not (null a) then [a] else []
+
+parse' :: Parser a -> FilePath -> Source -> Either String a
+parse' p name src = first errorBundlePretty (Mega.parse p name src)
 
 partitionWith :: (a -> Either b c) -> [a] -> ([b], [c])
 partitionWith f = foldr

@@ -4,10 +4,12 @@ module Main (main) where
 
 import System.Environment
 import Control.Monad
+import Prelude hiding (lex)
 
 import Misc
 import Pretty
 import qualified Err
+import qualified Lexd
 import qualified Parsed
 import qualified Checked
 import Check
@@ -18,6 +20,7 @@ import Monomorphize
 import Optimize
 import qualified Optimized as Ast
 import qualified Parse
+import qualified Lex
 import EnvVars
 
 main :: IO ()
@@ -52,6 +55,9 @@ runFile cfg = do
 frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
     let d = getDebug cfg
+    verbose cfg ("   Lexing")
+    cst <- lex f
+    when d $ writeFile ".dbg.lexd" (show cst)
     verbose cfg ("   Parsing")
     ast <- parse f
     when d $ writeFile ".dbg.parsed" (pretty ast)
@@ -64,6 +70,13 @@ frontend cfg f = do
     let opt = optimize mon
     when d $ writeFile ".dbg.opt" (show opt)
     pure opt
+
+lex :: FilePath -> IO [Lexd.TokenTree]
+lex f = Lex.lex f >>= \case
+    Left e -> putStrLn (formatParseErr e) >> abort f
+    Right p -> pure p
+  where
+    formatParseErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
 parse :: FilePath -> IO Parsed.Program
 parse f = Parse.parse f >>= \case

@@ -513,8 +513,8 @@ Features and other stuff to do/implement in/around Carth.
   persistend data structures as well.
 
   - Priority queue
-  - Binary tree
-  - B-tree
+  - Binary tree (2-3 tree better?)
+  - B-tree (specifically 2-3 tree?)
   - Random number generator
   - bubble, insertion, selection sort
   - quicksort

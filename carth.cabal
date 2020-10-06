@@ -38,6 +38,8 @@ library
       Monomorphize
       Optimize
       Optimized
+      Lex
+      Lexd
       Parse
       Parsed
       Pretty
