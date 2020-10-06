@@ -1,3 +1,5 @@
+(import iter)
+
 (define: pi F64 3.14159265358979323846264338327950288)
 (define: inv-pi F64 0.318309886183790671537767526745028724)
 
@@ -31,3 +33,5 @@
           (go acc (square x) (/ y 2))
         (go (* acc x) x (dec y)))))
   (go (cast 1) x y))
+
+(define sum (foldl + (cast 0)))
