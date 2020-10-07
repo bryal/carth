@@ -7,14 +7,13 @@
 --       If a parser has a variant with a "ns_" prefix, that variant does not
 --       consume succeding space, while the unprefixed variant does.
 
-module Parse (Parser, Source, parse, parse', parseTokenTreeOrRest, toplevels) where
+module Parse (Parser, Source, parse, parse', toplevels) where
 
 import Control.Monad
 import Data.Char (isMark, isPunctuation, isSymbol, isUpper)
 import Data.Functor
 import Data.Maybe
 import Control.Applicative (liftA2)
-import qualified Text.Megaparsec as Mega
 import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import qualified Text.Megaparsec.Char as Char
@@ -87,17 +86,6 @@ parseModule filepath dir m visiteds nexts =
                 case parse' toplevels f src of
                     Left e -> pure (Left e)
                     Right r -> advance r
-
--- | For use in module TypeErr to get the length of the tokentree to draw a
---   squiggly line under it.
-parseTokenTreeOrRest :: Source -> Either String String
-parseTokenTreeOrRest = parse' tokenTreeOrRest ""
-  where
-    tokenTreeOrRest = fmap fst (Mega.match (try ns_tokenTree <|> (restOfInput $> ())))
-    ns_tokenTree = choice
-        [ns_strlit $> (), ns_ident $> (), ns_num $> (), ns_parens (many tokenTree) $> ()]
-    tokenTree = andSkipSpaceAfter ns_tokenTree
-    restOfInput = many Mega.anySingle
 
 toplevels :: Parser ([Import], [Def], [TypeDef], [Extern])
 toplevels = do

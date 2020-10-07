@@ -2,13 +2,15 @@
 
 module Err (module Err, TypeErr(..), GenErr(..)) where
 
+import Text.Megaparsec (match)
+
 import Misc
 import SrcPos
 import TypeAst
 import qualified Parsed
 import Inferred
 import Pretty
-import Parse
+import Lex
 import Gen
 
 
@@ -108,9 +110,7 @@ posd (pos@(SrcPos f lineN colN)) msg = do
                 ice $ "col num in SourcePos is greater than " ++ "num of cols in src line"
         lineNS = show lineN'
         pad = length lineNS + 1
-        s = either (\e -> ice ("posd: msg=|" ++ msg ++ "|,err=|" ++ show e ++ "|"))
-                   id
-                   (parseTokenTreeOrRest rest)
+        s = either (const rest) fst (parse' (match tokentree) "" rest)
     putStrLn $ unlines
         [ prettySrcPos pos ++ ": Error:"
         , indent pad ++ "|"
