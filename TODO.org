@@ -55,6 +55,12 @@ Features and other stuff to do/implement in/around Carth.
   Need some kind of system like type classes for ad hoc
   polymorphism. Maybe Haskell style type classes, Agda style
   implicits, or Ocaml style modules. Not sure.
+
+  "Type classes are functions from types to expressions"
+  https://youtu.be/5QQdI3P7MdY?t=920. Interesting thought! Can we view
+  type families the same way, but functions from types to types or
+  smth? Maybe we can come up with more intuitive terminology.
+
 ** Agda style classes w implicit args
    https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/glasgow_exts.html#implicit-parameters
 
@@ -144,6 +150,181 @@ Features and other stuff to do/implement in/around Carth.
 
   Type families in Haskell vs Dependent types in a pseudo-Haskell vs
   Dependent types in Agda:
+
+** Sketch
+   The wiki page is
+   good. https://en.wikipedia.org/wiki/Type_family. Haskell wiki also
+   has some interesting notes
+   https://wiki.haskell.org/GHC/Type_families.
+
+   https://en.wikipedia.org/wiki/Lambda_cube
+
+   Does it complicate typechecking? It's not obvious to me how it
+   would?
+
+   In haskell, type families and data families are always
+   open. Probably fine to keep it that way? Not sure the complexity of
+   having both open and closed versions are worth it?
+
+   Relations:
+   - Function :: Value -> Value
+   - Typeclass :: Type -> Values
+   - Typefamily :: Type -> Type
+   - Dependent type :: Value -> Type
+
+   I don't love the names "family" and "class". Could we use something
+   that makes more clear the relations above? Like "type function" or
+   something? Although, I guess at least "class" wouldn't be so bad to
+   keep, for familiarity reasons.
+
+   Do we need data families as well? I'd prefer not to have to add
+   them also. A little bit of inconvenience remaining is worth it if
+   we can avoid a lot of complexity in the language.
+
+   Observation: Type families are just type aliases, but we can
+   pattern match on the input.
+
+   Observation: A typeclass with associated types is basically an
+   extension of normal typeclasses that makes it (Type -> (Type,
+   Value)). Defining an associated type in an instance of a typeclass
+   is basically a way of allowing one to add cases to the pattern
+   matching after definition. Consider this:
+
+   #+BEGIN_SRC carth
+   (type (Foo a)
+     (Match a
+            (case Bar Int)
+            (case Baz Bool)))
+   #+END_SRC
+
+   this is the same as
+
+   #+BEGIN_SRC carth
+   (class (Foo' a)
+     (type (Foo a)))
+
+   (instance (Foo' Bar)
+     (type (Foo Bar) Int))
+
+   (instance (Foo' Baz)
+     (type (Foo Baz) Bool))
+   #+END_SRC
+
+   The difference being that with the typeclass version of
+   typefamilies, cases/definitions can be separated from the
+   declaration, and user modules can extend the type family by adding
+   another instance.
+
+   #+BEGIN_SRC carth
+   ;; Warning: some pseudocode and unimplemented features
+
+   ;; The different possible forms, which would be basically
+   ;; equivalent. Each could be convenient, but not sure if
+   ;; it's a good idea to implement all.
+
+   ;; Single case
+
+   ;; Alias form
+   (type (Option a) (Maybe a))
+
+   ;; <=> closed case form
+   (type (Option a)
+     (case (_) (Maybe a)))
+
+   ;; <=> open case form
+   (type (Option a))
+   (type case (Option _) (Maybe a))
+
+   ;; <=> class form
+   (class (Foo a)
+     (type Option))
+   (class case (Foo a)
+          (type Option (Maybe a)))
+
+
+   ;; Multiple cases
+
+   ;; Can't be described as alias
+   ...
+
+   ;; closed case form
+   (type (Result ok err)
+     (case (_ Unit) (Maybe ok))
+     (case (_ _)    (Either err ok)))
+
+   ;; <=> open case form
+   ;;
+   ;; Unlike value pattern matching, order shouldn't matter, as
+   ;; we could be defining each case in a different
+   ;; package. Some other algorithm for handling overlapping
+   ;; instances would have to be used.
+   (type (Result ok err))
+   (type case (Result ok err)  (Either err ok))
+   (type case (Result ok Unit) (Maybe ok))
+
+   ;; <=> class form
+   (class (Foo ok err)
+     (type Result))
+   (class case (Foo ok err)
+          (type Result (Either err ok)))
+   (class case (Foo ok Unit)
+          (type Result (Maybe ok)))
+   #+END_SRC
+
+   Typeclass (Type, Values) vs Type family + normal typeclass:
+
+   #+BEGIN_SRC carth
+   ;; 1
+
+   ;; should implicitly create namespace `Iter`, so it's `Iter/Item` and `Iter/next`
+   (class (Iter it)
+     (type Item)
+     (: next (Fun it (Maybe [Item it]))))
+
+   (class case (Iter (Array a))
+          (type Item a)
+          (define (next arr) ...))
+
+   ;; 2
+   ;; <=> (except for namespacing)
+
+   (type (Iter-item it))
+   (type case (Iter-item (Array a)) a)
+
+   (class (Iter it)
+     (: next (Fun it (Maybe [(Iter-item it) it]))))
+
+   (class case (Iter (Array a))
+          (define (next arr) ...))
+   #+END_SRC
+
+   And in real Haskell that compiles, for comparison:
+
+   #+BEGIN_SRC haskell
+   -- 1
+
+   class Iter i where
+       type Item i
+       next :: i -> Maybe (Item i, i)
+
+   instance Iter [a] where
+       type Item [a] = a
+       next = \case
+           [] -> Nothing
+           a : as -> Just (a, as)
+
+   -- 2
+
+   type family Item' i
+   class Iter' i where
+       next' :: i -> Maybe (Item' i, i)
+
+   type instance Item' [a] = a
+   instance Iter' [a] where
+       next' = \case
+           [] -> Nothing
+           a : as -> Just (a, as)
+   #+END_SRC
 
 ** Type families, Haskell
    #+BEGIN_SRC haskell
