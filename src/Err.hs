@@ -16,6 +16,9 @@ import Gen
 
 type Message = String
 
+printParseErr :: (SrcPos, String) -> IO ()
+printParseErr (p, msg) = posd p msg
+
 printTypeErr :: TypeErr -> IO ()
 printTypeErr = \case
     MainNotDefined -> putStrLn "Error: main not defined"

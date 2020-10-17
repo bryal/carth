@@ -2,17 +2,18 @@
            , MultiParamTypeClasses, KindSignatures, DataKinds
            , DeriveDataTypeable #-}
 
-module Parsed (module Parsed, TPrim(..), TConst) where
+module Parsed (module Parsed, Const (..), TPrim(..), TConst) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Bifunctor
 import Control.Arrow ((>>>))
-
 import Data.Data
+
 import SrcPos
 import FreeVars
 import TypeAst
+import Lexd (Const (..))
 
 
 data IdCase = Big | Small
@@ -32,6 +33,7 @@ data Type
     = TVar TVar
     | TPrim TPrim
     | TConst (TConst Type)
+    -- TODO: Remove special case for these two? Is it really needed?
     | TFun Type Type
     | TBox Type
     deriving (Show, Eq, Ord, Data)
@@ -46,12 +48,6 @@ data Pat
     | PVar (Id 'Small)
     | PBox SrcPos Pat
     deriving Show
-
-data Const
-    = Int Int
-    | F64 Double
-    | Str String
-    deriving (Show, Eq)
 
 data Expr'
     = Lit Const

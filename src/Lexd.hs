@@ -22,7 +22,7 @@ data Keyword
     | Klet1 | Klet | Kletrec
     | Ksizeof
     | KidAt | KIdAt
-    deriving (Show)
+    deriving (Eq, Show)
 
 data TokenTree'
     = Lit Const

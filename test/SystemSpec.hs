@@ -2,9 +2,12 @@
 
 module SystemSpec where
 
+import Prelude hiding (lex)
+
 import Data.Data
 import Data.Functor
 import Control.Monad
+import Control.Monad.Except
 import System.Directory
 import System.FilePath
 import Data.List
@@ -12,7 +15,9 @@ import Test.Hspec
 import System.IO.Silently
 
 import Misc
+import Lex
 import Parse
+import qualified Parsed
 import Check
 import Compile
 import Monomorphize
@@ -35,9 +40,9 @@ spec = do
         fs <- runIO $ listDirectory d <&> filter isSourceFile
         forM_ fs $ \f -> do
             expectedErr <- runIO $ fmap (drop 3 . head . lines) (readFile (d </> f))
-            result <- runIO $ parse (d </> f)
+            result <- runIO $ lexAndParse (d </> f)
             it (dropExtension f) $ shouldSatisfy (fmap typecheck result) $ \case
-                Right (Left e) -> show (toConstr e) == expectedErr
+                Just (Left e) -> show (toConstr e) == expectedErr
                 _ -> False
     describe "Examples compile" $ do
         let d = "examples"
@@ -68,6 +73,12 @@ compile' f =
             Just ast -> compile f cfg ast $> True
 
 frontend :: FilePath -> IO (Maybe Ast.Program)
-frontend f = parse f <&> \case
-    Left _ -> Nothing
-    Right ast -> fmap (optimize . monomorphize) (rightToMaybe (typecheck ast))
+frontend f = lexAndParse f <&> \case
+    Nothing -> Nothing
+    Just ast -> fmap (optimize . monomorphize) (rightToMaybe (typecheck ast))
+
+lexAndParse :: FilePath -> IO (Maybe Parsed.Program)
+lexAndParse f = fmap rightToMaybe (runExceptT (lex' f >>= parse''))
+  where
+    lex' = withExceptT (const ()) . lex
+    parse'' = withExceptT (const ()) . liftEither . runExcept . parse

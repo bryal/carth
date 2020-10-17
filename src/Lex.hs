@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds #-}
 
-module Lex where
+module Lex (lex, toplevel, tokentree) where
 
 import Control.Monad
 import Control.Monad.Except
@@ -16,6 +16,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import System.FilePath
 import System.Directory
+import Data.Void
+import Prelude hiding (lex)
 
 import Misc
 import SrcPos
@@ -24,18 +26,18 @@ import Literate
 import EnvVars
 
 
-type Import = String
+type Lexer = Parsec Void String
 
--- data Macro = Macro String deriving (Show)
+type Import = String
 
 data TopLevel = TImport Import -- | TMacro Macro
     | TTokenTree TokenTree
 
 
-lex :: FilePath -> IO (Either String [TokenTree])
+lex :: FilePath -> ExceptT String IO [TokenTree]
 lex filepath = do
-    modPaths <- modulePaths
-    runExceptT (lexModules modPaths Set.empty [filepath])
+    modPaths <- lift modulePaths
+    lexModules modPaths Set.empty [filepath]
 
 lexModules :: [FilePath] -> Set String -> [String] -> ExceptT String IO [TokenTree]
 lexModules modPaths visiteds = \case
@@ -59,7 +61,7 @@ lexModules modPaths visiteds = \case
         ttsNexts <- lexModules modPaths (Set.insert f visiteds) (impFs ++ nexts)
         pure (tts ++ ttsNexts)
 
-toplevels :: Parser ([Import], [TokenTree])
+toplevels :: Lexer ([Import], [TokenTree])
 toplevels = do
     space
     tops <- many toplevel
@@ -72,12 +74,12 @@ toplevels = do
         ([], [])
         tops
 
-toplevel :: Parser TopLevel
+toplevel :: Lexer TopLevel
 toplevel = getSrcPos >>= \p -> parens
     (fmap TImport import' <|> fmap (TTokenTree . WithPos p . Parens) (many tokentree))
     where import' = keyword' "import" *> small
 
-tokentree :: Parser TokenTree
+tokentree :: Lexer TokenTree
 tokentree = withPos tokentree'
   where
     tokentree' = choice
@@ -99,17 +101,17 @@ tokentree = withPos tokentree'
         pure $ either ((\n -> Int (if neg then -n else n)) . fromIntegral)
                       (\x -> F64 (if neg then -x else x))
                       a
-    -- ns_int = option id (char '-' $> negate) >>= \f -> fmap (f . fromIntegral) ns_nat
-    ns_nat :: Parser Word
+    ns_nat :: Lexer Word
     ns_nat = choice
         [string "0b" *> Lexer.binary, string "0x" *> Lexer.hexadecimal, Lexer.decimal]
 
-strlit :: Parser String
+strlit :: Lexer String
 strlit = andSkipSpaceAfter ns_strlit
     where ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
-keyword :: Parser Keyword
-keyword = andSkipSpaceAfter $ choice
+keyword :: Lexer Keyword
+keyword = andSkipSpaceAfter $ choice $ map
+    (\p -> try (p <* notFollowedBy identLetter))
     [ string ":" $> Kcolon
     , string "." $> Kdot
     , string "Fun" $> KFun
@@ -133,27 +135,28 @@ keyword = andSkipSpaceAfter $ choice
     , string "Id@" $> KIdAt
     ]
 
-keyword' :: String -> Parser ()
+keyword' :: String -> Lexer ()
 keyword' x = andSkipSpaceAfter $ label ("keyword " ++ x) (string x) $> ()
 
-small, smallSpecial, smallNormal :: Parser String
+small, smallSpecial, smallNormal :: Lexer String
 small = smallSpecial <|> smallNormal
 smallSpecial = keyword' "id@" *> strlit
 smallNormal = andSkipSpaceAfter $ liftA2 (:) smallStart identRest
   where
     smallStart = lowerChar <|> otherChar <|> try (oneOf "-+" <* notFollowedBy digitChar)
 
-big, bigSpecial, bigNormal :: Parser String
-big = bigSpecial <|> bigNormal
+bigSpecial, bigNormal :: Lexer String
 bigSpecial = keyword' "id@" *> strlit
 bigNormal = andSkipSpaceAfter $ liftA2 (:) bigStart identRest
     where bigStart = upperChar <|> char ':'
 
-identRest :: Parser String
+identRest :: Lexer String
 identRest = many identLetter
-    where identLetter = letterChar <|> otherChar <|> oneOf "-+:" <|> digitChar
 
-otherChar :: Parser Char
+identLetter :: Lexer Char
+identLetter = letterChar <|> otherChar <|> oneOf "-+:" <|> digitChar
+
+otherChar :: Lexer Char
 otherChar = satisfy
     (\c -> and
         [ any ($ c) [isMark, isPunctuation, isSymbol]
@@ -162,32 +165,32 @@ otherChar = satisfy
         ]
     )
 
-parens, ns_parens :: Parser a -> Parser a
+parens, ns_parens :: Lexer a -> Lexer a
 parens = andSkipSpaceAfter . ns_parens
 ns_parens = between (symbol "(") (string ")")
 
-brackets, ns_brackets :: Parser a -> Parser a
+brackets, ns_brackets :: Lexer a -> Lexer a
 brackets = andSkipSpaceAfter . ns_brackets
 ns_brackets = between (symbol "[") (string "]")
 
-braces, ns_braces :: Parser a -> Parser a
+braces, ns_braces :: Lexer a -> Lexer a
 braces = andSkipSpaceAfter . ns_braces
 ns_braces = between (symbol "{") (string "}")
 
-andSkipSpaceAfter :: Parser a -> Parser a
+andSkipSpaceAfter :: Lexer a -> Lexer a
 andSkipSpaceAfter = Lexer.lexeme space
 
-symbol :: String -> Parser String
+symbol :: String -> Lexer String
 symbol = Lexer.symbol space
 
 -- | Spaces, line comments, and block comments
-space :: Parser ()
+space :: Lexer ()
 space = Lexer.space Char.space1 (Lexer.skipLineComment ";") empty
 
-withPos :: Parser a -> Parser (WithPos a)
+withPos :: Lexer a -> Lexer (WithPos a)
 withPos = liftA2 WithPos getSrcPos
 
-getSrcPos :: Parser SrcPos
+getSrcPos :: Lexer SrcPos
 getSrcPos = fmap
     (\(SourcePos f l c) -> SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c)))
     getSourcePos

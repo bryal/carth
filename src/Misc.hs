@@ -22,7 +22,6 @@ import Data.Void
 newtype TopologicalOrder a = Topo [a]
     deriving Show
 
-type Parser = Parsec Void String
 type Source = String
 
 
@@ -92,7 +91,7 @@ splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
         a <- many anySingle
         pure $ (as ++) $ if not (null a) then [a] else []
 
-parse' :: Parser a -> FilePath -> Source -> Either String a
+parse' :: Parsec Void String a -> FilePath -> Source -> Either String a
 parse' p name src = first errorBundlePretty (Mega.parse p name src)
 
 partitionWith :: (a -> Either b c) -> [a] -> ([b], [c])
@@ -105,3 +104,20 @@ partitionWith f = foldr
 
 rightToMaybe :: Either a b -> Maybe b
 rightToMaybe = either (const Nothing) Just
+
+unsnoc :: [a] -> Maybe ([a], a)
+unsnoc = \case
+    [] -> Nothing
+    x : xs -> case unsnoc xs of
+        Just (ys, y) -> Just (x : ys, y)
+        Nothing -> Just ([], x)
+
+is2tup :: [a] -> Maybe (a, a)
+is2tup = \case
+    a1 : [a2] -> Just (a1, a2)
+    _ -> Nothing
+
+is3tup :: [a] -> Maybe (a, a, a)
+is3tup = \case
+    a1 : a2 : [a3] -> Just (a1, a2, a3)
+    _ -> Nothing

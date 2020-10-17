@@ -4,6 +4,7 @@ module Main (main) where
 
 import System.Environment
 import Control.Monad
+import Control.Monad.Except
 import Prelude hiding (lex)
 
 import Misc
@@ -56,10 +57,10 @@ frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
     let d = getDebug cfg
     verbose cfg ("   Lexing")
-    cst <- lex f
-    when d $ writeFile ".dbg.lexd" (show cst)
+    tts <- lex f
+    when d $ writeFile ".dbg.lexd" (show tts)
     verbose cfg ("   Parsing")
-    ast <- parse f
+    ast <- parse f tts
     when d $ writeFile ".dbg.parsed" (pretty ast)
     verbose cfg ("   Typechecking")
     ann <- typecheck' f ast
@@ -72,18 +73,16 @@ frontend cfg f = do
     pure opt
 
 lex :: FilePath -> IO [Lexd.TokenTree]
-lex f = Lex.lex f >>= \case
-    Left e -> putStrLn (formatParseErr e) >> abort f
+lex f = runExceptT (Lex.lex f) >>= \case
+    Left e -> putStrLn (formatLexErr e) >> abort f
     Right p -> pure p
   where
-    formatParseErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
+    formatLexErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
-parse :: FilePath -> IO Parsed.Program
-parse f = Parse.parse f >>= \case
-    Left e -> putStrLn (formatParseErr e) >> abort f
+parse :: FilePath -> [Lexd.TokenTree] -> IO Parsed.Program
+parse f tts = case runExcept (Parse.parse tts) of
+    Left e -> Err.printParseErr e >> abort f
     Right p -> pure p
-  where
-    formatParseErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
 
 typecheck' :: FilePath -> Parsed.Program -> IO Checked.Program
 typecheck' f p = case typecheck p of

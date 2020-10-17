@@ -13,6 +13,7 @@ import qualified Data.Text.Prettyprint.Doc as Prettyprint
 
 import Misc
 import SrcPos
+import qualified Lexd
 import qualified Parsed
 import qualified Inferred
 import qualified Optimized as Ast
@@ -31,6 +32,31 @@ spcPretty = unwords . map pretty
 
 instance Pretty a => Pretty (WithPos a) where
     pretty' d = pretty' d . unpos
+
+
+instance Pretty Lexd.Keyword where
+    pretty' _ = \case
+        Lexd.Kcolon -> ":"
+        Lexd.Kdot -> "."
+        Lexd.Kforall -> "forall"
+        Lexd.KFun -> "Fun"
+        Lexd.KBox -> "Box"
+        Lexd.Kdefine -> "define"
+        Lexd.KdefineColon -> "define:"
+        Lexd.Kimport -> "import"
+        Lexd.Kextern -> "extern"
+        Lexd.Kdata -> "data"
+        Lexd.Kfmatch -> "fmatch"
+        Lexd.Kmatch -> "match"
+        Lexd.Kcase -> "case"
+        Lexd.Kif -> "if"
+        Lexd.Kfun -> "fun"
+        Lexd.Klet1 -> "let1"
+        Lexd.Klet -> "let"
+        Lexd.Kletrec -> "letrec"
+        Lexd.Ksizeof -> "sizeof"
+        Lexd.KidAt -> "id@"
+        Lexd.KIdAt -> "Id@"
 
 
 instance Pretty Parsed.Program where
