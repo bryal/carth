@@ -14,7 +14,7 @@ module Checked
     )
 where
 
-import Data.Map.Strict (Map)
+import Data.Map (Map)
 import Data.Word
 import Data.Bifunctor
 

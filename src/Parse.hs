@@ -11,7 +11,7 @@ module Parse (parse) where
 
 import Control.Applicative hiding (many, some)
 import Control.Monad
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Except
 import Control.Monad.Combinators
 import Data.Maybe

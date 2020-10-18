@@ -9,7 +9,7 @@ import Data.Maybe
 import Data.Bifunctor
 import Control.Monad.Reader
 import Control.Monad.Writer
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Lens.Micro.Platform (Lens, Lens', over, set, use, modifying)
 import Data.Bitraversable
 import System.Exit

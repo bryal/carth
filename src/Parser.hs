@@ -5,7 +5,7 @@ module Parser (Parser, St (..), runParser, token, end, lookAhead, try, getSrcPos
 
 import Control.Applicative hiding (many, some)
 import Control.Monad
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Except
 import Data.Functor
 import Data.List

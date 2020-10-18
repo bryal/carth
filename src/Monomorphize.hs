@@ -10,10 +10,10 @@ import Control.Monad.Reader
 import Control.Monad.Writer
 import Data.Functor
 import Data.Bifunctor
-import Data.Map.Strict (Map)
+import Data.Map (Map)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
+import qualified Data.Map as Map
 import Data.Bitraversable
 
 import Misc
