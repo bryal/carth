@@ -33,11 +33,10 @@ typecheck :: Parsed.Program -> Either TypeErr Checked.Program
 typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     (tdefs', ctors) <- checkTypeDefs tdefs
     externs' <- checkExterns tdefs' externs
-    (inferred, substs) <- inferTopDefs tdefs' ctors externs' defs
-    let substd = substTopDefs substs inferred
-    checkTypeVarsBound substd
+    inferred <- inferTopDefs tdefs' ctors externs' defs
+    checkTypeVarsBound inferred
     let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
-    compiled <- compileDecisionTrees mTypeDefs substd
+    compiled <- compileDecisionTrees mTypeDefs inferred
     checkMainDefined compiled
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Checked.Program compiled tdefs'' externs')

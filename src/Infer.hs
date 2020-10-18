@@ -9,6 +9,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.Bifunctor
+import Data.Functor
 import Data.Graph (SCC(..), stronglyConnComp)
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -52,8 +53,7 @@ makeLenses ''St
 type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 
 
-inferTopDefs
-    :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr (Defs, Subst)
+inferTopDefs :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr Defs
 inferTopDefs tdefs ctors externs defs =
     let initEnv = Env { _envTypeDefs = tdefs
                       , _envDefs = builtinVirtuals
@@ -65,8 +65,7 @@ inferTopDefs tdefs ctors externs defs =
     inferTopDefs' = do
         let externs' = fmap (first (Forall Set.empty)) externs
         defs'' <- augment envDefs (fmap fst externs') (inferDefs defs)
-        s <- use substs
-        pure (defs'', s)
+        pure defs''
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
@@ -126,9 +125,15 @@ inferDefsComponents = flip foldr (pure (Topo [])) $ \scc inferRest -> do
     pure (Topo (def : rest))
   where
     inferComponent :: SCC Parsed.Def -> Infer Def
-    inferComponent = \case
-        AcyclicSCC vert -> fmap VarDef (inferVarDef vert)
-        CyclicSCC verts -> fmap RecDefs (inferRecDefs verts)
+    inferComponent d = do
+        -- TODO: Why is this fine even when we're in a LetRec? Seems like it would mess
+        --       things up seriously? Or do I just not cover any cases like this in my
+        --       tests?
+        assign substs Map.empty
+        d' <- case d of
+            AcyclicSCC vert -> fmap VarDef (inferVarDef vert)
+            CyclicSCC verts -> fmap RecDefs (inferRecDefs verts)
+        use substs <&> \s -> substDef s d'
 
 inferVarDef :: Parsed.Def -> Infer VarDef
 inferRecDefs :: [Parsed.Def] -> Infer RecDefs

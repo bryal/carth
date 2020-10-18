@@ -1,13 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Subst (Subst, subst, substTopDefs, substPat, composeSubsts) where
+module Subst (Subst, subst, substDef, composeSubsts) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Bifunctor
 import Data.Maybe
 
-import Misc
 import SrcPos
 import Inferred
 
@@ -15,8 +14,6 @@ import Inferred
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
 
-substTopDefs :: Subst -> Defs -> Defs
-substTopDefs s (Topo defs) = Topo (map (substDef s) defs)
 
 substDef :: Subst -> Def -> Def
 substDef s = \case
