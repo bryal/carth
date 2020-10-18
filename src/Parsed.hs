@@ -23,7 +23,7 @@ newtype Id (case' :: IdCase) = Id (WithPos String)
 
 data TVar
     = TVExplicit (Id 'Small)
-    | TVImplicit Int
+    | TVImplicit Word
     deriving (Show, Eq, Ord, Data)
 
 -- TODO: Now that AnnotAst.Type is not just an alias to Ast.Type, it makes sense

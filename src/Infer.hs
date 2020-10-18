@@ -48,7 +48,7 @@ data Env = Env
 makeLenses ''Env
 
 data St = St
-    { _tvCount :: Int
+    { _tvCount :: Word
     , _substs :: Subst
     }
     deriving (Show)
@@ -418,5 +418,5 @@ fresh = fmap TVar fresh'
 fresh' :: Infer TVar
 fresh' = fmap TVImplicit fresh''
 
-fresh'' :: Infer Int
+fresh'' :: Infer Word
 fresh'' = tvCount <<+= 1
