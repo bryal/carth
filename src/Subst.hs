@@ -10,10 +10,8 @@ import Data.Maybe
 import SrcPos
 import Inferred
 
-
 -- | Map of substitutions from type-variables to more specific types
 type Subst = Map TVar Type
-
 
 substDef :: Subst -> Def -> Def
 substDef s = \case
