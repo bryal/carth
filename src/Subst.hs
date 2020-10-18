@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Subst (Subst, subst, substDef, composeSubsts) where
+module Subst (Subst, subst, substExpr, substFunMatch, composeSubsts) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
