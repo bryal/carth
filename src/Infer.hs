@@ -1,9 +1,10 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts, TupleSections #-}
+{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts, TupleSections
+           , RankNTypes #-}
 
 module Infer (inferTopDefs, checkType', checkType'') where
 
 import Prelude hiding (span)
-import Lens.Micro.Platform (assign, makeLenses, over, use, view, mapped, to)
+import Lens.Micro.Platform (assign, makeLenses, over, use, view, mapped, to, Lens')
 import Control.Applicative hiding (Const(..))
 import Control.Monad.Except
 import Control.Monad.Reader
@@ -34,7 +35,10 @@ data FoundType = Found SrcPos Type
 
 data Env = Env
     { _envTypeDefs :: TypeDefs
-    , _envDefs :: Map String Scheme
+    -- Separarate global defs and local defs, because ~generalize~ only has to look as
+    -- local defs.
+    , _envGlobDefs :: Map String Scheme
+    , _envLocalDefs :: Map String Scheme
     -- | Maps a constructor to its variant index in the type definition it
     --   constructs, the signature/left-hand-side of the type definition, the
     --   types of its parameters, and the span (number of constructors) of the
@@ -56,7 +60,8 @@ type Infer a = ReaderT Env (StateT St (Except TypeErr)) a
 inferTopDefs :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr Defs
 inferTopDefs tdefs ctors externs defs =
     let initEnv = Env { _envTypeDefs = tdefs
-                      , _envDefs = builtinVirtuals
+                      , _envGlobDefs = builtinVirtuals
+                      , _envLocalDefs = Map.empty
                       , _envCtors = ctors
                       }
         initSt = St { _tvCount = 0, _substs = Map.empty }
@@ -64,7 +69,7 @@ inferTopDefs tdefs ctors externs defs =
   where
     inferTopDefs' = do
         let externs' = fmap (first (Forall Set.empty)) externs
-        defs'' <- augment envDefs (fmap fst externs') (inferDefs defs)
+        defs'' <- augment envGlobDefs (fmap fst externs') (inferDefs envGlobDefs defs)
         pure defs''
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
@@ -93,11 +98,11 @@ checkType'' tdefsParams pos = go
                 else throwError (TypeInstArityMismatch pos x expectedN foundN)
         Nothing -> throwError (UndefType pos x)
 
-inferDefs :: [Parsed.Def] -> Infer Defs
-inferDefs defs = do
+inferDefs :: Lens' Env (Map String Scheme) -> [Parsed.Def] -> Infer Defs
+inferDefs envDefs defs = do
     checkNoDuplicateDefs defs
     let ordered = orderDefs defs
-    inferDefsComponents ordered
+    inferDefsComponents envDefs ordered
   where
     checkNoDuplicateDefs = checkNoDuplicateDefs' Set.empty
     checkNoDuplicateDefs' already = \case
@@ -118,10 +123,10 @@ orderDefs :: [Parsed.Def] -> [SCC Parsed.Def]
 orderDefs = stronglyConnComp . graph
     where graph = map (\d@(n, _) -> (d, n, Set.toList (freeVars d)))
 
-inferDefsComponents :: [SCC Parsed.Def] -> Infer Defs
-inferDefsComponents = flip foldr (pure (Topo [])) $ \scc inferRest -> do
+inferDefsComponents :: Lens' Env (Map String Scheme) -> [SCC Parsed.Def] -> Infer Defs
+inferDefsComponents envDefs = flip foldr (pure (Topo [])) $ \scc inferRest -> do
     def <- inferComponent scc
-    Topo rest <- withLocals (defSigs def) inferRest
+    Topo rest <- augment envDefs (Map.fromList (defSigs def)) inferRest
     pure (Topo (def : rest))
   where
     inferComponent :: SCC Parsed.Def -> Infer Def
@@ -149,7 +154,8 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
         ts <- replicateM (length ds) fresh
         let dummyScms = map (Forall Set.empty) ts
         let (names, poss) = unzip (map (bimap idstr getPos) ds)
-        fs <- withLocals (zip names dummyScms) $ zipWithM inferRecDef ts ds
+        fs <- augment envLocalDefs (Map.fromList (zip names dummyScms))
+            $ zipWithM inferRecDef ts ds
         scms <- mapM generalize ts
         pure (zip names (zipWith3 (curry . WithPos) poss scms fs))
 
@@ -202,10 +208,10 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (tc, If p' c' a')
     Parsed.Let1 def body -> do
         def' <- inferVarDef def
-        (t, body') <- augment1 envDefs (defSig def') (infer body)
+        (t, body') <- augment1 envLocalDefs (defSig def') (infer body)
         pure (t, Let (VarDef def') body')
     Parsed.LetRec defs b -> do
-        Topo defs' <- inferDefs defs
+        Topo defs' <- inferDefs envLocalDefs defs
         let withDef def inferX = do
                 (tx, x') <- withLocals (defSigs def) inferX
                 pure (tx, WithPos pos (Let def x'))
@@ -329,15 +335,15 @@ typeStr :: Type
 typeStr = TConst ("Str", [])
 
 lookupEnv :: Id 'Small -> Infer Type
-lookupEnv (Id (WithPos pos x)) = view (envDefs . to (Map.lookup x)) >>= \case
-    Just scm -> instantiate scm
-    Nothing -> throwError (UndefVar pos x)
+lookupEnv (Id (WithPos pos x)) = do
+    eg <- view envGlobDefs
+    el <- view envLocalDefs
+    case (Map.lookup x el <|> Map.lookup x eg) of
+        Just scm -> instantiate scm
+        Nothing -> throwError (UndefVar pos x)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
-withLocals = withLocals' . Map.fromList
-
-withLocals' :: Map String Scheme -> Infer a -> Infer a
-withLocals' = augment envDefs
+withLocals = augment envLocalDefs . Map.fromList
 
 unify :: ExpectedType -> FoundType -> Infer ()
 unify (Expected t1) (Found pos t2) = do
@@ -393,18 +399,18 @@ generalize t = do
     s <- use substs
     let t' = subst s t
     pure (Forall (generalize' (substEnv s env) t') t')
+  where
+    generalize' :: Env -> Type -> Set TVar
+    generalize' env t = Set.difference (ftv t) (ftvEnv env)
 
-generalize' :: Env -> Type -> Set TVar
-generalize' env t = Set.difference (ftv t) (ftvEnv env)
+    substEnv :: Subst -> Env -> Env
+    substEnv s = over (envLocalDefs . mapped . scmBody) (subst s)
 
-substEnv :: Subst -> Env -> Env
-substEnv s = over (envDefs . mapped . scmBody) (subst s)
+    ftvEnv :: Env -> Set TVar
+    ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envLocalDefs
 
-ftvEnv :: Env -> Set TVar
-ftvEnv = Set.unions . map (ftvScheme . snd) . Map.toList . view envDefs
-
-ftvScheme :: Scheme -> Set TVar
-ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
+    ftvScheme :: Scheme -> Set TVar
+    ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
 
 fresh :: Infer Type
 fresh = fmap TVar fresh'
