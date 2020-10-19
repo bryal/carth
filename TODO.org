@@ -705,3 +705,30 @@ Features and other stuff to do/implement in/around Carth.
   negatives. I feel it would be nice as a user to be able to inspect
   the .carth source of the stdlib and actually see all the types and
   stuff though.
+* INACTIVE Union types
+  Like Typescript (I think, I'm not all that familiar with it). Could
+  be nice for error handling, for example. That's one of the problems
+  in Rust -- you have to use all these fancy crates or write a bunch
+  of boilerplate just to allow a function to return two different
+  types of errors.
+
+  Java, where exceptions can be combined as a union, essentially:
+  #+BEGIN_SRC java
+  public Foo foo() throws SomeException, OtherException {
+      bar(); // throws SomeException
+      baz(); // throws OtherException
+  }
+  #+END_SRC
+
+  and Rust, where you have to combine the different types somehow:
+  #+BEGIN_SRC rust
+  fn foo() -> Result<Foo, MyErr> {
+      bar().map_err(MySomeErr)?;
+      baz().map_err(MyOtherErr)?;
+  }
+
+  enum MyErr {
+      MySomeErr(SomeErr),
+      MyOtherErr(OtherErr)
+  }
+  #+END_SRC

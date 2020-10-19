@@ -22,6 +22,7 @@ import Optimize
 import qualified Optimized as Ast
 import qualified Parse
 import qualified Lex
+import qualified Macro
 import EnvVars
 
 main :: IO ()
@@ -59,8 +60,10 @@ frontend cfg f = do
     verbose cfg ("   Lexing")
     tts <- lex f
     when d $ writeFile ".dbg.lexd" (show tts)
+    verbose cfg ("   Expanding macros")
+    tts' <- expandMacros f tts
     verbose cfg ("   Parsing")
-    ast <- parse f tts
+    ast <- parse f tts'
     when d $ writeFile ".dbg.parsed" (pretty ast)
     verbose cfg ("   Typechecking")
     ann <- typecheck' f ast
@@ -78,6 +81,11 @@ lex f = runExceptT (Lex.lex f) >>= \case
     Right p -> pure p
   where
     formatLexErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
+
+expandMacros :: FilePath -> [Lexd.TokenTree] -> IO [Lexd.TokenTree]
+expandMacros f tts = case runExcept (Macro.expandMacros tts) of
+    Left e -> Err.printMacroErr e >> abort f
+    Right p -> pure p
 
 parse :: FilePath -> [Lexd.TokenTree] -> IO Parsed.Program
 parse f tts = case runExcept (Parse.parse tts) of

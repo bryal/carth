@@ -1,5 +1,12 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds #-}
 
+-- Note: Some parsers are greedy wrt consuming spaces and comments succeding the
+--       item, while others are lazy. You'll have to look at the impl to be
+--       sure.
+--
+--       If a parser has a variant with a "ns_" prefix, that variant does not
+--       consume succeding space, while the unprefixed variant does.
+
 module Lex (lex, toplevel, tokentree) where
 
 import Control.Monad
@@ -110,30 +117,32 @@ strlit = andSkipSpaceAfter ns_strlit
     where ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
 keyword :: Lexer Keyword
-keyword = andSkipSpaceAfter $ choice $ map
-    (\p -> try (p <* notFollowedBy identLetter))
-    [ string ":" $> Kcolon
-    , string "." $> Kdot
-    , string "Fun" $> KFun
-    , string "Box" $> KBox
-    , string "define" $> Kdefine
-    , string "define:" $> KdefineColon
-    , string "extern" $> Kextern
-    , string "forall" $> Kforall
-    , string "fmatch" $> Kfmatch
-    , string "match" $> Kmatch
-    , string "if" $> Kif
-    , string "fun" $> Kfun
-    , string "let1" $> Klet1
-    , string "let" $> Klet
-    , string "letrec" $> Kletrec
-    , string "data" $> Kdata
-    , string "sizeof" $> Ksizeof
-    , string "import" $> Kimport
-    , string "case" $> Kcase
-    , string "id@" $> KidAt
-    , string "Id@" $> KIdAt
-    ]
+keyword = andSkipSpaceAfter $ choice $ (++)
+    (map
+        (\p -> try (p <* notFollowedBy identLetter))
+        [ string ":" $> Kcolon
+        , string "." $> Kdot
+        , string "Fun" $> KFun
+        , string "Box" $> KBox
+        , string "define" $> Kdefine
+        , string "define:" $> KdefineColon
+        , string "extern" $> Kextern
+        , string "forall" $> Kforall
+        , string "fmatch" $> Kfmatch
+        , string "match" $> Kmatch
+        , string "if" $> Kif
+        , string "fun" $> Kfun
+        , string "let1" $> Klet1
+        , string "let" $> Klet
+        , string "letrec" $> Kletrec
+        , string "data" $> Kdata
+        , string "sizeof" $> Ksizeof
+        , string "import" $> Kimport
+        , string "case" $> Kcase
+        , string "defmacro" $> Kdefmacro
+        ]
+    )
+    [string "id@" $> KidAt, string "Id@" $> KIdAt]
 
 keyword' :: String -> Lexer ()
 keyword' x = andSkipSpaceAfter $ label ("keyword " ++ x) (string x) $> ()

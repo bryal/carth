@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds
            , GeneralizedNewtypeDeriving #-}
 
-module Parser (Parser, St (..), runParser, token, end, lookAhead, try, getSrcPos) where
+module Parser where
 
 import Control.Applicative hiding (many, some)
 import Control.Monad
@@ -15,6 +15,8 @@ import qualified Data.Set as Set
 import Misc
 import SrcPos
 import Lexd
+import Parsed
+import Pretty
 
 data Err = Err { errLength :: Word, errPos :: SrcPos, errExpecteds :: Set String }
     deriving (Show, Eq)
@@ -92,3 +94,56 @@ try ma = do
 
 getSrcPos :: Parser SrcPos
 getSrcPos = lookAhead (token "token" (Just .* const))
+
+anyToken :: Parser TokenTree
+anyToken = token "any token" (Just .* WithPos)
+
+withPos :: Parser a -> Parser (WithPos a)
+withPos = liftA2 WithPos getSrcPos
+
+parens :: Parser a -> Parser a
+parens ma = parens' (const ma)
+
+parens' :: (SrcPos -> Parser a) -> Parser a
+parens' = sexpr "`(`" $ \case
+    Parens tts -> Just tts
+    _ -> Nothing
+
+brackets :: Parser a -> Parser a
+brackets ma = brackets' (const ma)
+
+brackets' :: (SrcPos -> Parser a) -> Parser a
+brackets' = sexpr "`[`" $ \case
+    Brackets tts -> Just tts
+    _ -> Nothing
+
+sexpr :: String -> (TokenTree' -> Maybe [TokenTree]) -> (SrcPos -> Parser a) -> Parser a
+sexpr expected extract f = do
+    (p, tts) <- token expected $ \p' -> fmap (p', ) . extract
+    St _ pOld ttsOld <- get
+    modify (\st -> st { stOuterPos = p, stInput = tts })
+    a <- f p
+    end
+    modify (\st -> st { stOuterPos = pOld, stInput = ttsOld })
+    pure a
+
+big' :: Parser String
+big' = fmap idstr big
+
+big :: Parser (Id 'Parsed.Big)
+big = token "big identifier" $ \p -> \case
+    Lexd.Big x -> Just (Id (WithPos p x))
+    _ -> Nothing
+
+small' :: Parser String
+small' = fmap idstr small
+
+small :: Parser (Id 'Parsed.Small)
+small = token "small identifier" $ \p -> \case
+    Lexd.Small x -> Just (Id (WithPos p x))
+    _ -> Nothing
+
+reserved :: Keyword -> Parser ()
+reserved k = token ("keyword " ++ pretty k) $ const $ \case
+    Keyword k' | k == k' -> Just ()
+    _ -> Nothing

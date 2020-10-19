@@ -16,6 +16,9 @@ import Gen
 
 type Message = String
 
+printMacroErr :: (SrcPos, String) -> IO ()
+printMacroErr (p, msg) = posd p msg
+
 printParseErr :: (SrcPos, String) -> IO ()
 printParseErr (p, msg) = posd p msg
 

@@ -22,6 +22,7 @@ data Keyword
     | Klet1 | Klet | Kletrec
     | Ksizeof
     | KidAt | KIdAt
+    | Kdefmacro
     deriving (Eq, Show)
 
 data TokenTree'

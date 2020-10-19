@@ -57,6 +57,7 @@ instance Pretty Lexd.Keyword where
         Lexd.Ksizeof -> "sizeof"
         Lexd.KidAt -> "id@"
         Lexd.KIdAt -> "Id@"
+        Lexd.Kdefmacro -> "defmacro"
 
 
 instance Pretty Parsed.Program where

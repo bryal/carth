@@ -1,12 +1,5 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds #-}
 
--- Note: Some parsers are greedy wrt consuming spaces and comments succeding the
---       item, while others are lazy. You'll have to look at the impl to be
---       sure.
---
---       If a parser has a variant with a "ns_" prefix, that variant does not
---       consume succeding space, while the unprefixed variant does.
-
 module Parse (parse) where
 
 import Control.Applicative hiding (many, some)
@@ -26,8 +19,6 @@ import qualified Lexd
 import Parser
 import Parsed hiding (Lit)
 import qualified Parsed
-import Pretty
-
 
 parse :: [TokenTree] -> Except (SrcPos, String) Program
 parse tts = fmap (\(ds, ts, es) -> Program ds ts es) (runParser toplevels tts)
@@ -241,49 +232,5 @@ ptype = choice [tfun, tbox, tapp]
 tvar :: Parser TVar
 tvar = fmap TVExplicit small
 
-parens :: Parser a -> Parser a
-parens ma = parens' (const ma)
-
-parens' :: (SrcPos -> Parser a) -> Parser a
-parens' = sexpr "`(`" $ \case
-    Parens tts -> Just tts
-    _ -> Nothing
-
-brackets :: Parser a -> Parser a
-brackets ma = brackets' (const ma)
-
-brackets' :: (SrcPos -> Parser a) -> Parser a
-brackets' = sexpr "`[`" $ \case
-    Brackets tts -> Just tts
-    _ -> Nothing
-
-sexpr :: String -> (TokenTree' -> Maybe [TokenTree]) -> (SrcPos -> Parser a) -> Parser a
-sexpr expected extract f = do
-    (p, tts) <- token expected $ \p' -> fmap (p', ) . extract
-    St _ pOld ttsOld <- get
-    modify (\st -> st { stOuterPos = p, stInput = tts })
-    a <- f p
-    end
-    modify (\st -> st { stOuterPos = pOld, stInput = ttsOld })
-    pure a
-
-big :: Parser (Id 'Big)
-big = token "big identifier" $ \p -> \case
-    Lexd.Big x -> Just (Id (WithPos p x))
-    _ -> Nothing
-
-small :: Parser (Id 'Small)
-small = token "small identifier" $ \p -> \case
-    Lexd.Small x -> Just (Id (WithPos p x))
-    _ -> Nothing
-
-reserved :: Keyword -> Parser ()
-reserved k = token ("keyword " ++ pretty k) $ const $ \case
-    Keyword k' | k == k' -> Just ()
-    _ -> Nothing
-
 isWord :: String -> Bool
 isWord s = isJust ((readMaybe s) :: Maybe Word)
-
-withPos :: Parser a -> Parser (WithPos a)
-withPos = liftA2 WithPos getSrcPos
