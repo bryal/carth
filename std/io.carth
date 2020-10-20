@@ -7,7 +7,7 @@
                      real-world
                      xs)])))
 
-(define (io/pure a) (IO (fun (real-world) [Unit real-world])))
+(define (io/pure a) (IO (fun (real-world) [a real-world])))
 
 (define: (io/map f (IO ma))
     (forall (a b) (Fun (Fun a b) (IO a) (IO b)))
