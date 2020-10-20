@@ -44,7 +44,8 @@ data TopLevel = TImport Import -- | TMacro Macro
 lex :: FilePath -> ExceptT String IO [TokenTree]
 lex filepath = do
     modPaths <- lift modulePaths
-    lexModules modPaths Set.empty [filepath]
+    filepath' <- lift $ makeAbsolute filepath
+    lexModules modPaths Set.empty [filepath']
 
 lexModules :: [FilePath] -> Set String -> [String] -> ExceptT String IO [TokenTree]
 lexModules modPaths visiteds = \case
@@ -63,7 +64,7 @@ lexModules modPaths visiteds = \case
                         throwError
                             $ ("Error: No file for module " ++ m ++ " exists.\n")
                             ++ ("Searched paths: " ++ show ps)
-                    Just g' -> pure g'
+                    Just g' -> lift $ makeAbsolute g'
         impFs <- mapM resolve imps
         ttsNexts <- lexModules modPaths (Set.insert f visiteds) (impFs ++ nexts)
         pure (tts ++ ttsNexts)
