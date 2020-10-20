@@ -51,10 +51,12 @@ instance Alternative Parser where
             then throwError e
             else catchError mb (throwError . (e <>))
 
-runParser :: Parser a -> [TokenTree] -> Except (SrcPos, String) a
-runParser (Parser ma) tts =
-    let noPos = ice "read SrcPos in parser state at top level"
-        initSt = St 0 noPos tts
+runParser' :: Parser a -> [TokenTree] -> Except (SrcPos, String) a
+runParser' ma = runParser ma (ice "read SrcPos in parser state at top level")
+
+runParser :: Parser a -> SrcPos -> [TokenTree] -> Except (SrcPos, String) a
+runParser (Parser ma) surroundingPos tts =
+    let initSt = St 0 surroundingPos tts
         formatExpecteds es = case Set.toList es of
             [] -> ice "empty list of expecteds in formatExpecteds"
             [e] -> "Expected " ++ e

@@ -62,6 +62,7 @@ frontend cfg f = do
     when d $ writeFile ".dbg.lexd" (show tts)
     verbose cfg ("   Expanding macros")
     tts' <- expandMacros f tts
+    when d $ writeFile ".dbg.expanded" (show tts')
     verbose cfg ("   Parsing")
     ast <- parse f tts'
     when d $ writeFile ".dbg.parsed" (pretty ast)

@@ -93,7 +93,11 @@ toplevel = getSrcPos >>= \p -> parens
     where import' = keyword' "import" *> small
 
 tokentree :: Lexer TokenTree
-tokentree = withPos tokentree'
+tokentree = do
+    p <- getSrcPos
+    tt <- tokentree'
+    tt' <- option tt (ellipsis $> Ellipsis (WithPos p tt))
+    pure (WithPos p tt')
   where
     tokentree' = choice
         [ fmap Small smallSpecial
@@ -106,6 +110,7 @@ tokentree = withPos tokentree'
         , fmap Brackets (brackets (many tokentree))
         , fmap Braces (braces (many tokentree))
         ]
+    ellipsis = try (string "..." *> notFollowedBy identLetter *> space)
     lit = try num <|> fmap Str strlit
     num = andSkipSpaceAfter ns_num
     ns_num = do
@@ -201,9 +206,6 @@ symbol = Lexer.symbol space
 -- | Spaces, line comments, and block comments
 space :: Lexer ()
 space = Lexer.space Char.space1 (Lexer.skipLineComment ";") empty
-
-withPos :: Lexer a -> Lexer (WithPos a)
-withPos = liftA2 WithPos getSrcPos
 
 getSrcPos :: Lexer SrcPos
 getSrcPos = fmap

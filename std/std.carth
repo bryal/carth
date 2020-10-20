@@ -1,3 +1,4 @@
+(import macros)
 (import iter)
 (import list)
 (import maybe)
@@ -68,22 +69,16 @@
 (define (uncurry f [a b]) (f a b))
 (define (curry f a b) (f [a b]))
 
-(define (<| f a) (f a))
-(define (|> a f) (f a))
+(define (app f a) (f a))
+(define (rapp a f) (f a))
 
 (define (const a b) a)
 (define (seq   a b) b)
 
 (define (<o f g a) (f (g a)))
-(define (<o3 f1 f2 f3 a) (f1 (f2 (f3 a))))
-(define (<o4 f1 f2 f3 f4 a) (f1 (f2 (f3 (f4 a)))))
-(define (<o5 f1 f2 f3 f4 f5 a) (f1 (f2 (f3 (f4 (f5 a))))))
 (define (<oo f g a b) (f (g a b)))
 (define (<ooo f g a b c) (f (g a b c)))
 (define (o> f g a) (g (f a)))
-(define (o3> f1 f2 f3 a) (f3 (f2 (f1 a))))
-(define (o4> f1 f2 f3 f4 a) (f4 (f3 (f2 (f1 a)))))
-(define (o5> f1 f2 f3 f4 f5 a) (f5 (f4 (f3 (f2 (f1 a))))))
 (define (oo> f g a b) (g (f a b)))
 (define (ooo> f g a b c) (g (f a b c)))
 

@@ -33,6 +33,7 @@ data TokenTree'
     | Parens [TokenTree]
     | Brackets [TokenTree]
     | Braces [TokenTree]
+    | Ellipsis TokenTree
     deriving (Show)
 
 type TokenTree = WithPos TokenTree'

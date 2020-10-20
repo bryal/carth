@@ -16,6 +16,7 @@ import System.IO.Silently
 
 import Misc
 import Lex
+import Macro
 import Parse
 import qualified Parsed
 import Check
@@ -78,7 +79,8 @@ frontend f = lexAndParse f <&> \case
     Just ast -> fmap (optimize . monomorphize) (rightToMaybe (typecheck ast))
 
 lexAndParse :: FilePath -> IO (Maybe Parsed.Program)
-lexAndParse f = fmap rightToMaybe (runExceptT (lex' f >>= parse''))
+lexAndParse f = fmap rightToMaybe (runExceptT (lex' f >>= expandMacros' >>= parse''))
   where
     lex' = withExceptT (const ()) . lex
+    expandMacros' = withExceptT (const ()) . liftEither . runExcept . expandMacros
     parse'' = withExceptT (const ()) . liftEither . runExcept . parse

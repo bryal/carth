@@ -21,7 +21,7 @@ import Parsed hiding (Lit)
 import qualified Parsed
 
 parse :: [TokenTree] -> Except (SrcPos, String) Program
-parse tts = fmap (\(ds, ts, es) -> Program ds ts es) (runParser toplevels tts)
+parse tts = fmap (\(ds, ts, es) -> Program ds ts es) (runParser' toplevels tts)
 
 toplevels :: Parser ([Def], [TypeDef], [Extern])
 toplevels = fmap mconcat (manyTill toplevel end)
