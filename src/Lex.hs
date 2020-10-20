@@ -11,6 +11,7 @@ module Lex (lex, toplevel, tokentree) where
 
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.State
 import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.Functor
 import Data.Maybe
@@ -45,29 +46,33 @@ lex :: FilePath -> ExceptT String IO [TokenTree]
 lex filepath = do
     modPaths <- lift modulePaths
     filepath' <- lift $ makeAbsolute filepath
-    lexModules modPaths Set.empty [filepath']
+    evalStateT (lexModule modPaths filepath') Set.empty
 
-lexModules :: [FilePath] -> Set String -> [String] -> ExceptT String IO [TokenTree]
-lexModules modPaths visiteds = \case
-    [] -> pure []
-    f : nexts | Set.member f visiteds -> lexModules modPaths visiteds nexts
-    f : nexts -> do
-        s <- lift (readFile f)
-            <&> \s' -> if takeExtension f == ".org" then untangleOrg s' else s'
+-- NOTE: For the current implementation of macros where order of definition matters, it's
+--       important that we visit imports and concatenate all token trees in the correct
+--       order, which is DFS.
+lexModule
+    :: [FilePath] -> FilePath -> StateT (Set FilePath) (ExceptT String IO) [TokenTree]
+lexModule modPaths f = get >>= \visiteds -> if Set.member f visiteds
+    then pure []
+    else do
+        modify (Set.insert f)
+        s <- liftIO $ readFile f <&> \s' ->
+            if takeExtension f == ".org" then untangleOrg s' else s'
         (imps, tts) <- liftEither $ parse' toplevels f s
         let ps = takeDirectory f : modPaths
         let resolve m = do
                 let gs = [ p </> addExtension m e | p <- ps, e <- [".carth", ".org"] ]
-                gs' <- filterM (lift . doesFileExist) gs
+                gs' <- filterM (liftIO . doesFileExist) gs
                 case listToMaybe gs' of
                     Nothing ->
                         throwError
                             $ ("Error: No file for module " ++ m ++ " exists.\n")
                             ++ ("Searched paths: " ++ show ps)
-                    Just g' -> lift $ makeAbsolute g'
+                    Just g' -> liftIO $ makeAbsolute g'
         impFs <- mapM resolve imps
-        ttsNexts <- lexModules modPaths (Set.insert f visiteds) (impFs ++ nexts)
-        pure (tts ++ ttsNexts)
+        ttsImp <- fmap concat $ mapM (lexModule modPaths) impFs
+        pure (ttsImp ++ tts)
 
 toplevels :: Lexer ([Import], [TokenTree])
 toplevels = do
