@@ -10,3 +10,10 @@
   (case (xs ...) (appsr list/cons xs ... Nil)))
 
 (defmacro +s (case (xs ...) (apps + xs ...)))
+
+(defmacro io/wrap
+  (case (computation) (IO (fun (real-world) [computation real-world]))))
+
+(defmacro lazy
+  (case (computation) (Lazy [(unsafe-perform-io mutex/new)
+                             (box (Left (fun (Unit) computation)))])))

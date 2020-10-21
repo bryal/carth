@@ -4,7 +4,7 @@
 (import maybe)
 (import either)
 (import math)
-(import memo)
+(import lazy)
 (import mem)
 (import array)
 (import string)

@@ -43,3 +43,6 @@
 
 (extern unsafe-read-file (Fun Str (Maybe Str)))
 (define (read-file f) (IO (fun (real-world) [(unsafe-read-file f) real-world])))
+
+(define (io/write-ref x ptr)
+  (io/wrap (store x ptr)))

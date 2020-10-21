@@ -732,3 +732,4 @@ Features and other stuff to do/implement in/around Carth.
       MyOtherErr(OtherErr)
   }
   #+END_SRC
+* INACTIVE Hygienic macros

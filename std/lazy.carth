@@ -1,0 +1,20 @@
+(import macros)
+(import sync)
+(import io)
+
+(data (Lazy a)
+  (Lazy [Mutex (Box (Either (Fun Unit a) a))]))
+
+(define: (strict (Lazy [mx ptr]))
+    (forall (a) (Fun (Lazy a) a))
+  (unsafe-perform-io
+   (io/thenr
+    (mutex/lock mx)
+    (match (deref ptr)
+      (case (Left f)
+            (let ((x (f Unit)))
+              (apps io/thenr
+                    (io/write-ref (Right x) ptr)
+                    (mutex/release mx)
+                    (io/pure x))))
+      (case (Right x) (io/thenr (mutex/release mx) (io/pure x)))))))
