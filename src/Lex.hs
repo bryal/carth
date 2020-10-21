@@ -181,7 +181,7 @@ otherChar = satisfy
     (\c -> and
         [ any ($ c) [isMark, isPunctuation, isSymbol]
         , not (elem c "()[]{}")
-        , not (elem c "\"-+:")
+        , not (elem c "\"-+:•")
         ]
     )
 

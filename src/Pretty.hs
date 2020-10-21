@@ -247,7 +247,7 @@ prettyTPrim = \case
 prettyTVar :: Parsed.TVar -> String
 prettyTVar = \case
     Parsed.TVExplicit v -> Parsed.idstr v
-    Parsed.TVImplicit n -> "#" ++ show n
+    Parsed.TVImplicit v -> "•" ++ v
 
 
 instance Pretty Inferred.Scheme where

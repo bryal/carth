@@ -48,9 +48,9 @@ data Env = Env
     }
 makeLenses ''Env
 
-type TVCount = Word
+type FreshTVs = [String]
 
-type Infer a = WriterT [Constraint] (ReaderT Env (StateT TVCount (Except TypeErr))) a
+type Infer a = WriterT [Constraint] (ReaderT Env (StateT FreshTVs (Except TypeErr))) a
 
 ------------------------------------------------------------------------------------------
 -- Inference
@@ -65,9 +65,14 @@ inferTopDefs tdefs ctors externs defs =
             , _envLocalDefs = Map.empty
             , _envCtors = ctors
             }
+        freshTvs =
+                let ls = "abcdehjkpqrstuvxyz"
+                    ns = map show [1 :: Word .. 99]
+                    vs = [ l : n | l <- ls, n <- ns ] ++ [ l : v | l <- ls, v <- vs ]
+                in  vs
     in  evalStateT
             (runReaderT (fmap fst (runWriterT (inferDefs envGlobDefs defs))) initEnv)
-            0
+            freshTvs
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
@@ -364,7 +369,7 @@ fresh :: Infer Type
 fresh = fmap TVar fresh'
 
 fresh' :: Infer TVar
-fresh' = fmap TVImplicit (get <* modify (+ 1))
+fresh' = fmap TVImplicit (gets head <* modify tail)
 
 unify :: ExpectedType -> FoundType -> Infer ()
 unify e f = tell [(e, f)]

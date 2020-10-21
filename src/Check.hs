@@ -100,16 +100,16 @@ builtinConstructors = Map.unions (map builtinConstructors' builtinDataTypes')
 builtinDataTypes' :: [(String, [TVar], [(String, [Inferred.Type])])]
 builtinDataTypes' =
     [ ( "Array"
-      , [TVImplicit 0]
+      , [TVImplicit "a"]
       , [ ( "Array"
-          , [Inferred.TBox (Inferred.TVar (TVImplicit 0)), Inferred.TPrim TNatSize]
+          , [Inferred.TBox (Inferred.TVar (TVImplicit "a")), Inferred.TPrim TNatSize]
           )
         ]
       )
     , ("Str", [], [("Str", [tArray (Inferred.TPrim (TNat 8))])])
     , ( "Cons"
-      , [TVImplicit 0, TVImplicit 1]
-      , [("Cons", [Inferred.TVar (TVImplicit 0), Inferred.TVar (TVImplicit 1)])]
+      , [TVImplicit "a", TVImplicit "b"]
+      , [("Cons", [Inferred.TVar (TVImplicit "a"), Inferred.TVar (TVImplicit "b")])]
       )
     , ("Unit", [], [unit'])
     , ("RealWorld", [], [("UnsafeRealWorld", [])])
@@ -121,11 +121,11 @@ builtinDataTypes' =
     --       maybe not be either. Diverge from Haskell and just make IO a sort of
     --       marker without the realworld function shebang.
     , ( "IO"
-      , [TVImplicit 0]
+      , [TVImplicit "a"]
       , [ ( "IO"
           , [ Inferred.TFun (tc ("RealWorld", [])) $ tc
                   ( "Cons"
-                  , [ Inferred.TVar (TVImplicit 0)
+                  , [ Inferred.TVar (TVImplicit "a")
                     , tc ("Cons", [tc ("RealWorld", []), tc unit'])
                     ]
                   )
