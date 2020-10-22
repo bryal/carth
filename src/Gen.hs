@@ -178,7 +178,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                     (\(TypedVar x _, i) -> emitReg x =<< extractvalue captures [i])
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
-    defineSrcPos funScopeMdRef (SrcPos _ line col, mdId) = do
+    defineSrcPos funScopeMdRef (SrcPos _ line col _, mdId) = do
         let loc =
                 LLOp.DILocation
                     $ LLOp.Location (fromIntegral line) (fromIntegral col)
@@ -196,7 +196,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                 )
             )
     funMetadataSubprog =
-        let SrcPos path line _ = dpos
+        let SrcPos path line _ _ = dpos
             -- TODO: Maybe only define this once and cache MDRef somewhere?
             fileNode =
                     let (dir, file) = splitFileName path

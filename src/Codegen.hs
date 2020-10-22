@@ -195,7 +195,7 @@ separateFunDefs = partitionWith $ \(lhs, WithPos dpos (ts, e)) -> case e of
 genInit :: FilePath -> [VarDef] -> Gen' [Definition]
 genInit moduleFp ds = do
     let name = mkName "carth_init"
-    let pos = SrcPos moduleFp 1 1
+    let pos = SrcPos moduleFp 1 1 Nothing
     let param = TypedVar "_" tUnit
     let genDefs =
             forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void

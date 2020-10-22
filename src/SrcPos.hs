@@ -6,11 +6,15 @@ import Text.Megaparsec.Pos
 import Data.Data
 
 
-data SrcPos = SrcPos
-    { srcName :: FilePath
-    , srcLine :: Word
-    , srcColumn :: Word
-    } deriving (Show, Eq, Ord, Data)
+-- TODO: macro invocation stack
+data SrcPos =
+    SrcPos { srcName :: FilePath
+           , srcLine :: Word
+           , srcColumn :: Word
+           , inExpansion :: Maybe SrcPos
+           }
+    deriving (Show, Eq, Ord, Data)
+
 
 data WithPos a = WithPos SrcPos a deriving (Data)
 
@@ -38,5 +42,5 @@ unpos :: WithPos a -> a
 unpos (WithPos _ a) = a
 
 prettySrcPos :: SrcPos -> String
-prettySrcPos (SrcPos f l c) =
+prettySrcPos (SrcPos f l c _) =
     sourcePosPretty (SourcePos f (mkPos (fromIntegral l)) (mkPos (fromIntegral c)))

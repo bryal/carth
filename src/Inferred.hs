@@ -134,12 +134,12 @@ ftv = \case
 
 builtinExterns :: Map String (Type, SrcPos)
 builtinExterns = Map.fromList $ map
-    (second (, SrcPos "<builtin>" 0 0))
+    (second (, SrcPos "<builtin>" 0 0 Nothing))
     [("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))]
 
 builtinVirtuals :: Map String Scheme
 builtinVirtuals =
-    let tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0) a))
+    let tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0 Nothing) a))
         tva = tv "a"
         ta = TVar tva
         tvb = tv "b"

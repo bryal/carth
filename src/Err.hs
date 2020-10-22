@@ -103,7 +103,10 @@ printGenErr = \case
             ++ (" cannot be instantiated to type " ++ pretty t)
 
 posd :: SrcPos -> Message -> IO ()
-posd (pos@(SrcPos f lineN colN)) msg = do
+posd = posd' "Error"
+
+posd' :: String -> SrcPos -> Message -> IO ()
+posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
     src <- readFile f
     let (lineN', colN') = (fromIntegral lineN, fromIntegral colN)
         lines' = lines src
@@ -118,7 +121,7 @@ posd (pos@(SrcPos f lineN colN)) msg = do
         pad = length lineNS + 1
         s = either (const rest) fst (parse' (match tokentree) "" rest)
     putStrLn $ unlines
-        [ prettySrcPos pos ++ ": Error:"
+        [ prettySrcPos pos ++ ": " ++ kind ++ ":"
         , indent pad ++ "|"
         , lineNS ++ " | " ++ line
         -- Find the span (end-pos) of the item in the source by applying the same
@@ -126,3 +129,4 @@ posd (pos@(SrcPos f lineN colN)) msg = do
         , indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^'
         , msg
         ]
+    maybe (pure ()) (\pos2 -> posd' "Note" pos2 "In expansion of macro.") inExp

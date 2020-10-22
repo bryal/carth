@@ -209,5 +209,7 @@ space = Lexer.space Char.space1 (Lexer.skipLineComment ";") empty
 
 getSrcPos :: Lexer SrcPos
 getSrcPos = fmap
-    (\(SourcePos f l c) -> SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c)))
+    (\(SourcePos f l c) ->
+        SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c)) Nothing
+    )
     getSourcePos

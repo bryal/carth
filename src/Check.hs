@@ -84,7 +84,7 @@ checkCtors parent (Parsed.ConstructorDefs cs) =
 
 builtinDataTypes :: Inferred.TypeDefs
 builtinDataTypes = Map.fromList $ map
-    (\(x, ps, cs) -> (x, (ps, map (first (WithPos (SrcPos "<builtin>" 0 0))) cs)))
+    (\(x, ps, cs) -> (x, (ps, map (first (WithPos (SrcPos "<builtin>" 0 0 Nothing))) cs)))
     builtinDataTypes'
 
 builtinConstructors :: Inferred.Ctors

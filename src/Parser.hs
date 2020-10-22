@@ -36,7 +36,7 @@ instance Semigroup Err where
                           (Set.union (errExpecteds e1) (errExpecteds e2))
 
 instance Monoid Err where
-    mempty = Err 0 (SrcPos "<dummy>" 0 0) Set.empty
+    mempty = Err 0 (SrcPos "<dummy>" 0 0 Nothing) Set.empty
 
 data St = St { stCount :: Word, stOuterPos :: SrcPos, stInput :: [TokenTree] }
 

@@ -733,3 +733,13 @@ Features and other stuff to do/implement in/around Carth.
   }
   #+END_SRC
 * INACTIVE Hygienic macros
+* INACTIVE Destructors
+  System to register a function as a destructor for a value, which can
+  be used to destroy / close resources when the value is no longer
+  used and garbage collection happens. It's not optimal that resources
+  may stay open for quite a while after last usage, but it's better
+  than *never* being closed.
+
+  Example use case: We don't want to have to use linear types to
+  manually destroy Lazy values when we're done with them, but we still
+  need to make sure that their mutexes are destroyed at some point.
