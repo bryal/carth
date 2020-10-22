@@ -731,7 +731,7 @@ callExtern
     -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
     -> InstructionMetadata
     -> Instruction
-callExtern = call LLCallConv.C Nothing
+callExtern = call LLCallConv.C (Just NoTail)
 
 call
     :: LLCallConv.CallingConvention
