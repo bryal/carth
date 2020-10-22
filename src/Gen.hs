@@ -316,7 +316,7 @@ internFunc
     -> [BasicBlock]
     -> [(ShortByteString, MDRef MDNode)]
     -> Global
-internFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.External
+internFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.Private
                                       , LLGlob.visibility = LLVis.Hidden
                                       , LLGlob.dllStorageClass = Nothing
                                       , LLGlob.callingConvention = LLCallConv.Fast
@@ -370,7 +370,7 @@ simpleGlobConst name t = simpleGlobVar' True name t . Just
 simpleGlobVar' :: Bool -> Name -> Type -> Maybe LLConst.Constant -> Global
 simpleGlobVar' isconst name t initializer = GlobalVariable
     { LLGlob.name = name
-    , LLGlob.linkage = LLLink.External
+    , LLGlob.linkage = LLLink.Private
     , LLGlob.visibility = LLVis.Default
     , LLGlob.dllStorageClass = Nothing
     , LLGlob.threadLocalMode = Nothing
