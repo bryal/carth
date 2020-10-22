@@ -3,6 +3,7 @@
 
 module Compile (compile, run) where
 
+import LLVM.Prelude
 import LLVM.Context
 import LLVM.Module
 import LLVM.Target
@@ -18,13 +19,10 @@ import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
 import LLVM.AST.DataLayout
 import qualified LLVM.AST as LLAST
-import Control.Monad
 import Control.Monad.Catch
 import System.FilePath
 import System.Process
 import System.Exit
-import Data.Int
-import Data.Functor
 import Data.IORef
 import Data.String
 import qualified Data.Map as Map
@@ -65,8 +63,9 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
     in
         withMyTargetMachine optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
+            triple <- getProcessTargetTriple
             verbose cfg ("   Generating LLVM")
-            amod <- codegen' layout file pgm
+            amod <- codegen' layout triple file pgm
             when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
             flip
                     catch
@@ -87,8 +86,8 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                           when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                           f cfg tm mod
 
-codegen' :: DataLayout -> FilePath -> Ast.Program -> IO LLAST.Module
-codegen' dl f pgm = case codegen dl f pgm of
+codegen' :: DataLayout -> ShortByteString -> FilePath -> Ast.Program -> IO LLAST.Module
+codegen' layout triple f pgm = case codegen layout triple f pgm of
     Right m -> pure m
     Left e -> printGenErr e *> abort f
 

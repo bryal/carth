@@ -3,6 +3,7 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where
 
+import LLVM.Prelude
 import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
@@ -18,14 +19,10 @@ import Control.Monad.Except
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
-import Data.Word
 import Data.Maybe
-import Data.Foldable
 import Data.List
 import Data.Function
-import Data.Functor
 import Data.Functor.Identity
-import Control.Applicative
 import Lens.Micro.Platform (use, assign, Lens', view)
 
 import Misc
@@ -39,8 +36,8 @@ import Gen
 import Extern
 
 
-codegen :: DataLayout -> FilePath -> Program -> Either GenErr Module
-codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ do
+codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Either GenErr Module
+codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ do
     (tdefs', externs', globDefs) <-
         let (enums, tdefs'') = runIdentity (runGen' (defineDataTypes tdefs))
             defs' = defToVarDefs =<< defs
@@ -63,7 +60,7 @@ codegen layout moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ 
         { moduleName = fromString ((takeBaseName moduleFilePath))
         , moduleSourceFileName = fromString moduleFilePath
         , moduleDataLayout = Just layout
-        , moduleTargetTriple = Nothing
+        , moduleTargetTriple = Just triple
         , moduleDefinitions = concat
                                   [ map
                                       (\(n, tmax) ->
