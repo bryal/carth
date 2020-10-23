@@ -63,9 +63,7 @@ type Instr = InstructionMetadata -> Instruction
 data FunInstr = WithRetType Instr Type
 
 data Env = Env
-    -- TODO: Could operands in env be Val instead? I.e., either stack-allocated
-    --       or local?
-    { _localEnv :: Map TypedVar Operand -- ^ Environment of stack allocated variables
+    { _localEnv :: Map TypedVar Val
     , _globalEnv :: Map TypedVar Operand
     , _enumTypes :: Map Name Word32
     , _dataTypes :: Map Name [Type]
@@ -135,9 +133,9 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         (capturesParam, captureMembers) <- genExtractCaptures
         pt' <- genType pt
         px' <- newName px
-        let pRef = LocalReference pt' px'
+        let pRef = VLocal (LocalReference pt' px')
         rt' <- locallySet srcPos (Just dpos)
-            $ withLocal ptv pRef (withVals captureMembers genBody)
+            $ withVal ptv pRef (withVals captureMembers genBody)
         let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
         pure (rt', fParams')
     (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
@@ -400,34 +398,15 @@ getLocal = \case
     VVar x -> emitAnonReg (load x)
     VLocal x -> pure x
 
-withLocals :: [(TypedVar, Operand)] -> Gen a -> Gen a
-withLocals = withXs withLocal
-
--- | Takes a local value, allocates a variable for it, and runs a generator in
---   the environment with the variable
-withLocal :: TypedVar -> Operand -> Gen a -> Gen a
-withLocal x v gen = do
-    vPtr <- genStackAllocated v
-    withVar x vPtr gen
-
-withVars :: [(TypedVar, Operand)] -> Gen a -> Gen a
-withVars = withXs withVar
-
--- | Takes a local, stack allocated value, and runs a generator in the
---   environment with the variable
-withVar :: TypedVar -> Operand -> Gen a -> Gen a
-withVar x v = locally localEnv (Map.insert x v)
-
 withVals :: [(TypedVar, Val)] -> Gen a -> Gen a
-withVals = withXs withVal
+withVals xs ma = foldr (uncurry withVal) ma xs
 
 withVal :: TypedVar -> Val -> Gen a -> Gen a
 withVal x v ga = do
-    var <- getVar v
-    withVar x var ga
-
-withXs :: (TypedVar -> x -> Gen a -> Gen a) -> [(TypedVar, x)] -> Gen a -> Gen a
-withXs f = flip (foldr (uncurry f))
+    -- var <- fmap VVar (getVar v)
+    v' <- passByRef (typeOf v)
+        >>= \b -> if b then fmap VVar (getVar v) else fmap VLocal (getLocal v)
+    locally localEnv (Map.insert x v') ga
 
 genStruct :: [Val] -> Gen Val
 genStruct xs = do
@@ -470,7 +449,7 @@ lookupVar x = lookupVar' x >>= \case
 
 lookupVar' :: MonadReader Env m => TypedVar -> m (Maybe Val)
 lookupVar' x =
-    ask <&> \e -> fmap VVar (Map.lookup x (_localEnv e) <|> Map.lookup x (_globalEnv e))
+    ask <&> \e -> Map.lookup x (_localEnv e) <|> fmap VVar (Map.lookup x (_globalEnv e))
 
 genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) aes = do
@@ -805,6 +784,10 @@ genExternTypeSig t = do
         Ast.TFun a b -> first (a :) (uncurryType b)
         x -> ([], x)
 
+-- TODO: Split this into two versions: One for the x86 C calling convention, for external
+--       declarations, and one for my own, for internal functions, which might differ a
+--       little. For example, I don't see why function pointer should be passed behind an
+--       extra level of indirection.
 passByRef :: Type -> Gen Bool
 passByRef = lift . passByRef'
 

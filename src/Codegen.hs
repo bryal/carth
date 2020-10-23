@@ -374,10 +374,9 @@ genLet' def genBody = case def of
                 tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
                 captures <- genHeapAllocGeneric tcaptures
                 fbt' <- genType fbt
-                lam <-
-                    getVar =<< genLambda' p (genTailExpr fb, fbt') (VLocal captures) fvXs
+                lam <- genLambda' p (genTailExpr fb, fbt') (VLocal captures) fvXs
                 pure ((lhs, lam), (captures, fvXs))
-        withVars binds $ do
+        withVals binds $ do
             forM_ cs (uncurry populateCaptures)
             genBody
 
