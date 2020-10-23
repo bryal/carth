@@ -743,3 +743,10 @@ Features and other stuff to do/implement in/around Carth.
   Example use case: We don't want to have to use linear types to
   manually destroy Lazy values when we're done with them, but we still
   need to make sure that their mutexes are destroyed at some point.
+* NEXT "Use ptrtoint/inttoptr sparingly, prefer GEPs"
+  https://llvm.org/docs/Frontend/PerformanceTips.html#other-things-to-consider
+
+  I don't think I use ptrtoint/inttoptr much or at all in the compiler
+  itself, but the ~ptr/+~ function in the stdlib transmutes to int for
+  addition. Should add a builtin virtual function that uses gep to
+  offset pointer.

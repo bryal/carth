@@ -178,8 +178,8 @@ genMain = do
     Out basicBlocks _ _ _ <- execWriterT $ do
         emitDo' =<< callBuiltin "install_stackoverflow_handler" []
         emitDo (callIntern Nothing init_ [(null' typeGenericPtr, []), (litUnit, [])])
-        iof <- getLocal =<< lookupVar (TypedVar "main" mainType)
-        f <- fmap VLocal $ emitAnonReg =<< extractvalue iof [0]
+        iof <- lookupVar (TypedVar "main" mainType)
+        f <- genIndexStruct iof [0]
         _ <- app (Just NoTail) f (VLocal litRealWorld)
         commitFinalFuncBlock (ret (litI32 0))
     pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks []))
@@ -383,47 +383,39 @@ genLet' def genBody = case def of
 
 genTailMatch :: Expr -> DecisionTree -> Type -> Gen ()
 genTailMatch m dt tbody = do
-    m' <- getLocal =<< genExpr m
+    m' <- genExpr m
     genTailDecisionTree tbody dt (newSelections m')
 
 genMatch :: Expr -> DecisionTree -> Type -> Gen Val
 genMatch m dt tbody = do
-    -- TODO: Do we have to convert it to an operand here already? Keeping it as
-    --       Val would probably eliminate a needless stack allocation.
-    m' <- getLocal =<< genExpr m
+    m' <- genExpr m
     genDecisionTree tbody dt (newSelections m')
 
-genTailDecisionTree :: Type -> DecisionTree -> Selections Operand -> Gen ()
+genTailDecisionTree :: Type -> DecisionTree -> Selections Val -> Gen ()
 genTailDecisionTree = genDecisionTree' genTailExpr genTailCondBr genTailCases
 
-genDecisionTree :: Type -> DecisionTree -> Selections Operand -> Gen Val
+genDecisionTree :: Type -> DecisionTree -> Selections Val -> Gen Val
 genDecisionTree = genDecisionTree' genExpr genCondBr genCases
 
 genDecisionTree'
     :: (Expr -> Gen a)
     -> (Val -> Gen a -> Gen a -> Gen a)
-    -> ( Type
-       -> Selections Operand
-       -> [Name]
-       -> [DecisionTree]
-       -> DecisionTree
-       -> Gen a
-       )
+    -> (Type -> Selections Val -> [Name] -> [DecisionTree] -> DecisionTree -> Gen a)
     -> Type
     -> DecisionTree
-    -> Selections Operand
+    -> Selections Val
     -> Gen a
 genDecisionTree' genExpr' genCondBr' genCases' tbody =
     let genDecisionLeaf (bs, e) selections = do
-            bs' <- selectVarBindings selAs selSub selDeref selections bs
-            withLocals bs' (genExpr' e)
+            bs' <- selectVarBindings selAs selSub genDeref selections bs
+            withVals bs' (genExpr' e)
 
         genDecisionSwitchIx selector cs def selections = do
             let (variantIxs, variantDts) = unzip (Map.toAscList cs)
-            (m, selections') <- select selAs selSub selDeref selector selections
-            mVariantIx <- case typeOf m of
+            (m, selections') <- select selAs selSub genDeref selector selections
+            mVariantIx <- getLocal =<< case typeOf m of
                 IntegerType _ -> pure m
-                _ -> emitReg "found_variant_ix" =<< extractvalue m [0]
+                _ -> genIndexStruct m [0]
             let ixBits = getIntBitWidth (typeOf mVariantIx)
             let litIxInt = LLConst.Int ixBits
             variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
@@ -433,12 +425,12 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
             genCases' tbody selections' variantLs variantDts def
 
         genDecisionSwitchStr selector cs def selections = do
-            (matchee, selections') <- select selAs selSub selDeref selector selections
+            (matchee, selections') <- select selAs selSub genDeref selector selections
             let cs' = Map.toAscList cs
             let genCase (s, dt) next = do
                     s' <- genStrLit s
-                    isMatch <- genStrEq (VLocal matchee) s'
-                    -- Do some wrapping to preserve effect/Gen order
+                    isMatch <- genStrEq matchee s'
+                    -- Do some wrapping to preserve effect order
                     pure $ genCondBr' isMatch (genDT dt selections') next
             join (foldrM genCase (genDT def selections') cs')
 
@@ -449,15 +441,14 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
     in  genDT
 
 genTailCases
-    :: Type -> Selections Operand -> [Name] -> [DecisionTree] -> DecisionTree -> Gen ()
+    :: Type -> Selections Val -> [Name] -> [DecisionTree] -> DecisionTree -> Gen ()
 genTailCases tbody selections variantLs variantDts def = do
     genTailDecisionTree tbody def selections
     forM_ (zip variantLs variantDts) $ \(l, dt) -> do
         assign currentBlockLabel l
         genTailDecisionTree tbody dt selections
 
-genCases
-    :: Type -> Selections Operand -> [Name] -> [DecisionTree] -> DecisionTree -> Gen Val
+genCases :: Type -> Selections Val -> [Name] -> [DecisionTree] -> DecisionTree -> Gen Val
 genCases tbody selections variantLs variantDts def = do
     nextL <- newName "next"
     let genDT dt = liftA2 (,)
@@ -471,19 +462,15 @@ genCases tbody selections variantLs variantDts def = do
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnonReg (phi (v : vs)))
 
-selAs :: Span -> [Ast.Type] -> Operand -> Gen Operand
+selAs :: Span -> [Ast.Type] -> Val -> Gen Val
 selAs totVariants ts matchee = do
     tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
-    let tgeneric = typeOf matchee
-    pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
-    emitDo (store matchee pGeneric)
-    p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr tvariant))
-    emitReg "ction" (load p)
+    pGeneric <- getVar matchee
+    fmap VVar (emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr tvariant)))
 
-selSub :: Span -> Word32 -> Operand -> Gen Operand
+selSub :: Span -> Word32 -> Val -> Gen Val
 selSub span' i matchee =
-    let tagOffset = if span' > 1 then 1 else 0
-    in  emitReg "submatchee" =<< extractvalue matchee (pure (tagOffset + i))
+    let tagOffset = if span' > 1 then 1 else 0 in genIndexStruct matchee [tagOffset + i]
 
 genCtion :: Ast.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
@@ -492,15 +479,15 @@ genCtion (i, span', dataType, as) = do
         Just w -> pure (VLocal (ConstantOperand (LLConst.Int w i)))
         Nothing -> do
             as' <- mapM genExpr as
-            let tag = maybe id
-                            ((:) . VLocal . ConstantOperand . flip LLConst.Int i)
-                            (tagBitWidth span')
-            s <- getLocal =<< genStruct (tag as')
-            let t = typeOf s
+            let tagged = maybe
+                    as'
+                    ((: as') . VLocal . ConstantOperand . flip LLConst.Int i)
+                    (tagBitWidth span')
+            let t = typeStruct (map typeOf tagged)
             let tgeneric = genDatatypeRef dataType
             pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
             p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
-            emitDo (store s p)
+            genStructInPtr p tagged
             pure (VVar pGeneric)
 
 genStrEq :: Val -> Val -> Gen Val

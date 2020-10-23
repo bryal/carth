@@ -18,7 +18,7 @@ newSelections :: a -> Selections a
 newSelections x = Map.singleton Obj x
 
 select
-    :: (Show a, Monad m)
+    :: (Monad m)
     => (Span -> [Type] -> a -> m a)
     -> (Span -> Word32 -> a -> m a)
     -> (a -> m a)
@@ -45,7 +45,7 @@ select conv sub deref selector selections = case Map.lookup selector selections 
         pure (a, Map.insert selector a selections')
 
 selectVarBindings
-    :: (Show a, Monad m)
+    :: (Monad m)
     => (Span -> [Type] -> a -> m a)
     -> (Span -> Word32 -> a -> m a)
     -> (a -> m a)

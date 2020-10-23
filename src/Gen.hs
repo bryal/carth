@@ -132,12 +132,12 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         -- Two equal SrcPos's in different scopes are not equal at the
         -- metadata level. Reset cache every scope.
         assign srcPosToMetadata Map.empty
-        (capturesParam, captureLocals) <- genExtractCaptures
+        (capturesParam, captureMembers) <- genExtractCaptures
         pt' <- genType pt
         px' <- newName px
         let pRef = LocalReference pt' px'
         rt' <- locallySet srcPos (Just dpos)
-            $ withLocal ptv pRef (withLocals captureLocals genBody)
+            $ withLocal ptv pRef (withVals captureMembers genBody)
         let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
         pure (rt', fParams')
     (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
@@ -163,6 +163,8 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             str = litStructNamed ("Str", []) [array]
             defStr = simpleGlobConst strName typeStr str
         pure (map GlobalDefinition [defInner, defStr])
+
+    genExtractCaptures :: Gen ((Type, Name), [(TypedVar, Val)])
     genExtractCaptures = do
         capturesName <- newName "captures"
         let capturesPtrGeneric = LocalReference typeGenericPtr capturesName
@@ -173,11 +175,13 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                 capturesType <- genCapturesType fvs
                 capturesPtr <- emitAnonReg
                     (bitcast capturesPtrGeneric (LLType.ptr capturesType))
-                captures <- emitAnonReg (load capturesPtr)
                 captureVals <- mapM
-                    (\(TypedVar x _, i) -> emitReg x =<< extractvalue captures [i])
+                    (\(TypedVar x _, i) ->
+                        VVar <$> (emitReg x =<< getelementptr capturesPtr (litI64 0) [i])
+                    )
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
+
     defineSrcPos funScopeMdRef (SrcPos _ line col _, mdId) = do
         let loc =
                 LLOp.DILocation
@@ -267,9 +271,10 @@ genLambda fvXs p body = do
 
 populateCaptures :: Operand -> [TypedVar] -> Gen ()
 populateCaptures ptrGeneric fvXs = do
-    captures <- getLocal =<< genStruct =<< mapM lookupVar fvXs
-    ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr (typeOf captures)))
-    emitDo (store captures ptr)
+    vs <- mapM lookupVar fvXs
+    let t = typeStruct (map typeOf vs)
+    ptr <- emitAnonReg (bitcast ptrGeneric (LLType.ptr t))
+    genStructInPtr ptr vs
 
 genLambda' :: TypedVar -> (Gen (), Type) -> Val -> [TypedVar] -> Gen Val
 genLambda' p@(TypedVar _ pt) (genBody, bt) captures fvXs = do
@@ -431,6 +436,12 @@ genStruct xs = do
     fmap VLocal $ foldlM (\s (i, x) -> emitAnonReg (insertvalue s x [i]))
                          (undef t)
                          (zip [0 ..] xs')
+
+genStructInPtr :: Operand -> [Val] -> Gen ()
+genStructInPtr ptr vs = forM_ (zip [0 ..] vs) $ \(i, v) -> do
+    dest <- emitAnonReg =<< getelementptr ptr (litI64 0) [i]
+    v' <- getLocal v
+    emitDo (store v' dest)
 
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
@@ -608,10 +619,6 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
             (FloatingPointType _, IntegerType _) ->
                 emit' $ if isInt b then fptosi else fptoui
             _ -> throwError (CastErr pos a b)
-    genDeref :: Val -> Gen Val
-    genDeref = \case
-        VVar x -> fmap VVar (selDeref x)
-        VLocal x -> pure (VVar x)
     genStore :: Val -> Val -> Gen Val
     genStore x p = do
         x' <- getLocal x
@@ -658,8 +665,10 @@ app tailkind closure a = do
         then emitDo (callIntern tailkind f as) $> litUnit
         else emitAnonReg $ WithRetType (callIntern tailkind f as) rt
 
-selDeref :: Operand -> Gen Operand
-selDeref x = emitAnonReg (load x)
+genDeref :: Val -> Gen Val
+genDeref = \case
+    VVar x -> fmap VVar (emitAnonReg (load x))
+    VLocal x -> pure (VVar x)
 
 -- | Assumes that the from-type and to-type are of the same size.
 transmute :: Type -> Type -> Val -> Gen Val
@@ -1015,20 +1024,14 @@ lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
     Nothing -> fmap (maybe (ice ("Undefined datatype " ++ show x)) typeStruct)
                     (view (dataTypes . to (Map.lookup x)))
 
+genIndexStruct :: Val -> [Word32] -> Gen Val
+genIndexStruct v is = case v of
+    VLocal st -> fmap VLocal (emitAnonReg =<< extractvalue st is)
+    VVar ptr -> fmap VVar (emitAnonReg =<< getelementptr ptr (litI64 0) is)
+
 extractvalue :: Operand -> [Word32] -> Gen FunInstr
 extractvalue struct is = fmap (WithRetType (ExtractValue struct is))
                               (getIndexed (typeOf struct) (map fromIntegral is))
-  where
-    getIndexed = foldlM $ \t i -> getMembers t <&> \us -> if i < length us
-        then us !! i
-        else
-            ice
-            $ "extractvalue: index out of bounds: "
-            ++ (show (typeOf struct) ++ ", " ++ show is)
-    getMembers = \case
-        NamedTypeReference x -> getMembers =<< lift (lookupDatatype x)
-        StructureType _ members -> pure members
-        t -> ice $ "Tried to get member types of non-struct type " ++ show t
 
 undef :: Type -> Operand
 undef = ConstantOperand . LLConst.Undef
@@ -1150,6 +1153,16 @@ sitofp x t = WithRetType (SIToFP x t) t
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
 insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)
 
+getelementptr :: Operand -> Operand -> [Word32] -> Gen FunInstr
+getelementptr addr offset memberIs = fmap
+    (WithRetType $ \meta -> GetElementPtr { inBounds = False
+                                          , address = addr
+                                          , indices = offset : map litU32 memberIs
+                                          , metadata = meta
+                                          }
+    )
+    (fmap LLType.ptr (getIndexed (getPointee (typeOf addr)) (map fromIntegral memberIs)))
+
 store :: Operand -> Operand -> Instr
 store srcVal destPtr meta = Store { volatile = False
                                   , address = destPtr
@@ -1189,6 +1202,9 @@ litI64' = LLConst.Int 64 . toInteger
 
 litI32 :: Int -> Operand
 litI32 = ConstantOperand . LLConst.Int 32 . toInteger
+
+litU32 :: Word32 -> Operand
+litU32 = ConstantOperand . LLConst.Int 32 . toInteger
 
 litI8' :: Integral n => n -> LLConst.Constant
 litI8' = LLConst.Int 8 . toInteger
@@ -1259,6 +1275,21 @@ getPointee :: Type -> Type
 getPointee = \case
     LLType.PointerType t _ -> t
     t -> ice $ "Tried to get pointee of non-function type " ++ show t
+
+getIndexed :: Type -> [Int] -> Gen Type
+getIndexed t is = foldlM
+    (\t' i -> getMembers t' <&> \us -> if i < length us
+        then us !! i
+        else ice $ "getIndexed: index out of bounds: " ++ (show t ++ ", " ++ show is)
+    )
+    t
+    is
+
+getMembers :: Type -> Gen [Type]
+getMembers = \case
+    NamedTypeReference x -> getMembers =<< lift (lookupDatatype x)
+    StructureType _ members -> pure members
+    t -> ice $ "Tried to get member types of non-struct type " ++ show t
 
 getIntBitWidth :: Type -> Word32
 getIntBitWidth = \case
