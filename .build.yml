@@ -1,0 +1,12 @@
+image: archlinux
+sources:
+  - https://git.sr.ht/~jojo/Carth
+environment:
+  remote: git@github.com:bryal/carth
+secrets:
+  - 425a818b-5273-4a5f-bae5-15c88735e5f5
+tasks:
+  - push_to_github: |
+      ssh-keyscan -H github.com >> .ssh/known_hosts
+      cd Carth
+      git push --mirror ${remote}
