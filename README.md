@@ -1,16 +1,19 @@
-Purely functional programming with lisp-syntax. Less infix, more parens!
+The Carth programming language
+==============================
+
+*Purely functional programming with lisp-syntax. Less infix, more parens!*
 
 Visit <https://carth.pink/> for an overview of
 the language and more info.
 
-*WORK IN PROGRESS*
-==================
+WORK IN PROGRESS
+------------------
 
-Just as a little disclaimer: this project is in the very early stages of
+Just as a little disclaimer: this project is still in alpha
 development, so there are no guarantees of stability etc.
 
 Features
-========
+--------
 
 - Scheme-inspired syntax and feel
 - Static, Hindley-Milner typechecking à la ML
@@ -20,19 +23,20 @@ Features
 - LLVM backend
 
 Roadmap
-=======
+-------
 
 This is a high-level overview of what is planned for the language, and
 some of the points are just tentative. See [TODO.org](./TODO.org) for
 more extensive list of planned features and more detailed descriptions.
 
 - Typeclasses
+- Type families
 - Higher kinded types
 - Effect system
 - Linear types
 
 Building Carth
-==============
+--------------
 
 The compiler is written in [Haskell](https://haskell.org) and uses the
 [Stack](https://www.haskellstack.org/) build system, while the
@@ -46,7 +50,7 @@ installing the binary in `~/.local/bin`, the core library in
 `~/.carth/mod`.
 
 Building with Carth
-===================
+-------------------
 
 At compiler runtime, the dependencies are `libsigsegv`, `libdl`,
 `libpthread`, `libm`, and `libgc`, which are linked into the executables
@@ -59,7 +63,7 @@ variable, the directory of the installed standard library (default
 `~/.carth/mod`) to your `CARTH_MODULE_PATH` environment variable.
 
 Running
-=======
+-------
 
 ```bash
 # General help
@@ -83,7 +87,7 @@ carth c -o examples/fizzbuzz examples/fizzbuzz.carth
 ```
 
 License
-=======
+-------
 
 Carth is released under the AGPL license, version 3 or later. See
 [LICENSE](./LICENSE).
