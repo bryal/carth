@@ -743,6 +743,8 @@ Features and other stuff to do/implement in/around Carth.
   Example use case: We don't want to have to use linear types to
   manually destroy Lazy values when we're done with them, but we still
   need to make sure that their mutexes are destroyed at some point.
+
+  https://www.hboehm.info/gc/finalization.html
 * NEXT "Use ptrtoint/inttoptr sparingly, prefer GEPs"
   https://llvm.org/docs/Frontend/PerformanceTips.html#other-things-to-consider
 
@@ -750,3 +752,48 @@ Features and other stuff to do/implement in/around Carth.
   itself, but the ~ptr/+~ function in the stdlib transmutes to int for
   addition. Should add a builtin virtual function that uses gep to
   offset pointer.
+* INACTIVE Is my llvm representation of unions causing problems?
+  Just had a bug which I haven't quite fixed yet. My current guess is
+  that it's caused by an (Either (Fun Unit (Maybe Int)) (Maybe Int))
+  being represented as a (Maybe Int) when generic in LLVM. This should
+  not be a problem, as both variants are equally (some basic testing
+  with equivalent structs in Rust and C seems to confirm this), but
+  maybe it's a problem that a function pointer is cast to integer. The
+  reference mentioned that LLVM has a harder time doing pointer
+  analysis if pointers are cast to integers and back.
+
+  Check out that approach that Troels used in Futhark, with
+  deduplicating but otherwise laying out all the members of all
+  variants in a single sequence. Why did he pick that approach? I
+  remember that I asked when he had a zoom presentation, but I don't
+  remember his answer.
+
+  Ooh, this seems cool:
+  https://mapping-high-level-constructs-to-llvm-ir.readthedocs.io/en/latest/README.html
+* INACTIVE Alternative backends
+  LLVM is big, complex, and moves fast. Can we use something simpler?
+  Investigate QBE, Cranelift, GNU Lightning, libgccjit, GCC, MIR.
+
+  - LLVM :: Approx 5 million LOC. Many targets, OK usability, but
+    breaking changes sometimes and big and scary.
+  - GCC :: Even bigger than LLVM. Also many targets. Not very good
+    usability. Probably quite stable. GPL.
+  - libgccjit :: Despite the name, also AOT. Basically an easier to
+    use frontend for GCC with additional functionality to leverage GCC
+    for JITting. Most points of GCC apply, but easier to use, and JIT
+    included.
+  - GNU Lightning :: JIT (only). Used by some schemes. Disjoint from
+    GCC.
+  - Cranelift :: Small-ish atm, but not sure it has any goals to stay
+    that way. Seems more like an effort to replace LLVM, including
+    much of its "bloat". Written in Rust. Maybe not all that
+    standalone? Seems to be meant to be called from Rust. Performance
+    of generated code seems bad atm, but should be improved.
+  - QBE :: Small! 10k LOC. Goals to be 70% as fast as
+    GCC/LLVM. Generates ASM instead of machine code for some
+    reason. Seems like it hasn't seen much update this last year.
+  - [[https://github.com/vnmakarov/mir][MIR]] :: This one looks the most interesting! Similarly to QBE, very
+    small at 15k LOC and 70% the performance of GCC. Primarily a
+    JIT(?), but seems to be able to to AOT as well. Has a 4 backends
+    atm, including AMD64 and Aarch64, and it seems relatively easy to
+    add a new one.

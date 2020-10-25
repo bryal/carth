@@ -2,7 +2,7 @@ cabal-version: 2.2
 
 name:           carth
 version:        0.0.4.0
-description:    Please see the README on GitHub at <https://github.com/bryal/carth#readme>
+description:    Please see the README on Sourcehut at <https://sr.ht/~jojo/Carth>
 homepage:       https://carth.pink
 author:         Johan Johansson
 maintainer:     jo@jo.zone
@@ -11,7 +11,7 @@ license:        AGPL-3.0-or-later
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
-    README.org
+    README.md
     CHANGELOG.org
 
 source-repository head
