@@ -10,6 +10,8 @@
   (case (xs ...) (appsr list/cons xs ... Nil)))
 
 (defmacro +s () (case (xs ...) (apps + xs ...)))
+(defmacro =s ()
+  (case (x xs ...) (all (= x) (list/iter (list xs ...)))))
 
 (defmacro io/wrap ()
   (case (computation) (IO (fun (real-world) [computation real-world]))))
@@ -17,3 +19,10 @@
 (defmacro lazy ()
   (case (computation) (Lazy [(unsafe-perform-io mutex/new)
                              (box (Left (fun (Unit) computation)))])))
+
+(defmacro do (<-)
+  (case (do-bind ma) ma)
+  (case (do-bind (<- a ma) mbs ...)
+        (do-bind (fun (a) (do do-bind mbs ...)) ma))
+  (case (do-bind ma mbs ...)
+        (do-bind (fun (_) (do do-bind mbs ...)) ma)))

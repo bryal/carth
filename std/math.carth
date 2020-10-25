@@ -20,6 +20,9 @@
 (define (and p q) (if p q    False))
 (define (or  p q) (if p True q))
 
+(define (ands xs) (foldl and True xs))
+(define (all f xs) (ands (map f xs)))
+
 (define not (fmatch (case True False)
                     (case False True)))
 

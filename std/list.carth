@@ -56,3 +56,28 @@
                   (Some [y (list/iter ys)]))
             (case Nil
                   None)))))
+
+(define (list/append xs ys)
+  (match xs
+    (case (LCons (Box [x xs'])) (list/cons x (list/append xs' ys)))
+    (case Nil ys)))
+
+(define list/concat
+  (fmatch (case (LCons (Box [xs xss])) (list/append xs (list/concat xss)))
+          (case Nil Nil)))
+
+(define (list/map f)
+  (fmatch (case (LCons (Box [x xs])) (list/cons (f x) (list/map f xs)))
+          (case Nil Nil)))
+
+(define (list/bind f xs)
+  (list/concat (list/map f xs)))
+
+(define (list/bindr xs f)
+  (list/concat (list/map f xs)))
+
+(define (list/when condition xs)
+  (if condition xs Nil))
+
+(define (list/singleton x)
+  (list/cons x Nil))
