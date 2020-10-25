@@ -34,6 +34,6 @@ data TokenTree'
     | Brackets [TokenTree]
     | Braces [TokenTree]
     | Ellipsis TokenTree
-    deriving (Show)
+    deriving (Eq, Show)
 
 type TokenTree = WithPos TokenTree'

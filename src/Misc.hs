@@ -121,3 +121,8 @@ is3tup :: [a] -> Maybe (a, a, a)
 is3tup = \case
     a1 : a2 : [a3] -> Just (a1, a2, a3)
     _ -> Nothing
+
+takeWhileJust :: (a -> Maybe b) -> [a] -> [b]
+takeWhileJust f = \case
+    [] -> []
+    a : as -> maybe [] (: takeWhileJust f as) (f a)

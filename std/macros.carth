@@ -1,19 +1,19 @@
-(defmacro apps
+(defmacro apps ()
   (case (op x) x)
   (case (op x1 x2 xs ...) (apps op (op x1 x2) xs ...)))
 
-(defmacro appsr
+(defmacro appsr ()
   (case (op x) x)
   (case (op x xs ...) (op x (appsr op xs ...))))
 
-(defmacro list
+(defmacro list ()
   (case (xs ...) (appsr list/cons xs ... Nil)))
 
-(defmacro +s (case (xs ...) (apps + xs ...)))
+(defmacro +s () (case (xs ...) (apps + xs ...)))
 
-(defmacro io/wrap
+(defmacro io/wrap ()
   (case (computation) (IO (fun (real-world) [computation real-world]))))
 
-(defmacro lazy
+(defmacro lazy ()
   (case (computation) (Lazy [(unsafe-perform-io mutex/new)
                              (box (Left (fun (Unit) computation)))])))
