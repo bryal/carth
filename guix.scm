@@ -13,14 +13,14 @@
                      crates-io
                      libsigsegv)
 
-(define carth-foreign-core
+(define carth-std-rs
   (package
-    (name "carth-foreign-core")
+    (name "carth-std-rs")
     (version "0.4.0")
     (source
      (file-union name
-                 `(("Cargo.toml" ,(local-file "foreign-core/Cargo.toml"))
-                   ("src" ,(local-file "foreign-core/src" #:recursive? #t)))))
+                 `(("Cargo.toml" ,(local-file "std-rs/Cargo.toml"))
+                   ("src" ,(local-file "std-rs/src" #:recursive? #t)))))
     (build-system cargo-build-system)
     (inputs `(("libsigsegv" ,libsigsegv)))
     (arguments
@@ -70,11 +70,11 @@ programming language with Scheme-like syntax. Work in progress.")
      ;;   (add-before 'configure 'patch-runtime-lib-paths
      ;;     (lambda* (#:key inputs outputs #:allow-other-keys)
      ;;       (let* ((sigsegv (assoc-ref inputs "libsigsegv"))
-     ;;              (foreign-core (assoc-ref inputs "carth-foreign-core"))
+     ;;              (std-rs (assoc-ref inputs "carth-std-rs"))
      ;;              (sigsegv-a (string-append sigsegv "/lib/libsigsegv.a"))
      ;;              (sigsegv-so (string-append sigsegv "/lib/libsigsegv.so"))
-     ;;              (foreign-a (string-append foreign-core "/lib/libcarth_foreign_core.a"))
-     ;;              (foreign-so (string-append foreign-core "/lib/libcarth_foreign_core.so")))
+     ;;              (foreign-a (string-append std-rs "/lib/libcarth_foreign_core.a"))
+     ;;              (foreign-so (string-append std-rs "/lib/libcarth_foreign_core.so")))
      ;;         (invoke "ls" "-la" "src/Compile.hs")
      ;;         (invoke "cat" "/etc/passwd")
      ;;         (chmod "src/Compile.hs" #o755)
@@ -91,7 +91,7 @@ programming language with Scheme-like syntax. Work in progress.")
      ("ghc-llvm-hs" ,ghc-llvm-hs)
      ("ghc-utf8-string" ,ghc-utf8-string)))
   (propagated-inputs
-   `(("carth-foreign-core" ,carth-foreign-core)
+   `(("carth-std-rs" ,carth-std-rs)
      ("libsigsegv" ,libsigsegv)))
   (home-page "https://github.com/bryal/carth")
   (synopsis "The Carth compiler")

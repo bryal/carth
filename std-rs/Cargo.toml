@@ -1,5 +1,5 @@
 [package]
-name = "carth-foreign-core"
+name = "carth-std-rs"
 version = "0.3.1"
 authors = ["JoJo <jo@jo.zone>"]
 edition = "2018"
