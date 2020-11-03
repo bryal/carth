@@ -53,10 +53,7 @@ defUntyped pos = reserved Kdefine *> def' (pure Nothing) pos
 defTyped :: SrcPos -> Parser Def
 defTyped pos = reserved KdefineColon *> def' (fmap Just scheme) pos
 
-def'
-    :: Parser (Maybe Scheme)
-    -> SrcPos
-    -> Parser (Id 'Small, (WithPos (Maybe Scheme, Expr)))
+def' :: Parser (Maybe Scheme) -> SrcPos -> Parser Def
 def' schemeParser topPos = varDef <|> funDef
   where
     parenDef = try (parens' def)
@@ -67,13 +64,12 @@ def' schemeParser topPos = varDef <|> funDef
         name <- small
         scm <- schemeParser
         b <- body
-        pure (name, (WithPos topPos (scm, b)))
+        pure (VarDef topPos name scm b)
     funDef = do
         (name, params) <- parens (liftM2 (,) small (some pat))
         scm <- schemeParser
         b <- body
-        let f = foldr (WithPos topPos . FunMatch . pure .* (,)) b params
-        pure (name, (WithPos topPos (scm, f)))
+        pure (FunDef topPos name scm params b)
 
 expr :: Parser Expr
 expr = withPos expr'
@@ -97,15 +93,9 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
             $ tuple expr (\p -> WithPos p (Ctor (Id (WithPos p "Unit"))))
             $ \l r ->
                   let p = getPos l
-                  in  WithPos
-                          p
-                          (App
-                              (WithPos
-                                  p
-                                  (App (WithPos p (Ctor (Id (WithPos p "Cons")))) l)
-                              )
-                              r
-                          )
+                  in  WithPos p $ App
+                          (WithPos p (App (WithPos p (Ctor (Id (WithPos p "Cons")))) l))
+                          r
     var = fmap Var small
     pexpr = parens' $ \p -> choice
         [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
@@ -119,43 +109,36 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
         body <- expr
         pure $ unpos $ foldr (\p b -> WithPos (getPos p) (FunMatch [(p, b)])) body params
     let1 p = reserved Klet1 *> (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
-        VarLhs lhs -> liftA2 Let1 (varBinding p lhs) expr
-        FunLhs name params -> liftA2 Let1 (funBinding p name params) expr
-        CaseVarLhs lhs -> liftA2 Match expr (fmap (pure . (lhs, )) expr)
+        VarLhs lhs -> liftA2 (Let1 . Def) (varBinding p lhs) expr
+        FunLhs name params -> liftA2 (Let1 . Def) (funBinding p name params) expr
+        CaseVarLhs lhs -> liftA2 Let1 (fmap (Deconstr lhs) expr) expr
     let' = do
         reserved Klet
         bs <- parens (many pbinding)
         e <- expr
-        pure $ unpos $ foldr
-            (\b x -> case b of
-                Left (lhs, rhs) -> WithPos (getPos rhs) (Let1 (lhs, rhs) x)
-                Right (lhs, rhs) -> WithPos (getPos rhs) (Match rhs [(lhs, x)])
-            )
-            e
-            bs
+        pure (Let bs e)
       where
         pbinding = parens' binding
         binding p = (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
-            VarLhs lhs -> fmap Left (varBinding p lhs)
-            FunLhs name params -> fmap Left (funBinding p name params)
-            CaseVarLhs lhs -> fmap (Right . (lhs, )) expr
+            VarLhs lhs -> fmap Def (varBinding p lhs)
+            FunLhs name params -> fmap Def (funBinding p name params)
+            CaseVarLhs lhs -> fmap (Deconstr lhs) expr
     letrec = reserved Kletrec *> liftA2 LetRec (parens (many pbinding)) expr
       where
         pbinding = parens' binding
         binding p = (varLhs <|> funLhs) >>= \case
             VarLhs lhs -> varBinding p lhs
             FunLhs name params -> funBinding p name params
-            CaseVarLhs _ -> ice "binding: CaseVarLhs unreachable"
+            CaseVarLhs _ -> ice "letrec binding: CaseVarLhs"
     varLhs = fmap VarLhs small
     funLhs = parens (liftA2 FunLhs small (some pat))
     caseVarLhs = fmap CaseVarLhs pat
     varBinding pos lhs = do
         rhs <- expr
-        pure (lhs, WithPos pos (Nothing, rhs))
+        pure (VarDef pos lhs Nothing rhs)
     funBinding pos name params = do
         b <- expr
-        let f = foldr (WithPos pos . FunMatch . pure .* (,)) b params
-        pure (name, WithPos pos (Nothing, f))
+        pure (FunDef pos name Nothing params b)
     typeAscr = reserved Kcolon *> liftA2 TypeAscr expr type_
     sizeof = reserved Ksizeof *> fmap Sizeof type_
     app = do

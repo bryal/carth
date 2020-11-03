@@ -12,6 +12,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Writer
 import Data.Bifunctor
 import Data.Graph (SCC(..), stronglyConnComp)
+import Data.List hiding (span)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
@@ -23,7 +24,7 @@ import SrcPos
 import FreeVars
 import Subst
 import qualified Parsed
-import Parsed (Id(..), IdCase(..), idstr)
+import Parsed (Id(..), IdCase(..), idstr, defLhs)
 import Err
 import Inferred hiding (Id)
 import TypeAst hiding (TConst)
@@ -116,11 +117,11 @@ inferDefs envDefs defs = do
 checkNoDuplicateDefs :: [Parsed.Def] -> Infer ()
 checkNoDuplicateDefs = checkNoDuplicateDefs' Set.empty
   where
-    checkNoDuplicateDefs' already = \case
-        (Id (WithPos p x), _) : ds -> if Set.member x already
+    checkNoDuplicateDefs' already = uncons >>> fmap (first defLhs) >>> \case
+        Just (Id (WithPos p x), ds) -> if Set.member x already
             then throwError (ConflictingVarDef p x)
             else checkNoDuplicateDefs' (Set.insert x already) ds
-        [] -> pure ()
+        Nothing -> pure ()
 
 -- For unification to work properly with mutually recursive functions,
 -- we need to create a dependency graph of non-recursive /
@@ -132,29 +133,39 @@ checkNoDuplicateDefs = checkNoDuplicateDefs' Set.empty
 -- generalizing.
 orderDefs :: [Parsed.Def] -> [SCC Parsed.Def]
 orderDefs = stronglyConnComp . graph
-    where graph = map (\d@(n, _) -> (d, n, Set.toList (freeVars d)))
+    where graph = map (\d -> (d, defLhs d, Set.toList (freeVars d)))
 
 inferComponent :: SCC Parsed.Def -> Infer Def
 inferComponent = \case
-    AcyclicSCC vert -> fmap VarDef (inferVarDef vert)
+    AcyclicSCC vert -> fmap VarDef (inferNonrecDef vert)
     CyclicSCC verts -> fmap RecDefs (inferRecDefs verts)
 
-inferVarDef :: Parsed.Def -> Infer VarDef
+inferNonrecDef :: Parsed.Def -> Infer VarDef
 inferRecDefs :: [Parsed.Def] -> Infer RecDefs
-(inferVarDef, inferRecDefs) = (inferVarDef', inferRecDefs')
+(inferNonrecDef, inferRecDefs) = (inferNonrecDef', inferRecDefs')
   where
-    inferVarDef' (lhs, WithPos defPos (mayscm, body)) = do
+    inferNonrecDef' (Parsed.FunDef dpos lhs mayscm params body) =
+        -- FIXME: Just wanted to get things working, but this isn't really better than
+        --        doing the fold in the parser. Handle this such that we don't have to
+        --        assign the definition position to the nested lambdas.
+        inferNonrecDef' $ Parsed.VarDef dpos lhs mayscm $ foldr
+            (\p b -> WithPos dpos (Parsed.FunMatch [(p, b)]))
+            body
+            params
+    inferNonrecDef' (Parsed.VarDef dpos lhs mayscm body) = do
         t <- fresh
         (body', cs) <- listen $ inferDef t lhs mayscm (getPos body) (infer body)
         sub <- lift $ lift $ lift $ solve cs
         env <- view envLocalDefs
         let scm = generalize (substEnv sub env) (subst sub t)
         let body'' = substExpr sub body'
-        pure (idstr lhs, WithPos defPos (scm, body''))
+        pure (idstr lhs, WithPos dpos (scm, body''))
 
     inferRecDefs' ds = do
         ts <- replicateM (length ds) fresh
-        let (names, poss) = unzip (map (bimap idstr getPos) ds)
+        let (names, poss) = unzip $ flip map ds $ \case
+                Parsed.FunDef p x _ _ _ -> (idstr x, p)
+                Parsed.VarDef p x _ _ -> (idstr x, p)
         let dummyDefs = Map.fromList (zip names (map (Forall Set.empty) ts))
         (fs, cs) <- listen $ augment envLocalDefs dummyDefs $ zipWithM inferRecDef ts ds
         sub <- lift $ lift $ lift $ solve cs
@@ -164,10 +175,16 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
         pure (zip names (zipWith3 (curry . WithPos) poss scms fs'))
 
     inferRecDef :: Type -> Parsed.Def -> Infer (WithPos FunMatch)
-    inferRecDef t = uncurry $ \(Id lhs) -> unpos >>> \case
-        (mayscm, WithPos fPos (Parsed.FunMatch cs)) ->
-            fmap (WithPos fPos) $ inferDef t (Id lhs) mayscm fPos (inferFunMatch cs)
-        _ -> throwError (RecursiveVarDef lhs)
+    inferRecDef t = \case
+        Parsed.FunDef fpos lhs mayscm params body ->
+            let (initps, lastp) = fromJust $ unsnoc params
+            in  fmap (WithPos fpos) $ inferDef t lhs mayscm fpos $ inferFunMatch $ foldr
+                    (\p cs -> [(p, WithPos fpos (Parsed.FunMatch cs))])
+                    [(lastp, body)]
+                    initps
+        Parsed.VarDef fpos lhs mayscm (WithPos _ (Parsed.FunMatch cs)) ->
+            fmap (WithPos fpos) $ inferDef t lhs mayscm fpos (inferFunMatch cs)
+        Parsed.VarDef _ (Id lhs) _ _ -> throwError (RecursiveVarDef lhs)
 
     inferDef t lhs mayscm bodyPos inferBody = do
         checkScheme (idstr lhs) mayscm >>= \case
@@ -211,10 +228,11 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         unify (Expected tBool) (Found (getPos p) tp)
         unify (Expected tc) (Found (getPos a) ta)
         pure (tc, If p' c' a')
-    Parsed.Let1 def body -> do
-        def' <- inferVarDef def
-        (t, body') <- augment1 envLocalDefs (defSig def') (infer body)
-        pure (t, Let (VarDef def') body')
+    Parsed.Let1 def body -> inferLet1 pos def body
+    Parsed.Let defs body ->
+        -- FIXME: positions
+        let (def, defs') = fromJust $ uncons defs
+        in  inferLet1 pos def $ foldr (\d b -> WithPos pos (Parsed.Let1 d b)) body defs'
     Parsed.LetRec defs b -> do
         Topo defs' <- inferDefs envLocalDefs defs
         let withDef def inferX = do
@@ -226,14 +244,25 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         t' <- checkType pos t
         unify (Expected t') (Found (getPos x) tx)
         pure (t', x')
-    Parsed.Match matchee cases -> do
-        (tmatchee, matchee') <- infer matchee
-        (tbody, cases') <- inferCases (Expected tmatchee) cases
-        let f = WithPos pos (FunMatch (cases', tmatchee, tbody))
-        pure (tbody, App f matchee' tbody)
+    Parsed.Match matchee cases -> inferMatch pos matchee cases
     Parsed.FunMatch cases -> fmap (second FunMatch) (inferFunMatch cases)
     Parsed.Ctor c -> inferExprConstructor c
     Parsed.Sizeof t -> fmap ((TPrim TNatSize, ) . Sizeof) (checkType pos t)
+
+inferLet1 :: SrcPos -> Parsed.DefLike -> Parsed.Expr -> Infer (Type, Expr')
+inferLet1 pos defl body = case defl of
+    Parsed.Def def -> do
+        def' <- inferNonrecDef def
+        (t, body') <- augment1 envLocalDefs (defSig def') (infer body)
+        pure (t, Let (VarDef def') body')
+    Parsed.Deconstr pat matchee -> inferMatch pos matchee [(pat, body)]
+
+inferMatch :: SrcPos -> Parsed.Expr -> [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
+inferMatch pos matchee cases = do
+    (tmatchee, matchee') <- infer matchee
+    (tbody, cases') <- inferCases (Expected tmatchee) cases
+    let f = WithPos pos (FunMatch (cases', tmatchee, tbody))
+    pure (tbody, App f matchee' tbody)
 
 inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do

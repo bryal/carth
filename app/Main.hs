@@ -8,7 +8,6 @@ import Control.Monad.Except
 import Prelude hiding (lex)
 
 import Misc
-import Pretty
 import qualified Err
 import qualified Lexd
 import qualified Parsed
@@ -65,7 +64,6 @@ frontend cfg f = do
     when d $ writeFile ".dbg.expanded" (show tts')
     verbose cfg ("   Parsing")
     ast <- parse f tts'
-    when d $ writeFile ".dbg.parsed" (pretty ast)
     verbose cfg ("   Typechecking")
     ann <- typecheck' f ast
     when d $ writeFile ".dbg.checked" (show ann)

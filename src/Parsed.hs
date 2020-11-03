@@ -6,7 +6,6 @@ module Parsed (module Parsed, Const (..), TPrim(..), TConst) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
-import Data.Bifunctor
 import Control.Arrow ((>>>))
 import Data.Data
 
@@ -26,9 +25,6 @@ data TVar
     | TVImplicit String
     deriving (Show, Eq, Ord, Data)
 
--- TODO: Now that AnnotAst.Type is not just an alias to Ast.Type, it makes sense
---       to add SrcPos-itions to Ast.Type! Would simplify / improve error
---       messages quite a bit.
 data Type
     = TVar TVar
     | TPrim TPrim
@@ -55,7 +51,8 @@ data Expr'
     | Var (Id 'Small)
     | App Expr Expr
     | If Expr Expr Expr
-    | Let1 Def Expr
+    | Let1 DefLike Expr
+    | Let [DefLike] Expr
     | LetRec [Def] Expr
     | TypeAscr Expr Type
     | Match Expr [(Pat, Expr)]
@@ -66,7 +63,12 @@ data Expr'
 
 type Expr = WithPos Expr'
 
-type Def = (Id 'Small, WithPos (Maybe Scheme, Expr))
+data Def = VarDef SrcPos (Id 'Small) (Maybe Scheme) Expr
+         | FunDef SrcPos (Id 'Small) (Maybe Scheme) [Pat] Expr
+    deriving (Show, Eq)
+
+data DefLike = Def Def | Deconstr Pat Expr
+    deriving (Show, Eq)
 
 newtype ConstructorDefs = ConstructorDefs [(Id 'Big, [Type])]
     deriving (Show, Eq)
@@ -94,7 +96,15 @@ instance Eq Pat where
         _ -> False
 
 instance FreeVars Def (Id 'Small) where
-    freeVars (_, (WithPos _ (_, body))) = freeVars body
+    freeVars = \case
+        VarDef _ _ _ body -> freeVars body
+        FunDef _ _ _ pats body ->
+            Set.difference (freeVars body) (Set.unions (map bvPat pats))
+
+instance FreeVars DefLike (Id 'Small) where
+    freeVars = \case
+        Def d -> freeVars d
+        Deconstr _ matchee -> freeVars matchee
 
 instance FreeVars Expr (Id 'Small) where
     freeVars = fvExpr
@@ -112,19 +122,32 @@ instance HasPos Pat where
 
 
 fvExpr :: Expr -> Set (Id 'Small)
-fvExpr = unpos >>> \case
-    Lit _ -> Set.empty
-    Var x -> Set.singleton x
-    App f a -> fvApp f a
-    If p c a -> fvIf p c a
-    Let1 (lhs, WithPos _ (_, rhs)) e ->
-        Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
-    LetRec ds e -> fvLet (unzip (map (second (snd . unpos)) ds)) e
-    TypeAscr e _t -> freeVars e
-    Match e cs -> fvMatch e cs
-    FunMatch cs -> fvCases cs
-    Ctor _ -> Set.empty
-    Sizeof _t -> Set.empty
+fvExpr = unpos >>> fvExpr'
+  where
+    fvExpr' = \case
+        Lit _ -> Set.empty
+        Var x -> Set.singleton x
+        App f a -> fvApp f a
+        If p c a -> fvIf p c a
+        Let1 b e -> Set.union (freeVars b) (Set.difference (freeVars e) (bvDefLike b))
+        Let bs e -> foldr
+            (\b fvs -> Set.union (freeVars b) (Set.difference fvs (bvDefLike b)))
+            (freeVars e)
+            bs
+        LetRec ds e -> fvLet (unzip (map (\d -> (defLhs d, d)) ds)) e
+        TypeAscr e _t -> freeVars e
+        Match e cs -> fvMatch e cs
+        FunMatch cs -> fvCases cs
+        Ctor _ -> Set.empty
+        Sizeof _t -> Set.empty
+    bvDefLike = \case
+        Def d -> Set.singleton (defLhs d)
+        Deconstr pat _ -> bvPat pat
+
+defLhs :: Def -> Id 'Small
+defLhs = \case
+    VarDef _ lhs _ _ -> lhs
+    FunDef _ lhs _ _ _ -> lhs
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases cs)

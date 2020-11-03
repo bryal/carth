@@ -17,7 +17,7 @@ fvIf p c a = Set.unions (map freeVars [p, c, a])
 fvFun :: FreeVars e t => t -> e -> Set t
 fvFun p b = Set.delete p (freeVars b)
 
-fvLet :: (FreeVars e t, Foldable f) => ([t], f e) -> e -> Set t
+fvLet :: (FreeVars a t, FreeVars b t, Foldable f) => ([t], f a) -> b -> Set t
 fvLet (bVs, bBs) e = Set.difference
     (Set.union (freeVars e) (foldr (Set.union . freeVars) Set.empty bBs))
     (Set.fromList bVs)

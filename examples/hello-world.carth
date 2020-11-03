@@ -1,4 +1,4 @@
 (import std)
 
 (define main
-  (display (str-append "Hello, world!" "\n")))
+  (display "Hello, World!"))
