@@ -1,33 +1,11 @@
 use crate::io::*;
 
-use rustls::*;
-use webpki;
+use native_tls;
 
-use std::net::TcpStream;
-use std::sync::Arc;
+use std::net::{TcpStream, ToSocketAddrs};
+use std::time::Duration;
 
 use crate::*;
-
-#[repr(u8)]
-pub enum Verifier {
-    DangerousNone,
-    Tofu,
-}
-
-impl ServerCertVerifier for Verifier {
-    fn verify_server_cert(
-        &self,
-        _: &RootCertStore,
-        _: &[Certificate],
-        _: webpki::DNSNameRef<'_>,
-        _: &[u8],
-    ) -> Result<ServerCertVerified, TLSError> {
-        match *self {
-            Verifier::DangerousNone => Ok(ServerCertVerified::assertion()),
-            Verifier::Tofu => todo!(),
-        }
-    }
-}
 
 #[no_mangle]
 pub extern "C" fn stdrs_tcp_connect(host: Str, port: u16) -> FfiHandle {
@@ -36,55 +14,50 @@ pub extern "C" fn stdrs_tcp_connect(host: Str, port: u16) -> FfiHandle {
     ))
 }
 
+#[no_mangle]
+pub extern "C" fn stdrs_tcp_connect_timeout(host: Str, port: u16, ms: u64) -> FfiHandle {
+    let timeout = Duration::from_millis(ms);
+    let addrs = (host.as_str(), port)
+        .to_socket_addrs()
+        .unwrap()
+        .collect::<Vec<_>>();
+    let (last, init) = addrs.split_last().unwrap();
+    let con = init
+        .iter()
+        .filter_map(|addr| TcpStream::connect_timeout(addr, timeout).ok())
+        .next()
+        .unwrap_or_else(|| TcpStream::connect_timeout(last, timeout).unwrap());
+    handle_to_ffi(Box::into_raw(Box::new(con) as _))
+}
+
 // Would have loved to use rustls for this, since it's rust, but there are problems that
 // prevent it's effecient usage when using self signed certs as we do in gemini. See
 // https://github.com/briansmith/webpki/issues/90.
 #[no_mangle]
 pub unsafe extern "C" fn stdrs_tls_connect(domain: Str, transport: FfiHandle) -> FfiHandle {
     let domain = domain.as_str();
-    let transport = handle_from_ffi(transport);
-    let mut config = rustls::ClientConfig::new();
-    config
-        .dangerous()
-        .set_certificate_verifier(Arc::new(Verifier::DangerousNone));
-    let dns_name = webpki::DNSNameRef::try_from_ascii_str(domain).expect("dns name");
-    let sess = rustls::ClientSession::new(&Arc::new(config), dns_name);
-    let tls = rustls::StreamOwned::new(sess, Box::from_raw(transport));
+    let transport = Box::from_raw(handle_from_ffi(transport));
+    // We typically use self signed certs and TOFU in Gemini, but self signed certs are
+    // considered "invalid" by default. Therefore, we accept invalid certs, but check for
+    // expiration later.
+    let connector = native_tls::TlsConnector::builder()
+        // TODO: Check for cert expiration date and do TOFU.
+        .danger_accept_invalid_certs(true)
+        // Rust's native-tls does not yet provide Tlsv13 :(
+        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
+        .build()
+        .unwrap();
+    let tls = connector
+        .connect(domain, transport)
+        .map_err(show_tls_err)
+        .unwrap();
     handle_to_ffi(Box::into_raw(Box::new(tls) as _))
 }
 
-// fn main() {
-//     // let (domain, path) = ("gus.guru", "/search");
-//     let (domain, path) = ("gemini.circumlunar.space", "/");
-//     let port = 1965;
-//     get_data(domain, path, port);
-//     // let header = resp.lines().next().expect("number of response lines >= 1");
-//     // let code = header[0..2]
-//     //     .parse::<u8>()
-//     //     .expect("header beginning with 2-digit status code");
-//     // let meta = &header[3..];
-//     // if meta.as_bytes().len() > 1024 {
-//     //     panic!("Response META longer than 1024 bytes. Error.");
-//     // }
-//     // let body = &resp[header.len() + 2..];
-//     // println!("code: {}, meta: {}, body:\n\n{}", code, meta, body);
-// }
-
-// fn get_data(domain: &str, path: &str, port: u16) {
-//     let mut config = ClientConfig::new();
-//     config
-//         .dangerous()
-//         .set_certificate_verifier(Arc::new(Verifier::DangerousNone));
-//     let dns_name = webpki::DNSNameRef::try_from_ascii_str(domain).expect("dns name");
-//     let sess = ClientSession::new(&Arc::new(config), dns_name);
-//     let sock = TcpStream::connect((domain, port)).expect("socket");
-//     let mut tls = StreamOwned::new(sess, sock);
-//     write!(&mut tls, "gemini://{}{}\r\n", domain, path).expect("written gemini message");
-//     let code = &mut [0u8; 2][..];
-//     tls.read_exact(code).unwrap();
-//     let code = str::from_utf8(code).expect("valid utf-8 gemini status code");
-//     println!("code: {}", code);
-//     let mut resp = Vec::new();
-//     println!("read result: {:?}\n", tls.read_to_end(&mut resp));
-//     String::from_utf8(resp).expect("valid utf-8 response")
-// }
+fn show_tls_err<S>(e: native_tls::HandshakeError<S>) -> String {
+    use native_tls::HandshakeError::*;
+    match e {
+        Failure(e) => e.to_string(),
+        WouldBlock(_) => "the handshake process was interrupted".to_string(),
+    }
+}

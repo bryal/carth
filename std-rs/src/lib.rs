@@ -205,7 +205,7 @@ pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
 //       It seems that if no non-dead code makes use of functions from libm, then rustc or
 //       cargo won't link with libm. However, we need that to happen, as when running a
 //       Carth program with the JIT, there is no shared library for libm to load, so we
-//       need the libm functionality to be included in libforeign_core.so.
+//       need the libm functionality to be included in the .so.
 //
 // TODO: Find some other way of ensuring libm is linked with when creating the shared lib.
 #[no_mangle]

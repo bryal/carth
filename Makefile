@@ -22,7 +22,7 @@ install-bin: carth-bin
 
 .PHONY: install-lib
 install-lib: std-rs
-	mkdir -p $(lib_dir) && cp std-rs/target/release/libcarth_foreign_core.a $(lib_dir)
+	mkdir -p $(lib_dir) && cp std-rs/target/release/libcarth_std_rs.a $(lib_dir)
 
 .PHONY: install-mods
 install-mods:

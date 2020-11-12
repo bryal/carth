@@ -10,8 +10,7 @@ license = "AGPL-3.0-or-later"
 
 [dependencies]
 libc = "0.2"
-rustls = { version = "0.18", features = ["dangerous_configuration"] }
-webpki = "0.21"
+native-tls = "0.2.6"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]

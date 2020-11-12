@@ -36,10 +36,10 @@
                ;; Both static and shared libraries are produced, and needed. The
                ;; shared is used in the JIT when doing `cart run`, and the static
                ;; is used when compiling with `carth compile`.
-               (copy-file "target/release/libcarth_foreign_core.a"
-                          (string-append lib "/libcarth_foreign_core.a"))
-               (copy-file "target/release/libcarth_foreign_core.so"
-                          (string-append lib "/libcarth_foreign_core.so"))))))))
+               (copy-file "target/release/libcarth_std_rs.a"
+                          (string-append lib "/libcarth_std_rs.a"))
+               (copy-file "target/release/libcarth_std_rs.so"
+                          (string-append lib "/libcarth_std_rs.so"))))))))
     (home-page "https://github.com/bryal/carth")
     (synopsis "The Carth foreign core library")
     (description "The core and runtime library for Carth -- a purely functional
@@ -73,16 +73,16 @@ programming language with Scheme-like syntax. Work in progress.")
      ;;              (std-rs (assoc-ref inputs "carth-std-rs"))
      ;;              (sigsegv-a (string-append sigsegv "/lib/libsigsegv.a"))
      ;;              (sigsegv-so (string-append sigsegv "/lib/libsigsegv.so"))
-     ;;              (foreign-a (string-append std-rs "/lib/libcarth_foreign_core.a"))
-     ;;              (foreign-so (string-append std-rs "/lib/libcarth_foreign_core.so")))
+     ;;              (foreign-a (string-append std-rs "/lib/libcarth_std_rs.a"))
+     ;;              (foreign-so (string-append std-rs "/lib/libcarth_std_rs.so")))
      ;;         (invoke "ls" "-la" "src/Compile.hs")
      ;;         (invoke "cat" "/etc/passwd")
      ;;         (chmod "src/Compile.hs" #o755)
      ;;         (substitute* "src/Compile.hs"
-     ;;           (("-l:libcarth_foreign_core.a") (string-append "-l:" foreign-a))
+     ;;           (("-l:libcarth_std_rs.a") (string-append "-l:" foreign-a))
      ;;           (("-lsigsegv") (string-append "-l:" sigsegv-a))
      ;;           (("libsigsegv.so") sigsegv-so)
-     ;;           (("libcarth_foreign_core.so") foreign-so))))))
+     ;;           (("libcarth_std_rs.so") foreign-so))))))
      ))
   (inputs
    `(("ghc-megaparsec" ,ghc-megaparsec)
