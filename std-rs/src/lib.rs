@@ -2,10 +2,12 @@
 #![allow(non_camel_case_types)]
 
 mod ffi;
+pub mod io;
+pub mod net;
 
 use libc::*;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 use std::{alloc, mem, slice, str};
 
 #[no_mangle]
@@ -26,6 +28,9 @@ pub extern "C" fn install_stackoverflow_handler() {
 }
 
 #[repr(C)]
+pub struct Cons<A, B>(pub A, pub B);
+
+#[repr(C)]
 pub struct Array<A> {
     elems: *mut A,
     len: u64,
@@ -35,7 +40,7 @@ impl<A> Array<A>
 where
     A: Clone,
 {
-    fn new(src: &[A]) -> Array<A> {
+    pub fn new(src: &[A]) -> Array<A> {
         unsafe {
             let len = src.len();
             let p = ffi::GC_malloc(len * mem::size_of::<A>()) as *mut A;
@@ -47,25 +52,63 @@ where
             }
         }
     }
-}
 
-#[repr(C)]
-pub struct Str {
-    array: Array<u8>,
-}
+    pub fn as_slice(&self) -> &[A] {
+        unsafe { slice::from_raw_parts(self.elems, self.len as usize) }
+    }
 
-impl Str {
-    fn new(s: &str) -> Str {
-        Str {
-            array: Array::new(s.as_bytes()),
+    pub fn as_slice_mut(&mut self) -> &mut [A] {
+        unsafe { slice::from_raw_parts_mut(self.elems, self.len as usize) }
+    }
+
+    pub unsafe fn shallow_copy(&self) -> Self {
+        Self {
+            elems: self.elems,
+            len: self.len,
         }
     }
 }
 
 #[repr(C)]
+pub struct Str {
+    pub array: Array<u8>,
+}
+
+impl Str {
+    pub fn new(s: &str) -> Str {
+        Str {
+            array: Array::new(s.as_bytes()),
+        }
+    }
+
+    pub fn as_str<'s>(&'s self) -> &'s str {
+        unsafe {
+            let Array { elems, len } = self.array;
+            let slice = slice::from_raw_parts(elems, len as usize);
+            str::from_utf8_unchecked(slice)
+        }
+    }
+
+    pub unsafe fn shallow_copy(&self) -> Self {
+        Self {
+            array: self.array.shallow_copy(),
+        }
+    }
+}
+
+#[repr(C, u8)]
 pub enum Maybe<A> {
     None,
     Some(A),
+}
+
+impl<A> Maybe<A> {
+    pub fn unwrap(self) -> A {
+        match self {
+            Maybe::None => panic!("Maybe::unwrap on None"),
+            Maybe::Some(a) => a,
+        }
+    }
 }
 
 impl<A> std::ops::Try for Maybe<A> {
@@ -101,29 +144,21 @@ fn heap_alloc(size: u64) -> *mut u8 {
 
 #[no_mangle]
 pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
-    let (s1, s2) = (from_carth_str(&s1), from_carth_str(&s2));
+    let (s1, s2) = (s1.as_str(), s2.as_str());
     s1 == s2
 }
 
 #[export_name = "unsafe-display-inline"]
 pub extern "C" fn display_inline(s: Str) {
-    let s = from_carth_str(&s);
+    let s = s.as_str();
     print!("{}", s);
-    io::stdout().flush().ok();
+    std::io::stdout().flush().ok();
 }
 
 #[export_name = "str-append"]
 pub extern "C" fn str_append(s1: Str, s2: Str) -> Str {
-    let (s1, s2) = (from_carth_str(&s1), from_carth_str(&s2));
+    let (s1, s2) = (s1.as_str(), s2.as_str());
     Str::new(&(s1.to_string() + s2))
-}
-
-fn from_carth_str<'s>(s: &'s Str) -> &'s str {
-    unsafe {
-        let Array { elems, len } = s.array;
-        let slice = slice::from_raw_parts(elems, len as usize);
-        str::from_utf8_unchecked(slice)
-    }
 }
 
 #[export_name = "show-int"]
@@ -143,14 +178,14 @@ pub extern "C" fn show_f64(n: f64) -> Str {
 
 #[export_name = "-panic"]
 pub extern "C" fn panic(s: Str) {
-    eprintln!("*** Panic: {}", from_carth_str(&s));
+    eprintln!("*** Panic: {}", s.as_str());
     std::process::abort()
 }
 
 #[export_name = "-get-contents"]
 pub extern "C" fn get_contents() -> Str {
     let mut s = String::new();
-    io::stdin()
+    std::io::stdin()
         .read_to_string(&mut s)
         .expect("read all of stdin");
     Str::new(&s)
@@ -158,7 +193,7 @@ pub extern "C" fn get_contents() -> Str {
 
 #[export_name = "unsafe-read-file"]
 pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
-    let fp = from_carth_str(&fp);
+    let fp = fp.as_str();
     let mut f = File::open(fp).ok()?;
     let mut s = String::new();
     f.read_to_string(&mut s).ok()?;
