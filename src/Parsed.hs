@@ -97,9 +97,9 @@ instance Eq Pat where
 
 instance FreeVars Def (Id 'Small) where
     freeVars = \case
-        VarDef _ _ _ body -> freeVars body
-        FunDef _ _ _ pats body ->
-            Set.difference (freeVars body) (Set.unions (map bvPat pats))
+        VarDef _ _ _ rhs -> freeVars rhs
+        FunDef _ _ _ pats rhs ->
+            Set.difference (freeVars rhs) (Set.unions (map bvPat pats))
 
 instance FreeVars DefLike (Id 'Small) where
     freeVars = \case
