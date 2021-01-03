@@ -413,6 +413,46 @@ Features and other stuff to do/implement in/around Carth.
   Look at https://github.com/mkirchner/gc.
 
 * INACTIVE Effect system
+  Seems like it could be more elegant than monad transformers,
+  although maybe not as fast?
+
+  Effect fusion seems to make it faster?
+
+  Read Wu, Schrijvers 2014, 2015, 2016. I think their papers basically
+  present the concept of fused effects.
+
+  github.com/fused-effects/fused-effects
+
+  https://youtu.be/vfDazZfxlNs?t=1730
+
+  ^ det makear sense. Bygg basically upp ett träd av den här datatype,
+  och interpreta det med alla handlers. Varje handler kollar om det är
+  dens variant, och isf kör effekten. För varje handler blir trädet
+  simplare, och till sist är det bara Pure kvar.
+
+  Naiv implementering ineffektiv. Bara tänk -- måste interpreta ett
+  träd ist för att bara *göra* effekterna direkt!
+
+  Man kan använda free monads för att bygga upp trädet, men detta är
+  inte så effektivt.
+
+  Grundidén med papret "fusion for free" är att man vill bara traversa
+  trädet en gång, och inte en gång per effect handler.
+
+  Med "fusion" verkar de syfta på funktionaliteten i GHC, att man kan
+  fusionera ihop funktionsanrop av specifika mönster till mer
+  effektiva varianter. E.g., ~map f . map g~ fusioneras till ~map (f
+  . g)~. På liknande vis fusioneras ~fold handleState . build . fold
+  handleReader~ till bara ~fold (handleState . handleReader)~. Kan vi
+  lösa detta utan kompilatorstöd, eller är det kanske värt att lägga
+  till?
+
+  See the talk on polysemy, it's a good complement and alternative to
+  the fused effects one. https://youtu.be/-dHFOjcK6pA.
+
+  We need type-level lists or sets, and a way to implement Member on
+  that thing. If tuple types could contain higher kinded types, I
+  think we only need classes.
 
 * INACTIVE Macros?
 
@@ -495,6 +535,9 @@ Features and other stuff to do/implement in/around Carth.
    https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
    https://matklad.github.io/2020/01/04/mutexes-are-faster-than-spinlocks.html
 
+** INACTIVE Random number generation
+   References:
+   - [[https://arxiv.org/abs/1910.06437][It is high time we let go of the Mersenne Twister]]
 * NEXT Some algorithms & data structures
   We need good collections & algs for sorting etc. if Carth is going
   to be of any use to anyone. Would also be a good way to add to the
@@ -791,9 +834,31 @@ Features and other stuff to do/implement in/around Carth.
     of generated code seems bad atm, but should be improved.
   - QBE :: Small! 10k LOC. Goals to be 70% as fast as
     GCC/LLVM. Generates ASM instead of machine code for some
-    reason. Seems like it hasn't seen much update this last year.
+    reason. Seems like it hasn't seen much update this last
+    year. However, one [[https://github.com/michaelforney/qbe][Michael Forney is actively maintaining a fork]],
+    for his own language I think, so that might be interesting.
   - [[https://github.com/vnmakarov/mir][MIR]] :: This one looks the most interesting! Similarly to QBE, very
     small at 15k LOC and 70% the performance of GCC. Primarily a
     JIT(?), but seems to be able to to AOT as well. Has a 4 backends
     atm, including AMD64 and Aarch64, and it seems relatively easy to
-    add a new one.
+    add a new one. I've found 2 languages that make use of MIR to
+    study: [[https://github.com/grame-cncm/faust][Faust]] and [[https://github.com/dibyendumajumdar/ravi][Ravi]].
+* INACTIVE Var pattern syntax, comparison
+  What if we did
+
+  #+BEGIN_SRC carth
+  (define (foo x pair)
+    (match pair
+      (case [x (let y)] (Some y))
+      (case [_ _] None)))
+  #+END_SRC
+
+  instead of
+
+  #+BEGIN_SRC carth
+  (define (foo x pair)
+    (match pair
+      (case [x' y] (if (= x x')
+                       (Some y)
+                     None))))
+  #+END_SRC
