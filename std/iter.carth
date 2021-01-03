@@ -1,6 +1,11 @@
 (import macros)
 (import maybe)
 
+;; TODO: Iter could include a lazy length field. By default, it's a lazy computation
+;;       counting the number of nodes in the list, but if you know the length ahead of
+;;       time, like when creating an iterator for an array, the iterator could be
+;;       constructed with a constructor function that initializes the length to a non-lazy
+;;       constant.
 (data (Iter a)
   (Iter (Fun Unit (Maybe [a (Iter a)]))))
 
