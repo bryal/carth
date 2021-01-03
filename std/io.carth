@@ -33,7 +33,7 @@
 (extern unsafe-display-inline (Fun Str Unit))
 
 (define (display-inline s)
-  (io/pure (unsafe-display-inline s)))
+  (io/wrap (unsafe-display-inline s)))
 
 (define (display s)
   (display-inline (str-append s "\n")))
