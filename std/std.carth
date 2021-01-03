@@ -62,6 +62,8 @@
 (extern show-nat (Fun Nat Str))
 (extern show-f64 (Fun F64 Str))
 
+(define show-bool (fmatch (case True "True") (case False "False")))
+
 (extern str-append (Fun Str Str Str))
 
 ;;; Function
@@ -83,6 +85,8 @@
 (define (ooo> f g a b c) (g (f a b c)))
 
 (define (flip f a b) (f b a))
+
+(define (id x) x)
 
 (data Void)
 
