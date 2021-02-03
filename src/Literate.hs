@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Literate (untangleOrg) where
 
 import Data.Char

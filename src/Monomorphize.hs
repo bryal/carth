@@ -1,6 +1,4 @@
-{-# LANGUAGE TemplateHaskell, LambdaCase, TupleSections
-           , TypeSynonymInstances, FlexibleInstances, MultiParamTypeClasses
-           , FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Monomorphization
 module Monomorphize (monomorphize, builtinExterns) where
@@ -73,7 +71,7 @@ monomorphize (Checked.Program (Topo defs) datas externs) =
     instData :: TConst -> ([VariantTypes], [DataInst])
     instData (x, ts) =
         let (tvars, variants) =
-                    Map.findWithDefault (ice "instData no such TConst in datas") x datas
+                Map.findWithDefault (ice "instData no such TConst in datas") x datas
             s = Map.fromList (zip tvars ts)
             (variants', moreInsts) = runWriter (mapM (mapM (monotype' s)) variants)
         in  (variants', moreInsts)

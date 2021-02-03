@@ -1,11 +1,8 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 -- | This module mostly exists to expost the builtin types via convenient variables,
 --   instead of requiring redefinitions or manually typing the strings of TConst's, which
 --   would be prone to typo errors.
 module TypeAst where
 
-import Data.Data
 import Data.Word
 
 data TPrim
@@ -17,7 +14,7 @@ data TPrim
     | TF32
     | TF64
     | TF128
-    deriving (Show, Eq, Ord, Data)
+    deriving (Show, Eq, Ord)
 
 type TConst t = (String, [t])
 

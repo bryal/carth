@@ -1,13 +1,10 @@
-{-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
-           , MultiParamTypeClasses, KindSignatures, DataKinds
-           , DeriveDataTypeable #-}
+{-# LANGUAGE DataKinds #-}
 
 module Parsed (module Parsed, Const (..), TPrim(..), TConst) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Control.Arrow ((>>>))
-import Data.Data
 
 import SrcPos
 import FreeVars
@@ -18,12 +15,12 @@ import Lexd (Const (..))
 data IdCase = Big | Small
 
 newtype Id (case' :: IdCase) = Id (WithPos String)
-    deriving (Show, Eq, Ord, Data)
+    deriving (Show, Eq, Ord)
 
 data TVar
     = TVExplicit (Id 'Small)
     | TVImplicit String
-    deriving (Show, Eq, Ord, Data)
+    deriving (Show, Eq, Ord)
 
 data Type
     = TVar TVar
@@ -32,10 +29,10 @@ data Type
     -- TODO: Remove special case for these two? Is it really needed?
     | TFun Type Type
     | TBox Type
-    deriving (Show, Eq, Ord, Data)
+    deriving (Show, Eq, Ord)
 
 data Scheme = Forall SrcPos (Set TVar) Type
-     deriving (Show, Eq, Data)
+    deriving (Show, Eq)
 
 data Pat
     = PConstruction SrcPos (Id 'Big) [Pat]

@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Pretty (pretty, Pretty(..)) where
 
 import Prelude hiding (showChar)

@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Subst (Subst, subst, substExpr, substFunMatch, composeSubsts) where
 
 import qualified Data.Map as Map

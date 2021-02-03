@@ -1,5 +1,4 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts
-           , TemplateHaskell, DuplicateRecordFields #-}
+{-# LANGUAGE TemplateHaskell, DuplicateRecordFields #-}
 
 -- | Code generation operations, generally not restricted to be used with AST
 --   inputs. Basically an abstraction over llvm-hs. Reusable operations that can
@@ -122,7 +121,8 @@ instance Typed Val where
 --
 --   The signature definition, the parameter-loading, and the result return are
 --   all done according to the calling convention.
-genFunDef :: (Name, [TypedVar], SrcPos, TypedVar, Gen Type) -> Gen' (Global, [Definition])
+genFunDef
+    :: (Name, [TypedVar], SrcPos, TypedVar, Gen Type) -> Gen' (Global, [Definition])
 genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
@@ -201,11 +201,11 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         let SrcPos path line _ _ = dpos
             -- TODO: Maybe only define this once and cache MDRef somewhere?
             fileNode =
-                    let (dir, file) = splitFileName path
-                    in  LLOp.File { LLOp.filename = fromString file
-                                  , LLOp.directory = fromString dir
-                                  , LLOp.checksum = Nothing
-                                  }
+                let (dir, file) = splitFileName path
+                in  LLOp.File { LLOp.filename = fromString file
+                              , LLOp.directory = fromString dir
+                              , LLOp.checksum = Nothing
+                              }
         in  LLOp.Subprogram { LLOp.scope = Just (MDInline (LLOp.DIFile fileNode))
                             , LLOp.name = nameSBString name
                             , LLOp.linkageName = nameSBString name
@@ -237,7 +237,8 @@ genTailWrapInLambdas rt fvs ps genBody =
     genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r ->
         commitFinalFuncBlock (ret r) $> typeOf r
 
-genWrapInLambdas :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
+genWrapInLambdas
+    :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
 genWrapInLambdas rt fvs pts genBody = case pts of
     [] -> genBody fvs
     (pt : pts') -> do
@@ -484,7 +485,8 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
                     apps Nothing f as
     let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
     let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
-    let noInst = throwError $ NoBuiltinVirtualInstance
+    let noInst :: Gen a
+        noInst = throwError $ NoBuiltinVirtualInstance
             (fromMaybe
                 (ice "genAppBuiltinVirtual: no srcpos when throwing noInst error!")
                 pos

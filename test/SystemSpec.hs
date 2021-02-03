@@ -1,10 +1,7 @@
-{-# LANGUAGE LambdaCase #-}
-
 module SystemSpec where
 
 import Prelude hiding (lex)
 
-import Data.Data
 import Data.Functor
 import Control.Monad
 import Control.Monad.Except
@@ -43,7 +40,7 @@ spec = do
             expectedErr <- runIO $ fmap (drop 3 . head . lines) (readFile (d </> f))
             result <- runIO $ lexAndParse (d </> f)
             it (dropExtension f) $ shouldSatisfy (fmap typecheck result) $ \case
-                Just (Left e) -> show (toConstr e) == expectedErr
+                Just (Left e) -> head (words (show e)) == expectedErr
                 _ -> False
     describe "Examples compile" $ do
         let d = "examples"

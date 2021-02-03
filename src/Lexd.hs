@@ -1,6 +1,4 @@
-{-# LANGUAGE LambdaCase, TypeSynonymInstances, FlexibleInstances
-           , MultiParamTypeClasses, KindSignatures, DataKinds
-           , DeriveDataTypeable #-}
+{-# LANGUAGE DataKinds #-}
 
 module Lexd where
 

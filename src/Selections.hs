@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase, TupleSections #-}
-
 module Selections (Selections, newSelections, select, selectVarBindings) where
 
 import qualified Data.Map as Map

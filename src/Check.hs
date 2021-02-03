@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, DataKinds, TupleSections, FlexibleContexts #-}
+{-# LANGUAGE DataKinds #-}
 
 module Check (typecheck) where
 

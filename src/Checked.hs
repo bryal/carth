@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Checked
     ( module Checked
     , TVar(..)
@@ -67,7 +65,7 @@ data Expr'
     deriving (Show)
 
 data Expr = Expr (Maybe SrcPos) Expr'
-    deriving (Show)
+    deriving Show
 
 
 builtinExterns :: Map String Type
@@ -87,7 +85,7 @@ type TypeDefs = Map String ([TVar], [[Type]])
 type Externs = Map String (Type, SrcPos)
 
 data Program = Program Defs TypeDefs Externs
-    deriving (Show)
+    deriving Show
 
 
 flattenDefs :: Defs -> [(String, WithPos (Scheme, Expr))]

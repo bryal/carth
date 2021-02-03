@@ -1,5 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
-
 module Macro (expandMacros) where
 
 import Control.Applicative

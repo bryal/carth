@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, FlexibleContexts, DataKinds #-}
+{-# LANGUAGE DataKinds #-}
 
 module Err (module Err, TypeErr(..), GenErr(..)) where
 

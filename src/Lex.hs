@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds #-}
+{-# LANGUAGE DataKinds #-}
 
 -- Note: Some parsers are greedy wrt consuming spaces and comments succeding the
 --       item, while others are lazy. You'll have to look at the impl to be
@@ -163,7 +163,8 @@ small = smallSpecial <|> smallNormal
 smallSpecial = keyword' "id@" *> strlit
 smallNormal = andSkipSpaceAfter $ liftA2 (:) smallStart identRest
   where
-    smallStart = lowerChar <|> otherChar <|> try (oneOf "-+" <* notFollowedBy digitChar)
+    smallStart = lowerChar <|> otherChar <|> try
+        (oneOf ("-+" :: String) <* notFollowedBy digitChar)
 
 bigSpecial, bigNormal :: Lexer String
 bigSpecial = keyword' "id@" *> strlit
@@ -174,14 +175,14 @@ identRest :: Lexer String
 identRest = many identLetter
 
 identLetter :: Lexer Char
-identLetter = letterChar <|> otherChar <|> oneOf "-+:" <|> digitChar
+identLetter = letterChar <|> otherChar <|> oneOf ("-+:" :: String) <|> digitChar
 
 otherChar :: Lexer Char
 otherChar = satisfy
     (\c -> and
         [ any ($ c) [isMark, isPunctuation, isSymbol]
-        , not (elem c "()[]{}")
-        , not (elem c "\"-+:•")
+        , not (elem c ("()[]{}" :: String))
+        , not (elem c ("\"-+:•" :: String))
         ]
     )
 

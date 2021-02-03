@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts #-}
-
 -- | Codegeneration related to external C function declarations
 --
 --   `extern` forms are translated pretty literally to extern declarations,

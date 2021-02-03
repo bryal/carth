@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell, TupleSections #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Implementation of the algorithm described in /ML pattern match compilation
 --   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
@@ -49,7 +49,11 @@ type MTypeDefs = Map String [String]
 
 type RedundantCases = [SrcPos]
 
-data Env = Env { _tdefs :: MTypeDefs, _tpat :: Type, _exprPos :: SrcPos }
+data Env = Env
+    { _tdefs :: MTypeDefs
+    , _tpat :: Type
+    , _exprPos :: SrcPos
+    }
 makeLenses ''Env
 
 type Match = ReaderT Env (StateT RedundantCases (ExceptT TypeErr Maybe))

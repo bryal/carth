@@ -1,5 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface, OverloadedStrings, LambdaCase
-           , OverloadedStrings #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 module Compile (compile, run) where
 
@@ -161,7 +160,8 @@ orcJitModule cfg tm mod = do
 --   running process, which includes all shared object code added with
 --   `Linking.loadLibraryPermanently`. Disjoint from the compile and linking
 --   layer.
-resolver :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
+resolver
+    :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
 resolver compLay symb =
     let
         flags = JITSymbolFlags { jitSymbolWeak = False

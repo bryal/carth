@@ -1,5 +1,4 @@
-{-# LANGUAGE TemplateHaskell, LambdaCase, MultiParamTypeClasses
-           , FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Monomorphic AST as a result of monomorphization
 module Monomorphic (module Monomorphic, TPrim(..), Const(..), VariantIx, Span, tUnit) where
@@ -65,7 +64,7 @@ data Expr'
     deriving (Show)
 
 data Expr = Expr (Maybe SrcPos) Expr'
-    deriving (Show)
+    deriving Show
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
@@ -76,7 +75,7 @@ type Datas = Map TConst [VariantTypes]
 type Externs = [(String, Type, SrcPos)]
 
 data Program = Program Defs Datas Externs
-    deriving (Show)
+    deriving Show
 
 
 instance TypeAst Type where

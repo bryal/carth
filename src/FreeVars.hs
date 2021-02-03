@@ -1,5 +1,3 @@
-{-# LANGUAGE MultiParamTypeClasses, LambdaCase #-}
-
 module FreeVars where
 
 import qualified Data.Set as Set

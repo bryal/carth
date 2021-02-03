@@ -13,21 +13,21 @@ explicitly won't hurt.
 
 #+BEGIN_SRC carth :tangle yes
 (define main
-  (display (id "Literate programming rules!")))
+  (display (identity "Literate programming rules!")))
 #+END_SRC
 
-* The ~id~ function
-  ~id~ is the identity function. It returns its argument unchanged.
+* The ~identity~ function
+  The ~identity~ function returns its argument unchanged.
 
   #+BEGIN_SRC carth
-  (define (id x) x)
+  (define (identity x) x)
   #+END_SRC
 
-* How not to use ~id~
-  Here is an example of how not to use ~id~. Note that this won't
+* How not to use ~identity~
+  Here is an example of how not to use ~identity~. Note that this won't
   compile. We show this in a SRC block to get syntax highlighting etc,
   but as ~tangle~ is ~no~, this source block will be ignored by carth.
 
   #+BEGIN_SRC carth :tangle no
-  (display id)
+  (display identity)
   #+END_SRC

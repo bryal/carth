@@ -1,21 +1,17 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-
 module SrcPos where
 
 import Text.Megaparsec.Pos
-import Data.Data
+
+data SrcPos = SrcPos
+    { srcName :: FilePath
+    , srcLine :: Word
+    , srcColumn :: Word
+    , inExpansion :: Maybe SrcPos
+    }
+    deriving (Show, Eq, Ord)
 
 
-data SrcPos =
-    SrcPos { srcName :: FilePath
-           , srcLine :: Word
-           , srcColumn :: Word
-           , inExpansion :: Maybe SrcPos
-           }
-    deriving (Show, Eq, Ord, Data)
-
-
-data WithPos a = WithPos SrcPos a deriving (Data)
+data WithPos a = WithPos SrcPos a
 
 class HasPos a where
     getPos :: a -> SrcPos

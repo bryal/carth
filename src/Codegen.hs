@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, TupleSections, FlexibleContexts, RankNTypes, DuplicateRecordFields #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where

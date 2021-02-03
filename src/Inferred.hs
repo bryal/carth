@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, TupleSections, DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell, DataKinds #-}
 
 -- | Type annotated AST as a result of typechecking
 module Inferred (module Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) where
@@ -11,7 +11,6 @@ import Data.Bifunctor
 import Lens.Micro.Platform (makeLenses)
 
 import Misc
-import Data.Data
 import qualified Parsed
 import Parsed (TVar(..), Const(..))
 import SrcPos
@@ -41,7 +40,7 @@ data TypeErr
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
-    deriving (Show, Data)
+    deriving (Show)
 
 type TConst = TypeAst.TConst Type
 
@@ -51,12 +50,13 @@ data Type
     | TConst TConst
     | TFun Type Type
     | TBox Type
-    deriving (Show, Eq, Ord, Data)
+    deriving (Show, Eq, Ord)
 
 data Scheme = Forall
     { _scmParams :: (Set TVar)
     , _scmBody :: Type
-    } deriving (Show, Eq, Data)
+    }
+    deriving (Show, Eq)
 makeLenses ''Scheme
 
 type Id = WithPos String

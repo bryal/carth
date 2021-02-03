@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds #-}
+{-# LANGUAGE DataKinds #-}
 
 module Parse (parse) where
 

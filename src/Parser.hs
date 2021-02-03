@@ -1,5 +1,4 @@
-{-# LANGUAGE FlexibleContexts, LambdaCase, TupleSections, DataKinds
-           , GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds #-}
 
 module Parser where
 
@@ -18,7 +17,11 @@ import Lexd
 import Parsed
 import Pretty
 
-data Err = Err { errLength :: Word, errPos :: SrcPos, errExpecteds :: Set String }
+data Err = Err
+    { errLength :: Word
+    , errPos :: SrcPos
+    , errExpecteds :: Set String
+    }
     deriving (Show, Eq)
 
 instance Semigroup Err where
@@ -33,7 +36,11 @@ instance Semigroup Err where
 instance Monoid Err where
     mempty = Err 0 (SrcPos "<dummy>" 0 0 Nothing) Set.empty
 
-data St = St { stCount :: Word, stOuterPos :: SrcPos, stInput :: [TokenTree] }
+data St = St
+    { stCount :: Word
+    , stOuterPos :: SrcPos
+    , stInput :: [TokenTree]
+    }
 
 newtype Parser a = Parser (StateT St (Except Err) a)
     deriving (Functor, Applicative, MonadPlus, Monad, MonadError Err, MonadState St)

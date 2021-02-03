@@ -1,5 +1,4 @@
-{-# LANGUAGE LambdaCase, TemplateHaskell, DataKinds, FlexibleContexts, TupleSections
-           , RankNTypes #-}
+{-# LANGUAGE TemplateHaskell, DataKinds #-}
 
 module Infer (inferTopDefs, checkType', checkType'') where
 
@@ -67,10 +66,10 @@ inferTopDefs tdefs ctors externs defs =
             , _envCtors = ctors
             }
         freshTvs =
-                let ls = "abcdehjkpqrstuvxyz"
-                    ns = map show [1 :: Word .. 99]
-                    vs = [ l : n | l <- ls, n <- ns ] ++ [ l : v | l <- ls, v <- vs ]
-                in  vs
+            let ls = "abcdehjkpqrstuvxyz"
+                ns = map show [1 :: Word .. 99]
+                vs = [ l : n | l <- ls, n <- ns ] ++ [ l : v | l <- ls, v <- vs ]
+            in  vs
     in  evalStateT
             (runReaderT (fmap fst (runWriterT (inferDefs envGlobDefs defs))) initEnv)
             freshTvs
