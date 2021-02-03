@@ -113,13 +113,7 @@ builtinDataTypes' =
       )
     , ("Unit", [], [unit'])
     , ("RealWorld", [], [("UnsafeRealWorld", [])])
-    , ( "Bool"
-      , []
-      , [("False", []), ("True", [])]
-      )
-    -- TODO: Since Carth is not otherwise a lazy language, our IO computations should
-    --       maybe not be either. Diverge from Haskell and just make IO a sort of
-    --       marker without the realworld function shebang.
+    , ("Bool", [], [("False", []), ("True", [])])
     , ( "IO"
       , [TVImplicit "a"]
       , [ ( "IO"

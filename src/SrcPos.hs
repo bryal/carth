@@ -6,7 +6,6 @@ import Text.Megaparsec.Pos
 import Data.Data
 
 
--- TODO: macro invocation stack
 data SrcPos =
     SrcPos { srcName :: FilePath
            , srcLine :: Word

@@ -21,11 +21,6 @@ import Pretty
 data Err = Err { errLength :: Word, errPos :: SrcPos, errExpecteds :: Set String }
     deriving (Show, Eq)
 
--- TODO: Semigroup instance for the error type should select the one with the longest
---       match. We need to keep track of how long the match is.
---
---       If two matches are of the same / no length, combine the sets of "expected"s of
---       both. So it's like "expected keyword extern or keyword data".
 instance Semigroup Err where
     (<>) e1 e2
         | e2 == mempty = e1
