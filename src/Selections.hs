@@ -1,4 +1,4 @@
-module Selections (Selections, newSelections, select, selectVarBindings) where
+module Selections (Select (..), Selections, newSelections, select, selectVarBindings) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -8,51 +8,41 @@ import Control.Monad
 import Misc
 import Optimized
 
-
 type Selections a = Map Access a
 
+class Select m a where
+    selectAs :: Span -> [Type] -> a -> m a
+    selectSub :: Span -> Word32 -> a -> m a
+    selectDeref :: a -> m a
 
 newSelections :: a -> Selections a
 newSelections x = Map.singleton Obj x
 
-select
-    :: (Monad m)
-    => (Span -> [Type] -> a -> m a)
-    -> (Span -> Word32 -> a -> m a)
-    -> (a -> m a)
-    -> Access
-    -> Selections a
-    -> m (a, Selections a)
-select conv sub deref selector selections = case Map.lookup selector selections of
+select :: (Monad m, Select m a) => Access -> Selections a -> m (a, Selections a)
+select selector selections = case Map.lookup selector selections of
     Just a -> pure (a, selections)
     Nothing -> do
         (a, selections') <- case selector of
             Obj -> ice "select: Obj not in selections"
             As x span' ts -> do
-                (a', s') <- select conv sub deref x selections
-                a'' <- conv span' ts a'
+                (a', s') <- select x selections
+                a'' <- selectAs span' ts a'
                 pure (a'', s')
             Sel i span' x -> do
-                (a', s') <- select conv sub deref x selections
-                a'' <- sub span' i a'
+                (a', s') <- select x selections
+                a'' <- selectSub span' i a'
                 pure (a'', s')
             ADeref x -> do
-                (a', s') <- select conv sub deref x selections
-                a'' <- deref a'
+                (a', s') <- select x selections
+                a'' <- selectDeref a'
                 pure (a'', s')
         pure (a, Map.insert selector a selections')
 
 selectVarBindings
-    :: (Monad m)
-    => (Span -> [Type] -> a -> m a)
-    -> (Span -> Word32 -> a -> m a)
-    -> (a -> m a)
-    -> Selections a
-    -> VarBindings
-    -> m [(TypedVar, a)]
-selectVarBindings conv sub deref selections = fmap fst . foldM
+    :: (Monad m, Select m a) => Selections a -> VarBindings -> m [(TypedVar, a)]
+selectVarBindings selections = fmap fst . foldM
     (\(bs', ss) (x, s) -> do
-        (a, ss') <- select conv sub deref s ss
+        (a, ss') <- select s ss
         pure ((x, a) : bs', ss')
     )
     ([], selections)

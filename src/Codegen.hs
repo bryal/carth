@@ -35,6 +35,16 @@ import Selections
 import Gen
 import Extern
 
+instance Select Gen Val where
+    selectAs totVariants ts matchee = do
+        tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
+        pGeneric <- getVar matchee
+        fmap VVar
+             (emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr tvariant)))
+    selectSub span' i matchee =
+        let tagOffset = if span' > 1 then 1 else 0
+        in  genIndexStruct matchee [tagOffset + i]
+    selectDeref = genDeref
 
 codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Either GenErr Module
 codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ do
@@ -406,12 +416,12 @@ genDecisionTree'
     -> Gen a
 genDecisionTree' genExpr' genCondBr' genCases' tbody =
     let genDecisionLeaf (bs, e) selections = do
-            bs' <- selectVarBindings selAs selSub genDeref selections bs
+            bs' <- selectVarBindings selections bs
             withVals bs' (genExpr' e)
 
         genDecisionSwitchIx selector cs def selections = do
             let (variantIxs, variantDts) = unzip (Map.toAscList cs)
-            (m, selections') <- select selAs selSub genDeref selector selections
+            (m, selections') <- select selector selections
             mVariantIx <- getLocal =<< case typeOf m of
                 IntegerType _ -> pure m
                 _ -> genIndexStruct m [0]
@@ -424,7 +434,7 @@ genDecisionTree' genExpr' genCondBr' genCases' tbody =
             genCases' tbody selections' variantLs variantDts def
 
         genDecisionSwitchStr selector cs def selections = do
-            (matchee, selections') <- select selAs selSub genDeref selector selections
+            (matchee, selections') <- select selector selections
             let cs' = Map.toAscList cs
             let genCase (s, dt) next = do
                     s' <- genStrLit s
@@ -460,16 +470,6 @@ genCases tbody selections variantLs variantDts def = do
     vs <- zipWithM genCase variantLs variantDts
     commitToNewBlock (br nextL) nextL
     fmap VLocal (emitAnonReg (phi (v : vs)))
-
-selAs :: Span -> [Ast.Type] -> Val -> Gen Val
-selAs totVariants ts matchee = do
-    tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
-    pGeneric <- getVar matchee
-    fmap VVar (emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr tvariant)))
-
-selSub :: Span -> Word32 -> Val -> Gen Val
-selSub span' i matchee =
-    let tagOffset = if span' > 1 then 1 else 0 in genIndexStruct matchee [tagOffset + i]
 
 genCtion :: Ast.Ction -> Gen Val
 genCtion (i, span', dataType, as) = do
