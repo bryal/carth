@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Monomorphic AST as a result of monomorphization
-module Monomorphic (module Monomorphic, TPrim(..), Const(..), VariantIx, Span, tUnit) where
+module Monomorphic (module Monomorphic, TPrim(..), Const(..), VariantIx, Span, tUnit, TopologicalOrder (..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)

@@ -860,6 +860,8 @@ Features and other stuff to do/implement in/around Carth.
    instead of all the way from an AST. Might also be good for the
    interpreter to run at a lower lever, but not sure.
 
+   http://web.eecs.umich.edu/~mahlke/courses/483f06/lectures/483L17.pdf
+
 ** TODO Step 1: Re-add interpreter for pure Carth code
    Fairly self explanatory. Just operate on whatever is returned by
    the Optimize pass. Make sure to add / translate as many test-cases

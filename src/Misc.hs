@@ -124,3 +124,14 @@ takeWhileJust :: (a -> Maybe b) -> [a] -> [b]
 takeWhileJust f = \case
     [] -> []
     a : as -> maybe [] (: takeWhileJust f as) (f a)
+
+safeHead :: [a] -> Maybe a
+safeHead = \case
+    [] -> Nothing
+    x : _ -> Just x
+
+bind2 :: Monad m => (a -> b -> m c) -> m a -> m b -> m c
+bind2 f ma mb = do
+    a <- ma
+    b <- mb
+    f a b
