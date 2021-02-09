@@ -860,13 +860,30 @@ Features and other stuff to do/implement in/around Carth.
    instead of all the way from an AST. Might also be good for the
    interpreter to run at a lower lever, but not sure.
 
-** TODO Step 1: Re-add interpreter for pure Carth code
+   *UPDATE*: I'm warming up to focusing on this rather than the
+   interpreter.
+
+   Features the LIR should have (or maybe lack, rather):
+   - Switches with sub-value extraction instead of pattern match.
+   - No closures, but their representation in the form of function +
+     environment instead.
+   - Tail call optimized. (Replace tail-recursion &
+     sibling-tail-recursion with loops or smth).
+   - Beta reduction.
+   - Detect fully saturated calls & have special ways of directly
+     calling builtin virtuals, externs, and normal functions
+     saturatedly.
+   -
+
+   http://web.eecs.umich.edu/~mahlke/courses/483f06/lectures/483L17.pdf
+
+** DONE Step 1: Re-add interpreter for pure Carth code
    Fairly self explanatory. Just operate on whatever is returned by
    the Optimize pass. Make sure to add / translate as many test-cases
    as possible to work without ~extern~ declarations, so that I can
    ensure as few correctness regressions as possible.
 
-** NEXT Step 2: Support ~extern~ in interpreter
+** INACTIVE Step 2: Support ~extern~ in interpreter
    This may not be trivial, but I think it won't be too hard. Can get
    some stuff from the codegen.
 
@@ -877,6 +894,15 @@ Features and other stuff to do/implement in/around Carth.
    for converting to bytes directly.
 
    Use sizeof and alignmentof from codegen module.
+
+   *UPDATE*: Actually, this got complicated. How to handle GC roots,
+   Haskell GC vs. Boehm GC. Allowing arbitrary extern calls, including
+   those that might unsafely mutate memory. When we add our own GC
+   with user-defineable destructor functions, how can we pass the
+   user-defined function via FFI if it's a Haskell function basically?
+   It all just gets really messy. Might not be much point in trying to
+   do this after all... Focusing on adding our own LIR and using MIR
+   for JIT/compilation seems like a better route at this point.
 
 ** NEXT Step 3: Remove LLVM support
    yeah
