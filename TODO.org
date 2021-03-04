@@ -715,6 +715,9 @@ Features and other stuff to do/implement in/around Carth.
 
   https://news.ycombinator.com/item?id=24615916
 
+  This is a new one: *mold*. It has as goal to be really fast. Seems promising!
+  https://github.com/rui314/mold
+
 * INACTIVE Produce .so:s for debug builds
   Linking is slow, so for debug builds we could try to split the
   output by module into separate .so:s. Then we'd only have to rebuild
@@ -873,9 +876,63 @@ Features and other stuff to do/implement in/around Carth.
    - Detect fully saturated calls & have special ways of directly
      calling builtin virtuals, externs, and normal functions
      saturatedly.
-   -
+
+   Thinking about alloca:s (stack allocations) in generated loops for
+   e.g. tail call optimization. Is it fine to simply generate all the
+   alloca:s as we do in the LLVM codegen, but maybe instead of placing
+   the statements at the point of use, output them with a Writer monad
+   and place them at the function entry. As long as the register names
+   used are good, it should work out fine right? Similar to how we
+   currently generate strings.
+
+   Thinking about to what level we should lower the IR. Remain at
+   nested expressions, or move on to blocks and goto:s? Blocks with
+   parameters vs. Phi-nodes? If remain with if-expressions,
+   translation to C would be much cleaner, but how do we create the
+   loop for tail-recursion? If we go to block level, might be easier
+   to generate MIR, LLVM, or even ASM, but what if we want to generate
+   for some slightly higher level target like C?
+
+   Mutual tail recursion and/or sibling calls seem more difficult to
+   optimize, so maybe just guarantee optimization of tail-recursive
+   calls for all backends & platforms, but rely on the backend for
+   general sibling call optimization when supported. LLVM can do
+   sibling calls, for example.
 
    http://web.eecs.umich.edu/~mahlke/courses/483f06/lectures/483L17.pdf
+
+   I think I'll start with a very simplified version of Monomorphic,
+   and possibly change it or add an additional even lower step
+   afterwards.
+
+   Detect tail recursive functions in lowering & mark the tail
+   recursive calls. Should then be able to generate an efficient loop
+   in LLVM / whatever, and should be able to not generate anything
+   unnecessary.
+
+   #+BEGIN_EXAMPLE
+   f x y =
+     if foo x y
+     then f (x - 1, y)
+     else g x y
+   #+END_EXAMPLE
+
+   becomes
+
+   #+BEGIN_EXAMPLE
+   @recursive=yes
+   f x y =
+     if foo x y
+     then @recurse (x - 1, y)
+     else g x y
+   #+END_EXAMPLE
+
+   If function is marked as recursive, the codegen knows to stack
+   allocate the parameters so they can be modified for each iteration
+   (could consider block-params / phi-nodes as alt., but this solution
+   seems relatively simple). If special instruction to recurse is
+   encountered, just set the parameter stack variables and jump to the
+   entry label kept in Reader.
 
 ** DONE Step 1: Re-add interpreter for pure Carth code
    Fairly self explanatory. Just operate on whatever is returned by
@@ -963,3 +1020,4 @@ Features and other stuff to do/implement in/around Carth.
 
 ** References
    - [[https://gist.github.com/zeux/3ce4fcc3a43072b4315abde95319ecb6][How does clang 2.7 hold up in 2021?]]
+* NEXT Try our an alternative prelude, like relude
