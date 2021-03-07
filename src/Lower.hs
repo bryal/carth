@@ -12,12 +12,15 @@ import Data.Function
 import Data.Functor
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Set as Set
+import Data.Set (Set)
 import Lens.Micro.Platform (makeLenses, modifying, use, view, assign, to)
 
 import Misc
 import qualified Monomorphic as AST
 import Monomorphic (TypedVar(..))
 import Low
+import FreeVars
 
 data Env = Env
     { _localEnv :: Map TypedVar Operand
@@ -39,16 +42,24 @@ lowerExpr (AST.Expr _ e) = lowerExpr' e
 
 lowerExpr' :: AST.Expr' -> Lower Operand
 lowerExpr' = \case
-    AST.Lit c -> lowerConst c
+    AST.Lit c -> fmap Const $ lowerConst c
     AST.Var tv -> lookupVar tv
     AST.App f e _ -> lowerApp (f, [e])
-    _ -> nyi "rest of lowerExpr'"
+    AST.If p c a -> do
+        p' <- lowerExpr p
+        lowerBranch p' (lowerExpr c) (lowerExpr a)
+    AST.Fun (p, b) -> lowerLambda p b
+    AST.Let d b -> lowerLet d b
+    AST.Match e cs tbody -> lowerMatch e cs =<< lowerType tbody
+    AST.Ction c -> lowerCtion c
+    AST.Sizeof t -> undefined
+    AST.Absurd t -> fmap undef (lowerType t)
   where
-
+    lowerConst :: AST.Const -> Lower Const
     lowerConst = \case
-        AST.Int n -> pure (Const (Int n))
-        AST.F64 x -> pure (Const (F64 x))
-        AST.Str s -> fmap (Const . Str) $ lowerStrLit s
+        AST.Int n -> pure (Int n)
+        AST.F64 x -> pure (F64 x)
+        AST.Str s -> fmap Str $ lowerStrLit s
 
     lowerStrLit s = do
         m <- use strLits
@@ -74,13 +85,32 @@ lowerExpr' = \case
             arg <- lowerExpr (last aes)
             app closure arg
 
+    lowerBranch pred mconseq malt = undefined pred mconseq malt
+
+    lowerLambda p (b, bt) = do
+        fvs <- view localEnv <&> \locals -> Set.toList
+            (Set.intersection (Set.delete p (freeVars b)) (Map.keysSet locals))
+        lowerClosure fvs p (b, bt)
+
+    lowerClosure fvs p (b, bt) = undefined
+
+    lowerLet d b = undefined
+
+    lowerMatch = undefined
+
+    lowerCtion = undefined
+
+    lowerType = undefined
+
+    undef = undefined
+
 app :: Operand -> Operand -> Lower Operand
-app = nyi "app"
+app = undefined
 
 -- | Given the name of a builtin virtual function and a list of arguments, generate the
 --   lowering of applying this function to the list of arguments. An empty argument list
 lowerAppBuiltinVirtual :: TypedVar -> [Lower Operand] -> Lower Operand
-lowerAppBuiltinVirtual = nyi "lowerAppBuiltinVirtual"
+lowerAppBuiltinVirtual = undefined
    -- use builtinVirtuals to cache results
 
 withVal :: TypedVar -> Operand -> Lower a -> Lower a
@@ -90,4 +120,4 @@ lookupVar :: TypedVar -> Lower Operand
 lookupVar x = maybe (lowerAppBuiltinVirtual x []) pure =<< lookupVar' x
 
 lookupVar' :: MonadReader Env m => TypedVar -> m (Maybe Operand)
-lookupVar' x = nyi "lookupVar'"
+lookupVar' x = undefined
