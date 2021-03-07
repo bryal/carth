@@ -43,8 +43,8 @@ import qualified LLVM.AST.FloatingPointPredicate as LLFPred
 import Misc
 import Pretty
 import qualified TypeAst
-import qualified Optimized as Ast
-import Optimized (TypedVar(..), TPrim(..))
+import qualified Low as Ast
+import Low (TypedVar(..), TPrim(..))
 import qualified Monomorphize
 import SrcPos
 

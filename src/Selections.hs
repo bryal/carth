@@ -6,7 +6,7 @@ import Data.Word
 import Control.Monad
 
 import Misc
-import Optimized
+import Low
 
 type Selections a = Map Access a
 

@@ -17,8 +17,8 @@ import Conf
 import GetConfig
 import Compile
 import Monomorphize
-import Optimize
-import qualified Optimized as Ast
+import Lower
+import qualified Low as Ast
 import qualified Parse
 import qualified Lex
 import qualified Macro
@@ -70,9 +70,9 @@ frontend cfg f = do
     verbose cfg ("   Monomorphizing")
     let mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
-    let opt = optimize mon
-    when d $ writeFile ".dbg.opt" (show opt)
-    pure opt
+    let low = lower mon
+    when d $ writeFile ".dbg.low" (show low)
+    pure low
 
 lex :: FilePath -> IO [Lexd.TokenTree]
 lex f = runExceptT (Lex.lex f) >>= \case

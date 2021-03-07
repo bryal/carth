@@ -36,8 +36,8 @@ library
       Misc
       Monomorphic
       Monomorphize
-      Optimize
-      Optimized
+      Lower
+      Low
       Lex
       Lexd
       Macro

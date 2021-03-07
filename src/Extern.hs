@@ -33,8 +33,8 @@ import Data.Functor
 
 import Misc
 import SrcPos
-import qualified Optimized as Ast
-import Optimized hiding (Type, Const)
+import qualified Low as Ast
+import Low       hiding (Type, Const)
 import Gen
 
 

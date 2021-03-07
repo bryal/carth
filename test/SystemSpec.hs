@@ -19,8 +19,8 @@ import qualified Parsed
 import Check
 import Compile
 import Monomorphize
-import Optimize
-import qualified Optimized as Ast
+import Lower
+import qualified Low as Ast
 import Conf
 
 spec :: Spec
@@ -73,7 +73,7 @@ compile' f =
 frontend :: FilePath -> IO (Maybe Ast.Program)
 frontend f = lexAndParse f <&> \case
     Nothing -> Nothing
-    Just ast -> fmap (optimize . monomorphize) (rightToMaybe (typecheck ast))
+    Just ast -> fmap (lower . monomorphize) (rightToMaybe (typecheck ast))
 
 lexAndParse :: FilePath -> IO (Maybe Parsed.Program)
 lexAndParse f = fmap rightToMaybe (runExceptT (lex' f >>= expandMacros' >>= parse''))

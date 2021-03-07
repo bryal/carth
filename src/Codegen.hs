@@ -28,8 +28,8 @@ import Lens.Micro.Platform (use, assign, Lens', view)
 import Misc
 import SrcPos
 import FreeVars
-import qualified Optimized as Ast
-import Optimized hiding (Type, Const)
+import qualified Low as Ast
+import Low hiding (Type, Const)
 import TypeAst
 import Selections
 import Gen

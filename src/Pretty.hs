@@ -12,7 +12,7 @@ import SrcPos
 import qualified Lexd
 import qualified Parsed
 import qualified Inferred
-import qualified Optimized as Ast
+import qualified Low as Ast
 
 
 -- Pretty print starting at some indentation depth

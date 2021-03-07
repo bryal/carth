@@ -30,7 +30,7 @@ import Prelude hiding (mod)
 
 import Misc
 import Conf
-import qualified Optimized as Ast
+import qualified Low as Ast
 import Codegen
 import Err
 import Pretty
