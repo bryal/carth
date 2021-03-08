@@ -85,8 +85,8 @@ splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
   where
     splitOn' :: Parsec Void String [String]
     splitOn' = do
-        as <- many (try (manyTill anySingle (try (string sep))))
-        a <- many anySingle
+        as <- Mega.many (try (manyTill anySingle (try (string sep))))
+        a <- Mega.many anySingle
         pure $ (as ++) $ if not (null a) then [a] else []
 
 parse' :: Parsec Void String a -> FilePath -> Source -> Either String a

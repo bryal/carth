@@ -899,6 +899,24 @@ Features and other stuff to do/implement in/around Carth.
    general sibling call optimization when supported. LLVM can do
    sibling calls, for example.
 
+   Thinking about non-recursive tail calls. What is it that makes them
+   difficult to optimize exactly I wonder. If we want to support stuff
+   like continuation-passing style, general TCO would be quite
+   necessary. Wiki sort of explains it: "However, for language
+   implementations which store function arguments and local variables
+   on a call stack (which is the default implementation for many
+   languages, at least on systems with a hardware stack, such as the
+   x86), implementing generalized tail call optimization (including
+   mutual tail recursion) presents an issue: if the size of the
+   callee's activation record is different from that of the caller,
+   then additional cleanup or resizing of the stack frame may be
+   required. For these cases, optimizing tail recursion remains
+   trivial, but general tail call optimization may be harder to
+   implement efficiently.". "As a result, functional languages such as
+   Scala that target the JVM can efficiently implement direct tail
+   recursion, but not mutual tail recursion.". If Scala can't do it,
+   maybe it's fine if we can't either?
+
    http://web.eecs.umich.edu/~mahlke/courses/483f06/lectures/483L17.pdf
 
    I think I'll start with a very simplified version of Monomorphic,
