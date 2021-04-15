@@ -26,7 +26,7 @@ import Match
 import Infer
 import TypeAst
 import qualified Checked
-import Checked (withPos, noPos)
+import Checked (withPos, noPos, Virt(..))
 
 
 typecheck :: Parsed.Program -> Either TypeErr Checked.Program
@@ -171,7 +171,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
         local (Set.union tvs) (boundInExpr e)
     boundInExpr (WithPos pos e) = case e of
         Inferred.Lit _ -> pure ()
-        Inferred.Var (Inferred.TypedVar _ t) -> boundInType pos t
+        Inferred.Var (_, Inferred.TypedVar _ t) -> boundInType pos t
         Inferred.App f a rt -> do
             boundInExpr f
             boundInExpr a
@@ -228,25 +228,29 @@ compileDecisionTrees tdefs = compDefs
             Nothing -> pure ((p, tp), (noPos (Checked.Absurd tb), tb))
             Just e -> do
                 dt <- liftEither e
-                let v = noPos (Checked.Var (Checked.TypedVar p tp))
+                let v = noPos (Checked.Var (NonVirt, Checked.TypedVar p tp))
                     b = noPos (Checked.Match v dt tb)
                 pure ((p, tp), (b, tb))
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
-        Inferred.Var (Inferred.TypedVar (WithPos _ x) t) ->
-            pure (Checked.Var (Checked.TypedVar x t))
+        Inferred.Var (virt, Inferred.TypedVar (WithPos _ x) t) ->
+            pure (Checked.Var (virt, Checked.TypedVar x t))
         Inferred.App f a tr -> liftA3 Checked.App (compExpr f) (compExpr a) (pure tr)
         Inferred.If p c a -> liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
         Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
         Inferred.FunMatch fm ->
             fmap (Checked.Fun . unpos) (compFunMatch (WithPos pos fm))
         Inferred.Ctor v span' inst ts ->
-            let xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
+            let
+                xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
                 params = zip xs ts
-                args = map (noPos . Checked.Var . uncurry Checked.TypedVar) params
-            in  pure $ snd $ foldr
+                args = map
+                    (noPos . Checked.Var . (NonVirt, ) . uncurry Checked.TypedVar)
+                    params
+            in
+                pure $ snd $ foldr
                     (\(p, pt) (bt, b) ->
                         (Inferred.TFun pt bt, Checked.Fun ((p, pt), (withPos pos b, bt)))
                     )

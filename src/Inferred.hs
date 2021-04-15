@@ -89,9 +89,15 @@ type Pat = WithPos Pat'
 type Cases = [(Pat, Expr)]
 type FunMatch = (Cases, Type, Type)
 
+-- | Whether a Var refers to a builtin virtual, or a global/local definition. So we don't
+--   have to keep as much state about environment definitions in later passes.
+data Virt = Virt | NonVirt deriving Show
+
+type Var = (Virt, TypedVar)
+
 data Expr'
     = Lit Const
-    | Var TypedVar
+    | Var Var
     | App Expr Expr Type
     | If Expr Expr Expr
     | Let Def Expr
@@ -136,42 +142,6 @@ builtinExterns :: Map String (Type, SrcPos)
 builtinExterns = Map.fromList $ map
     (second (, SrcPos "<builtin>" 0 0 Nothing))
     [("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))]
-
-builtinVirtuals :: Map String Scheme
-builtinVirtuals =
-    let tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0 Nothing) a))
-        tva = tv "a"
-        ta = TVar tva
-        tvb = tv "b"
-        tb = TVar tvb
-        arithScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta ta))
-        bitwiseScm = arithScm
-        relScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta tBool))
-    in  Map.fromList
-            $ [ ("+", arithScm)
-              , ("-", arithScm)
-              , ("*", arithScm)
-              , ("/", arithScm)
-              , ("rem", arithScm)
-              , ("shift-l", bitwiseScm)
-              , ("shift-r", bitwiseScm)
-              , ("ashift-r", bitwiseScm)
-              , ("bit-and", bitwiseScm)
-              , ("bit-or", bitwiseScm)
-              , ("bit-xor", bitwiseScm)
-              , ("=", relScm)
-              , ("/=", relScm)
-              , (">", relScm)
-              , (">=", relScm)
-              , ("<", relScm)
-              , ("<=", relScm)
-              , ("transmute", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
-              , ("deref", Forall (Set.fromList [tva]) (TFun (TBox ta) ta))
-              , ( "store"
-                , Forall (Set.fromList [tva]) (TFun ta (TFun (TBox ta) (TBox ta)))
-                )
-              , ("cast", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
-              ]
 
 defSigs :: Def -> [(String, Scheme)]
 defSigs = \case

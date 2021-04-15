@@ -1,7 +1,16 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Monomorphic AST as a result of monomorphization
-module Monomorphic (module Monomorphic, TPrim(..), Const(..), VariantIx, Span, tUnit) where
+module Monomorphic
+    ( module Monomorphic
+    , TPrim(..)
+    , Const(..)
+    , VariantIx
+    , Span
+    , tUnit
+    , Virt (..)
+    )
+where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -12,7 +21,7 @@ import Data.Bifunctor
 
 import Misc
 import SrcPos
-import Checked (VariantIx, Span)
+import Checked (VariantIx, Span, Virt (..))
 import FreeVars
 import Parsed (Const(..))
 import TypeAst hiding (TConst)
@@ -52,10 +61,12 @@ data DecisionTree
 type Ction = (VariantIx, Span, TConst, [Expr])
 type Fun = (TypedVar, (Expr, Type))
 
+type Var = (Virt, TypedVar)
+
 data Expr'
     = Lit Const
-    | Var TypedVar
-    | App Expr Expr Type
+    | Var Var
+    | App Expr Expr
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
@@ -70,7 +81,8 @@ data Expr = Expr (Maybe SrcPos) Expr'
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
-type VarDef = (TypedVar, WithPos ([Type], Expr'))
+type Inst = [Type]
+type VarDef = (TypedVar, WithPos (Inst, Expr'))
 type RecDefs = [FunDef]
 type FunDef = (TypedVar, WithPos ([Type], Fun))
 type Datas = Map TConst [VariantTypes]
@@ -104,8 +116,8 @@ expr' (Expr _ e) = e
 fvExpr' :: Expr' -> Set TypedVar
 fvExpr' = \case
     Lit _ -> Set.empty
-    Var x -> Set.singleton x
-    App f a _ -> fvApp f a
+    Var (_, x) -> Set.singleton x
+    App f a -> fvApp f a
     If p c a -> fvIf p c a
     Fun (p, (b, _)) -> fvFun p b
     Let (VarDef (lhs, WithPos _ (_, rhs))) (Expr _ e) ->

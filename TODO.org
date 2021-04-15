@@ -1052,3 +1052,12 @@ Features and other stuff to do/implement in/around Carth.
   actually a tail call, if you've done something wrong or
   something. Sort of like Rust is considering the `become` keyword to
   work?
+* TODO Cleaner method of producing useful stack traces
+  I don't really like how we do source positions now, annotating
+  everything and generating bad DWARF in the LLVM
+  backend. Line-by-line stepping won't work well regardless of how we
+  do, due to the expression-oriented nature of the language. Stack
+  traces is the most interesting thing we want for debugging by far,
+  and that might be achievable with some more general and cleaner
+  method. Some kind of shadow stack, for example. Such a method might
+  work well for other potential backends as well, like a C backend.

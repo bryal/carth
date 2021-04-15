@@ -9,6 +9,7 @@ module Checked
     , Span
     , Con(..)
     , mainType
+    , Virt (..)
     )
 where
 
@@ -28,6 +29,7 @@ import Inferred
     , VariantIx
     , Span
     , Con(..)
+    , Virt(..)
     )
 import qualified Inferred
 
@@ -51,9 +53,11 @@ data DecisionTree
 
 type Fun = ((String, Type), (Expr, Type))
 
+type Var = (Virt, TypedVar)
+
 data Expr'
     = Lit Const
-    | Var TypedVar
+    | Var Var
     | App Expr Expr Type
     | If Expr Expr Expr
     | Fun Fun

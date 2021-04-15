@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Low (module Low, TPrim(..), Const(..), VariantIx, Span, tUnit, Access' (..)) where
+module Low (module Low, TPrim(..), Const(..), VariantIx, Span, tUnit, Access'(..), Virt(..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -15,7 +15,7 @@ import FreeVars
 import Parsed (Const(..))
 import TypeAst hiding (TConst)
 import qualified TypeAst
-import Monomorphic (Access'(..))
+import Monomorphic (Access'(..), Virt(..))
 
 type TConst = TypeAst.TConst Type
 
@@ -44,10 +44,12 @@ data DecisionTree
 type Ction = (VariantIx, Span, TConst, [Expr])
 type Fun = (TypedVar, (Expr, Type))
 
+type Var = (Virt, TypedVar)
+
 data Expr'
     = Lit Const
-    | Var TypedVar
-    | App Expr Expr Type
+    | Var Var
+    | App Expr [Expr]
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
@@ -89,8 +91,8 @@ expr' (Expr _ e) = e
 fvExpr' :: Expr' -> Set TypedVar
 fvExpr' = \case
     Lit _ -> Set.empty
-    Var x -> Set.singleton x
-    App f a _ -> fvApp f a
+    Var (_, x) -> Set.singleton x
+    App f a -> Set.unions (map freeVars (f : a))
     If p c a -> fvIf p c a
     Fun (p, (b, _)) -> fvFun p b
     Let (VarDef (lhs, WithPos _ (_, rhs))) (Expr _ e) ->

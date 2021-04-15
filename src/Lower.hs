@@ -5,6 +5,7 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 
 import Misc
+import SrcPos
 import qualified Monomorphic as Ast
 import qualified Monomorphize
 import Low
@@ -43,8 +44,8 @@ lowerExpr (Ast.Expr p e) = Expr p (lowerExpr' e)
 lowerExpr' :: Ast.Expr' -> Expr'
 lowerExpr' = \case
     Ast.Lit c -> Lit c
-    Ast.Var tv -> Var $ lowerTypedVar tv
-    Ast.App f a t -> App (lowerExpr f) (lowerExpr a) (lowerType t)
+    Ast.Var v -> Var $ second lowerTypedVar v
+    Ast.App f a -> lowerApp f [a]
     Ast.If p c a -> If (lowerExpr p) (lowerExpr c) (lowerExpr a)
     Ast.Fun f -> Fun (lowerFun f)
     Ast.Let d e -> Let (lowerDef d) (lowerExpr e)
@@ -52,6 +53,22 @@ lowerExpr' = \case
     Ast.Ction c -> Ction $ lowerCtion c
     Ast.Sizeof t -> Sizeof $ lowerType t
     Ast.Absurd t -> Absurd $ lowerType t
+
+-- | Performs a sort of beta reduction
+lowerApp :: Ast.Expr -> [Ast.Expr] -> Expr'
+lowerApp = curry $ \case
+    (Ast.Expr _ (Ast.Fun (p, (b, _))), Ast.Expr _ a : as) -> Let
+        (VarDef
+            ( lowerTypedVar p
+            -- FIXME: This pos is pretty bad probably?
+            , WithPos (ice "read srcpos of VarDef from lowerApp")
+                      (ice "read inst of VarDef from lowerApp", lowerExpr' a)
+            )
+        )
+        (Expr Nothing (lowerApp b as))
+    (Ast.Expr _ (Ast.App f a), as) -> lowerApp f (a : as)
+    (Ast.Expr _ f, []) -> lowerExpr' f
+    (f, as) -> App (lowerExpr f) (map lowerExpr as)
 
 lowerDecisionTree :: Ast.DecisionTree -> DecisionTree
 lowerDecisionTree = \case

@@ -20,7 +20,7 @@ substDef s = \case
 substExpr :: Subst -> Expr -> Expr
 substExpr s (WithPos pos expr) = WithPos pos $ case expr of
     Lit c -> Lit c
-    Var v -> Var (substTypedVar s v)
+    Var v -> Var (second (substTypedVar s) v)
     App f a rt -> App (substExpr s f) (substExpr s a) (subst s rt)
     If p c a -> If (substExpr s p) (substExpr s c) (substExpr s a)
     Let def body -> Let (substDef s def) (substExpr s body)

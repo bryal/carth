@@ -10,6 +10,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer
 import Data.Bifunctor
+import Data.Functor
 import Data.Graph (SCC(..), stronglyConnComp)
 import Data.List hiding (span)
 import qualified Data.Map as Map
@@ -36,8 +37,9 @@ type Constraint = (ExpectedType, FoundType)
 
 data Env = Env
     { _envTypeDefs :: TypeDefs
-    -- Separarate global defs and local defs, because `generalize` only has to look at
-    -- local defs.
+    -- Separarate global (and virtual) defs and local defs, because `generalize` only has
+    -- to look at local defs.
+    , _envVirtuals :: Map String Scheme
     , _envGlobDefs :: Map String Scheme
     , _envLocalDefs :: Map String Scheme
     -- | Maps a constructor to its variant index in the type definition it
@@ -58,13 +60,12 @@ type Infer a = WriterT [Constraint] (ReaderT Env (StateT FreshTVs (Except TypeEr
 
 inferTopDefs :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr Defs
 inferTopDefs tdefs ctors externs defs =
-    let initEnv = Env
-            { _envTypeDefs = tdefs
-            , _envGlobDefs = Map.union (fmap (Forall Set.empty . fst) externs)
-                                       builtinVirtuals
-            , _envLocalDefs = Map.empty
-            , _envCtors = ctors
-            }
+    let initEnv = Env { _envTypeDefs = tdefs
+                      , _envVirtuals = builtinVirtuals
+                      , _envGlobDefs = fmap (Forall Set.empty . fst) externs
+                      , _envLocalDefs = Map.empty
+                      , _envCtors = ctors
+                      }
         freshTvs =
             let ls = "abcdehjkpqrstuvxyz"
                 ns = map show [1 :: Word .. 99]
@@ -73,6 +74,42 @@ inferTopDefs tdefs ctors externs defs =
     in  evalStateT
             (runReaderT (fmap fst (runWriterT (inferDefs envGlobDefs defs))) initEnv)
             freshTvs
+  where
+    builtinVirtuals :: Map String Scheme
+    builtinVirtuals =
+        let tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0 Nothing) a))
+            tva = tv "a"
+            ta = TVar tva
+            tvb = tv "b"
+            tb = TVar tvb
+            arithScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta ta))
+            bitwiseScm = arithScm
+            relScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta tBool))
+        in  Map.fromList
+                $ [ ("+", arithScm)
+                  , ("-", arithScm)
+                  , ("*", arithScm)
+                  , ("/", arithScm)
+                  , ("rem", arithScm)
+                  , ("shift-l", bitwiseScm)
+                  , ("shift-r", bitwiseScm)
+                  , ("ashift-r", bitwiseScm)
+                  , ("bit-and", bitwiseScm)
+                  , ("bit-or", bitwiseScm)
+                  , ("bit-xor", bitwiseScm)
+                  , ("=", relScm)
+                  , ("/=", relScm)
+                  , (">", relScm)
+                  , (">=", relScm)
+                  , ("<", relScm)
+                  , ("<=", relScm)
+                  , ("transmute", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
+                  , ("deref", Forall (Set.fromList [tva]) (TFun (TBox ta) ta))
+                  , ( "store"
+                    , Forall (Set.fromList [tva]) (TFun ta (TFun (TBox ta) (TBox ta)))
+                    )
+                  , ("cast", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
+                  ]
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
@@ -211,7 +248,7 @@ infer :: Parsed.Expr -> Infer (Type, Expr)
 infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Lit l -> pure (litType l, Lit l)
     Parsed.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
-    Parsed.Var x@(Id x') -> fmap (\t -> (t, Var (TypedVar x' t))) (lookupEnv x)
+    Parsed.Var x -> fmap (\(t, tv) -> (t, Var tv)) (lookupVar x)
     Parsed.App f a -> do
         ta <- fresh
         tr <- fresh
@@ -367,12 +404,13 @@ litType = \case
 typeStr :: Type
 typeStr = TConst ("Str", [])
 
-lookupEnv :: Id 'Small -> Infer Type
-lookupEnv (Id (WithPos pos x)) = do
-    eg <- view envGlobDefs
-    el <- view envLocalDefs
-    case (Map.lookup x el <|> Map.lookup x eg) of
-        Just scm -> instantiate scm
+lookupVar :: Id 'Small -> Infer (Type, Var)
+lookupVar (Id x'@(WithPos pos x)) = do
+    virt <- fmap (Map.lookup x) (view envVirtuals)
+    glob <- fmap (Map.lookup x) (view envGlobDefs)
+    local <- fmap (Map.lookup x) (view envLocalDefs)
+    case fmap (NonVirt, ) (local <|> glob) <|> fmap (Virt, ) virt of
+        Just (virt, scm) -> instantiate scm <&> \t -> (t, (virt, TypedVar x' t))
         Nothing -> throwError (UndefVar pos x)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a

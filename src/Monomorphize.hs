@@ -42,7 +42,8 @@ instance Monoid DefInsts where
 monomorphize :: Checked.Program -> Program
 monomorphize (Checked.Program (Topo defs) datas externs) =
     let
-        callMain = noPos (Checked.Var (Checked.TypedVar "main" Checked.mainType))
+        callMain =
+            noPos (Checked.Var (NonVirt, (Checked.TypedVar "main" Checked.mainType)))
         monoExterns = mapM (\(x, (t, p)) -> fmap (\t' -> (x, t', p)) (monotype t))
                            (Map.toList externs)
         monoDefs = foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
@@ -90,11 +91,13 @@ evalMono ma =
 mono :: Checked.Expr -> Mono Expr
 mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.Lit c -> pure (Lit c)
-    Checked.Var (Checked.TypedVar x t) -> do
+    Checked.Var (virt, Checked.TypedVar x t) -> do
         t' <- monotype t
-        tell (DefInsts (Map.singleton x (Set.singleton t')))
-        pure (Var (TypedVar x t'))
-    Checked.App f a rt -> liftA3 App (mono f) (mono a) (monotype rt)
+        case virt of
+            Virt -> pure ()
+            NonVirt -> tell (DefInsts (Map.singleton x (Set.singleton t')))
+        pure (Var (virt, TypedVar x t'))
+    Checked.App f a _ -> liftA2 App (mono f) (mono a)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     Checked.Fun f -> fmap (Fun) (monoFun f)
     Checked.Let d e -> monoLet pos d e

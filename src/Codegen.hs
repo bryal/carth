@@ -19,7 +19,6 @@ import Control.Monad.Except
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
-import Data.Maybe
 import Data.List
 import Data.Function
 import Data.Functor.Identity
@@ -264,8 +263,8 @@ genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
     parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> propagate =<< genConst c
-        Var x -> propagate =<< lookupVar x
-        App f e _ -> genBetaReduceApp (f, [e])
+        Var (_, x) -> propagate =<< lookupVar x
+        App f as -> genApp f as
         If p c a -> genExpr p >>= \p' -> genCondBr p' (genExpr c) (genExpr a)
         Fun (p, b) -> assign lambdaParentFunc parent *> genExprLambda p b >>= propagate
         Let d b -> genLet d b
@@ -321,17 +320,10 @@ instance TailVal () where
         () <- default'
         forM_ cs $ \(l, gen) -> assign currentBlockLabel l *> gen
 
--- | Beta-reduction and closure application
-genBetaReduceApp :: TailVal v => (Expr, [Expr]) -> Gen v
-genBetaReduceApp applic = ask >>= \env -> case applic of
-    (Expr _ (Fun (p, (b, _))), ae : aes) -> do
-        a <- genExpr ae
-        withVal p a (genBetaReduceApp (b, aes))
-    (Expr _ (App fe ae _), aes) -> genBetaReduceApp (fe, ae : aes)
-    (fe, []) -> genExpr fe
-    (Expr _ (Var x), aes) | isNothing (lookupVar' x env) ->
-        propagate =<< genAppBuiltinVirtual x (map genExpr aes)
-    (fe, aes) -> do
+genApp :: TailVal v => Expr -> [Expr] -> Gen v
+genApp fe aes = case fe of
+    Expr _ (Var (Virt, x)) -> propagate =<< genAppBuiltinVirtual x (map genExpr aes)
+    _ -> do
         f <- genExpr fe
         as <- mapM genExpr (init aes)
         closure <- foldlM app' f as
@@ -348,8 +340,8 @@ genCondBr predV genConseq genAlt = do
 
 genLet :: TailVal v => Def -> Expr -> Gen v
 genLet def body = case def of
-    VarDef (lhs, WithPos pos (_, rhs)) ->
-        genExpr (Expr (Just pos) rhs) >>= \rhs' -> withVal lhs rhs' (genExpr body)
+    VarDef (lhs, WithPos _ (_, rhs)) ->
+        genExpr (Expr Nothing rhs) >>= \rhs' -> withVal lhs rhs' (genExpr body)
     RecDefs ds -> do
         (binds, cs) <- fmap unzip $ forM ds $ \case
             (lhs, WithPos _ (_, (p, (fb, fbt)))) -> do
