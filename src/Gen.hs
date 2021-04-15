@@ -44,8 +44,8 @@ import Misc
 import Pretty
 import qualified TypeAst
 import qualified Low as Ast
+import qualified Lower as Ast
 import Low (TypedVar(..), TPrim(..))
-import qualified Monomorphize
 import SrcPos
 
 
@@ -742,7 +742,7 @@ call callconv tailkind f as meta = Call { tailCallKind = tailkind
 withBuiltins :: Gen' a -> Gen' a
 withBuiltins ga = builtinExterns
     >>= \es -> augment builtins (Map.union builtinsHidden es) ga
-    where builtinExterns = mapM (fmap snd . genExternTypeSig) Monomorphize.builtinExterns
+    where builtinExterns = mapM (fmap snd . genExternTypeSig) Ast.builtinExterns
 
 defineBuiltinsHidden :: [Definition]
 defineBuiltinsHidden = map

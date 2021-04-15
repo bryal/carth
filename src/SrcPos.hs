@@ -27,6 +27,9 @@ instance Ord a => Ord (WithPos a) where
 instance HasPos (WithPos a) where
     getPos (WithPos p _) = p
 
+instance Functor WithPos where
+    fmap = mapPosd
+
 mapPosd :: (a -> b) -> WithPos a -> WithPos b
 mapPosd f (WithPos p a) = WithPos p (f a)
 

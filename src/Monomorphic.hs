@@ -32,12 +32,14 @@ data TypedVar = TypedVar String Type
 
 type VariantTypes = [Type]
 
-data Access
+data Access' t
     = Obj
-    | As Access Span [Type]
-    | Sel Word32 Span Access
-    | ADeref Access
+    | As (Access' t) Span [t]
+    | Sel Word32 Span (Access' t)
+    | ADeref (Access' t)
     deriving (Show, Eq, Ord)
+
+type Access = Access' Type
 
 type VarBindings = [(TypedVar, Access)]
 
@@ -77,7 +79,6 @@ type Externs = [(String, Type, SrcPos)]
 data Program = Program Defs Datas Externs
     deriving Show
 
-
 instance TypeAst Type where
     tprim = TPrim
     tconst = TConst
@@ -90,6 +91,12 @@ instance FreeVars Expr TypedVar where
 instance FreeVars Expr' TypedVar where
     freeVars = fvExpr'
 
+instance Functor Access' where
+    fmap f = \case
+        Obj -> Obj
+        As a s ts -> As (fmap f a) s (map f ts)
+        Sel i s a -> Sel i s (fmap f a)
+        ADeref a -> ADeref (fmap f a)
 
 expr' :: Expr -> Expr'
 expr' (Expr _ e) = e

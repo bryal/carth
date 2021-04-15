@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, DataKinds #-}
+{-# LANGUAGE TemplateHaskell, DataKinds, RankNTypes #-}
 
 module Infer (inferTopDefs, checkType', checkType'') where
 

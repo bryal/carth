@@ -77,7 +77,6 @@ library
     , FlexibleContexts
     , FlexibleInstances
     , OverloadedStrings
-    , RankNTypes
     , MultiParamTypeClasses
     , TypeSynonymInstances
     , KindSignatures
@@ -107,7 +106,6 @@ executable carth
     , FlexibleContexts
     , FlexibleInstances
     , OverloadedStrings
-    , RankNTypes
     , MultiParamTypeClasses
     , TypeSynonymInstances
     , KindSignatures
@@ -138,7 +136,6 @@ test-suite carth-test
     , FlexibleContexts
     , FlexibleInstances
     , OverloadedStrings
-    , RankNTypes
     , MultiParamTypeClasses
     , TypeSynonymInstances
     , KindSignatures

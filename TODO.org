@@ -661,6 +661,8 @@ Features and other stuff to do/implement in/around Carth.
 
   Polysemy seems like the best one, but I'd have to do a little
   research. https://github.com/thma/PolysemyCleanArchitecture/tree/3a9354a5c31eaf03009e389ce49b318881a2460f#readme
+
+  https://koka-lang.github.io/koka/doc/index.html
 * INACTIVE GRIN as alternative to LLVM and some of my own Codegen
   https://github.com/grin-compiler/grin
 
@@ -1039,3 +1041,14 @@ Features and other stuff to do/implement in/around Carth.
 ** References
    - [[https://gist.github.com/zeux/3ce4fcc3a43072b4315abde95319ecb6][How does clang 2.7 hold up in 2021?]]
 * NEXT Try our an alternative prelude, like relude
+* TODO `tail` keyword to ensure tail call or compiler error
+  Sometimes you want to be sure that tail calls are optimized. To be
+  able to assert this at compile time, so as to not accidentally
+  create a stack consuming function when it really matters, add a
+  `tail` keyword.
+
+  TCO should already performed as an optimization, but with `tail`,
+  you can ensure that you get a compiler error if the call is not
+  actually a tail call, if you've done something wrong or
+  something. Sort of like Rust is considering the `become` keyword to
+  work?

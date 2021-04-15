@@ -1,4 +1,4 @@
-{-# LANGUAGE DuplicateRecordFields, GADTs #-}
+{-# LANGUAGE DuplicateRecordFields, GADTs, RankNTypes #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Codegen (codegen) where

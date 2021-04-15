@@ -1,3 +1,5 @@
+{-# LANGUAGE RankNTypes #-}
+
 module Misc where
 
 import Data.List (intercalate)
