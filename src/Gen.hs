@@ -969,7 +969,7 @@ emitReg s instr = newName s >>= flip emitNamedReg instr
 
 emitAnonReg :: FunInstr -> Gen Operand
 emitAnonReg instr = newAnonRegister >>= flip emitNamedReg instr
-    where newAnonRegister = fmap UnName (registerCount <<+= 1)
+    where newAnonRegister = newName "tmp"
 
 commitFinalFuncBlock :: Terminator -> Gen ()
 commitFinalFuncBlock t = commitToNewBlock
@@ -988,7 +988,7 @@ newName :: String -> Gen Name
 newName = lift . newName'
 
 newName' :: String -> Gen' Name
-newName' s = fmap (mkName . (s ++) . show) (registerCount <<+= 1)
+newName' s = fmap (mkName . ((s ++ "_") ++) . show) (registerCount <<+= 1)
 
 newMetadataId :: Gen MetadataNodeID
 newMetadataId = lift newMetadataId'
