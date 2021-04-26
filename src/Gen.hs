@@ -321,7 +321,7 @@ internFunc
     -> [(ShortByteString, MDRef MDNode)]
     -> Global
 internFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.Private
-                                      , LLGlob.visibility = LLVis.Hidden
+                                      , LLGlob.visibility = LLVis.Default
                                       , LLGlob.dllStorageClass = Nothing
                                       , LLGlob.callingConvention = LLCallConv.Fast
                                       , LLGlob.returnAttributes = []
