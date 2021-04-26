@@ -55,7 +55,7 @@ genExterns = fmap join . mapM genExtern
 genExtern :: (String, Ast.Type, SrcPos) -> Gen' [Definition]
 genExtern (name, t, pos) = do
     ((pts, rt), (ps, rt')) <- genExternTypeSig t
-    let externDef = GlobalDefinition (externFunc (mkName name) ps rt' [] [])
+    let externDef = GlobalDefinition (externFunc (mkName name) ps rt' [])
     wrapperDefs <- genWrapper pos name rt pts
     pure (externDef : wrapperDefs)
 

@@ -8,7 +8,6 @@ import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
-import qualified LLVM.AST.Operand as LLOp
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
 import Data.String
@@ -79,7 +78,6 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runEx
                                   , defineBuiltinsHidden
                                   , externs'
                                   , globDefs
-                                  , globMetadataDefs
                                   ]
         }
   where
@@ -99,47 +97,6 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runEx
                     (mkName (mangleName (x, us)))
                 )
         augment env (Map.fromList sigs') ga
-
-    fileId = MetadataNodeID 1
-    debugInfoVersionId = MetadataNodeID 2
-    globMetadataDefs =
-        [ MetadataNodeDefinition compileUnitId
-            $ DINode (LLOp.DIScope (LLOp.DICompileUnit compileUnitDef))
-        , MetadataNodeDefinition fileId $ DINode (LLOp.DIScope (LLOp.DIFile fileDef))
-        , MetadataNodeDefinition debugInfoVersionId $ MDTuple
-            [ Just (MDValue (litI32 2))
-            , Just (MDString "Debug Info Version")
-            , Just (MDValue (litI32 3))
-            ]
-        , NamedMetadataDefinition "llvm.dbg.cu" [compileUnitId]
-        , NamedMetadataDefinition "llvm.module.flags" [debugInfoVersionId]
-        ]
-    compileUnitDef = LLOp.CompileUnit
-        { LLOp.language = let unstandardized_c = 1 in unstandardized_c
-        , LLOp.file = MDRef fileId
-        , LLOp.producer = "carth version alpha"
-        , LLOp.optimized = False
-        , LLOp.flags = ""
-        , LLOp.runtimeVersion = 0
-        , LLOp.splitDebugFileName = ""
-        , LLOp.emissionKind = LLOp.FullDebug
-        , LLOp.enums = []
-        , LLOp.retainedTypes = []
-        , LLOp.globals = []
-        , LLOp.imports = []
-        , LLOp.macros = []
-        , LLOp.dWOId = 0
-        , LLOp.splitDebugInlining = False
-        , LLOp.debugInfoForProfiling = False
-        , LLOp.nameTableKind = LLOp.NameTableKindNone
-        , LLOp.debugBaseAddress = False
-        }
-    fileDef =
-        let (dir, file) = splitFileName moduleFilePath
-        in  LLOp.File { LLOp.filename = fromString file
-                      , LLOp.directory = fromString dir
-                      , LLOp.checksum = Nothing
-                      }
 
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct
 --   where, if there are more than 1 variant, the first element is the
@@ -184,14 +141,14 @@ genMain = do
             (mkName "carth_init")
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    Out basicBlocks _ _ _ <- execWriterT $ do
+    Out basicBlocks _ _ <- execWriterT $ do
         emitDo' =<< callBuiltin "install_stackoverflow_handler" []
         emitDo (callIntern Nothing init_ [(null' typeGenericPtr, []), (litUnit, [])])
         iof <- lookupVar (TypedVar "main" mainType)
         f <- genIndexStruct iof [0]
         _ <- app' @Val f (VLocal litRealWorld)
         commitFinalFuncBlock (ret (litI32 0))
-    pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks []))
+    pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks))
 
 separateFunDefs :: [VarDef] -> ([FunDef], [VarDef])
 separateFunDefs = partitionWith $ \(lhs, (ts, WithPos dpos e)) -> case e of

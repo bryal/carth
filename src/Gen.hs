@@ -18,18 +18,14 @@ import Data.Foldable
 import Data.Bifunctor
 import Data.Functor
 import Data.List
-import Data.String
 import Data.Maybe
 import qualified Data.Map as Map
 import Lens.Micro.Platform (makeLenses, modifying, use, view, assign, to)
-import System.FilePath
 import LLVM.AST
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.ParameterAttribute
-import LLVM.Prelude (ShortByteString)
 import qualified LLVM.AST.CallingConvention as LLCallConv
-import qualified LLVM.AST.Operand as LLOp
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.Float as LLFloat
@@ -54,12 +50,10 @@ data GenErr
     | CastErr SrcPos Ast.Type Ast.Type
     | NoBuiltinVirtualInstance SrcPos String Ast.Type
 
-type Instr = InstructionMetadata -> Instruction
-
 -- | An instruction that returns a value. The name refers to the fact that a
 --   mathematical function always returns a value, but an imperative procedure
 --   may only produce side effects.
-data FunInstr = WithRetType Instr Type
+data FunInstr = WithRetType Instruction Type
 
 data Env = Env
     { _localEnv :: Map TypedVar Val
@@ -74,12 +68,10 @@ data St = St
     { _currentBlockLabel :: Name
     , _currentBlockInstrs :: [Named Instruction]
     , _registerCount :: Word
-    , _metadataCount :: Word
     -- | Keep track of the parent function name so that we can name the
     --   outermost lambdas of a function definition well.
     , _lambdaParentFunc :: Maybe String
     , _outerLambdaN :: Word
-    , _srcPosToMetadata :: Map SrcPos (MDRef MDNode)
     }
 
 type Gen'T m = StateT St (ReaderT Env m)
@@ -91,7 +83,6 @@ data Out = Out
     { _outBlocks :: [BasicBlock]
     , _outStrings :: [(Name, String)]
     , _outFuncs :: [(Name, [TypedVar], SrcPos, TypedVar, Gen Type)]
-    , _outSrcPos :: [(SrcPos, MetadataNodeID)]
     }
 
 type Gen = WriterT Out Gen'
@@ -106,10 +97,9 @@ makeLenses ''Out
 
 
 instance Semigroup Out where
-    Out bs1 ss1 fs1 ps1 <> Out bs2 ss2 fs2 ps2 =
-        Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2) (ps1 <> ps2)
+    Out bs1 ss1 fs1 <> Out bs2 ss2 fs2 = Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2)
 instance Monoid Out where
-    mempty = Out [] [] [] []
+    mempty = Out [] [] []
 
 instance Typed Val where
     typeOf = \case
@@ -126,10 +116,7 @@ genFunDef
 genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs srcPoss) <- runWriterT $ do
-        -- Two equal SrcPos's in different scopes are not equal at the
-        -- metadata level. Reset cache every scope.
-        assign srcPosToMetadata Map.empty
+    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
         (capturesParam, captureMembers) <- genExtractCaptures
         pt' <- genType pt
         px' <- newName px
@@ -138,14 +125,12 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
             $ withVal ptv pRef (withVals captureMembers genBody)
         let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
         pure (rt', fParams')
-    (funScopeMdId, funScopeMdDef) <- defineFunScopeMetadata
     ss <- mapM globStrVar globStrings
     ls <- fmap
         concat
         (mapM (fmap (uncurry ((:) . GlobalDefinition)) . genFunDef) lambdaFuncs)
-    ps <- mapM (defineSrcPos (MDRef funScopeMdId)) srcPoss
-    let f = internFunc name fParams rt basicBlocks [("dbg", MDRef funScopeMdId)]
-    pure (f, concat ss ++ ls ++ (funScopeMdDef : ps))
+    let f = internFunc name fParams rt basicBlocks
+    pure (f, concat ss ++ ls)
   where
     globStrVar (strName, s) = do
         name_inner <- newName' "strlit_inner"
@@ -179,57 +164,6 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
                     )
                     (zip fvs [0 ..])
                 pure (zip fvs captureVals)
-
-    defineSrcPos funScopeMdRef (SrcPos _ line col _, mdId) = do
-        let loc =
-                LLOp.DILocation
-                    $ LLOp.Location (fromIntegral line) (fromIntegral col)
-                    $ funScopeMdRef
-        pure (MetadataNodeDefinition mdId loc)
-    defineFunScopeMetadata :: Gen' (MetadataNodeID, Definition)
-    defineFunScopeMetadata = do
-        mdId <- newMetadataId'
-        pure
-            ( mdId
-            , MetadataNodeDefinition
-                mdId
-                (DINode $ LLOp.DIScope $ LLOp.DILocalScope
-                    (LLOp.DISubprogram funMetadataSubprog)
-                )
-            )
-    funMetadataSubprog =
-        let SrcPos path line _ _ = dpos
-            -- TODO: Maybe only define this once and cache MDRef somewhere?
-            fileNode =
-                let (dir, file) = splitFileName path
-                in  LLOp.File { LLOp.filename = fromString file
-                              , LLOp.directory = fromString dir
-                              , LLOp.checksum = Nothing
-                              }
-        in  LLOp.Subprogram { LLOp.scope = Just (MDInline (LLOp.DIFile fileNode))
-                            , LLOp.name = nameSBString name
-                            , LLOp.linkageName = nameSBString name
-                            , LLOp.file = Just (MDInline fileNode)
-                            , LLOp.line = fromIntegral line
-                            , LLOp.type' = Just (MDInline (LLOp.SubroutineType [] 0 []))
-                            , LLOp.localToUnit = True
-                            , LLOp.definition = True
-                            , LLOp.scopeLine = fromIntegral line
-                            , LLOp.containingType = Nothing
-                            , LLOp.virtuality = LLOp.NoVirtuality
-                            , LLOp.virtualityIndex = 0
-                            , LLOp.thisAdjustment = 0
-                            , LLOp.flags = []
-                            , LLOp.optimized = False
-                            , LLOp.unit = Just compileUnitRef
-                            , LLOp.templateParams = []
-                            , LLOp.declaration = Nothing
-                            , LLOp.retainedNodes = []
-                            , LLOp.thrownTypes = []
-                            }
-    nameSBString = \case
-        Name s -> s
-        UnName n -> fromString (show n)
 
 genTailWrapInLambdas
     :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
@@ -286,12 +220,6 @@ genLambda' p@(TypedVar _ pt) (genBody, bt) captures fvXs = do
     scribe outFuncs [(fname, fvXs, pos, p, genBody $> bt)]
     genStruct [captures, f]
 
-compileUnitRef :: MDRef LLOp.DICompileUnit
-compileUnitRef = MDRef compileUnitId
-
-compileUnitId :: MetadataNodeID
-compileUnitId = MetadataNodeID 0
-
 runGen' :: Monad m => StateT St (ReaderT Env m) a -> m a
 runGen' g = runReaderT (evalStateT g initSt) initEnv
   where
@@ -305,65 +233,49 @@ runGen' g = runReaderT (evalStateT g initSt) initEnv
     initSt = St { _currentBlockLabel = "entry"
                 , _currentBlockInstrs = []
                 , _registerCount = 0
-                , _metadataCount = 3
                 , _lambdaParentFunc = Nothing
                 , _outerLambdaN = 1
-                -- TODO: Maybe add a pass before this that just generates all
-                --       SrcPos:s, separately and more cleanly?
-                , _srcPosToMetadata = Map.empty
                 }
 
-internFunc
-    :: Name
-    -> [Parameter]
-    -> Type
-    -> [BasicBlock]
-    -> [(ShortByteString, MDRef MDNode)]
-    -> Global
-internFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.Private
-                                      , LLGlob.visibility = LLVis.Default
-                                      , LLGlob.dllStorageClass = Nothing
-                                      , LLGlob.callingConvention = LLCallConv.Fast
-                                      , LLGlob.returnAttributes = []
-                                      , LLGlob.returnType = rt
-                                      , LLGlob.name = n
-                                      , LLGlob.parameters = (ps, False)
-                                      , LLGlob.functionAttributes = []
-                                      , LLGlob.section = Nothing
-                                      , LLGlob.comdat = Nothing
-                                      , LLGlob.alignment = 0
-                                      , LLGlob.garbageCollectorName = Nothing
-                                      , LLGlob.prefix = Nothing
-                                      , LLGlob.basicBlocks = bs
-                                      , LLGlob.personalityFunction = Nothing
-                                      , LLGlob.metadata = meta
-                                      }
+internFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
+internFunc n ps rt bs = Function { LLGlob.linkage = LLLink.External
+                                 , LLGlob.visibility = LLVis.Default
+                                 , LLGlob.dllStorageClass = Nothing
+                                 , LLGlob.callingConvention = LLCallConv.Fast
+                                 , LLGlob.returnAttributes = []
+                                 , LLGlob.returnType = rt
+                                 , LLGlob.name = n
+                                 , LLGlob.parameters = (ps, False)
+                                 , LLGlob.functionAttributes = []
+                                 , LLGlob.section = Nothing
+                                 , LLGlob.comdat = Nothing
+                                 , LLGlob.alignment = 0
+                                 , LLGlob.garbageCollectorName = Nothing
+                                 , LLGlob.prefix = Nothing
+                                 , LLGlob.basicBlocks = bs
+                                 , LLGlob.personalityFunction = Nothing
+                                 , LLGlob.metadata = []
+                                 }
 
-externFunc
-    :: Name
-    -> [Parameter]
-    -> Type
-    -> [BasicBlock]
-    -> [(ShortByteString, MDRef MDNode)]
-    -> Global
-externFunc n ps rt bs meta = Function { LLGlob.linkage = LLLink.External
-                                      , LLGlob.visibility = LLVis.Default
-                                      , LLGlob.dllStorageClass = Nothing
-                                      , LLGlob.callingConvention = LLCallConv.C
-                                      , LLGlob.returnAttributes = []
-                                      , LLGlob.returnType = rt
-                                      , LLGlob.name = n
-                                      , LLGlob.parameters = (ps, False)
-                                      , LLGlob.functionAttributes = []
-                                      , LLGlob.section = Nothing
-                                      , LLGlob.comdat = Nothing
-                                      , LLGlob.alignment = 0
-                                      , LLGlob.garbageCollectorName = Nothing
-                                      , LLGlob.prefix = Nothing
-                                      , LLGlob.basicBlocks = bs
-                                      , LLGlob.personalityFunction = Nothing
-                                      , LLGlob.metadata = meta
-                                      }
+externFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global
+externFunc n ps rt bs = Function { LLGlob.linkage = LLLink.External
+                                 , LLGlob.visibility = LLVis.Default
+                                 , LLGlob.dllStorageClass = Nothing
+                                 , LLGlob.callingConvention = LLCallConv.C
+                                 , LLGlob.returnAttributes = []
+                                 , LLGlob.returnType = rt
+                                 , LLGlob.name = n
+                                 , LLGlob.parameters = (ps, False)
+                                 , LLGlob.functionAttributes = []
+                                 , LLGlob.section = Nothing
+                                 , LLGlob.comdat = Nothing
+                                 , LLGlob.alignment = 0
+                                 , LLGlob.garbageCollectorName = Nothing
+                                 , LLGlob.prefix = Nothing
+                                 , LLGlob.basicBlocks = bs
+                                 , LLGlob.personalityFunction = Nothing
+                                 , LLGlob.metadata = []
+                                 }
 
 simpleGlobVar :: Name -> Type -> LLConst.Constant -> Global
 simpleGlobVar name t = simpleGlobVar' False name t . Just
@@ -712,14 +624,12 @@ callIntern
     :: Maybe TailCallKind
     -> Operand
     -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
-    -> InstructionMetadata
     -> Instruction
 callIntern = call LLCallConv.Fast
 
 callExtern
     :: Operand
     -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
-    -> InstructionMetadata
     -> Instruction
 callExtern = call LLCallConv.C (Just NoTail)
 
@@ -728,16 +638,15 @@ call
     -> Maybe TailCallKind
     -> Operand
     -> [(Operand, [LLVM.AST.ParameterAttribute.ParameterAttribute])]
-    -> InstructionMetadata
     -> Instruction
-call callconv tailkind f as meta = Call { tailCallKind = tailkind
-                                        , callingConvention = callconv
-                                        , returnAttributes = []
-                                        , function = Right f
-                                        , arguments = as
-                                        , functionAttributes = []
-                                        , metadata = meta
-                                        }
+call callconv tailkind f as = Call { tailCallKind = tailkind
+                                   , callingConvention = callconv
+                                   , returnAttributes = []
+                                   , function = Right f
+                                   , arguments = as
+                                   , functionAttributes = []
+                                   , metadata = []
+                                   }
 
 withBuiltins :: Gen' a -> Gen' a
 withBuiltins ga = builtinExterns
@@ -746,7 +655,7 @@ withBuiltins ga = builtinExterns
 
 defineBuiltinsHidden :: [Definition]
 defineBuiltinsHidden = map
-    (\(x, (ps, tr)) -> GlobalDefinition (externFunc (mkName x) ps tr [] []))
+    (\(x, (ps, tr)) -> GlobalDefinition (externFunc (mkName x) ps tr []))
     (Map.toList builtinsHidden)
 
 builtinsHidden :: Map String ([Parameter], Type)
@@ -938,31 +847,16 @@ alignmentof = \case
 emitDo' :: FunInstr -> Gen ()
 emitDo' (WithRetType instr _) = emitDo instr
 
-emitDo :: Instr -> Gen ()
+emitDo :: Instruction -> Gen ()
 emitNamedReg :: Name -> FunInstr -> Gen Operand
 (emitDo, emitNamedReg) =
     ( emit' Do
     , \reg (WithRetType instr rt) -> emit' (reg :=) instr $> LocalReference rt reg
     )
   where
-    emit' :: (Instruction -> Named Instruction) -> Instr -> Gen ()
+    emit' :: (Instruction -> Named Instruction) -> Instruction -> Gen ()
     emit' nameInstruction instr = do
-        meta <- view srcPos >>= \case
-            Just pos -> do
-                loc <- genSrcPos pos
-                pure [("dbg", loc)]
-            Nothing -> pure []
-        modifying currentBlockInstrs (nameInstruction (instr meta) :)
-    genSrcPos :: SrcPos -> Gen (MDRef MDNode)
-    genSrcPos pos = do
-        use (srcPosToMetadata . to (Map.lookup pos)) >>= \case
-            Just mdRef -> pure mdRef
-            Nothing -> do
-                mdId <- newMetadataId
-                let mdRef = MDRef mdId
-                scribe outSrcPos [(pos, mdId)]
-                modifying srcPosToMetadata (Map.insert pos mdRef)
-                pure (mdRef)
+        modifying currentBlockInstrs (nameInstruction instr :)
 
 emitReg :: String -> FunInstr -> Gen Operand
 emitReg s instr = newName s >>= flip emitNamedReg instr
@@ -990,12 +884,6 @@ newName = lift . newName'
 newName' :: String -> Gen' Name
 newName' s = fmap (mkName . ((s ++ "_") ++) . show) (registerCount <<+= 1)
 
-newMetadataId :: Gen MetadataNodeID
-newMetadataId = lift newMetadataId'
-
-newMetadataId' :: Gen' MetadataNodeID
-newMetadataId' = fmap MetadataNodeID (metadataCount <<+= 1)
-
 lookupEnum :: MonadReader Env m => Ast.TConst -> m (Maybe Word32)
 lookupEnum tc = view (enumTypes . to (tconstLookup tc))
 
@@ -1015,7 +903,7 @@ genIndexStruct v is = case v of
     VVar ptr -> fmap VVar (emitAnonReg =<< getelementptr ptr (litI64 0) is)
 
 extractvalue :: Operand -> [Word32] -> Gen FunInstr
-extractvalue struct is = fmap (WithRetType (ExtractValue struct is))
+extractvalue struct is = fmap (WithRetType (ExtractValue struct is []))
                               (getIndexed (typeOf struct) (map fromIntegral is))
 
 undef :: Type -> Operand
@@ -1040,141 +928,141 @@ switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
 switch x def cs = Switch x def cs []
 
 add :: Operand -> Operand -> FunInstr
-add a b = WithRetType (Add False False a b) (typeOf a)
+add a b = WithRetType (Add False False a b []) (typeOf a)
 
 fadd :: Operand -> Operand -> FunInstr
-fadd a b = WithRetType (FAdd noFastMathFlags a b) (typeOf a)
+fadd a b = WithRetType (FAdd noFastMathFlags a b []) (typeOf a)
 
 sub :: Operand -> Operand -> FunInstr
-sub a b = WithRetType (Sub False False a b) (typeOf a)
+sub a b = WithRetType (Sub False False a b []) (typeOf a)
 
 fsub :: Operand -> Operand -> FunInstr
-fsub a b = WithRetType (FSub noFastMathFlags a b) (typeOf a)
+fsub a b = WithRetType (FSub noFastMathFlags a b []) (typeOf a)
 
 mul :: Operand -> Operand -> FunInstr
-mul a b = WithRetType (Mul False False a b) (typeOf a)
+mul a b = WithRetType (Mul False False a b []) (typeOf a)
 
 fmul :: Operand -> Operand -> FunInstr
-fmul a b = WithRetType (FMul noFastMathFlags a b) (typeOf a)
+fmul a b = WithRetType (FMul noFastMathFlags a b []) (typeOf a)
 
 udiv :: Operand -> Operand -> FunInstr
-udiv a b = WithRetType (UDiv False a b) (typeOf a)
+udiv a b = WithRetType (UDiv False a b []) (typeOf a)
 
 sdiv :: Operand -> Operand -> FunInstr
-sdiv a b = WithRetType (SDiv False a b) (typeOf a)
+sdiv a b = WithRetType (SDiv False a b []) (typeOf a)
 
 fdiv :: Operand -> Operand -> FunInstr
-fdiv a b = WithRetType (FDiv noFastMathFlags a b) (typeOf a)
+fdiv a b = WithRetType (FDiv noFastMathFlags a b []) (typeOf a)
 
 urem :: Operand -> Operand -> FunInstr
-urem a b = WithRetType (URem a b) (typeOf a)
+urem a b = WithRetType (URem a b []) (typeOf a)
 
 srem :: Operand -> Operand -> FunInstr
-srem a b = WithRetType (SRem a b) (typeOf a)
+srem a b = WithRetType (SRem a b []) (typeOf a)
 
 frem :: Operand -> Operand -> FunInstr
-frem a b = WithRetType (FRem noFastMathFlags a b) (typeOf a)
+frem a b = WithRetType (FRem noFastMathFlags a b []) (typeOf a)
 
 shl :: Operand -> Operand -> FunInstr
-shl a b = WithRetType (Shl False False a b) (typeOf a)
+shl a b = WithRetType (Shl False False a b []) (typeOf a)
 
 lshr :: Operand -> Operand -> FunInstr
-lshr a b = WithRetType (LShr False a b) (typeOf a)
+lshr a b = WithRetType (LShr False a b []) (typeOf a)
 
 ashr :: Operand -> Operand -> FunInstr
-ashr a b = WithRetType (AShr False a b) (typeOf a)
+ashr a b = WithRetType (AShr False a b []) (typeOf a)
 
 and' :: Operand -> Operand -> FunInstr
-and' a b = WithRetType (And a b) (typeOf a)
+and' a b = WithRetType (And a b []) (typeOf a)
 
 or' :: Operand -> Operand -> FunInstr
-or' a b = WithRetType (Or a b) (typeOf a)
+or' a b = WithRetType (Or a b []) (typeOf a)
 
 xor :: Operand -> Operand -> FunInstr
-xor a b = WithRetType (Xor a b) (typeOf a)
+xor a b = WithRetType (Xor a b []) (typeOf a)
 
 icmp :: LLIPred.IntegerPredicate -> Operand -> Operand -> FunInstr
-icmp p a b = WithRetType (ICmp p a b) i1
+icmp p a b = WithRetType (ICmp p a b []) i1
 
 fcmp :: LLFPred.FloatingPointPredicate -> Operand -> Operand -> FunInstr
-fcmp p a b = WithRetType (FCmp p a b) i1
+fcmp p a b = WithRetType (FCmp p a b []) i1
 
 bitcast :: Operand -> Type -> FunInstr
-bitcast x t = WithRetType (BitCast x t) t
+bitcast x t = WithRetType (BitCast x t []) t
 
 inttoptr :: Operand -> Type -> FunInstr
-inttoptr x t = WithRetType (IntToPtr x t) t
+inttoptr x t = WithRetType (IntToPtr x t []) t
 
 ptrtoint :: Operand -> Type -> FunInstr
-ptrtoint x t = WithRetType (PtrToInt x t) t
+ptrtoint x t = WithRetType (PtrToInt x t []) t
 
 trunc :: Operand -> Type -> FunInstr
-trunc x t = WithRetType (Trunc x t) t
+trunc x t = WithRetType (Trunc x t []) t
 
 zext :: Operand -> Type -> FunInstr
-zext x t = WithRetType (ZExt x t) t
+zext x t = WithRetType (ZExt x t []) t
 
 sext :: Operand -> Type -> FunInstr
-sext x t = WithRetType (SExt x t) t
+sext x t = WithRetType (SExt x t []) t
 
 fptrunc :: Operand -> Type -> FunInstr
-fptrunc x t = WithRetType (FPTrunc x t) t
+fptrunc x t = WithRetType (FPTrunc x t []) t
 
 fpext :: Operand -> Type -> FunInstr
-fpext x t = WithRetType (FPExt x t) t
+fpext x t = WithRetType (FPExt x t []) t
 
 fptoui :: Operand -> Type -> FunInstr
-fptoui x t = WithRetType (FPToUI x t) t
+fptoui x t = WithRetType (FPToUI x t []) t
 
 fptosi :: Operand -> Type -> FunInstr
-fptosi x t = WithRetType (FPToSI x t) t
+fptosi x t = WithRetType (FPToSI x t []) t
 
 uitofp :: Operand -> Type -> FunInstr
-uitofp x t = WithRetType (UIToFP x t) t
+uitofp x t = WithRetType (UIToFP x t []) t
 
 sitofp :: Operand -> Type -> FunInstr
-sitofp x t = WithRetType (SIToFP x t) t
+sitofp x t = WithRetType (SIToFP x t []) t
 
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
-insertvalue s e is = WithRetType (InsertValue s e is) (typeOf s)
+insertvalue s e is = WithRetType (InsertValue s e is []) (typeOf s)
 
 getelementptr :: Operand -> Operand -> [Word32] -> Gen FunInstr
 getelementptr addr offset memberIs = fmap
-    (WithRetType $ \meta -> GetElementPtr { inBounds = False
-                                          , address = addr
-                                          , indices = offset : map litU32 memberIs
-                                          , metadata = meta
-                                          }
+    (WithRetType $ GetElementPtr { inBounds = False
+                                 , address = addr
+                                 , indices = offset : map litU32 memberIs
+                                 , metadata = []
+                                 }
     )
     (fmap LLType.ptr (getIndexed (getPointee (typeOf addr)) (map fromIntegral memberIs)))
 
-store :: Operand -> Operand -> Instr
-store srcVal destPtr meta = Store { volatile = False
-                                  , address = destPtr
-                                  , value = srcVal
-                                  , maybeAtomicity = Nothing
-                                  , alignment = 0
-                                  , metadata = meta
-                                  }
+store :: Operand -> Operand -> Instruction
+store srcVal destPtr = Store { volatile = False
+                             , address = destPtr
+                             , value = srcVal
+                             , maybeAtomicity = Nothing
+                             , alignment = 0
+                             , metadata = []
+                             }
 
 load :: Operand -> FunInstr
 load p = WithRetType
-    (\meta -> Load { volatile = False
-                   , address = p
-                   , maybeAtomicity = Nothing
-                   , alignment = 0
-                   , metadata = meta
-                   }
+    (Load { volatile = False
+          , address = p
+          , maybeAtomicity = Nothing
+          , alignment = 0
+          , metadata = []
+          }
     )
     (getPointee (typeOf p))
 
 phi :: [(Operand, Name)] -> FunInstr
 phi = \case
     [] -> ice "phi was given empty list of cases"
-    cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs) t
+    cs@((op, _) : _) -> let t = typeOf op in WithRetType (Phi t cs []) t
 
 alloca :: Type -> FunInstr
-alloca t = WithRetType (Alloca t Nothing 0) (LLType.ptr t)
+alloca t = WithRetType (Alloca t Nothing 0 []) (LLType.ptr t)
 
 litF64 :: Double -> Operand
 litF64 = ConstantOperand . LLConst.Float . LLFloat.Double
