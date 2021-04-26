@@ -134,16 +134,14 @@ monoLetVar (lhs, WithPos rhsPos (rhsScm, rhs)) monoBody = do
         Just instTs -> mapM
             (\instT -> fmap (instT, ) (genInst rhsScm (fmap expr' (mono rhs)) instT))
             (Set.toList instTs)
-    pure (map (\(t, rhs') -> (TypedVar lhs t, WithPos rhsPos rhs')) rhss', body')
+    pure (map (\(t, rhs') -> (TypedVar lhs t, second (WithPos rhsPos) rhs')) rhss', body')
 
 monoLetRecs :: Checked.RecDefs -> Mono a -> Mono (RecDefs, a)
 monoLetRecs ds monoBody = do
     (body', DefInsts defInsts) <- lift (runWriterT monoBody)
     let defs = Map.fromList ds
     let monoLetRecs'
-            :: Map TypedVar (WithPos ([Type], Fun))
-            -> Map String (Set Type)
-            -> Mono RecDefs
+            :: Map TypedVar ([Type], WithPos Fun) -> Map String (Set Type) -> Mono RecDefs
         monoLetRecs' defs' insts = do
             let (insts', otherInsts) =
                     Map.partitionWithKey (\k _ -> Map.member k defs) insts
@@ -156,7 +154,7 @@ monoLetRecs ds monoBody = do
                 else do
                     let genInst' (TypedVar x t) =
                             let WithPos p (scm, WithPos _ f) = defs Map.! x
-                            in  fmap ((TypedVar x t, ) . WithPos p)
+                            in  fmap ((TypedVar x t, ) . second (WithPos p))
                                      (genInst scm (monoFun f) t)
                     (newDefs, DefInsts newInsts) <- lift
                         (runWriterT (mapM genInst' insts''))

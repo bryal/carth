@@ -86,11 +86,11 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runEx
     withGlobDefSigs
         :: MonadReader Env m
         => Lens' Env (Map TypedVar Operand)
-        -> [(TypedVar, WithPos ([Ast.Type], e))]
+        -> [(TypedVar, ([Ast.Type], WithPos e))]
         -> m x
         -> m x
     withGlobDefSigs env sigs ga = do
-        sigs' <- forM sigs $ \(v@(TypedVar x t), WithPos _ (us, _)) -> do
+        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, WithPos _ _)) -> do
             t' <- genType' t
             pure
                 ( v
@@ -194,9 +194,9 @@ genMain = do
     pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks []))
 
 separateFunDefs :: [VarDef] -> ([FunDef], [VarDef])
-separateFunDefs = partitionWith $ \(lhs, WithPos dpos (ts, e)) -> case e of
-    Fun f -> Left (lhs, WithPos dpos (ts, f))
-    _ -> Right (lhs, WithPos dpos (ts, e))
+separateFunDefs = partitionWith $ \(lhs, (ts, WithPos dpos e)) -> case e of
+    Fun f -> Left (lhs, (ts, WithPos dpos f))
+    _ -> Right (lhs, (ts, WithPos dpos e))
 
 genInit :: FilePath -> [VarDef] -> Gen' [Definition]
 genInit moduleFp ds = do
@@ -208,7 +208,7 @@ genInit moduleFp ds = do
     fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], pos, param, genDefs)
 
 genDefineGlobVar :: VarDef -> Gen ()
-genDefineGlobVar (TypedVar v _, WithPos pos (ts, e)) = do
+genDefineGlobVar (TypedVar v _, (ts, WithPos pos e)) = do
     let name = mkName (mangleName (v, ts))
     e' <- getLocal =<< genExpr (Expr (Just pos) e)
     let ref = LLConst.GlobalReference (LLType.ptr (typeOf e')) name
@@ -217,7 +217,7 @@ genDefineGlobVar (TypedVar v _, WithPos pos (ts, e)) = do
     emitDo (store e' (ConstantOperand ref))
 
 genGlobVarDecl :: VarDef -> Gen' Definition
-genGlobVarDecl (TypedVar v t, WithPos _ (ts, _)) = do
+genGlobVarDecl (TypedVar v t, (ts, WithPos _ _)) = do
     let name = mkName (mangleName (v, ts))
     t' <- genType' t
     pure (GlobalDefinition (simpleGlobVar name t' (LLConst.Undef t')))
@@ -242,7 +242,7 @@ genGlobVarDecl (TypedVar v t, WithPos _ (ts, _)) = do
 --
 --       Additional reading: http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.134.9317&rep=rep1&type=pdf
 genGlobFunDef :: FunDef -> Gen' [Definition]
-genGlobFunDef (TypedVar v _, WithPos dpos (ts, (p, (body, rt)))) = do
+genGlobFunDef (TypedVar v _, (ts, WithPos dpos (p, (body, rt)))) = do
     let var = (v, ts)
     let name = mangleName var
     assign lambdaParentFunc (Just name)
@@ -340,11 +340,11 @@ genCondBr predV genConseq genAlt = do
 
 genLet :: TailVal v => Def -> Expr -> Gen v
 genLet def body = case def of
-    VarDef (lhs, WithPos _ (_, rhs)) ->
+    VarDef (lhs, (_, WithPos _ rhs)) ->
         genExpr (Expr Nothing rhs) >>= \rhs' -> withVal lhs rhs' (genExpr body)
     RecDefs ds -> do
         (binds, cs) <- fmap unzip $ forM ds $ \case
-            (lhs, WithPos _ (_, (p, (fb, fbt)))) -> do
+            (lhs, (_, WithPos _ (p, (fb, fbt)))) -> do
                 fvXs <- view localEnv <&> \locals ->
                     let locals' = Set.insert lhs (Map.keysSet locals)
                     in  Set.toList (Set.intersection (Set.delete p (freeVars fb)) locals')

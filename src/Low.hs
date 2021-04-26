@@ -64,9 +64,10 @@ data Expr = Expr (Maybe SrcPos) Expr'
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
-type VarDef = (TypedVar, WithPos ([Type], Expr'))
+type Inst = [Type]
+type VarDef = (TypedVar, (Inst, WithPos Expr'))
 type RecDefs = [FunDef]
-type FunDef = (TypedVar, WithPos ([Type], Fun))
+type FunDef = (TypedVar, (Inst, WithPos Fun))
 type Datas = Map TConst [VariantTypes]
 type Externs = [(String, Type, SrcPos)]
 
@@ -95,9 +96,9 @@ fvExpr' = \case
     App f a -> Set.unions (map freeVars (f : a))
     If p c a -> fvIf p c a
     Fun (p, (b, _)) -> fvFun p b
-    Let (VarDef (lhs, WithPos _ (_, rhs))) (Expr _ e) ->
+    Let (VarDef (lhs, (_, WithPos _ rhs))) (Expr _ e) ->
         Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
-    Let (RecDefs ds) (Expr _ e) -> fvLet (unzip (map (second (Fun . snd . unpos)) ds)) e
+    Let (RecDefs ds) (Expr _ e) -> fvLet (unzip (map (second (Fun . unpos . snd)) ds)) e
     Match e dt _ -> Set.union (freeVars e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)
     Sizeof _t -> Set.empty
@@ -110,12 +111,7 @@ fvDecisionTree = \case
     DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
     where fvDSwitch es def = Set.unions $ fvDecisionTree def : map fvDecisionTree es
 
-defToVarDefs :: Def -> [(TypedVar, WithPos ([Type], Expr'))]
+defToVarDefs :: Def -> [(TypedVar, (Inst, WithPos Expr'))]
 defToVarDefs = \case
     VarDef d -> [d]
-    RecDefs ds -> map (second (mapPosd (second Fun))) ds
-
-funDefFromVarDef :: VarDef -> (TypedVar, WithPos ([Type], Fun))
-funDefFromVarDef = second $ mapPosd $ second $ \case
-    Fun f -> f
-    e -> ice $ "funDefFromVarDef on non-positioned function " ++ show e
+    RecDefs ds -> map (second (second (mapPosd Fun))) ds

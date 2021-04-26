@@ -27,13 +27,13 @@ lowerDef = \case
     Ast.RecDefs ds -> RecDefs $ lowerRecDefs ds
 
 lowerVarDef :: Ast.VarDef -> VarDef
-lowerVarDef = bimap lowerTypedVar (fmap (bimap (map lowerType) lowerExpr'))
+lowerVarDef = bimap lowerTypedVar (bimap (map lowerType) (fmap lowerExpr'))
 
 lowerRecDefs :: Ast.RecDefs -> RecDefs
 lowerRecDefs = map lowerFunDef
 
 lowerFunDef :: Ast.FunDef -> FunDef
-lowerFunDef = bimap lowerTypedVar (fmap (bimap (map lowerType) lowerFun))
+lowerFunDef = bimap lowerTypedVar (bimap (map lowerType) (fmap lowerFun))
 
 lowerFun :: Ast.Fun -> Fun
 lowerFun = bimap lowerTypedVar (bimap lowerExpr lowerType)
@@ -61,14 +61,16 @@ lowerApp = curry $ \case
         (VarDef
             ( lowerTypedVar p
             -- FIXME: This pos is pretty bad probably?
-            , WithPos (ice "read srcpos of VarDef from lowerApp")
-                      (ice "read inst of VarDef from lowerApp", lowerExpr' a)
+            , ( uniqueInst
+              , WithPos (ice "read srcpos of VarDef from lowerApp") (lowerExpr' a)
+              )
             )
         )
         (Expr Nothing (lowerApp b as))
     (Ast.Expr _ (Ast.App f a), as) -> lowerApp f (a : as)
     (Ast.Expr _ f, []) -> lowerExpr' f
     (f, as) -> App (lowerExpr f) (map lowerExpr as)
+    where uniqueInst = []
 
 lowerDecisionTree :: Ast.DecisionTree -> DecisionTree
 lowerDecisionTree = \case
