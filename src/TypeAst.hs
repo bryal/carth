@@ -36,23 +36,11 @@ tByte = tprim (TNat 8)
 tBox' :: t -> TConst t
 tBox' t = ("Box", [t])
 
-tStr :: TypeAst t => t
-tStr = tconst tStr'
-
 tStr' :: TConst t
 tStr' = ("Str", [])
 
 tArray :: TypeAst t => t -> t
 tArray a = tconst ("Array", [a])
-
-tTuple :: TypeAst t => [t] -> t
-tTuple = foldr tCons tUnit
-
-tCons :: TypeAst t => t -> t -> t
-tCons car cdr = tconst ("Cons", [car, cdr])
-
-tRealWorld :: TypeAst t => t
-tRealWorld = tconst ("RealWorld", [])
 
 tUnit :: TypeAst t => t
 tUnit = tconst tUnit'

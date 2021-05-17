@@ -131,9 +131,6 @@ sexpr expected extract f = do
     modify (\st -> st { stOuterPos = pOld, stInput = ttsOld })
     pure a
 
-big' :: Parser String
-big' = fmap idstr big
-
 big :: Parser (Id 'Parsed.Big)
 big = token "big identifier" $ \p -> \case
     Lexd.Big x -> Just (Id (WithPos p x))

@@ -1061,3 +1061,44 @@ Features and other stuff to do/implement in/around Carth.
   and that might be achievable with some more general and cleaner
   method. Some kind of shadow stack, for example. Such a method might
   work well for other potential backends as well, like a C backend.
+
+* INACTIVE Add kind of ~apply~ function that takes tuple
+  #+BEGIN_SRC carth
+  (define (foo a b c)
+    (+ a (* b c)))
+
+  (assert-eq (foo 1 2 3) (apply foo [1 2 3]))
+  (assert-eq (foo 1 2) (apply foo [1 2]))
+  #+END_SRC
+
+  In general, ~(apply f [x1 ... xn])~ becomes ~(f x1 ... xn)~.
+
+  I think it could be a function, via a type class instance that
+  recurses on the pairs of a tuple.
+
+  One usage that could be nice in particular is when you want to apply
+  a function with "default" arguments. You could then do ~(apply f
+  default)~ instead of anything more complex.
+
+  Then again, you can do something arguably more convenient with
+  typeclasses and deriving in haskell. Create a record for the
+  specific argument set, derive Default, and call it like ~f (default
+  {foo = 3})~.
+  
+* INACTIVE SoA record attribute
+  https://blog.royalsloth.eu/posts/the-compiler-will-optimize-that-away/
+
+  Convenient syntax for using SoA/AoS could be nice for lowe level
+  stuff, or we might consider it too seldom an issue for a somewhat
+  high-level languge like Carth.
+* INACTIVE Recursion schemes
+  Recursion schemes are functions that capture patterns of recursion,
+  like fold and unfold. These 2 are simple to implement. Other
+  schemes, less commonly used yet frequently applicable, like cata,
+  could be implemented as well, but might require some built in
+  support or smart "deriving".
+
+  Look at https://hackage.haskell.org/package/recursion-schemes-5.2.2.1
+
+  Maybe deriving functor and/or foldable could include this base
+  functor thingy?

@@ -41,12 +41,6 @@ precalate prefix = \case
 indent :: Int -> String
 indent = flip replicate ' '
 
-both :: (a -> b) -> (a, a) -> (b, b)
-both f (a0, a1) = (f a0, f a1)
-
-firstM :: (Bitraversable t, Applicative f) => (a -> f a') -> t a b -> f (t a' b)
-firstM = flip bimapM pure
-
 secondM :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
 
@@ -71,10 +65,6 @@ scribe l b = tell (set l b mempty)
 (.*) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.*) = (.) . (.)
 infixr 8 .*
-
-(.**) :: (d -> e) -> (a -> b -> c -> d) -> a -> b -> c -> e
-(.**) = (.) . (.*)
-infixr 8 .**
 
 abort :: FilePath -> IO a
 abort f = do
@@ -111,16 +101,6 @@ unsnoc = \case
     x : xs -> case unsnoc xs of
         Just (ys, y) -> Just (x : ys, y)
         Nothing -> Just ([], x)
-
-is2tup :: [a] -> Maybe (a, a)
-is2tup = \case
-    a1 : [a2] -> Just (a1, a2)
-    _ -> Nothing
-
-is3tup :: [a] -> Maybe (a, a, a)
-is3tup = \case
-    a1 : a2 : [a3] -> Just (a1, a2, a3)
-    _ -> Nothing
 
 takeWhileJust :: (a -> Maybe b) -> [a] -> [b]
 takeWhileJust f = \case

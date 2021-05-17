@@ -1082,9 +1082,6 @@ litU32 = ConstantOperand . LLConst.Int 32 . toInteger
 litI8' :: Integral n => n -> LLConst.Constant
 litI8' = LLConst.Int 8 . toInteger
 
-litDouble :: Double -> Operand
-litDouble = ConstantOperand . LLConst.Float . LLFloat.Double
-
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False
 

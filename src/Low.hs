@@ -86,9 +86,6 @@ instance FreeVars Expr TypedVar where
 instance FreeVars Expr' TypedVar where
     freeVars = fvExpr'
 
-expr' :: Expr -> Expr'
-expr' (Expr _ e) = e
-
 fvExpr' :: Expr' -> Set TypedVar
 fvExpr' = \case
     Lit _ -> Set.empty
