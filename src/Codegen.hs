@@ -65,7 +65,7 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runEx
                   let ds = main : init_ ++ join funDefs' ++ varDecls
                   pure (tdefs'', es, ds)
     pure $ Module
-        { moduleName = fromString ((takeBaseName moduleFilePath))
+        { moduleName = fromString (takeBaseName moduleFilePath)
         , moduleSourceFileName = fromString moduleFilePath
         , moduleDataLayout = Just layout
         , moduleTargetTriple = Just triple
@@ -88,7 +88,7 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runEx
         -> m x
         -> m x
     withGlobDefSigs env sigs ga = do
-        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, WithPos _ _)) -> do
+        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
             t' <- genType' t
             pure
                 ( v
@@ -174,7 +174,7 @@ genDefineGlobVar (TypedVar v _, (ts, WithPos pos e)) = do
     emitDo (store e' (ConstantOperand ref))
 
 genGlobVarDecl :: VarDef -> Gen' Definition
-genGlobVarDecl (TypedVar v t, (ts, WithPos _ _)) = do
+genGlobVarDecl (TypedVar v t, (ts, _)) = do
     let name = mkName (mangleName (v, ts))
     t' <- genType' t
     pure (GlobalDefinition (simpleGlobVar name t' (LLConst.Undef t')))
@@ -200,8 +200,7 @@ genGlobVarDecl (TypedVar v t, (ts, WithPos _ _)) = do
 --       Additional reading: http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.134.9317&rep=rep1&type=pdf
 genGlobFunDef :: FunDef -> Gen' [Definition]
 genGlobFunDef (TypedVar v _, (ts, WithPos dpos (p, (body, rt)))) = do
-    let var = (v, ts)
-    let name = mangleName var
+    let name = mangleName (v, ts)
     assign lambdaParentFunc (Just name)
     assign outerLambdaN 1
     let fName = mkName (name ++ "_func")
@@ -279,7 +278,7 @@ instance TailVal () where
 
 genApp :: TailVal v => Expr -> [Expr] -> Gen v
 genApp fe aes = case fe of
-    Expr _ (Var (Virt, x)) -> propagate =<< genAppBuiltinVirtual x (map genExpr aes)
+    Expr _ (Var (Virt, x)) -> propagate =<< genAppBuiltinVirtual x =<< mapM genExpr aes
     _ -> do
         f <- genExpr fe
         as <- mapM genExpr (init aes)
@@ -315,9 +314,7 @@ genLet def body = case def of
             (genExpr body)
 
 genMatch :: TailVal v => Expr -> DecisionTree -> Gen v
-genMatch m dt = do
-    m' <- genExpr m
-    genDecisionTree dt (newSelections m')
+genMatch m dt = genDecisionTree dt . newSelections =<< genExpr m
 
 genDecisionTree :: TailVal v => DecisionTree -> Selections Val -> Gen v
 genDecisionTree = \case
@@ -371,8 +368,5 @@ genCtion (i, span', dataType, as) = do
             pure (VVar pGeneric)
 
 genStrEq :: Val -> Val -> Gen Val
-genStrEq s1 s2 = do
-    s1' <- getLocal s1
-    s2' <- getLocal s2
-    b <- emitAnonReg =<< callBuiltin "carth_str_eq" [s1', s2']
-    pure (VLocal b)
+genStrEq s1 s2 =
+    fmap VLocal . emitAnonReg =<< callBuiltin "carth_str_eq" =<< mapM getLocal [s1, s2]

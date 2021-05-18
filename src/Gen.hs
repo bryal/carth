@@ -167,9 +167,10 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
 
 genTailWrapInLambdas
     :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
-genTailWrapInLambdas rt fvs ps genBody =
-    genWrapInLambdas rt fvs ps genBody >>= getLocal >>= \r ->
-        commitFinalFuncBlock (ret r) $> typeOf r
+genTailWrapInLambdas rt fvs ps genBody = do
+    r <- getLocal =<< genWrapInLambdas rt fvs ps genBody
+    commitFinalFuncBlock (ret r)
+    pure (typeOf r)
 
 genWrapInLambdas
     :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Val
@@ -364,8 +365,8 @@ lookupVar' :: MonadReader Env m => TypedVar -> m (Maybe Val)
 lookupVar' x =
     ask <&> \e -> Map.lookup x (_localEnv e) <|> fmap VVar (Map.lookup x (_globalEnv e))
 
-genAppBuiltinVirtual :: TypedVar -> [Gen Val] -> Gen Val
-genAppBuiltinVirtual (TypedVar g t) aes = do
+genAppBuiltinVirtual :: TypedVar -> [Val] -> Gen Val
+genAppBuiltinVirtual (TypedVar g t) as = do
     -- TODO: The arguments are not generated in the same scope as the application if the
     --       builtin virtual is partially applied. If it's fully applied, there's no
     --       problem, as no additional wrapping lambda scope will be created, and the
@@ -386,7 +387,6 @@ genAppBuiltinVirtual (TypedVar g t) aes = do
     --       handle variable capturing and closure generation. Only full application would
     --       be a special case. Sort of the same thinking as for normal function calls,
     --       see https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/rts/haskell-execution/function-calls
-    as <- sequence aes
     pos <- view srcPos
     let wrap xts genRt op = do
             rt' <- genRt
