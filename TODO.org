@@ -625,12 +625,75 @@ Features and other stuff to do/implement in/around Carth.
   Selections, and we could make it simpler by inlining it.
 * NEXT Type aliases
   Like ~type String = [Char]~ in Haskell.
+* INACTIVE Query-based / on-demand compilation
+  More or less a prerequisite to compile-time evaluation. Also enables
+  good incremental compilation, and better IDE/LSP support.
 
-* INACTIVE Compute glob vars at compiletime
-  I'm not 100% sure this is a good idea anymore. Need to think about
-  this.
-* INACTIVE Compile-time eval in arbitrary contexts
-  As a step towards something like dependent types
+  https://ollef.github.io/blog/posts/query-based-compilers.html
+* INACTIVE Compile-time evaluation
+  Could be used at different steps of compilation, for different purposes.
+
+  - Procedural macros :: Can do more advanced generation.
+  - Derive :: Using a similar mechanism to procedural macros, generate
+    typeclass instances.
+  - Conditional compilation :: If we for example allow comptime
+    expressions evaluating to syntax at top level, we could use a
+    mechanic similar to procedural macros for conditional
+    compilation. Just have an if-expression on some compiler-defined
+    global variable specifying e.g. what the platform is.
+  - Dependent types :: Instead of having function and type-function
+    definitions exist in separate spaces, like in Haskell, we could
+    use normal functions. Could also use normal values, instead of
+    having to redefine them at the type level (like having to define
+    peano numbers and use datakinds in haskell).
+  - Optimization :: Compute stuff att compiletime that can be computed
+    at compiletime. Could probably use a mechanism similar to the
+    dependent types to evaluate glob vars at compile time.
+
+  Look at how zig, agda, and rust does it.
+
+  Zig doesn't have macros -- their comptime only happens somewhere
+  around the typechecking step. I think their comptime is evaluated by
+  interpreting some mid-level IR. https://www.youtube.com/watch?v=8MbREuiLQrM
+
+  Rust has constfn. Interpreting Miri.
+
+  Agda idk.
+  
+  Query-based / on-demand compilation would make things *much*
+  simpler, I'm fairly sure. Maybe even a prerequisite.
+
+  proc-macros + parsing + mutual recursion seems like it might be a
+  little tricky to solve. What if a proc-macro calls another
+  proc-macro defined later in the file? Need to parse everything, so
+  we can parse everything. Chicken and egg problem. Using Haskell
+  laziness and ~fix~ might work. But the proc-macros don't just need
+  to be parsed, but also typechecked and interpreted... Seems like
+  tons of monadic complexity might surface.
+
+  Do we do something like the typechecker, finding references and
+  constructing a topological order of recursion groups ahead of time?
+  Maybe use some kind of continuation-mechanism to exit parsing as
+  soon as a proc-macro application is encountered, allowing resumption
+  as soon as it has been defined?
+
+  What about this: (direct or indirect) references to self must be at
+  the "same level", i.e. you can't use self to generate the syntax of
+  self, but you can call self as a normal (mutually) recursive
+  function.
+
+  So basically, if when doing query based compilation (which is depth
+  first), and we reach a parsetime/macro application of self while
+  still parsing self (i.e. it's in a stack of symbols of currently
+  being parsed defs or smth), we return an error.
+
+  Or maybe do like the typechecker and gather macro refs ahead of
+  time. Like traverse the tree, and within all ~(parsetime ...)~ (or
+  whatever) blocks, gather all referenced names. Do this for the while
+  graph of referenced names recursively. In the end, we have a graph
+  of all names necessary to parse the entry definition. Make a
+  topological order. Compile them (to interpretable AST) in order. If
+  there are any cyclical groups, compilation error.
 * INACTIVE Benchmark, profile, optimize
   Check out
   https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
@@ -1102,3 +1165,13 @@ Features and other stuff to do/implement in/around Carth.
 
   Maybe deriving functor and/or foldable could include this base
   functor thingy?
+
+* INACTIVE Borrow checking
+  Don't think I'll implement anything like this. There's Carp or Rust
+  or whatever if you prefer that. I kind of want a nice GC actually.
+
+  But anywho, in case we ever want to add borrow checking, I'll
+  collect some useful notes here.
+
+  Check out Polonius, the new borrow checker in Rust. https://youtu.be/H54VDCuT0J0
+g
