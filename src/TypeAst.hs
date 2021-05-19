@@ -36,6 +36,9 @@ tByte = tprim (TNat 8)
 tBox' :: t -> TConst t
 tBox' t = ("Box", [t])
 
+tStr :: TypeAst t => t
+tStr = tconst tStr'
+
 tStr' :: TConst t
 tStr' = ("Str", [])
 
