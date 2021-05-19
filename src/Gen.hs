@@ -463,22 +463,22 @@ genAppBuiltinVirtual (TypedVar g t) as = do
         ">=" -> wrap2 =<< rel LLIPred.UGE LLIPred.SGE LLFPred.OGE t
         "<" -> wrap2 =<< rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
         "<=" -> wrap2 =<< rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
-        "transmute" -> wrap1 =<< case t of
+        "transmute" -> wrap1 $ case t of
             Ast.TFun a b -> case pos of
-                Just p -> pure (a, genType b, \x -> genTransmute p x a b)
+                Just p -> (a, genType b, \x -> genTransmute p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
-            _ -> noInst
-        "cast" -> wrap1 =<< case t of
+            _ -> ice "genAppBuiltinVirtual: t not TFun for transmute"
+        "cast" -> wrap1 $ case t of
             Ast.TFun a b -> case pos of
-                Just p -> pure (a, genType b, \x -> genCast p x a b)
+                Just p -> (a, genType b, \x -> genCast p x a b)
                 Nothing -> ice "genAppBuiltinVirtual: cast: srcPos is Nothing"
-            _ -> noInst
-        "deref" -> wrap1 =<< case t of
-            Ast.TFun a b -> pure (a, genType b, genDeref)
-            _ -> noInst
-        "store" -> wrap2 =<< case t of
-            Ast.TFun a (Ast.TFun b c) -> pure (a, b, genType c, genStore)
-            _ -> noInst
+            _ -> ice "genAppBuiltinVirtual: t not TFun for cast"
+        "deref" -> wrap1 $ case t of
+            Ast.TFun a b -> (a, genType b, genDeref)
+            _ -> ice "genAppBuiltinVirtual: t not TFun for deref"
+        "store" -> wrap2 $ case t of
+            Ast.TFun a (Ast.TFun b c) -> (a, b, genType c, genStore)
+            _ -> ice "genAppBuiltinVirtual: t not TFun of TFun for store"
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
     genTransmute :: SrcPos -> Val -> Ast.Type -> Ast.Type -> Gen Val
