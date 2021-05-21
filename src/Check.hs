@@ -167,7 +167,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
     boundInDefs :: Inferred.Defs -> Bound
     boundInDefs = mapM_ (secondM boundInDef) . Inferred.flattenDefs
-    boundInDef (WithPos _ ((Inferred.Forall tvs _), e)) =
+    boundInDef (WithPos _ ((Inferred.Forall tvs _ _), e)) =
         local (Set.union tvs) (boundInExpr e)
     boundInExpr (WithPos pos e) = case e of
         Inferred.Lit _ -> pure ()

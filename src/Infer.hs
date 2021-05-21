@@ -10,6 +10,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer
 import Data.Bifunctor
+import Data.Foldable
 import Data.Functor
 import Data.Graph (SCC(..), stronglyConnComp)
 import Data.List hiding (span)
@@ -18,6 +19,7 @@ import Data.Map (Map)
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Word
 import Control.Arrow ((>>>))
 
 import Misc
@@ -34,7 +36,8 @@ import TypeAst hiding (TConst)
 newtype ExpectedType = Expected Type
 data FoundType = Found SrcPos Type
 
-type Constraint = (ExpectedType, FoundType)
+type EqConstraint = (ExpectedType, FoundType)
+type Constraints = ([EqConstraint], [(SrcPos, ClassConstraint)])
 
 data Env = Env
     { _envTypeDefs :: TypeDefs
@@ -53,7 +56,7 @@ makeLenses ''Env
 
 type FreshTVs = [String]
 
-type Infer a = WriterT [Constraint] (ReaderT Env (StateT FreshTVs (Except TypeErr))) a
+type Infer a = WriterT Constraints (ReaderT Env (StateT FreshTVs (Except TypeErr))) a
 
 ------------------------------------------------------------------------------------------
 -- Inference
@@ -63,7 +66,7 @@ inferTopDefs :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr D
 inferTopDefs tdefs ctors externs defs =
     let initEnv = Env { _envTypeDefs = tdefs
                       , _envVirtuals = builtinVirtuals
-                      , _envGlobDefs = fmap (Forall Set.empty . fst) externs
+                      , _envGlobDefs = fmap (Forall Set.empty Set.empty . fst) externs
                       , _envLocalDefs = Map.empty
                       , _envCtors = ctors
                       }
@@ -78,15 +81,17 @@ inferTopDefs tdefs ctors externs defs =
   where
     builtinVirtuals :: Map String Scheme
     builtinVirtuals =
-        let tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0 Nothing) a))
+        let
+            tv a = TVExplicit (Parsed.Id (WithPos (SrcPos "<builtin>" 0 0 Nothing) a))
             tva = tv "a"
             ta = TVar tva
             tvb = tv "b"
             tb = TVar tvb
-            arithScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta ta))
+            arithScm = Forall (Set.fromList [tva]) Set.empty (tfun ta (tfun ta ta))
             bitwiseScm = arithScm
-            relScm = Forall (Set.fromList [tva]) (tfun ta (tfun ta tBool))
-        in  Map.fromList
+            relScm = Forall (Set.fromList [tva]) Set.empty (tfun ta (tfun ta tBool))
+        in
+            Map.fromList
                 $ [ ("+", arithScm)
                   , ("-", arithScm)
                   , ("*", arithScm)
@@ -104,12 +109,18 @@ inferTopDefs tdefs ctors externs defs =
                   , (">=", relScm)
                   , ("<", relScm)
                   , ("<=", relScm)
-                  , ("transmute", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
-                  , ("deref", Forall (Set.fromList [tva]) (TFun (TBox ta) ta))
-                  , ( "store"
-                    , Forall (Set.fromList [tva]) (TFun ta (TFun (TBox ta) (TBox ta)))
+                  , ( "transmute"
+                    , Forall (Set.fromList [tva, tvb])
+                             (Set.singleton ("SameSize", [ta, tb]))
+                             (TFun ta tb)
                     )
-                  , ("cast", Forall (Set.fromList [tva, tvb]) (TFun ta tb))
+                  , ("deref", Forall (Set.fromList [tva]) Set.empty (TFun (TBox ta) ta))
+                  , ( "store"
+                    , Forall (Set.fromList [tva])
+                             Set.empty
+                             (TFun ta (TFun (TBox ta) (TBox ta)))
+                    )
+                  , ("cast", Forall (Set.fromList [tva, tvb]) Set.empty (TFun ta tb))
                   ]
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
@@ -190,9 +201,9 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
     inferNonrecDef' (Parsed.VarDef dpos lhs mayscm body) = do
         t <- fresh
         (body', cs) <- listen $ inferDef t lhs mayscm (getPos body) (infer body)
-        sub <- lift $ lift $ lift $ solve cs
+        (sub, ccs) <- solve cs
         env <- view envLocalDefs
-        let scm = generalize (substEnv sub env) (subst sub t)
+        let scm = generalize (substEnv sub env) ccs (subst sub t)
         let body'' = substExpr sub body'
         pure (idstr lhs, WithPos dpos (scm, body''))
 
@@ -201,11 +212,11 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
         let (names, poss) = unzip $ flip map ds $ \case
                 Parsed.FunDef p x _ _ _ -> (idstr x, p)
                 Parsed.VarDef p x _ _ -> (idstr x, p)
-        let dummyDefs = Map.fromList (zip names (map (Forall Set.empty) ts))
-        (fs, cs) <- listen $ augment envLocalDefs dummyDefs $ zipWithM inferRecDef ts ds
-        sub <- lift $ lift $ lift $ solve cs
+        let dummyDefs = Map.fromList (zip names (map (Forall Set.empty Set.empty) ts))
+        (fs, ucs) <- listen $ augment envLocalDefs dummyDefs $ zipWithM inferRecDef ts ds
+        (sub, cs) <- solve ucs
         env <- view envLocalDefs
-        let scms = map (generalize (substEnv sub env) . subst sub) ts
+        let scms = map (generalize (substEnv sub env) cs . subst sub) ts
         let fs' = map (mapPosd (substFunMatch sub)) fs
         pure (zip names (zipWith3 (curry . WithPos) poss scms fs'))
 
@@ -223,24 +234,27 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
 
     inferDef t lhs mayscm bodyPos inferBody = do
         checkScheme (idstr lhs) mayscm >>= \case
-            Just (Forall _ scmt) -> unify (Expected scmt) (Found bodyPos t)
+            Just (Forall _ _ scmt) -> unify (Expected scmt) (Found bodyPos t)
             Nothing -> pure ()
         (t', body') <- inferBody
         unify (Expected t) (Found bodyPos t')
         pure body'
 
-     -- | Verify that user-provided type signature schemes are valid
+    -- FIXME: Here or somewhere we're not handling type class constraints correctly
+    --        (really just SameSize atm) see tests/bad/transmute-size-mismatch2.carth.
+    --
+    -- | Verify that user-provided type signature schemes are valid
     checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
     checkScheme = curry $ \case
-        ("main", Nothing) -> pure (Just (Forall Set.empty mainType))
+        ("main", Nothing) -> pure (Just (Forall Set.empty Set.empty mainType))
         ("main", Just s@(Parsed.Forall pos vs t)) | Set.size vs /= 0 || t /= mainType ->
             throwError (WrongMainType pos s)
         (_, Nothing) -> pure Nothing
         (_, Just (Parsed.Forall pos vs t)) -> do
             t' <- checkType pos t
-            let s1 = Forall vs t'
+            let s1 = Forall vs Set.empty t'
             env <- view envLocalDefs
-            let s2 = generalize env t'
+            let s2 = generalize env Set.empty t'
             if (s1 == s2)
                 then pure (Just s1)
                 else throwError (InvalidUserTypeSig pos s1 s2)
@@ -327,7 +341,8 @@ inferCases tmatchee cases = do
     inferCase :: (Parsed.Pat, Parsed.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
     inferCase (p, b) = do
         (tp, p', pvs) <- inferPat p
-        let pvs' = map (bimap (Parsed.idstr) (Forall Set.empty . TVar)) (Map.toList pvs)
+        let pvs' = map (bimap (Parsed.idstr) (Forall Set.empty Set.empty . TVar))
+                       (Map.toList pvs)
         (tb, b') <- withLocals pvs' (infer b)
         pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
 
@@ -405,26 +420,46 @@ lookupVar (Id x'@(WithPos pos x)) = do
     glob <- fmap (Map.lookup x) (view envGlobDefs)
     local <- fmap (Map.lookup x) (view envLocalDefs)
     case fmap (NonVirt, ) (local <|> glob) <|> fmap (Virt, ) virt of
-        Just (virt, scm) -> instantiate scm <&> \t -> (t, (virt, TypedVar x' t))
+        Just (virt, scm) -> instantiate pos scm <&> \t -> (t, (virt, TypedVar x' t))
         Nothing -> throwError (UndefVar pos x)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = augment envLocalDefs . Map.fromList
 
-instantiate :: Scheme -> Infer Type
-instantiate (Forall params t) = do
-    let params' = Set.toList params
-    args <- mapM (const fresh) params'
-    pure (subst (Map.fromList (zip params' args)) t)
+instantiate :: SrcPos -> Scheme -> Infer Type
+instantiate pos (Forall params constraints t) = do
+    s <- Map.fromList <$> zipWithM (fmap . (,)) (Set.toList params) (repeat fresh)
+    forM_ constraints $ \c -> unifyClass pos (substClassConstraint s c)
+    pure (subst s t)
 
-generalize :: Map String Scheme -> Type -> Scheme
-generalize env t = Forall (Set.difference (ftv t) (ftvEnv env)) t
+generalize :: Map String Scheme -> Set ClassConstraint -> Type -> Scheme
+generalize env allConstraints t = Forall vs constraints t
   where
-    ftvEnv env = Set.unions (map ftvScheme (Map.elems env))
-    ftvScheme (Forall tvs t) = Set.difference (ftv t) tvs
+    -- A constraint should be included in a signature if the type variables include at
+    -- least one of the signature's forall-qualified tvars, and the rest of the tvars
+    -- exist in the surrounding environment. If a tvar is not from the signature or the
+    -- environment, it comes from an inner definition, and should already have been
+    -- included in that signature.
+    --
+    -- TODO: Maybe we should handle the propagation of class constraints in a better way,
+    --       so that ones belonging to inner definitions no longer exist at this point.
+    constraints :: Set ClassConstraint
+    constraints = flip Set.filter allConstraints $ \c ->
+        let vcs = ftvClassConstraint c
+        in  any (flip Set.member vs) vcs
+                && all (\vc -> Set.member vc vs || Set.member vc ftvEnv) vcs
+    vs = Set.difference (ftv t) ftvEnv
+    ftvEnv = Set.unions (map ftvScheme (Map.elems env))
+    ftvScheme (Forall tvs _ t) = Set.difference (ftv t) tvs
 
 substEnv :: Subst -> Map String Scheme -> Map String Scheme
 substEnv s = over (mapped . scmBody) (subst s)
+
+ftvClassConstraint :: ClassConstraint -> Set TVar
+ftvClassConstraint = mconcat . map ftv . snd
+
+substClassConstraint :: Subst -> ClassConstraint -> ClassConstraint
+substClassConstraint sub = second (map (subst sub))
 
 fresh :: Infer Type
 fresh = fmap TVar fresh'
@@ -433,7 +468,10 @@ fresh' :: Infer TVar
 fresh' = fmap TVImplicit (gets head <* modify tail)
 
 unify :: ExpectedType -> FoundType -> Infer ()
-unify e f = tell [(e, f)]
+unify e f = tell ([(e, f)], [])
+
+unifyClass :: SrcPos -> ClassConstraint -> Infer ()
+unifyClass p c = tell ([], [(p, c)])
 
 ------------------------------------------------------------------------------------------
 -- Constraint solver
@@ -441,23 +479,45 @@ unify e f = tell [(e, f)]
 
 data UnifyErr = UInfType TVar Type | UFailed Type Type
 
-solve :: [Constraint] -> Except TypeErr Subst
-solve = solve' Map.empty
+solve :: Constraints -> Infer (Subst, Set ClassConstraint)
+solve (eqcs, ccs) = do
+    sub <- lift $ lift $ lift $ solveUnis Map.empty eqcs
+    ccs' <- solveClassCs (map (second (substClassConstraint sub)) ccs)
+    pure (sub, ccs')
   where
-    solve' :: Subst -> [Constraint] -> Except TypeErr Subst
-    solve' sub1 = \case
+    solveUnis :: Subst -> [EqConstraint] -> Except TypeErr Subst
+    solveUnis sub1 = \case
         [] -> pure sub1
         (Expected et, Found pos ft) : cs -> do
             sub2 <- withExcept (toTypeErr pos et ft) (unifies et ft)
-            solve' (composeSubsts sub2 sub1) (map (substConstraint sub2) cs)
+            solveUnis (composeSubsts sub2 sub1) (map (substConstraint sub2) cs)
+
+    solveClassCs :: [(SrcPos, ClassConstraint)] -> Infer (Set ClassConstraint)
+    solveClassCs = fmap Set.unions . mapM
+        (\(pos, c) -> case c of
+            ("SameSize", [ta, tb]) -> sameSize pos ta tb
+            ("SameSize", ts) -> ice $ "solveClassCs: invalid SameSize " ++ show ts
+            _ -> ice $ "solveClassCs: unknown class constraint " ++ show c
+        )
+
+    sameSize :: SrcPos -> Type -> Type -> Infer (Set ClassConstraint)
+    sameSize pos ta tb = do
+        sizeof' <- fmap sizeof (view envTypeDefs)
+        let c = ("SameSize", [ta, tb])
+        case liftA2 (==) (sizeof' ta) (sizeof' tb) of
+            Just True -> pure Set.empty
+            Just False -> throwError (NoClassInstance pos c)
+            -- One or both of the two types are of unknown size due to polymorphism, so
+            -- propagate the constraint to the scheme of the definition.
+            Nothing -> pure (Set.singleton c)
 
     substConstraint sub (Expected t1, Found pos t2) =
         (Expected (subst sub t1), Found pos (subst sub t2))
 
-toTypeErr :: SrcPos -> Type -> Type -> UnifyErr -> TypeErr
-toTypeErr pos t1 t2 = \case
-    UInfType a t -> InfType pos t1 t2 a t
-    UFailed t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
+    toTypeErr :: SrcPos -> Type -> Type -> UnifyErr -> TypeErr
+    toTypeErr pos t1 t2 = \case
+        UInfType a t -> InfType pos t1 t2 a t
+        UFailed t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
 
 unifies :: Type -> Type -> Except UnifyErr Subst
 unifies = curry $ \case
@@ -475,12 +535,81 @@ unifies = curry $ \case
     (TFun t1 t2, TFun u1 u2) -> unifiesMany [t1, t2] [u1, u2]
     (TBox t, TBox u) -> unifies t u
     (t1, t2) -> throwError (UFailed t1 t2)
+  where
+    unifiesMany :: [Type] -> [Type] -> Except UnifyErr Subst
+    unifiesMany ts us = foldM
+        (\s (t, u) -> fmap (flip composeSubsts s) (unifies (subst s t) (subst s u)))
+        Map.empty
+        (zip ts us)
 
-unifiesMany :: [Type] -> [Type] -> Except UnifyErr Subst
-unifiesMany ts us = foldM
-    (\s (t, u) -> fmap (flip composeSubsts s) (unifies (subst s t) (subst s u)))
-    Map.empty
-    (zip ts us)
+    occursIn :: TVar -> Type -> Bool
+    occursIn a t = Set.member a (ftv t)
 
-occursIn :: TVar -> Type -> Bool
-occursIn a t = Set.member a (ftv t)
+-- TODO: Handle different data layouts. Check out LLVMs DataLayout class and impl of
+--       `getTypeAllocSize`.  https://llvm.org/doxygen/classllvm_1_1DataLayout.html
+--
+-- See the [System V ABI docs](https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf)
+-- for more info.
+sizeof :: TypeDefs -> Type -> Maybe Word32
+sizeof datas = \case
+    TVar _ -> Nothing
+    TConst x -> sizeofData (lookupDatatype x)
+    TPrim (TNat nbits) -> Just (toBytes nbits)
+    TPrim (TInt nbits) -> Just (toBytes nbits)
+    -- integer sized to fit a pointer, which is of word size (right?)
+    TPrim TNatSize -> Just wordsize
+    TPrim TIntSize -> Just wordsize
+    TPrim TF16 -> Just (toBytes 16)
+    TPrim TF32 -> Just (toBytes 32)
+    TPrim TF64 -> Just (toBytes 64)
+    TPrim TF128 -> Just (toBytes 128)
+    -- pointer to captures struct + function pointer, word alignment => no padding
+    TFun _ _ -> Just (2 * wordsize)
+    TBox _ -> Just wordsize -- single pointer
+  where
+    toBytes n = div (n + 7) 8
+    wordsize = toBytes 64 -- TODO: Make platform dependent
+    lookupDatatype (x, args) = case Map.lookup x datas of
+        Just (params, variants) ->
+            let sub = Map.fromList (zip params args)
+            in  map (map (subst sub) . snd) variants
+        Nothing -> ice $ "Infer.lookupDatatype: undefined datatype " ++ show x
+
+    sizeofData :: [[Type]] -> Maybe Word32
+    sizeofData = fmap (maximumOr 0) . mapM sizeofStruct . tagUnion
+
+    sizeofStruct :: [Type] -> Maybe Word32
+    sizeofStruct = foldlM addMember 0
+      where
+        addMember :: Word32 -> Type -> Maybe Word32
+        addMember accSize t = do
+            a <- alignmentof t
+            let padding = if a == 0 then 0 else mod (a - accSize) a
+            size <- sizeof datas t
+            Just (accSize + padding + size)
+
+    alignmentof :: Type -> Maybe Word32
+    alignmentof = \case
+        TVar _ -> Nothing
+        TConst x -> alignmentofData (lookupDatatype x)
+        t -> sizeof datas t
+
+    alignmentofData :: [[Type]] -> Maybe Word32
+    alignmentofData = fmap (maximumOr 0) . mapM alignmentofStruct . tagUnion
+
+    alignmentofStruct :: [Type] -> Maybe Word32
+    alignmentofStruct = fmap (maximumOr 0) . mapM alignmentof
+
+    tagUnion :: [[Type]] -> [[Type]]
+    tagUnion vs = map (tagVariant (fromIntegral (length vs))) vs
+
+    tagVariant :: Span -> [Type] -> [Type]
+    tagVariant span ts = maybe ts ((: ts) . TPrim . TNat) (tagBitWidth span)
+
+    tagBitWidth :: Integral n => Span -> Maybe n
+    tagBitWidth span | span <= 2 ^ (0 :: Integer) = Nothing
+                     | span <= 2 ^ (8 :: Integer) = Just 8
+                     | span <= 2 ^ (16 :: Integer) = Just 16
+                     | span <= 2 ^ (32 :: Integer) = Just 32
+                     | span <= 2 ^ (64 :: Integer) = Just 64
+                     | otherwise = ice $ "tagBitWidth: span = " ++ show span

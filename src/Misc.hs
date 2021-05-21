@@ -106,3 +106,8 @@ takeWhileJust :: (a -> Maybe b) -> [a] -> [b]
 takeWhileJust f = \case
     [] -> []
     a : as -> maybe [] (: takeWhileJust f as) (f a)
+
+maximumOr :: Ord a => a -> [a] -> a
+maximumOr b = \case
+    [] -> b
+    as -> maximum as

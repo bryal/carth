@@ -1,4 +1,4 @@
-module Pretty (pretty, Pretty(..)) where
+module Pretty (pretty, Pretty(..), prettyTConst) where
 
 import Prelude hiding (showChar)
 import Data.Bifunctor
@@ -113,7 +113,7 @@ prettyTVar = \case
 
 
 instance Pretty Inferred.Scheme where
-    pretty' _ (Inferred.Forall ps t) = prettyScheme ps t
+    pretty' _ (Inferred.Forall ps _ t) = prettyScheme ps t
 instance Pretty Inferred.Type where
     pretty' _ = prettyAnType
 

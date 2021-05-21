@@ -163,7 +163,7 @@ monoLetRecs ds monoBody = do
     pure (ds', body')
 
 genInst :: Scheme -> Mono a -> Type -> Mono ([Type], a)
-genInst (Forall _ rhsT) monoRhs instT = do
+genInst (Forall _ _ rhsT) monoRhs instT = do
     let boundTvs = bindTvs rhsT instT
     rhs' <- local (Map.union boundTvs) monoRhs
     pure (Map.elems boundTvs, rhs')

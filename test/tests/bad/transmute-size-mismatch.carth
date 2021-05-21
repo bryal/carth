@@ -1,0 +1,5 @@
+;; NoClassInstance
+
+(define: (foo Unit)
+    (Fun Unit Int8)
+  (transmute (: 42 Int)))

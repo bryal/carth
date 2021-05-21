@@ -40,6 +40,7 @@ data TypeErr
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
+    | NoClassInstance SrcPos ClassConstraint
     deriving (Show)
 
 type TConst = TypeAst.TConst Type
@@ -52,8 +53,11 @@ data Type
     | TBox Type
     deriving (Show, Eq, Ord)
 
+type ClassConstraint = (String, [Type])
+
 data Scheme = Forall
-    { _scmParams :: (Set TVar)
+    { _scmParams :: Set TVar
+    , _scmConstraints :: Set ClassConstraint
     , _scmBody :: Type
     }
     deriving (Show, Eq)

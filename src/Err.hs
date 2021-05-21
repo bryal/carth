@@ -86,6 +86,7 @@ printTypeErr = \case
             ++ (", found " ++ show found)
     ConflictingVarDef p x ->
         posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
+    NoClassInstance p c -> posd p $ "No instance for " ++ prettyTConst c
 
 printGenErr :: GenErr -> IO ()
 printGenErr = \case
