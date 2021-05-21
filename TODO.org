@@ -881,7 +881,8 @@ Features and other stuff to do/implement in/around Carth.
 
   Ooh, this seems cool:
   https://mapping-high-level-constructs-to-llvm-ir.readthedocs.io/en/latest/README.html
-* INACTIVE Var pattern syntax, comparison
+* Pattern matching
+** INACTIVE Var pattern syntax, comparison
   What if we did
 
   #+BEGIN_SRC carth
@@ -900,6 +901,15 @@ Features and other stuff to do/implement in/around Carth.
                        (Some y)
                      None))))
   #+END_SRC
+** INACTIVE Or-patterns
+   Like in Rust. Very convenient.
+
+   #+BEGIN_SRC rust
+   match foo {
+       (1, x) | (5, x) => x * 2,
+       (_, y) => y,
+   }
+   #+END_SRC
 * TODO Move from LLVM to alternative backend
   LLVM is kind of not great in some ways. It's often not trivial to
   debug errors stemming from displeasing LLVM. It updates frequently,
