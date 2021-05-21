@@ -46,8 +46,7 @@ import SrcPos
 
 
 data GenErr
-    = TransmuteErr SrcPos (Ast.Type, Word64) (Ast.Type, Word64)
-    | CastErr SrcPos Ast.Type Ast.Type
+    = CastErr SrcPos Ast.Type Ast.Type
     | NoBuiltinVirtualInstance SrcPos String Ast.Type
 
 -- | An instruction that returns a value. The name refers to the fact that a
@@ -464,9 +463,7 @@ genAppBuiltinVirtual (TypedVar g t) as = do
         "<" -> wrap2 =<< rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
         "<=" -> wrap2 =<< rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
         "transmute" -> wrap1 $ case t of
-            Ast.TFun a b -> case pos of
-                Just p -> (a, genType b, \x -> genTransmute p x a b)
-                Nothing -> ice "genAppBuiltinVirtual: transmute: srcPos is Nothing"
+            Ast.TFun a b -> (a, genType b, \x -> genTransmute x a b)
             _ -> ice "genAppBuiltinVirtual: t not TFun for transmute"
         "cast" -> wrap1 $ case t of
             Ast.TFun a b -> case pos of
@@ -481,15 +478,12 @@ genAppBuiltinVirtual (TypedVar g t) as = do
             _ -> ice "genAppBuiltinVirtual: t not TFun of TFun for store"
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
-    genTransmute :: SrcPos -> Val -> Ast.Type -> Ast.Type -> Gen Val
-    genTransmute pos x a b = do
+    -- Infer has checked that args to transmute are of the same size
+    genTransmute :: Val -> Ast.Type -> Ast.Type -> Gen Val
+    genTransmute x a b = do
         a' <- genType a
         b' <- genType b
-        sa <- lift (sizeof a')
-        sb <- lift (sizeof b')
-        if sa == sb
-            then transmute a' b' x
-            else throwError (TransmuteErr pos (a, sa) (b, sb))
+        transmute a' b' x
     genCast :: SrcPos -> Val -> Ast.Type -> Ast.Type -> Gen Val
     genCast pos x a b = do
         a' <- genType a

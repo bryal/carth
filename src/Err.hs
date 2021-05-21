@@ -90,13 +90,6 @@ printTypeErr = \case
 
 printGenErr :: GenErr -> IO ()
 printGenErr = \case
-    TransmuteErr p (t, sizet) (u, sizeu) ->
-        posd p
-            $ "Cannot transmute between types of different sizes."
-            ++ ("\nSource type: " ++ pretty t)
-            ++ (" (" ++ show sizet ++ " bytes)")
-            ++ ("\nTarget type: " ++ pretty u)
-            ++ (" (" ++ show sizeu ++ " bytes)")
     CastErr p t u -> posd p $ "Cannot cast " ++ pretty t ++ " to " ++ pretty u
     NoBuiltinVirtualInstance p x t ->
         posd p
