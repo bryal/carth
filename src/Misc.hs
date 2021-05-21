@@ -111,3 +111,9 @@ maximumOr :: Ord a => a -> [a] -> a
 maximumOr b = \case
     [] -> b
     as -> maximum as
+
+whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
+whenJust = flip (maybe (pure ()))
+
+uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
+uncurry3 f (a, b, c) = f a b c

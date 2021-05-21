@@ -1,9 +1,5 @@
-;; foo should fail here, not bar
+;; NoClassInstance
 
 (define: (foo a)
     (forall (a b) (Fun a b))
   (transmute a))
-
-(define: (bar Unit)
-    (Fun Unit Int8)
-  (foo (: 123 Int)))
