@@ -23,6 +23,7 @@ import Lens.Micro.Platform (use, assign, Lens', view)
 
 import Misc
 import FreeVars
+import Sizeof (tagBitWidth)
 import qualified Back.Low as Ast
 import Back.Low hiding (Type, Const)
 import Front.TypeAst

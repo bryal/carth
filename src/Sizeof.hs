@@ -1,4 +1,4 @@
-module Sizeof (sizeof) where
+module Sizeof (sizeof, toBytes, wordsize, wordsizeBits, tagBitWidth) where
 
 import Data.Foldable
 import qualified Data.Map as Map
@@ -30,8 +30,6 @@ sizeof datas = \case
     TFun _ _ -> Just (2 * wordsize)
     TBox _ -> Just wordsize -- single pointer
   where
-    toBytes n = div (n + 7) 8
-    wordsize = toBytes 64 -- TODO: Make platform dependent
     lookupDatatype (x, args) = case Map.lookup x datas of
         Just (params, variants) ->
             let sub = Map.fromList (zip params args)
@@ -69,10 +67,19 @@ sizeof datas = \case
     tagVariant :: Span -> [Type] -> [Type]
     tagVariant span ts = maybe ts ((: ts) . TPrim . TNat) (tagBitWidth span)
 
-    tagBitWidth :: Integral n => Span -> Maybe n
-    tagBitWidth span | span <= 2 ^ (0 :: Integer) = Nothing
-                     | span <= 2 ^ (8 :: Integer) = Just 8
-                     | span <= 2 ^ (16 :: Integer) = Just 16
-                     | span <= 2 ^ (32 :: Integer) = Just 32
-                     | span <= 2 ^ (64 :: Integer) = Just 64
-                     | otherwise = ice $ "tagBitWidth: span = " ++ show span
+toBytes :: Integral n => n -> n
+toBytes n = div (n + 7) 8
+
+wordsize :: Integral n => n
+wordsize = toBytes wordsizeBits
+
+wordsizeBits :: Integral n => n
+wordsizeBits = 64 -- TODO: Make platform dependent
+
+tagBitWidth :: Integral n => Span -> Maybe n
+tagBitWidth span | span <= 2 ^ (0 :: Integer) = Nothing
+                 | span <= 2 ^ (8 :: Integer) = Just 8
+                 | span <= 2 ^ (16 :: Integer) = Just 16
+                 | span <= 2 ^ (32 :: Integer) = Just 32
+                 | span <= 2 ^ (64 :: Integer) = Just 64
+                 | otherwise = ice $ "tagBitWidth: span = " ++ show span

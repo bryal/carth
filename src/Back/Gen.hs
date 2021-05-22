@@ -36,6 +36,7 @@ import qualified LLVM.AST.FloatingPointPredicate as LLFPred
 
 import Misc
 import Pretty
+import Sizeof (toBytes, wordsizeBits, tagBitWidth)
 import qualified Front.TypeAst as TypeAst
 import qualified Back.Low as Ast
 import qualified Back.Lower as Ast
@@ -693,9 +694,9 @@ genType' :: MonadReader Env m => Ast.Type -> m Type
 genType' = \case
     Ast.TPrim tc -> pure $ case tc of
         Ast.TNat w -> IntegerType w
-        Ast.TNatSize -> i64
+        Ast.TNatSize -> IntegerType wordsizeBits
         Ast.TInt w -> IntegerType w
-        Ast.TIntSize -> i64
+        Ast.TIntSize -> IntegerType wordsizeBits
         Ast.TF16 -> half
         Ast.TF32 -> float
         Ast.TF64 -> double
@@ -731,14 +732,6 @@ genVariantType :: MonadReader Env m => Ast.Span -> [Ast.Type] -> m [Type]
 genVariantType totVariants =
     fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants)) . mapM genType'
 
-tagBitWidth :: Ast.Span -> Maybe Word32
-tagBitWidth span' | span' <= 2 ^ (0 :: Integer) = Nothing
-                  | span' <= 2 ^ (8 :: Integer) = Just 8
-                  | span' <= 2 ^ (16 :: Integer) = Just 16
-                  | span' <= 2 ^ (32 :: Integer) = Just 32
-                  | span' <= 2 ^ (64 :: Integer) = Just 64
-                  | otherwise = ice $ "tagBitWidth: span' = " ++ show span'
-
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and
 --       impl of `getTypeAllocSize`.
 --       https://llvm.org/doxygen/classllvm_1_1DataLayout.html
@@ -756,7 +749,7 @@ tagBitWidth span' | span' <= 2 ^ (0 :: Integer) = Nothing
 sizeof :: MonadReader Env m => Type -> m Word64
 sizeof = \case
     NamedTypeReference x -> sizeof =<< lookupDatatype x
-    IntegerType bits -> pure (fromIntegral (toBytesCeil bits))
+    IntegerType bits -> pure (fromIntegral (toBytes bits))
     PointerType _ _ -> pure 8
     FloatingPointType HalfFP -> pure 2
     FloatingPointType FloatFP -> pure 4
@@ -773,7 +766,6 @@ sizeof = \case
     LabelType -> ice "sizeof LabelType"
     TokenType -> ice "sizeof TokenType"
   where
-    toBytesCeil nbits = div (nbits + 7) 8
     addMember accSize u = do
         align <- alignmentof u
         let padding = if align == 0 then 0 else mod (align - accSize) align
