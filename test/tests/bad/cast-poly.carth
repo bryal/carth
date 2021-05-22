@@ -1,0 +1,5 @@
+;; NoClassInstance
+
+(define: (foo a)
+    (forall (a b) (Fun a b))
+  (cast a))

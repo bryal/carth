@@ -1,0 +1,9 @@
+;; 420
+
+(import std)
+
+(define (to-int a) (: (cast a) Int))
+
+(define main
+  (display (show-int (+ (to-int (: 400.20     F64))
+                        (to-int (: (cast 20) Nat))))))

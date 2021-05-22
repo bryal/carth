@@ -1,0 +1,5 @@
+;; NoClassInstance
+
+(define: (foo a)
+    (Fun Int (Box Nat8))
+  (cast a))

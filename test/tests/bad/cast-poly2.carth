@@ -1,0 +1,10 @@
+;; NoClassInstance
+
+(import std)
+
+(define (foo a)
+  (cast a))
+
+(define: (bar Unit)
+    (Fun Unit Int)
+  (foo (Some 5)))

@@ -1,0 +1,10 @@
+;; 123456
+
+(import std)
+
+(define tr transmute)
+
+(define main
+  (display (show-int ((: tr (Fun Nat Int))
+                      ((: tr (Fun Int Nat))
+                       123456)))))

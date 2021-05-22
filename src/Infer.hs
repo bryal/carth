@@ -120,7 +120,11 @@ inferTopDefs tdefs ctors externs defs =
                              Set.empty
                              (TFun ta (TFun (TBox ta) (TBox ta)))
                     )
-                  , ("cast", Forall (Set.fromList [tva, tvb]) Set.empty (TFun ta tb))
+                  , ( "cast"
+                    , Forall (Set.fromList [tva, tvb])
+                             (Set.singleton ("Cast", [ta, tb]))
+                             (TFun ta tb)
+                    )
                   ]
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
@@ -518,23 +522,53 @@ solve (eqcs, ccs) = do
             solveUnis (composeSubsts sub2 sub1) (map (substConstraint sub2) cs)
 
     solveClassCs :: [(SrcPos, ClassConstraint)] -> Infer (Map ClassConstraint SrcPos)
-    solveClassCs = fmap Map.unions . mapM
-        (\(pos, c) -> case c of
-            ("SameSize", [ta, tb]) -> sameSize pos ta tb
-            ("SameSize", ts) -> ice $ "solveClassCs: invalid SameSize " ++ show ts
-            _ -> ice $ "solveClassCs: unknown class constraint " ++ show c
-        )
+    solveClassCs = fmap Map.unions . mapM solveClassConstraint
 
-    sameSize :: SrcPos -> Type -> Type -> Infer (Map ClassConstraint SrcPos)
-    sameSize pos ta tb = do
-        sizeof' <- fmap sizeof (view envTypeDefs)
-        let c = ("SameSize", [ta, tb])
-        case liftA2 (==) (sizeof' ta) (sizeof' tb) of
-            Just True -> pure Map.empty
-            Just False -> throwError (NoClassInstance pos c)
-            -- One or both of the two types are of unknown size due to polymorphism, so
-            -- propagate the constraint to the scheme of the definition.
-            Nothing -> pure (Map.singleton c pos)
+    solveClassConstraint
+        :: (SrcPos, ClassConstraint) -> Infer (Map ClassConstraint SrcPos)
+    solveClassConstraint (pos, c) = case c of
+            -- Virtual classes
+        ("SameSize", [ta, tb]) -> sameSize (ta, tb)
+        ("Cast", [ta, tb]) -> cast (ta, tb)
+        -- "Real classes"
+        -- ... TODO
+        _ -> ice $ "solveClassCs: invalid class constraint " ++ show c
+      where
+        ok = pure Map.empty
+        propagate = pure (Map.singleton c pos)
+        err = throwError (NoClassInstance pos c)
+
+        -- TODO: Maybe we should move the check against user-provided explicit signature from
+        --       `generalize` to here. Like, we could keep the explicit scheme (if there is
+        --       one) in the `Env`.
+        --
+        -- | As the name indicates, a predicate that is true / class that is instanced when
+        --   two types are of the same size. If the size for either cannot be determined yet
+        --   due to polymorphism, the constraint is propagated.
+        sameSize :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)
+        sameSize (ta, tb) = do
+            sizeof' <- fmap sizeof (view envTypeDefs)
+            case liftA2 (==) (sizeof' ta) (sizeof' tb) of
+                _ | ta == tb -> ok
+                Just True -> ok
+                Just False -> err
+                -- One or both of the two types are of unknown size due to polymorphism, so
+                -- propagate the constraint to the scheme of the definition.
+                Nothing -> propagate
+
+        -- | This class is instanced when the first type can be `cast` to the other.
+        cast :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)
+        cast = \case
+            (ta, tb) | ta == tb -> ok
+            (TPrim _, TPrim _) -> ok
+            (TVar _, _) -> propagate
+            (_, TVar _) -> propagate
+            (TConst _, _) -> err
+            (_, TConst _) -> err
+            (TFun _ _, _) -> err
+            (_, TFun _ _) -> err
+            (TBox _, _) -> err
+            (_, TBox _) -> err
 
     substConstraint sub (Expected t1, Found pos t2) =
         (Expected (subst sub t1), Found pos (subst sub t2))
