@@ -5,6 +5,11 @@
 *.prof
 *.o
 
+examples/*.bin
+examples/*.ll
+test/**/*.bin
+test/**/*.ll
+
 .stack-work/
 /dist-newstyle/
 /dist/
