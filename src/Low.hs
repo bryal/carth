@@ -52,7 +52,7 @@ data Expr
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
-    | Match Expr DecisionTree Type
+    | Match Expr DecisionTree
     | Ction Ction
     | Sizeof Type
     | Absurd Type
@@ -89,7 +89,7 @@ fvExpr = \case
     Let (VarDef (lhs, (_, rhs))) e ->
         Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
     Let (RecDefs ds) e -> fvLet (unzip (map (second (Fun . snd)) ds)) e
-    Match e dt _ -> Set.union (freeVars e) (fvDecisionTree dt)
+    Match e dt -> Set.union (freeVars e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)
     Sizeof _t -> Set.empty
     Absurd _ -> Set.empty

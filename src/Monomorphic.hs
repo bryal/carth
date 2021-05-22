@@ -64,7 +64,7 @@ data Expr
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
-    | Match Expr DecisionTree Type
+    | Match Expr DecisionTree
     | Ction Ction
     | Sizeof Type
     | Absurd Type

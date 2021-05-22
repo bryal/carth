@@ -66,10 +66,6 @@ printTypeErr = \case
             ++ "has infinite size due to recursion without indirection.\n"
             ++ "Insert a pointer at some point to make it representable."
     UndefType p x -> posd p $ "Undefined type `" ++ x ++ "`."
-    UnboundTVar p ->
-        posd p
-            $ "Could not fully infer type of expression, or otherwise unbound type variable.\n"
-            ++ "Type annotations needed."
     WrongMainType p s ->
         posd p
             $ "Incorrect type of `main`.\n"

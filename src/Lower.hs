@@ -44,7 +44,7 @@ lowerExpr = \case
     Ast.If p c a -> If (lowerExpr p) (lowerExpr c) (lowerExpr a)
     Ast.Fun f -> Fun (lowerFun f)
     Ast.Let d e -> Let (lowerDef d) (lowerExpr e)
-    Ast.Match m dt t -> Match (lowerExpr m) (lowerDecisionTree dt) (lowerType t)
+    Ast.Match m dt -> Match (lowerExpr m) (lowerDecisionTree dt)
     Ast.Ction c -> Ction $ lowerCtion c
     Ast.Sizeof t -> Sizeof $ lowerType t
     Ast.Absurd t -> Absurd $ lowerType t

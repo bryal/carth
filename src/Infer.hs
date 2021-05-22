@@ -484,13 +484,13 @@ generalize env mayGivenCs allCs t = fmap (\cs -> Forall vs cs t) constraints
     ftvEnv = Set.unions (map ftvScheme (Map.elems env))
     ftvScheme (Forall tvs _ t) = Set.difference (ftv t) tvs
 
-substEnv :: Subst -> Map String Scheme -> Map String Scheme
+substEnv :: Subst' -> Map String Scheme -> Map String Scheme
 substEnv s = over (mapped . scmBody) (subst s)
 
 ftvClassConstraint :: ClassConstraint -> Set TVar
 ftvClassConstraint = mconcat . map ftv . snd
 
-substClassConstraint :: Subst -> ClassConstraint -> ClassConstraint
+substClassConstraint :: Subst' -> ClassConstraint -> ClassConstraint
 substClassConstraint sub = second (map (subst sub))
 
 fresh :: Infer Type
@@ -511,13 +511,13 @@ unifyClass p c = tell ([], [(p, c)])
 
 data UnifyErr = UInfType TVar Type | UFailed Type Type
 
-solve :: Constraints -> Infer (Subst, (Map ClassConstraint SrcPos))
+solve :: Constraints -> Infer (Subst', (Map ClassConstraint SrcPos))
 solve (eqcs, ccs) = do
     sub <- lift $ lift $ lift $ solveUnis Map.empty eqcs
     ccs' <- solveClassCs (map (second (substClassConstraint sub)) ccs)
     pure (sub, ccs')
   where
-    solveUnis :: Subst -> [EqConstraint] -> Except TypeErr Subst
+    solveUnis :: Subst' -> [EqConstraint] -> Except TypeErr Subst'
     solveUnis sub1 = \case
         [] -> pure sub1
         (Expected et, Found pos ft) : cs -> do
@@ -606,7 +606,7 @@ solve (eqcs, ccs) = do
         UInfType a t -> InfType pos t1 t2 a t
         UFailed t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
 
-unifies :: Type -> Type -> Except UnifyErr Subst
+unifies :: Type -> Type -> Except UnifyErr Subst'
 unifies = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty
     (TConst (c0, ts0), TConst (c1, ts1)) | c0 == c1 -> if length ts0 /= length ts1
@@ -623,7 +623,7 @@ unifies = curry $ \case
     (TBox t, TBox u) -> unifies t u
     (t1, t2) -> throwError (UFailed t1 t2)
   where
-    unifiesMany :: [Type] -> [Type] -> Except UnifyErr Subst
+    unifiesMany :: [Type] -> [Type] -> Except UnifyErr Subst'
     unifiesMany ts us = foldM
         (\s (t, u) -> fmap (flip composeSubsts s) (unifies (subst s t) (subst s u)))
         Map.empty

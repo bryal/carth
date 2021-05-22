@@ -220,7 +220,7 @@ genExpr expr = do
         If p c a -> genExpr p >>= \p' -> genCondBr p' (genExpr c) (genExpr a)
         Fun (p, b) -> assign lambdaParentFunc parent *> genExprLambda p b >>= propagate
         Let d b -> genLet d b
-        Match e cs _ -> genMatch e cs
+        Match e cs -> genMatch e cs
         Ction c -> propagate =<< genCtion c
         Sizeof t ->
             propagate

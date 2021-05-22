@@ -57,11 +57,11 @@ type Var = (Virt, TypedVar)
 data Expr
     = Lit Const
     | Var Var
-    | App Expr Expr Type
+    | App Expr Expr
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
-    | Match Expr DecisionTree Type
+    | Match Expr DecisionTree
     | Ction VariantIx Span TConst [Expr]
     | Sizeof Type
     | Absurd Type

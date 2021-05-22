@@ -34,7 +34,6 @@ data TypeErr
     | FoundHole SrcPos
     | RecTypeDef String SrcPos
     | UndefType SrcPos String
-    | UnboundTVar SrcPos
     | WrongMainType SrcPos Parsed.Scheme
     | RecursiveVarDef (WithPos String)
     | TypeInstArityMismatch SrcPos String Int Int

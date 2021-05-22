@@ -1,0 +1,11 @@
+;; 456
+
+(import std)
+
+(define (foo p)
+  (if p
+      (seq (undefined Unit) 123)
+    456))
+
+(define main
+  (display (show-int (foo False))))

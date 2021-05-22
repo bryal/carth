@@ -1,5 +1,0 @@
-;; UnboundTVar
-
-(define (seq a b) b)
-(define (undef a) (undef a))
-(define (foo a) (seq (undef Unit) 123))

@@ -9,6 +9,7 @@ import Control.Monad.State.Strict
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Foldable
+import Data.Functor
 import Control.Applicative
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -34,9 +35,9 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     (tdefs', ctors) <- checkTypeDefs tdefs
     externs' <- checkExterns tdefs' externs
     inferred <- inferTopDefs tdefs' ctors externs' defs
-    checkTypeVarsBound inferred
+    let bound = unboundTypeVarsToUnit inferred
     let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
-    compiled <- compileDecisionTrees mTypeDefs inferred
+    compiled <- compileDecisionTrees mTypeDefs bound
     checkMainDefined compiled
     let tdefs'' = fmap (second (map snd)) tdefs'
     pure (Checked.Program compiled tdefs'' externs')
@@ -158,54 +159,51 @@ checkExterns tdefs = fmap (Map.union Checked.builtinExterns . Map.fromList)
             Just tv -> throwError (ExternNotMonomorphic name tv)
             Nothing -> pure (idstr name, t')
 
-type Bound = ReaderT (Set TVar) (Except TypeErr) ()
-
--- TODO: Many of these positions are weird and kind of arbitrary, man. They may
---       not align with where the type variable is actually detected.
-checkTypeVarsBound :: Inferred.Defs -> Except TypeErr ()
-checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
+-- Any free / unbound type variables left in the AST after Infer are replacable with any
+-- type, unless there's a bug in the compiler. Therefore, replace them all with Unit now.
+unboundTypeVarsToUnit :: Inferred.Defs -> Inferred.Defs
+unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
   where
-    boundInDefs :: Inferred.Defs -> Bound
-    boundInDefs = mapM_ (secondM boundInDef) . Inferred.flattenDefs
-    boundInDef (Inferred.Forall tvs _ _, e) = local (Set.union tvs) (boundInExpr e)
-    boundInExpr (WithPos pos e) = case e of
-        Inferred.Lit _ -> pure ()
-        Inferred.Var (_, Inferred.TypedVar _ t) -> boundInType pos t
-        Inferred.App f a rt -> do
-            boundInExpr f
-            boundInExpr a
-            boundInType pos rt
-        Inferred.If p c a -> do
-            boundInExpr p
-            boundInExpr c
-            boundInExpr a
-        Inferred.Let ld b -> do
-            mapM_ (secondM boundInDef) (Inferred.defToVarDefs ld)
-            boundInExpr b
-        Inferred.FunMatch (cs, pt, bt) -> do
-            boundInCases cs
-            boundInType pos pt
-            boundInType pos bt
-        Inferred.Ctor _ _ (_, instTs) ts -> do
-            forM_ instTs (boundInType pos)
-            forM_ ts (boundInType pos)
-        Inferred.Sizeof _t -> pure ()
-    boundInType :: SrcPos -> Inferred.Type -> Bound
-    boundInType pos = \case
-        Inferred.TVar tv -> do
-            bound <- ask
-            when (not (Set.member tv bound)) (throwError (UnboundTVar pos))
-        Inferred.TPrim _ -> pure ()
-        Inferred.TConst (_, ts) -> forM_ ts (boundInType pos)
-        Inferred.TFun ft at -> forM_ [ft, at] (boundInType pos)
-        Inferred.TBox t -> boundInType pos t
-    boundInCases cs = forM_ cs (bimapM boundInPat boundInExpr)
-    boundInPat (WithPos pos pat) = case pat of
-        Inferred.PVar (Inferred.TypedVar _ t) -> boundInType pos t
-        Inferred.PWild -> pure ()
-        Inferred.PCon con ps -> boundInCon pos con *> forM_ ps boundInPat
-        Inferred.PBox p -> boundInPat p
-    boundInCon pos (Con _ _ ts) = forM_ ts (boundInType pos)
+    goDef :: Inferred.Def -> Reader (Set TVar) Inferred.Def
+    goDef = \case
+        Inferred.VarDef d -> fmap Inferred.VarDef $ secondM (goDefRhs goExpr) d
+        Inferred.RecDefs ds ->
+            fmap Inferred.RecDefs $ mapM (secondM (goDefRhs (mapPosdM goFunMatch))) ds
+
+    goDefRhs f (scm, x) =
+        fmap (scm, ) $ local (Set.union (Inferred._scmParams scm)) (f x)
+
+    goFunMatch :: Inferred.FunMatch -> Reader (Set TVar) Inferred.FunMatch
+    goFunMatch (cs, tp, tb) =
+        liftA3 (,,) (mapM (bimapM goPat goExpr) cs) (subst tp) (subst tb)
+
+    goExpr :: Inferred.Expr -> Reader (Set TVar) Inferred.Expr
+    goExpr = mapPosdM $ \case
+        Inferred.Lit c -> pure (Inferred.Lit c)
+        Inferred.Var v -> fmap Inferred.Var $ secondM goTypedVar v
+        Inferred.App f a tr -> liftA3 Inferred.App (goExpr f) (goExpr a) (subst tr)
+        Inferred.If p c a -> liftA3 Inferred.If (goExpr p) (goExpr c) (goExpr a)
+        Inferred.Let ld b -> liftA2 Inferred.Let (goDef ld) (goExpr b)
+        Inferred.FunMatch fm -> fmap Inferred.FunMatch (goFunMatch fm)
+        Inferred.Ctor v sp inst ts ->
+            liftA2 (Inferred.Ctor v sp) (secondM (mapM subst) inst) (mapM subst ts)
+        Inferred.Sizeof t -> fmap Inferred.Sizeof (subst t)
+
+    goPat :: Inferred.Pat -> Reader (Set TVar) Inferred.Pat
+    goPat = mapPosdM $ \case
+        Inferred.PVar v -> fmap Inferred.PVar (goTypedVar v)
+        Inferred.PWild -> pure Inferred.PWild
+        Inferred.PCon con ps -> liftA2
+            Inferred.PCon
+            (fmap (\ts -> con { argTs = ts }) (mapM subst (argTs con)))
+            (mapM goPat ps)
+        Inferred.PBox p -> fmap Inferred.PBox (goPat p)
+
+    goTypedVar (Inferred.TypedVar x t) = fmap (Inferred.TypedVar x) (subst t)
+
+    subst :: Inferred.Type -> Reader (Set TVar) Inferred.Type
+    subst t = ask <&> \bound ->
+        subst' (\tv -> if Set.member tv bound then Nothing else Just tUnit) t
 
 compileDecisionTrees :: MTypeDefs -> Inferred.Defs -> Except TypeErr Checked.Defs
 compileDecisionTrees tdefs = compDefs
@@ -228,7 +226,7 @@ compileDecisionTrees tdefs = compDefs
             Just e -> do
                 dt <- liftEither e
                 let v = (Checked.Var (NonVirt, Checked.TypedVar p tp))
-                    b = Checked.Match v dt tb
+                    b = Checked.Match v dt
                 pure ((p, tp), (b, tb))
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
@@ -236,7 +234,7 @@ compileDecisionTrees tdefs = compDefs
         Inferred.Lit c -> pure (Checked.Lit c)
         Inferred.Var (virt, Inferred.TypedVar (WithPos _ x) t) ->
             pure (Checked.Var (virt, Checked.TypedVar x t))
-        Inferred.App f a tr -> liftA3 Checked.App (compExpr f) (compExpr a) (pure tr)
+        Inferred.App f a _ -> liftA2 Checked.App (compExpr f) (compExpr a)
         Inferred.If p c a -> liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
         Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
         Inferred.FunMatch fm -> fmap Checked.Fun (compFunMatch (WithPos pos fm))

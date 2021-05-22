@@ -95,11 +95,11 @@ mono = \case
             Virt -> pure ()
             NonVirt -> tell (DefInsts (Map.singleton x (Set.singleton t')))
         pure (Var (virt, TypedVar x t'))
-    Checked.App f a _ -> liftA2 App (mono f) (mono a)
+    Checked.App f a -> liftA2 App (mono f) (mono a)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     Checked.Fun f -> fmap (Fun) (monoFun f)
     Checked.Let d e -> monoLet d e
-    Checked.Match e cs tbody -> monoMatch e cs tbody
+    Checked.Match e cs -> monoMatch e cs
     Checked.Ction v span' inst as -> monoCtion v span' inst as
     Checked.Sizeof t -> fmap Sizeof (monotype t)
     Checked.Absurd t -> fmap Absurd (monotype t)
@@ -164,8 +164,8 @@ genInst (Forall _ _ rhsT) monoRhs instT = do
     rhs' <- local (Map.union boundTvs) monoRhs
     pure (Map.elems boundTvs, rhs')
 
-monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr
-monoMatch e dt tbody = liftA3 Match (mono e) (monoDecisionTree dt) (monotype tbody)
+monoMatch :: Checked.Expr -> Checked.DecisionTree -> Mono Expr
+monoMatch e dt = liftA2 Match (mono e) (monoDecisionTree dt)
 
 monoDecisionTree :: Checked.DecisionTree -> Mono DecisionTree
 monoDecisionTree = \case
