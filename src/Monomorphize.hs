@@ -15,9 +15,8 @@ import qualified Data.Map as Map
 import Data.Bitraversable
 
 import Misc
-import SrcPos
 import qualified Checked
-import Checked (noPos, TVar(..), Scheme(..))
+import Checked (TVar(..), Scheme(..))
 import Monomorphic
 import TypeAst hiding (TConst)
 
@@ -42,10 +41,9 @@ instance Monoid DefInsts where
 monomorphize :: Checked.Program -> Program
 monomorphize (Checked.Program (Topo defs) datas externs) =
     let
-        callMain =
-            noPos (Checked.Var (NonVirt, (Checked.TypedVar "main" Checked.mainType)))
-        monoExterns = mapM (\(x, (t, p)) -> fmap (\t' -> (x, t', p)) (monotype t))
-                           (Map.toList externs)
+        callMain = (Checked.Var (NonVirt, (Checked.TypedVar "main" Checked.mainType)))
+        monoExterns =
+            mapM (\(x, t) -> fmap (\t' -> (x, t')) (monotype t)) (Map.toList externs)
         monoDefs = foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
                          (mono callMain $> [])
                          defs
@@ -89,7 +87,7 @@ evalMono ma =
     (\((a, b), c) -> (a, (b, c))) (runReader (runWriterT (runWriterT ma)) Map.empty)
 
 mono :: Checked.Expr -> Mono Expr
-mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
+mono = \case
     Checked.Lit c -> pure (Lit c)
     Checked.Var (virt, Checked.TypedVar x t) -> do
         t' <- monotype t
@@ -100,7 +98,7 @@ mono (Checked.Expr pos ex) = fmap (Expr pos) $ case ex of
     Checked.App f a _ -> liftA2 App (mono f) (mono a)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     Checked.Fun f -> fmap (Fun) (monoFun f)
-    Checked.Let d e -> monoLet pos d e
+    Checked.Let d e -> monoLet d e
     Checked.Match e cs tbody -> monoMatch e cs tbody
     Checked.Ction v span' inst as -> monoCtion v span' inst as
     Checked.Sizeof t -> fmap Sizeof (monotype t)
@@ -114,11 +112,10 @@ monoFun ((p, tp), (b, bt)) = do
         bt' <- monotype bt
         pure (TypedVar p tp', (b', bt'))
 
-monoLet :: Maybe SrcPos -> Checked.Def -> Checked.Expr -> Mono Expr'
-monoLet pos d e = do
+monoLet :: Checked.Def -> Checked.Expr -> Mono Expr
+monoLet d e = do
     (ds', e') <- monoLet' d (mono e)
-    let Expr _ l = foldr (Expr pos .* Let) e' ds'
-    pure l
+    pure (foldr Let e' ds')
 
 monoLet' :: Checked.Def -> Mono a -> Mono ([Def], a)
 monoLet' def ma = case def of
@@ -126,22 +123,22 @@ monoLet' def ma = case def of
     Checked.RecDefs ds -> fmap (first (pure . RecDefs)) (monoLetRecs ds ma)
 
 monoLetVar :: Checked.VarDef -> Mono a -> Mono ([VarDef], a)
-monoLetVar (lhs, WithPos rhsPos (rhsScm, rhs)) monoBody = do
+monoLetVar (lhs, (rhsScm, rhs)) monoBody = do
     (body', DefInsts defInsts) <- lift (runWriterT monoBody)
     tell (DefInsts (Map.delete lhs defInsts))
     rhss' <- case Map.lookup lhs defInsts of
         Nothing -> pure []
         Just instTs -> mapM
-            (\instT -> fmap (instT, ) (genInst rhsScm (fmap expr' (mono rhs)) instT))
+            (\instT -> fmap (instT, ) (genInst rhsScm (mono rhs) instT))
             (Set.toList instTs)
-    pure (map (\(t, rhs') -> (TypedVar lhs t, second (WithPos rhsPos) rhs')) rhss', body')
+    pure (map (\(t, rhs') -> (TypedVar lhs t, rhs')) rhss', body')
 
 monoLetRecs :: Checked.RecDefs -> Mono a -> Mono (RecDefs, a)
 monoLetRecs ds monoBody = do
     (body', DefInsts defInsts) <- lift (runWriterT monoBody)
     let defs = Map.fromList ds
     let monoLetRecs'
-            :: Map TypedVar ([Type], WithPos Fun) -> Map String (Set Type) -> Mono RecDefs
+            :: Map TypedVar ([Type], Fun) -> Map String (Set Type) -> Mono RecDefs
         monoLetRecs' defs' insts = do
             let (insts', otherInsts) =
                     Map.partitionWithKey (\k _ -> Map.member k defs) insts
@@ -153,9 +150,8 @@ monoLetRecs ds monoBody = do
                 then pure (Map.toList defs')
                 else do
                     let genInst' (TypedVar x t) =
-                            let WithPos p (scm, WithPos _ f) = defs Map.! x
-                            in  fmap ((TypedVar x t, ) . second (WithPos p))
-                                     (genInst scm (monoFun f) t)
+                            let (scm, f) = defs Map.! x
+                            in  fmap (TypedVar x t, ) (genInst scm (monoFun f) t)
                     (newDefs, DefInsts newInsts) <- lift
                         (runWriterT (mapM genInst' insts''))
                     monoLetRecs' (Map.union (Map.fromList newDefs) defs') newInsts
@@ -168,7 +164,7 @@ genInst (Forall _ _ rhsT) monoRhs instT = do
     rhs' <- local (Map.union boundTvs) monoRhs
     pure (Map.elems boundTvs, rhs')
 
-monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr'
+monoMatch :: Checked.Expr -> Checked.DecisionTree -> Checked.Type -> Mono Expr
 monoMatch e dt tbody = liftA3 Match (mono e) (monoDecisionTree dt) (monotype tbody)
 
 monoDecisionTree :: Checked.DecisionTree -> Mono DecisionTree
@@ -203,7 +199,7 @@ monoAccess = \case
     Checked.Sel i span' a -> fmap (Sel i span') (monoAccess a)
     Checked.ADeref a -> fmap ADeref (monoAccess a)
 
-monoCtion :: VariantIx -> Span -> Checked.TConst -> [Checked.Expr] -> Mono Expr'
+monoCtion :: VariantIx -> Span -> Checked.TConst -> [Checked.Expr] -> Mono Expr
 monoCtion i span' (tdefName, tdefArgs) as = do
     tdefArgs' <- mapM monotype tdefArgs
     let tdefInst = (tdefName, tdefArgs')

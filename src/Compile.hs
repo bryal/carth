@@ -32,7 +32,6 @@ import Misc
 import Conf
 import qualified Low as Ast
 import Codegen
-import Err
 import Pretty
 
 
@@ -64,7 +63,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             layout <- getTargetMachineDataLayout tm
             triple <- getProcessTargetTriple
             verbose cfg ("   Generating LLVM")
-            amod <- codegen' layout triple file pgm
+            let amod = codegen' layout triple file pgm
             when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
             flip
                     catch
@@ -85,10 +84,8 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                           when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                           f cfg tm mod
 
-codegen' :: DataLayout -> ShortByteString -> FilePath -> Ast.Program -> IO LLAST.Module
-codegen' layout triple f pgm = case codegen layout triple f pgm of
-    Right m -> pure m
-    Left e -> printGenErr e *> abort f
+codegen' :: DataLayout -> ShortByteString -> FilePath -> Ast.Program -> LLAST.Module
+codegen' layout triple f pgm = codegen layout triple f pgm
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do

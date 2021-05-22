@@ -14,17 +14,14 @@ import Data.String
 import System.FilePath
 import Control.Monad.Reader
 import Control.Monad.Writer
-import Control.Monad.Except
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.List
 import Data.Function
-import Data.Functor.Identity
 import Lens.Micro.Platform (use, assign, Lens', view)
 
 import Misc
-import SrcPos
 import FreeVars
 import qualified Low as Ast
 import Low hiding (Type, Const)
@@ -44,47 +41,47 @@ instance Select Gen Val where
         in  genIndexStruct matchee [tagOffset + i]
     selectDeref = genDeref
 
-codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Either GenErr Module
-codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runExcept $ do
-    (tdefs', externs', globDefs) <-
-        let (enums, tdefs'') = runIdentity (runGen' (defineDataTypes tdefs))
-            defs' = defToVarDefs =<< defs
-            (funDefs, varDefs) = separateFunDefs defs'
-        in  runGen'
-            $ augment enumTypes enums
-            $ augment dataTypes tdefs''
-            $ withBuiltins
-            $ withExternSigs externs
-            $ withGlobDefSigs globalEnv defs'
-            $ do
-                  es <- genExterns externs
-                  funDefs' <- mapM genGlobFunDef funDefs
-                  varDecls <- mapM genGlobVarDecl varDefs
-                  init_ <- genInit moduleFilePath varDefs
-                  main <- genMain
-                  let ds = main : init_ ++ join funDefs' ++ varDecls
-                  pure (tdefs'', es, ds)
-    pure $ Module
-        { moduleName = fromString (takeBaseName moduleFilePath)
-        , moduleSourceFileName = fromString moduleFilePath
-        , moduleDataLayout = Just layout
-        , moduleTargetTriple = Just triple
-        , moduleDefinitions = concat
-                                  [ map
-                                      (\(n, tmax) ->
-                                          TypeDefinition n (Just (typeStruct tmax))
-                                      )
-                                      (Map.toList tdefs')
-                                  , defineBuiltinsHidden
-                                  , externs'
-                                  , globDefs
-                                  ]
-        }
+codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Module
+codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
+    let (tdefs', externs', globDefs) =
+            let (enums, tdefs'') = runGen' (defineDataTypes tdefs)
+                defs' = defToVarDefs =<< defs
+                (funDefs, varDefs) = separateFunDefs defs'
+            in  runGen'
+                    $ augment enumTypes enums
+                    $ augment dataTypes tdefs''
+                    $ withBuiltins
+                    $ withExternSigs externs
+                    $ withGlobDefSigs globalEnv defs'
+                    $ do
+                          es <- genExterns externs
+                          funDefs' <- mapM genGlobFunDef funDefs
+                          varDecls <- mapM genGlobVarDecl varDefs
+                          init_ <- genInit varDefs
+                          main <- genMain
+                          let ds = main : init_ ++ join funDefs' ++ varDecls
+                          pure (tdefs'', es, ds)
+    in  Module
+            { moduleName = fromString (takeBaseName moduleFilePath)
+            , moduleSourceFileName = fromString moduleFilePath
+            , moduleDataLayout = Just layout
+            , moduleTargetTriple = Just triple
+            , moduleDefinitions = concat
+                                      [ map
+                                          (\(n, tmax) ->
+                                              TypeDefinition n (Just (typeStruct tmax))
+                                          )
+                                          (Map.toList tdefs')
+                                      , defineBuiltinsHidden
+                                      , externs'
+                                      , globDefs
+                                      ]
+            }
   where
     withGlobDefSigs
         :: MonadReader Env m
         => Lens' Env (Map TypedVar Operand)
-        -> [(TypedVar, ([Ast.Type], WithPos e))]
+        -> [(TypedVar, ([Ast.Type], e))]
         -> m x
         -> m x
     withGlobDefSigs env sigs ga = do
@@ -108,7 +105,7 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) = runEx
 --   enumeration, which is represented as a single integer, equal to the size it
 --   would have been as a tag. If further there's only a single variant, the
 --   data-type is represented as `{}`.
-defineDataTypes :: Datas -> Gen'T Identity (Map Name Word32, Map Name [Type])
+defineDataTypes :: Datas -> Gen' (Map Name Word32, Map Name [Type])
 defineDataTypes datasEnums = do
     let (enums, datas) = partition (all null . snd) (Map.toList datasEnums)
     let enums' = Map.fromList $ map
@@ -151,23 +148,22 @@ genMain = do
     pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks))
 
 separateFunDefs :: [VarDef] -> ([FunDef], [VarDef])
-separateFunDefs = partitionWith $ \(lhs, (ts, WithPos dpos e)) -> case e of
-    Fun f -> Left (lhs, (ts, WithPos dpos f))
-    _ -> Right (lhs, (ts, WithPos dpos e))
+separateFunDefs = partitionWith $ \(lhs, (ts, e)) -> case e of
+    Fun f -> Left (lhs, (ts, f))
+    _ -> Right (lhs, (ts, e))
 
-genInit :: FilePath -> [VarDef] -> Gen' [Definition]
-genInit moduleFp ds = do
+genInit :: [VarDef] -> Gen' [Definition]
+genInit ds = do
     let name = mkName "carth_init"
-    let pos = SrcPos moduleFp 1 1 Nothing
     let param = TypedVar "_" tUnit
     let genDefs =
             forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
-    fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], pos, param, genDefs)
+    fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
 
 genDefineGlobVar :: VarDef -> Gen ()
-genDefineGlobVar (TypedVar v _, (ts, WithPos pos e)) = do
+genDefineGlobVar (TypedVar v _, (ts, e)) = do
     let name = mkName (mangleName (v, ts))
-    e' <- getLocal =<< genExpr (Expr (Just pos) e)
+    e' <- getLocal =<< genExpr e
     let ref = LLConst.GlobalReference (LLType.ptr (typeOf e')) name
     -- Fix for Boehm GC to detect global vars when running in JIT
     genGcAddRoot ref
@@ -199,12 +195,12 @@ genGlobVarDecl (TypedVar v t, (ts, _)) = do
 --
 --       Additional reading: http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.134.9317&rep=rep1&type=pdf
 genGlobFunDef :: FunDef -> Gen' [Definition]
-genGlobFunDef (TypedVar v _, (ts, WithPos dpos (p, (body, rt)))) = do
+genGlobFunDef (TypedVar v _, (ts, (p, (body, rt)))) = do
     let name = mangleName (v, ts)
     assign lambdaParentFunc (Just name)
     assign outerLambdaN 1
     let fName = mkName (name ++ "_func")
-    (f, gs) <- genFunDef (fName, [], dpos, p, genTailExpr body *> genType rt)
+    (f, gs) <- genFunDef (fName, [], p, genTailExpr body *> genType rt)
     let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
     let captures = LLConst.Null typeGenericPtr
     let closure = litStruct [captures, fRef]
@@ -215,7 +211,7 @@ genTailExpr :: Expr -> Gen ()
 genTailExpr = genExpr
 
 genExpr :: TailVal v => Expr -> Gen v
-genExpr (Expr pos expr) = locally srcPos (pos <|>) $ do
+genExpr expr = do
     parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> propagate =<< genConst c
@@ -278,7 +274,7 @@ instance TailVal () where
 
 genApp :: TailVal v => Expr -> [Expr] -> Gen v
 genApp fe aes = case fe of
-    Expr _ (Var (Virt, x)) -> propagate =<< genAppBuiltinVirtual x =<< mapM genExpr aes
+    Var (Virt, x) -> propagate =<< genAppBuiltinVirtual x =<< mapM genExpr aes
     _ -> do
         f <- genExpr fe
         as <- mapM genExpr (init aes)
@@ -296,11 +292,10 @@ genCondBr predV genConseq genAlt = do
 
 genLet :: TailVal v => Def -> Expr -> Gen v
 genLet def body = case def of
-    VarDef (lhs, (_, WithPos _ rhs)) ->
-        genExpr (Expr Nothing rhs) >>= \rhs' -> withVal lhs rhs' (genExpr body)
+    VarDef (lhs, (_, rhs)) -> genExpr rhs >>= \rhs' -> withVal lhs rhs' (genExpr body)
     RecDefs ds -> do
         (binds, cs) <- fmap unzip $ forM ds $ \case
-            (lhs, (_, WithPos _ (p, (fb, fbt)))) -> do
+            (lhs, (_, (p, (fb, fbt)))) -> do
                 fvXs <- view localEnv <&> \locals ->
                     let locals' = Set.insert lhs (Map.keysSet locals)
                     in  Set.toList (Set.intersection (Set.delete p (freeVars fb)) locals')

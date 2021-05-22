@@ -32,15 +32,14 @@ import qualified LLVM.AST.Type as LLType
 import Data.Functor
 
 import Misc
-import SrcPos
 import qualified Low as Ast
 import Low       hiding (Type, Const)
 import Gen
 
 
-withExternSigs :: [(String, Ast.Type, SrcPos)] -> Gen' a -> Gen' a
+withExternSigs :: [(String, Ast.Type)] -> Gen' a -> Gen' a
 withExternSigs es ga = do
-    es' <- forM es $ \(name, t, _) -> do
+    es' <- forM es $ \(name, t) -> do
         t' <- genType' t
         pure
             ( TypedVar name t
@@ -49,18 +48,18 @@ withExternSigs es ga = do
             )
     augment globalEnv (Map.fromList es') ga
 
-genExterns :: [(String, Ast.Type, SrcPos)] -> Gen' [Definition]
+genExterns :: [(String, Ast.Type)] -> Gen' [Definition]
 genExterns = fmap join . mapM genExtern
 
-genExtern :: (String, Ast.Type, SrcPos) -> Gen' [Definition]
-genExtern (name, t, pos) = do
+genExtern :: (String, Ast.Type) -> Gen' [Definition]
+genExtern (name, t) = do
     ((pts, rt), (ps, rt')) <- genExternTypeSig t
     let externDef = GlobalDefinition (externFunc (mkName name) ps rt' [])
-    wrapperDefs <- genWrapper pos name rt pts
+    wrapperDefs <- genWrapper name rt pts
     pure (externDef : wrapperDefs)
 
-genWrapper :: SrcPos -> String -> Type -> [Ast.Type] -> Gen' [Definition]
-genWrapper pos externName rt = \case
+genWrapper :: String -> Type -> [Ast.Type] -> Gen' [Definition]
+genWrapper externName rt = \case
     [] -> ice "genWrapper of empty param list"
     (firstParamT : restParamTs) -> do
         let genCallExtern :: [TypedVar] -> Gen Val
@@ -96,8 +95,7 @@ genWrapper pos externName rt = \case
         assign lambdaParentFunc (Just wrapperName)
         let fname = mkName (wrapperName ++ "_func")
         let firstParam = TypedVar "x" firstParamT
-        (f, gs) <- locallySet srcPos (Just pos)
-            $ genFunDef (fname, [], pos, firstParam, genWrapper' [firstParam] restParamTs)
+        (f, gs) <- genFunDef (fname, [], firstParam, genWrapper' [firstParam] restParamTs)
         let fref = LLConst.GlobalReference (LLType.ptr (typeOf f)) fname
         let captures = LLConst.Null typeGenericPtr
         let closure = litStruct [captures, fref]

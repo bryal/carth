@@ -26,7 +26,7 @@ import Match
 import Infer
 import TypeAst
 import qualified Checked
-import Checked (withPos, noPos, Virt(..))
+import Checked (Virt(..))
 
 
 typecheck :: Parsed.Program -> Either TypeErr Checked.Program
@@ -149,14 +149,14 @@ assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
         _ -> pure ()
 
 checkExterns :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.Externs
-checkExterns tdefs = fmap (Map.union Inferred.builtinExterns . Map.fromList)
+checkExterns tdefs = fmap (Map.union Checked.builtinExterns . Map.fromList)
     . mapM checkExtern
   where
     checkExtern (Parsed.Extern name t) = do
         t' <- checkType' tdefs (getPos name) t
         case Set.lookupMin (Inferred.ftv t') of
             Just tv -> throwError (ExternNotMonomorphic name tv)
-            Nothing -> pure (idstr name, (t', getPos name))
+            Nothing -> pure (idstr name, t')
 
 type Bound = ReaderT (Set TVar) (Except TypeErr) ()
 
@@ -167,8 +167,7 @@ checkTypeVarsBound ds = runReaderT (boundInDefs ds) Set.empty
   where
     boundInDefs :: Inferred.Defs -> Bound
     boundInDefs = mapM_ (secondM boundInDef) . Inferred.flattenDefs
-    boundInDef (WithPos _ ((Inferred.Forall tvs _ _), e)) =
-        local (Set.union tvs) (boundInExpr e)
+    boundInDef (Inferred.Forall tvs _ _, e) = local (Set.union tvs) (boundInExpr e)
     boundInExpr (WithPos pos e) = case e of
         Inferred.Lit _ -> pure ()
         Inferred.Var (_, Inferred.TypedVar _ t) -> boundInType pos t
@@ -215,44 +214,39 @@ compileDecisionTrees tdefs = compDefs
 
     compDef :: Inferred.Def -> Except TypeErr Checked.Def
     compDef = \case
-        Inferred.VarDef (lhs, WithPos p rhs) ->
-            fmap (Checked.VarDef . (lhs, ) . WithPos p) (secondM compExpr rhs)
-        Inferred.RecDefs ds -> fmap Checked.RecDefs $ flip mapM ds $ secondM $ mapPosdM
-            (secondM compFunMatch)
+        Inferred.VarDef (lhs, rhs) ->
+            fmap (Checked.VarDef . (lhs, )) (secondM compExpr rhs)
+        Inferred.RecDefs ds ->
+            fmap Checked.RecDefs $ flip mapM ds $ secondM (secondM compFunMatch)
 
-    compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr (WithPos Checked.Fun)
+    compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr Checked.Fun
     compFunMatch (WithPos pos (cs, tp, tb)) = do
         cs' <- mapM (secondM compExpr) cs
         let p = "#x"
-        fmap (WithPos pos) $ case runExceptT (toDecisionTree tdefs pos tp cs') of
-            Nothing -> pure ((p, tp), (noPos (Checked.Absurd tb), tb))
+        case runExceptT (toDecisionTree tdefs pos tp cs') of
+            Nothing -> pure ((p, tp), (Checked.Absurd tb, tb))
             Just e -> do
                 dt <- liftEither e
-                let v = noPos (Checked.Var (NonVirt, Checked.TypedVar p tp))
-                    b = noPos (Checked.Match v dt tb)
+                let v = (Checked.Var (NonVirt, Checked.TypedVar p tp))
+                    b = Checked.Match v dt tb
                 pure ((p, tp), (b, tb))
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
-    compExpr (WithPos pos ex) = fmap (withPos pos) $ case ex of
+    compExpr (WithPos pos ex) = case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
         Inferred.Var (virt, Inferred.TypedVar (WithPos _ x) t) ->
             pure (Checked.Var (virt, Checked.TypedVar x t))
         Inferred.App f a tr -> liftA3 Checked.App (compExpr f) (compExpr a) (pure tr)
         Inferred.If p c a -> liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
         Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
-        Inferred.FunMatch fm ->
-            fmap (Checked.Fun . unpos) (compFunMatch (WithPos pos fm))
+        Inferred.FunMatch fm -> fmap Checked.Fun (compFunMatch (WithPos pos fm))
         Inferred.Ctor v span' inst ts ->
-            let
-                xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
+            let xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
                 params = zip xs ts
-                args = map
-                    (noPos . Checked.Var . (NonVirt, ) . uncurry Checked.TypedVar)
-                    params
-            in
-                pure $ snd $ foldr
+                args = map (Checked.Var . (NonVirt, ) . uncurry Checked.TypedVar) params
+            in  pure $ snd $ foldr
                     (\(p, pt) (bt, b) ->
-                        (Inferred.TFun pt bt, Checked.Fun ((p, pt), (withPos pos b, bt)))
+                        (Inferred.TFun pt bt, Checked.Fun ((p, pt), (b, bt)))
                     )
                     (Inferred.TConst inst, Checked.Ction v span' inst args)
                     params

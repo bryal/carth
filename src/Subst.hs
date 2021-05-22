@@ -13,9 +13,8 @@ type Subst = Map TVar Type
 
 substDef :: Subst -> Def -> Def
 substDef s = \case
-    VarDef d -> VarDef (second (mapPosd (second (substExpr s))) d)
-    RecDefs ds ->
-        RecDefs (map (second (mapPosd (second (mapPosd (substFunMatch s))))) ds)
+    VarDef d -> VarDef (second (second (substExpr s)) d)
+    RecDefs ds -> RecDefs (map (second (second (mapPosd (substFunMatch s)))) ds)
 
 substExpr :: Subst -> Expr -> Expr
 substExpr s (WithPos pos expr) = WithPos pos $ case expr of

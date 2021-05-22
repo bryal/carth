@@ -9,7 +9,6 @@ import Data.Set (Set)
 import Data.Bifunctor
 
 import Misc
-import SrcPos
 import Checked (VariantIx, Span)
 import FreeVars
 import Parsed (Const(..))
@@ -46,7 +45,7 @@ type Fun = (TypedVar, (Expr, Type))
 
 type Var = (Virt, TypedVar)
 
-data Expr'
+data Expr
     = Lit Const
     | Var Var
     | App Expr [Expr]
@@ -59,17 +58,14 @@ data Expr'
     | Absurd Type
     deriving (Show)
 
-data Expr = Expr (Maybe SrcPos) Expr'
-    deriving Show
-
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type Inst = [Type]
-type VarDef = (TypedVar, (Inst, WithPos Expr'))
+type VarDef = (TypedVar, (Inst, Expr))
 type RecDefs = [FunDef]
-type FunDef = (TypedVar, (Inst, WithPos Fun))
+type FunDef = (TypedVar, (Inst, Fun))
 type Datas = Map TConst [VariantTypes]
-type Externs = [(String, Type, SrcPos)]
+type Externs = [(String, Type)]
 
 data Program = Program Defs Datas Externs
     deriving Show
@@ -81,21 +77,18 @@ instance TypeAst Type where
     tbox = TBox
 
 instance FreeVars Expr TypedVar where
-    freeVars (Expr _ e) = fvExpr' e
+    freeVars e = fvExpr e
 
-instance FreeVars Expr' TypedVar where
-    freeVars = fvExpr'
-
-fvExpr' :: Expr' -> Set TypedVar
-fvExpr' = \case
+fvExpr :: Expr -> Set TypedVar
+fvExpr = \case
     Lit _ -> Set.empty
     Var (_, x) -> Set.singleton x
     App f a -> Set.unions (map freeVars (f : a))
     If p c a -> fvIf p c a
     Fun (p, (b, _)) -> fvFun p b
-    Let (VarDef (lhs, (_, WithPos _ rhs))) (Expr _ e) ->
+    Let (VarDef (lhs, (_, rhs))) e ->
         Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
-    Let (RecDefs ds) (Expr _ e) -> fvLet (unzip (map (second (Fun . unpos . snd)) ds)) e
+    Let (RecDefs ds) e -> fvLet (unzip (map (second (Fun . snd)) ds)) e
     Match e dt _ -> Set.union (freeVars e) (fvDecisionTree dt)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)
     Sizeof _t -> Set.empty
@@ -108,7 +101,7 @@ fvDecisionTree = \case
     DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
     where fvDSwitch es def = Set.unions $ fvDecisionTree def : map fvDecisionTree es
 
-defToVarDefs :: Def -> [(TypedVar, (Inst, WithPos Expr'))]
+defToVarDefs :: Def -> [(TypedVar, (Inst, Expr))]
 defToVarDefs = \case
     VarDef d -> [d]
-    RecDefs ds -> map (second (second (mapPosd Fun))) ds
+    RecDefs ds -> map (second (second Fun)) ds

@@ -66,7 +66,7 @@ inferTopDefs :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr D
 inferTopDefs tdefs ctors externs defs =
     let initEnv = Env { _envTypeDefs = tdefs
                       , _envVirtuals = builtinVirtuals
-                      , _envGlobDefs = fmap (Forall Set.empty Set.empty . fst) externs
+                      , _envGlobDefs = fmap (Forall Set.empty Set.empty) externs
                       , _envLocalDefs = Map.empty
                       , _envCtors = ctors
                       }
@@ -208,7 +208,7 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
             (\p b -> WithPos dpos (Parsed.FunMatch [(p, b)]))
             body
             params
-    inferNonrecDef' (Parsed.VarDef dpos lhs mayscm body) = do
+    inferNonrecDef' (Parsed.VarDef _ lhs mayscm body) = do
         t <- fresh
         mayscm' <- checkScheme (idstr lhs) mayscm
         (body', cs) <- listen $ inferDef t mayscm' (getPos body) (infer body)
@@ -219,16 +219,16 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
                           ccs
                           (subst sub t)
         let body'' = substExpr sub body'
-        pure (idstr lhs, WithPos dpos (scm, body''))
+        pure (idstr lhs, (scm, body''))
 
     inferRecDefs' ds = do
-        (names, poss, mayscms', ts) <- fmap unzip4 $ forM ds $ \d -> do
-            let (name, pos, mayscm) = case d of
-                    Parsed.FunDef p x s _ _ -> (idstr x, p, s)
-                    Parsed.VarDef p x s _ -> (idstr x, p, s)
+        (names, mayscms', ts) <- fmap unzip3 $ forM ds $ \d -> do
+            let (name, mayscm) = case d of
+                    Parsed.FunDef _ x s _ _ -> (idstr x, s)
+                    Parsed.VarDef _ x s _ -> (idstr x, s)
             t <- fresh
             mayscm' <- checkScheme name mayscm
-            pure (name, pos, mayscm', t)
+            pure (name, mayscm', t)
         let dummyDefs = Map.fromList $ zip names (map (Forall Set.empty Set.empty) ts)
         (fs, ucs) <- listen $ augment envLocalDefs dummyDefs $ mapM
             (uncurry3 inferRecDef)
@@ -240,7 +240,7 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
             mayscms'
             ts
         let fs' = map (mapPosd (substFunMatch sub)) fs
-        pure (zip names (zipWith3 (curry . WithPos) poss scms fs'))
+        pure (zip names (zip scms fs'))
 
     inferRecDef :: Maybe Scheme -> Type -> Parsed.Def -> Infer (WithPos FunMatch)
     inferRecDef mayscm t = \case

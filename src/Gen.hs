@@ -9,7 +9,6 @@ module Gen where
 import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
-import Control.Monad.Except
 import Control.Applicative
 import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.Map (Map)
@@ -18,7 +17,6 @@ import Data.Foldable
 import Data.Bifunctor
 import Data.Functor
 import Data.List
-import Data.Maybe
 import qualified Data.Map as Map
 import Lens.Micro.Platform (makeLenses, modifying, use, view, assign, to)
 import LLVM.AST
@@ -42,12 +40,7 @@ import qualified TypeAst
 import qualified Low as Ast
 import qualified Lower as Ast
 import Low (TypedVar(..), TPrim(..))
-import SrcPos
 
-
-data GenErr
-    = CastErr SrcPos Ast.Type Ast.Type
-    | NoBuiltinVirtualInstance SrcPos String Ast.Type
 
 -- | An instruction that returns a value. The name refers to the fact that a
 --   mathematical function always returns a value, but an imperative procedure
@@ -60,7 +53,6 @@ data Env = Env
     , _enumTypes :: Map Name Word32
     , _dataTypes :: Map Name [Type]
     , _builtins :: Map String ([Parameter], Type)
-    , _srcPos :: Maybe SrcPos
     }
 
 data St = St
@@ -73,15 +65,14 @@ data St = St
     , _outerLambdaN :: Word
     }
 
-type Gen'T m = StateT St (ReaderT Env m)
-type Gen' = Gen'T (Except GenErr)
+type Gen' = StateT St (Reader Env)
 
 -- | The output of generating a function. Dependencies of stuff within the
 --   function that must be generated at the top-level.
 data Out = Out
     { _outBlocks :: [BasicBlock]
     , _outStrings :: [(Name, String)]
-    , _outFuncs :: [(Name, [TypedVar], SrcPos, TypedVar, Gen Type)]
+    , _outFuncs :: [(Name, [TypedVar], TypedVar, Gen Type)]
     }
 
 type Gen = WriterT Out Gen'
@@ -110,9 +101,8 @@ instance Typed Val where
 --
 --   The signature definition, the parameter-loading, and the result return are
 --   all done according to the calling convention.
-genFunDef
-    :: (Name, [TypedVar], SrcPos, TypedVar, Gen Type) -> Gen' (Global, [Definition])
-genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
+genFunDef :: (Name, [TypedVar], TypedVar, Gen Type) -> Gen' (Global, [Definition])
+genFunDef (name, fvs, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
     ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
@@ -120,8 +110,7 @@ genFunDef (name, fvs, dpos, ptv@(TypedVar px pt), genBody) = do
         pt' <- genType pt
         px' <- newName px
         let pRef = VLocal (LocalReference pt' px')
-        rt' <- locallySet srcPos (Just dpos)
-            $ withVal ptv pRef (withVals captureMembers genBody)
+        rt' <- withVal ptv pRef (withVals captureMembers genBody)
         let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
         pure (rt', fParams')
     ss <- mapM globStrVar globStrings
@@ -216,19 +205,17 @@ genLambda' p@(TypedVar _ pt) (genBody, bt) captures fvXs = do
         Nothing -> newName "func"
     ft <- genType pt <&> \pt' -> closureFunType pt' bt
     let f = VLocal $ ConstantOperand $ LLConst.GlobalReference (LLType.ptr ft) fname
-    pos <- view (srcPos . to (fromMaybe (ice "srcPos is Nothing in genLambda")))
-    scribe outFuncs [(fname, fvXs, pos, p, genBody $> bt)]
+    scribe outFuncs [(fname, fvXs, p, genBody $> bt)]
     genStruct [captures, f]
 
-runGen' :: Monad m => StateT St (ReaderT Env m) a -> m a
-runGen' g = runReaderT (evalStateT g initSt) initEnv
+runGen' :: StateT St (Reader Env) a -> a
+runGen' g = runReader (evalStateT g initSt) initEnv
   where
     initEnv = Env { _localEnv = Map.empty
                   , _globalEnv = Map.empty
                   , _enumTypes = Map.empty
                   , _dataTypes = Map.empty
                   , _builtins = Map.empty
-                  , _srcPos = Nothing
                   }
     initSt = St { _currentBlockLabel = "entry"
                 , _currentBlockInstrs = []

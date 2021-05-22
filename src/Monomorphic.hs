@@ -16,7 +16,6 @@ import Data.Map (Map)
 import Data.Word
 
 import Misc
-import SrcPos
 import Checked (VariantIx, Span, Virt (..))
 import Parsed (Const(..))
 import TypeAst hiding (TConst)
@@ -58,7 +57,7 @@ type Fun = (TypedVar, (Expr, Type))
 
 type Var = (Virt, TypedVar)
 
-data Expr'
+data Expr
     = Lit Const
     | Var Var
     | App Expr Expr
@@ -71,17 +70,14 @@ data Expr'
     | Absurd Type
     deriving (Show)
 
-data Expr = Expr (Maybe SrcPos) Expr'
-    deriving Show
-
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type Inst = [Type]
-type VarDef = (TypedVar, (Inst, WithPos Expr'))
+type VarDef = (TypedVar, (Inst, Expr))
 type RecDefs = [FunDef]
-type FunDef = (TypedVar, (Inst, WithPos Fun))
+type FunDef = (TypedVar, (Inst, Fun))
 type Datas = Map TConst [VariantTypes]
-type Externs = [(String, Type, SrcPos)]
+type Externs = [(String, Type)]
 
 data Program = Program Defs Datas Externs
     deriving Show
@@ -98,6 +94,3 @@ instance Functor Access' where
         As a s ts -> As (fmap f a) s (map f ts)
         Sel i s a -> Sel i s (fmap f a)
         ADeref a -> ADeref (fmap f a)
-
-expr' :: Expr -> Expr'
-expr' (Expr _ e) = e

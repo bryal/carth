@@ -5,11 +5,9 @@ import qualified Data.Map as Map
 import Data.Map (Map)
 
 import Misc
-import SrcPos
 import qualified Monomorphic as Ast
 import qualified Monomorphize
 import Low
-
 
 lower :: Ast.Program -> Program
 lower (Ast.Program defs datas externs) =
@@ -27,22 +25,19 @@ lowerDef = \case
     Ast.RecDefs ds -> RecDefs $ lowerRecDefs ds
 
 lowerVarDef :: Ast.VarDef -> VarDef
-lowerVarDef = bimap lowerTypedVar (bimap (map lowerType) (fmap lowerExpr'))
+lowerVarDef = bimap lowerTypedVar (bimap (map lowerType) lowerExpr)
 
 lowerRecDefs :: Ast.RecDefs -> RecDefs
 lowerRecDefs = map lowerFunDef
 
 lowerFunDef :: Ast.FunDef -> FunDef
-lowerFunDef = bimap lowerTypedVar (bimap (map lowerType) (fmap lowerFun))
+lowerFunDef = bimap lowerTypedVar (bimap (map lowerType) lowerFun)
 
 lowerFun :: Ast.Fun -> Fun
 lowerFun = bimap lowerTypedVar (bimap lowerExpr lowerType)
 
 lowerExpr :: Ast.Expr -> Expr
-lowerExpr (Ast.Expr p e) = Expr p (lowerExpr' e)
-
-lowerExpr' :: Ast.Expr' -> Expr'
-lowerExpr' = \case
+lowerExpr = \case
     Ast.Lit c -> Lit c
     Ast.Var v -> Var $ second lowerTypedVar v
     Ast.App f a -> lowerApp f [a]
@@ -55,20 +50,18 @@ lowerExpr' = \case
     Ast.Absurd t -> Absurd $ lowerType t
 
 -- | Performs a sort of beta reduction
-lowerApp :: Ast.Expr -> [Ast.Expr] -> Expr'
+lowerApp :: Ast.Expr -> [Ast.Expr] -> Expr
 lowerApp = curry $ \case
-    (Ast.Expr _ (Ast.Fun (p, (b, _))), Ast.Expr _ a : as) -> Let
+    (Ast.Fun (p, (b, _)), a : as) -> Let
         (VarDef
             ( lowerTypedVar p
             -- FIXME: This pos is pretty bad probably?
-            , ( uniqueInst
-              , WithPos (ice "read srcpos of VarDef from lowerApp") (lowerExpr' a)
-              )
+            , (uniqueInst, lowerExpr a)
             )
         )
-        (Expr Nothing (lowerApp b as))
-    (Ast.Expr _ (Ast.App f a), as) -> lowerApp f (a : as)
-    (Ast.Expr _ f, []) -> lowerExpr' f
+        (lowerApp b as)
+    (Ast.App f a, as) -> lowerApp f (a : as)
+    (f, []) -> lowerExpr f
     (f, as) -> App (lowerExpr f) (map lowerExpr as)
     where uniqueInst = []
 
@@ -90,7 +83,7 @@ lowerDatas :: Ast.Datas -> Datas
 lowerDatas = Map.fromList . map (bimap lowerTConst (map (map lowerType))) . Map.toList
 
 lowerExterns :: Ast.Externs -> Externs
-lowerExterns = map (\(x, t, p) -> (x, lowerType t, p))
+lowerExterns = map (\(x, t) -> (x, lowerType t))
 
 lowerTypedVar :: Ast.TypedVar -> TypedVar
 lowerTypedVar (Ast.TypedVar x t) = TypedVar x (lowerType t)

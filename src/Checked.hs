@@ -16,9 +16,9 @@ where
 import Data.Map (Map)
 import Data.Word
 import Data.Bifunctor
+import qualified Data.Map as Map
 
 import Misc
-import SrcPos
 import TypeAst hiding (TConst)
 import Inferred
     ( TVar(..)
@@ -31,7 +31,6 @@ import Inferred
     , Con(..)
     , Virt(..)
     )
-import qualified Inferred
 
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
@@ -55,7 +54,7 @@ type Fun = ((String, Type), (Expr, Type))
 
 type Var = (Virt, TypedVar)
 
-data Expr'
+data Expr
     = Lit Const
     | Var Var
     | App Expr Expr Type
@@ -68,37 +67,27 @@ data Expr'
     | Absurd Type
     deriving (Show)
 
-data Expr = Expr (Maybe SrcPos) Expr'
-    deriving Show
-
-
 builtinExterns :: Map String Type
-builtinExterns = fmap fst Inferred.builtinExterns
-
-withPos :: SrcPos -> Expr' -> Expr
-withPos = Expr . Just
-
-noPos :: Expr' -> Expr
-noPos = Checked.Expr Nothing
+builtinExterns = Map.fromList $ [("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))]
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
-type VarDef = (String, WithPos (Scheme, Expr))
-type RecDefs = [(String, WithPos (Scheme, WithPos Fun))]
+type VarDef = (String, (Scheme, Expr))
+type RecDefs = [(String, (Scheme, Fun))]
 type TypeDefs = Map String ([TVar], [[Type]])
-type Externs = Map String (Type, SrcPos)
+type Externs = Map String Type
 
 data Program = Program Defs TypeDefs Externs
     deriving Show
 
 
-flattenDefs :: Defs -> [(String, WithPos (Scheme, Expr))]
+flattenDefs :: Defs -> [(String, (Scheme, Expr))]
 flattenDefs (Topo defs) = defToVarDefs =<< defs
 
-defToVarDefs :: Def -> [(String, WithPos (Scheme, Expr))]
+defToVarDefs :: Def -> [(String, (Scheme, Expr))]
 defToVarDefs = \case
     VarDef d -> [d]
     RecDefs ds -> map funDefToVarDef ds
 
-funDefToVarDef :: (String, WithPos (Scheme, WithPos Fun)) -> VarDef
-funDefToVarDef = second (mapPosd (second (\(WithPos p f) -> Expr (Just p) (Fun f))))
+funDefToVarDef :: (String, (Scheme, Fun)) -> VarDef
+funDefToVarDef = second (second Fun)

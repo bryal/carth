@@ -6,7 +6,6 @@ module Inferred (module Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) w
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Bifunctor
 import Lens.Micro.Platform (makeLenses)
 
@@ -114,11 +113,11 @@ type Expr = WithPos Expr'
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
-type VarDef = (String, WithPos (Scheme, Expr))
-type RecDefs = [(String, WithPos (Scheme, WithPos FunMatch))]
+type VarDef = (String, (Scheme, Expr))
+type RecDefs = [(String, (Scheme, WithPos FunMatch))]
 type TypeDefs = Map String ([TVar], [(Id, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
-type Externs = Map String (Type, SrcPos)
+type Externs = Map String Type
 
 
 instance Eq Con where
@@ -142,23 +141,18 @@ ftv = \case
     TBox t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
 
-builtinExterns :: Map String (Type, SrcPos)
-builtinExterns = Map.fromList $ map
-    (second (, SrcPos "<builtin>" 0 0 Nothing))
-    [("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))]
-
 defSigs :: Def -> [(String, Scheme)]
 defSigs = \case
     VarDef d -> [defSig d]
     RecDefs ds -> map defSig ds
 
-defSig :: (String, WithPos (Scheme, a)) -> (String, Scheme)
-defSig d = (fst d, fst (unpos (snd d)))
+defSig :: (String, (Scheme, a)) -> (String, Scheme)
+defSig d = (fst d, fst (snd d))
 
-flattenDefs :: Defs -> [(String, WithPos (Scheme, Expr))]
+flattenDefs :: Defs -> [(String, (Scheme, Expr))]
 flattenDefs (Topo defs) = defToVarDefs =<< defs
 
-defToVarDefs :: Def -> [(String, WithPos (Scheme, Expr))]
+defToVarDefs :: Def -> [(String, (Scheme, Expr))]
 defToVarDefs = \case
     VarDef d -> [d]
-    RecDefs ds -> map (second (mapPosd (second (mapPosd FunMatch)))) ds
+    RecDefs ds -> map (second (second (mapPosd FunMatch))) ds

@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Err (module Err, TypeErr(..), GenErr(..)) where
+module Err (module Err, TypeErr(..)) where
 
 import Text.Megaparsec (match)
 
@@ -11,8 +11,6 @@ import qualified Parsed
 import Inferred
 import Pretty
 import Lex
-import Gen
-
 
 type Message = String
 
@@ -70,7 +68,7 @@ printTypeErr = \case
     UndefType p x -> posd p $ "Undefined type `" ++ x ++ "`."
     UnboundTVar p ->
         posd p
-            $ "Could not fully infer type of expression.\n"
+            $ "Could not fully infer type of expression, or otherwise unbound type variable.\n"
             ++ "Type annotations needed."
     WrongMainType p s ->
         posd p
@@ -87,14 +85,6 @@ printTypeErr = \case
     ConflictingVarDef p x ->
         posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
     NoClassInstance p c -> posd p $ "No instance for " ++ prettyTConst c
-
-printGenErr :: GenErr -> IO ()
-printGenErr = \case
-    CastErr p t u -> posd p $ "Cannot cast " ++ pretty t ++ " to " ++ pretty u
-    NoBuiltinVirtualInstance p x t ->
-        posd p
-            $ ("Builtin virtual function " ++ x)
-            ++ (" cannot be instantiated to type " ++ pretty t)
 
 posd :: SrcPos -> Message -> IO ()
 posd = posd' "Error"
