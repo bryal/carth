@@ -1,16 +1,16 @@
 {-# LANGUAGE DataKinds #-}
 
-module Err (module Err, TypeErr(..)) where
+module Front.Err (module Front.Err, TypeErr(..)) where
 
 import Text.Megaparsec (match)
 
 import Misc
-import SrcPos
-import TypeAst
-import qualified Parsed
-import Inferred
+import Front.SrcPos
+import Front.TypeAst
+import qualified Front.Parsed as Parsed
+import Front.Inferred
 import Pretty
-import Lex
+import Front.Lex
 
 type Message = String
 

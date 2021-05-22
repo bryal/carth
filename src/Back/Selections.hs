@@ -1,4 +1,4 @@
-module Selections (Select (..), Selections, newSelections, select, selectVarBindings) where
+module Back.Selections (Select (..), Selections, newSelections, select, selectVarBindings) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -6,7 +6,7 @@ import Data.Word
 import Control.Monad
 
 import Misc
-import Low
+import Back.Low
 
 type Selections a = Map Access a
 

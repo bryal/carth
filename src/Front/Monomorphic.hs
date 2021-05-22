@@ -1,8 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Monomorphic AST as a result of monomorphization
-module Monomorphic
-    ( module Monomorphic
+module Front.Monomorphic
+    ( module Front.Monomorphic
     , TPrim(..)
     , Const(..)
     , VariantIx
@@ -16,10 +16,10 @@ import Data.Map (Map)
 import Data.Word
 
 import Misc
-import Checked (VariantIx, Span, Virt (..))
-import Parsed (Const(..))
-import TypeAst hiding (TConst)
-import qualified TypeAst
+import Front.Checked (VariantIx, Span, Virt (..))
+import Front.Parsed (Const(..))
+import Front.TypeAst hiding (TConst)
+import qualified Front.TypeAst as TypeAst
 
 type TConst = TypeAst.TConst Type
 

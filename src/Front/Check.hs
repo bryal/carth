@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Check (typecheck) where
+module Front.Check (typecheck) where
 
 import Prelude hiding (span)
 import Control.Monad.Except
@@ -17,17 +17,17 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 
 import Misc
-import SrcPos
-import Subst
-import qualified Parsed
-import Parsed (Id(..), TVar(..), idstr)
-import Err
-import qualified Inferred
-import Match
-import Infer
-import TypeAst
-import qualified Checked
-import Checked (Virt(..))
+import Front.SrcPos
+import Front.Subst
+import qualified Front.Parsed as Parsed
+import Front.Parsed (Id(..), TVar(..), idstr)
+import Front.Err
+import qualified Front.Inferred as Inferred
+import Front.Match
+import Front.Infer
+import Front.TypeAst
+import qualified Front.Checked as Checked
+import Front.Checked (Virt(..))
 
 
 typecheck :: Parsed.Program -> Either TypeErr Checked.Program

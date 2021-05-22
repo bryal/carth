@@ -1,15 +1,15 @@
 {-# LANGUAGE DataKinds #-}
 
-module Parsed (module Parsed, Const (..), TPrim(..), TConst) where
+module Front.Parsed (module Front.Parsed, Const (..), TPrim(..), TConst) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Control.Arrow ((>>>))
 
-import SrcPos
+import Front.SrcPos
 import FreeVars
-import TypeAst
-import Lexd (Const (..))
+import Front.TypeAst
+import Front.Lexd (Const (..))
 
 
 data IdCase = Big | Small

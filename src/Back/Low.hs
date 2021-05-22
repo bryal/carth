@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Low (module Low, TPrim(..), Const(..), VariantIx, Span, tUnit, Access'(..), Virt(..)) where
+module Back.Low (module Back.Low, TPrim(..), Const(..), VariantIx, Span, tUnit, Access'(..), Virt(..)) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -9,12 +9,12 @@ import Data.Set (Set)
 import Data.Bifunctor
 
 import Misc
-import Checked (VariantIx, Span)
+import Front.Checked (VariantIx, Span)
 import FreeVars
-import Parsed (Const(..))
-import TypeAst hiding (TConst)
-import qualified TypeAst
-import Monomorphic (Access'(..), Virt(..))
+import Front.Parsed (Const(..))
+import Front.TypeAst hiding (TConst)
+import qualified Front.TypeAst as TypeAst
+import Front.Monomorphic (Access'(..), Virt(..))
 
 type TConst = TypeAst.TConst Type
 

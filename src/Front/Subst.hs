@@ -1,12 +1,12 @@
-module Subst (Subst, Subst', subst, subst', substDef, substExpr, substExpr', substFunMatch, substFunMatch', composeSubsts) where
+module Front.Subst (Subst, Subst', subst, subst', substDef, substExpr, substExpr', substFunMatch, substFunMatch', composeSubsts) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Bifunctor
 import Data.Maybe
 
-import SrcPos
-import Inferred
+import Front.SrcPos
+import Front.Inferred
 
 -- | Map of substitutions from type-variables to more specific types
 type Subst = TVar -> Maybe Type

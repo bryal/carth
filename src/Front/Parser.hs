@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Parser where
+module Front.Parser where
 
 import Control.Applicative hiding (many, some)
 import Control.Monad
@@ -12,9 +12,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 
 import Misc
-import SrcPos
-import Lexd
-import Parsed
+import Front.SrcPos
+import Front.Lexd
+import Front.Parsed
 import Pretty
 
 data Err = Err
@@ -131,17 +131,17 @@ sexpr expected extract f = do
     modify (\st -> st { stOuterPos = pOld, stInput = ttsOld })
     pure a
 
-big :: Parser (Id 'Parsed.Big)
+big :: Parser (Id 'Front.Parsed.Big)
 big = token "big identifier" $ \p -> \case
-    Lexd.Big x -> Just (Id (WithPos p x))
+    Front.Lexd.Big x -> Just (Id (WithPos p x))
     _ -> Nothing
 
 small' :: Parser String
 small' = fmap idstr small
 
-small :: Parser (Id 'Parsed.Small)
+small :: Parser (Id 'Front.Parsed.Small)
 small = token "small identifier" $ \p -> \case
-    Lexd.Small x -> Just (Id (WithPos p x))
+    Front.Lexd.Small x -> Just (Id (WithPos p x))
     _ -> Nothing
 
 reserved :: Keyword -> Parser ()

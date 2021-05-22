@@ -1,7 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields, GADTs, RankNTypes #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
-module Codegen (codegen) where
+module Back.Codegen (codegen) where
 
 import LLVM.Prelude
 import LLVM.AST hiding (args)
@@ -23,12 +23,12 @@ import Lens.Micro.Platform (use, assign, Lens', view)
 
 import Misc
 import FreeVars
-import qualified Low as Ast
-import Low hiding (Type, Const)
-import TypeAst
-import Selections
-import Gen
-import Extern
+import qualified Back.Low as Ast
+import Back.Low hiding (Type, Const)
+import Front.TypeAst
+import Back.Selections
+import Back.Gen
+import Back.Extern
 
 instance Select Gen Val where
     selectAs totVariants ts matchee = do

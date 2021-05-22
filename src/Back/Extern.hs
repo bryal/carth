@@ -19,7 +19,7 @@
 --
 --   See the definition of `passByRef` for up-to-date details about which types
 --   are passed how.
-module Extern (withExternSigs, genExterns, callExtern) where
+module Back.Extern (withExternSigs, genExterns, callExtern) where
 
 import LLVM.AST
 import LLVM.AST.ParameterAttribute
@@ -32,9 +32,9 @@ import qualified LLVM.AST.Type as LLType
 import Data.Functor
 
 import Misc
-import qualified Low as Ast
-import Low       hiding (Type, Const)
-import Gen
+import qualified Back.Low as Ast
+import Back.Low hiding (Type, Const)
+import Back.Gen
 
 
 withExternSigs :: [(String, Ast.Type)] -> Gen' a -> Gen' a

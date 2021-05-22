@@ -4,7 +4,7 @@
 --   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
 --   additional checks for exhaustiveness and redundancy described in section
 --   7.4.
-module Match (toDecisionTree, Span, Con(..), Access(..), MTypeDefs) where
+module Front.Match (toDecisionTree, Span, Con(..), Access(..), MTypeDefs) where
 
 import Prelude hiding (span)
 import qualified Data.Set as Set
@@ -22,11 +22,11 @@ import Lens.Micro.Platform (makeLenses, view, to)
 
 import Misc hiding (augment)
 import Pretty
-import SrcPos
-import Err
-import qualified Inferred
-import Inferred (Pat, Pat'(..), Variant(..))
-import Checked
+import Front.SrcPos
+import Front.Err
+import qualified Front.Inferred as Inferred
+import Front.Inferred (Pat, Pat'(..), Variant(..))
+import Front.Checked
 
 
 data Descr = Pos Con [Descr] | Neg (Set Con)

@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell, DataKinds #-}
 
 -- | Type annotated AST as a result of typechecking
-module Inferred (module Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) where
+module Front.Inferred (module Front.Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -10,11 +10,11 @@ import Data.Bifunctor
 import Lens.Micro.Platform (makeLenses)
 
 import Misc
-import qualified Parsed
-import Parsed (TVar(..), Const(..))
-import SrcPos
-import TypeAst hiding (TConst)
-import qualified TypeAst
+import qualified Front.Parsed as Parsed
+import Front.Parsed (TVar(..), Const(..))
+import Front.SrcPos
+import Front.TypeAst hiding (TConst)
+import qualified Front.TypeAst as TypeAst
 
 
 data TypeErr

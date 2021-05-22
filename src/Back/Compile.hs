@@ -1,6 +1,6 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 
-module Compile (compile, run) where
+module Back.Compile (compile, run) where
 
 import LLVM.Prelude
 import LLVM.Context
@@ -30,8 +30,8 @@ import Prelude hiding (mod)
 
 import Misc
 import Conf
-import qualified Low as Ast
-import Codegen
+import qualified Back.Low as Ast
+import Back.Codegen
 import Pretty
 
 

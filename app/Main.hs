@@ -8,20 +8,20 @@ import Control.Monad.Except
 import Prelude hiding (lex)
 
 import Misc
-import qualified Err
-import qualified Lexd
-import qualified Parsed
-import qualified Checked
-import Check
+import qualified Front.Err as Err
+import qualified Front.Lexd as Lexd
+import qualified Front.Parsed as Parsed
+import qualified Front.Checked as Checked
+import Front.Check
 import Conf
 import GetConfig
-import Compile
-import Monomorphize
-import Lower
-import qualified Low as Ast
-import qualified Parse
-import qualified Lex
-import qualified Macro
+import Back.Compile
+import Front.Monomorphize
+import Back.Lower
+import qualified Back.Low as Ast
+import qualified Front.Parse as Parse
+import qualified Front.Lex as Lex
+import qualified Front.Macro as Macro
 import EnvVars
 
 main :: IO ()

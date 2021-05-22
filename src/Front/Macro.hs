@@ -1,4 +1,4 @@
-module Macro (expandMacros) where
+module Front.Macro (expandMacros) where
 
 import Control.Applicative
 import Control.Monad.Except
@@ -11,9 +11,9 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import Misc
-import SrcPos
-import Lexd
-import Parser
+import Front.SrcPos
+import Front.Lexd
+import Front.Parser
 
 type Literals = Set String
 type Rules = [([TokenTree], [TokenTree])]

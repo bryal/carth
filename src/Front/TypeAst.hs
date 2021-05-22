@@ -1,7 +1,7 @@
 -- | This module mostly exists to expost the builtin types via convenient variables,
 --   instead of requiring redefinitions or manually typing the strings of TConst's, which
 --   would be prone to typo errors.
-module TypeAst where
+module Front.TypeAst where
 
 import Data.Word
 

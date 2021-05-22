@@ -1,4 +1,4 @@
-module Literate (untangleOrg) where
+module Front.Literate (untangleOrg) where
 
 import Data.Char
 import Data.List

@@ -4,7 +4,7 @@
 --   inputs. Basically an abstraction over llvm-hs. Reusable operations that can
 --   be used both in Codegen and for manually generating LLVM code in other
 --   situations.
-module Gen where
+module Back.Gen where
 
 import Control.Monad.Writer
 import Control.Monad.State
@@ -36,10 +36,10 @@ import qualified LLVM.AST.FloatingPointPredicate as LLFPred
 
 import Misc
 import Pretty
-import qualified TypeAst
-import qualified Low as Ast
-import qualified Lower as Ast
-import Low (TypedVar(..), TPrim(..))
+import qualified Front.TypeAst as TypeAst
+import qualified Back.Low as Ast
+import qualified Back.Lower as Ast
+import Back.Low (TypedVar(..), TPrim(..))
 
 
 -- | An instruction that returns a value. The name refers to the fact that a

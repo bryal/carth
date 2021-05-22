@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Parse (parse) where
+module Front.Parse (parse) where
 
 import Control.Applicative hiding (many, some)
 import Control.Monad
@@ -13,12 +13,12 @@ import Data.List
 import Text.Read (readMaybe)
 
 import Misc
-import SrcPos
-import Lexd hiding (Big, Small)
-import qualified Lexd
-import Parser
-import Parsed hiding (Lit)
-import qualified Parsed
+import Front.SrcPos
+import Front.Lexd hiding (Big, Small)
+import qualified Front.Lexd as Lexd
+import Front.Parser
+import Front.Parsed hiding (Lit)
+import qualified Front.Parsed as Parsed
 
 parse :: [TokenTree] -> Except (SrcPos, String) Program
 parse tts = fmap (\(ds, ts, es) -> Program ds ts es) (runParser' toplevels tts)

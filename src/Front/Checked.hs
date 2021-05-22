@@ -1,5 +1,5 @@
-module Checked
-    ( module Checked
+module Front.Checked
+    ( module Front.Checked
     , TVar(..)
     , TPrim(..)
     , TConst
@@ -19,8 +19,8 @@ import Data.Bifunctor
 import qualified Data.Map as Map
 
 import Misc
-import TypeAst hiding (TConst)
-import Inferred
+import Front.TypeAst hiding (TConst)
+import Front.Inferred
     ( TVar(..)
     , TConst
     , Type(..)

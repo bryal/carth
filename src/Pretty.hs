@@ -8,11 +8,11 @@ import LLVM.AST (Module)
 import LLVM.Pretty ()
 import qualified Data.Text.Prettyprint.Doc as Prettyprint
 
-import SrcPos
-import qualified Lexd
-import qualified Parsed
-import qualified Inferred
-import qualified Low as Ast
+import Front.SrcPos
+import qualified Front.Lexd as Lexd
+import qualified Front.Parsed as Parsed
+import qualified Front.Inferred as Inferred
+import qualified Back.Low as Ast
 
 
 -- Pretty print starting at some indentation depth

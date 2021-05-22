@@ -20,36 +20,39 @@ source-repository head
 
 library
   exposed-modules:
-      Check
-      Checked
-      Codegen
-      Compile
       Conf
       EnvVars
-      Extern
       FreeVars
-      Gen
-      Infer
-      Inferred
-      Literate
-      Match
       Misc
-      Monomorphic
-      Monomorphize
-      Lower
-      Low
-      Lex
-      Lexd
-      Macro
-      Parse
-      Parser
-      Parsed
       Pretty
-      Selections
-      SrcPos
-      Subst
-      Err
-      TypeAst
+      Sizeof
+
+      Front.SrcPos
+      Front.Subst
+      Front.Err
+      Front.TypeAst
+      Front.Lex
+      Front.Lexd
+      Front.Macro
+      Front.Parse
+      Front.Parser
+      Front.Parsed
+      Front.Check
+      Front.Checked
+      Front.Infer
+      Front.Inferred
+      Front.Literate
+      Front.Match
+      Front.Monomorphic
+      Front.Monomorphize
+
+      Back.Lower
+      Back.Low
+      Back.Selections
+      Back.Codegen
+      Back.Extern
+      Back.Gen
+      Back.Compile
   other-modules:
   hs-source-dirs:
       src

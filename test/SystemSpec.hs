@@ -12,15 +12,15 @@ import Test.Hspec
 import System.IO.Silently
 
 import Misc
-import Lex
-import Macro
-import Parse
-import qualified Parsed
-import Check
-import Compile
-import Monomorphize
-import Lower
-import qualified Low as Ast
+import Front.Lex
+import Front.Macro
+import Front.Parse
+import qualified Front.Parsed as Parsed
+import Front.Check
+import Back.Compile
+import Front.Monomorphize
+import Back.Lower
+import qualified Back.Low as Ast
 import Conf
 
 spec :: Spec

@@ -1,8 +1,8 @@
 {-# LANGUAGE DataKinds #-}
 
-module Lexd where
+module Front.Lexd where
 
-import SrcPos
+import Front.SrcPos
 
 data Const
     = Int Int

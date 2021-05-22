@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | Monomorphization
-module Monomorphize (monomorphize, builtinExterns) where
+module Front.Monomorphize (monomorphize, builtinExterns) where
 
 import Control.Applicative (liftA2, liftA3)
 import Control.Monad.Reader
@@ -15,10 +15,10 @@ import qualified Data.Map as Map
 import Data.Bitraversable
 
 import Misc
-import qualified Checked
-import Checked (TVar(..), Scheme(..))
-import Monomorphic
-import TypeAst hiding (TConst)
+import qualified Front.Checked as Checked
+import Front.Checked (TVar(..), Scheme(..))
+import Front.Monomorphic
+import Front.TypeAst hiding (TConst)
 
 type Env = Map TVar Type
 

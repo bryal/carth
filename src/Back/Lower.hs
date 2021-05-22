@@ -1,13 +1,13 @@
-module Lower (lower, builtinExterns) where
+module Back.Lower (lower, builtinExterns) where
 
 import Data.Bifunctor
 import qualified Data.Map as Map
 import Data.Map (Map)
 
 import Misc
-import qualified Monomorphic as Ast
-import qualified Monomorphize
-import Low
+import qualified Front.Monomorphic as Ast
+import qualified Front.Monomorphize as Monomorphize
+import Back.Low
 
 lower :: Ast.Program -> Program
 lower (Ast.Program defs datas externs) =

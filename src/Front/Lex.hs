@@ -7,7 +7,7 @@
 --       If a parser has a variant with a "ns_" prefix, that variant does not
 --       consume succeding space, while the unprefixed variant does.
 
-module Lex (lex, toplevel, tokentree) where
+module Front.Lex (lex, toplevel, tokentree) where
 
 import Control.Monad
 import Control.Monad.Except
@@ -28,9 +28,9 @@ import Data.Void
 import Prelude hiding (lex)
 
 import Misc
-import SrcPos
-import Lexd
-import Literate
+import Front.SrcPos
+import Front.Lexd
+import Front.Literate
 import EnvVars
 
 

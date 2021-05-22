@@ -1,4 +1,4 @@
-module SrcPos where
+module Front.SrcPos where
 
 import Text.Megaparsec.Pos
 
