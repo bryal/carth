@@ -30,8 +30,8 @@
 (define array/lookup! (<oo unwrap! array/lookup))
 
 ;;? Returns index of the first occurence of the element in the array, if it *is* an element
-(define: (array/find eq? x xs)
-    (forall (a) (Fun (Fun a a Bool) a (Array a) (Maybe Nat)))
+(define (array/find x xs)
+  ;; (forall (a) (Fun (Fun a a Bool) a (Array a) (Maybe Nat)))
   (array/find-by (= x) xs))
 
 ;;? Returns the index of the first element that satisfies the predicate

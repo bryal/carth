@@ -87,9 +87,15 @@ inferTopDefs tdefs ctors externs defs =
             ta = TVar tva
             tvb = tv "b"
             tb = TVar tvb
-            arithScm = Forall (Set.fromList [tva]) Set.empty (tfun ta (tfun ta ta))
-            bitwiseScm = arithScm
-            relScm = Forall (Set.fromList [tva]) Set.empty (tfun ta (tfun ta tBool))
+            arithScm = Forall (Set.fromList [tva])
+                              (Set.singleton ("Num", [ta]))
+                              (tfun ta (tfun ta ta))
+            bitwiseScm = Forall (Set.fromList [tva])
+                                (Set.singleton ("Bitwise", [ta]))
+                                (tfun ta (tfun ta ta))
+            relScm = Forall (Set.fromList [tva])
+                            (Set.singleton ("Ord", [ta]))
+                            (tfun ta (tfun ta tBool))
         in
             Map.fromList
                 $ [ ("+", arithScm)
@@ -254,9 +260,6 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
         unify (Expected t) (Found bodyPos t')
         pure body'
 
-    -- FIXME: Here or somewhere we're not handling type class constraints correctly
-    --        (really just SameSize atm) see tests/bad/transmute-size-mismatch2.carth.
-    --
     -- | Verify that user-provided type signature schemes are valid
     checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
     checkScheme = curry $ \case
@@ -530,6 +533,25 @@ solve (eqcs, ccs) = do
             -- Virtual classes
         ("SameSize", [ta, tb]) -> sameSize (ta, tb)
         ("Cast", [ta, tb]) -> cast (ta, tb)
+        ("Num", [ta]) -> case ta of
+            TPrim _ -> ok
+            TVar _ -> propagate
+            TConst _ -> err
+            TFun _ _ -> err
+            TBox _ -> err
+        ("Bitwise", [ta]) -> case ta of
+            TPrim p | isIntegral p -> ok
+            TPrim _ -> err
+            TVar _ -> propagate
+            TConst _ -> err
+            TFun _ _ -> err
+            TBox _ -> err
+        ("Ord", [ta]) -> case ta of
+            TPrim _ -> ok
+            TVar _ -> propagate
+            TConst _ -> err
+            TFun _ _ -> err
+            TBox _ -> err
         -- "Real classes"
         -- ... TODO
         _ -> ice $ "solveClassCs: invalid class constraint " ++ show c
@@ -537,6 +559,12 @@ solve (eqcs, ccs) = do
         ok = pure Map.empty
         propagate = pure (Map.singleton c pos)
         err = throwError (NoClassInstance pos c)
+        isIntegral = \case
+            TInt _ -> True
+            TIntSize -> True
+            TNat _ -> True
+            TNatSize -> True
+            _ -> False
 
         -- TODO: Maybe we should move the check against user-provided explicit signature from
         --       `generalize` to here. Like, we could keep the explicit scheme (if there is

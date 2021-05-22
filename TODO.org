@@ -521,6 +521,12 @@ Features and other stuff to do/implement in/around Carth.
   not afraid of releasing new major versions removing deprecated
   stuff.
 
+** INACTIVE Numbers, algebra, mathematics
+   How to best structure the numeric typeclasses? ~Num~ in Haskell is
+   a bit coarse. For example, you have to provide ~*~, which doesn't
+   make much sense for ~Vec3~, so you can't give a proper instance for
+   ~Vec3~ to get ~+~. Maybe [[https://hackage.haskell.org/package/numeric-prelude-0.4.3.3][numeric-prelude]] could be a good
+   alternative to look at?
 ** INACTIVE Concurrency / parallelism primitives
    Mutex, semaphore, etc.
 

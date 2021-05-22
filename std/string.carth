@@ -63,7 +63,7 @@
     (Iter (fun (Unit) (maybe/map (fun (i) (map-two Str
                                                    (<o lines' (array/skip 1))
                                                    (unwrap! (array/split i s))))
-                                 (array/find = (cast ascii-newline) s)))))
+                                 (array/find (cast ascii-newline) s)))))
   (lines' s))
 
 (define: ascii-newline Nat8 (cast 0xA))

@@ -1,0 +1,5 @@
+;; NoClassInstance
+
+(define: (foo Unit)
+    (Fun Unit Unit)
+  (+ Unit Unit))

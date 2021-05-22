@@ -359,19 +359,19 @@ lookupVar :: TypedVar -> Gen Val
 lookupVar x = lookupVar' x >>= \case
     Just y -> pure y
     Nothing -> genAppBuiltinVirtual x []
-
-lookupVar' :: MonadReader Env m => TypedVar -> m (Maybe Val)
-lookupVar' x =
-    ask <&> \e -> Map.lookup x (_localEnv e) <|> fmap VVar (Map.lookup x (_globalEnv e))
+  where
+    lookupVar' x = ask <&> \e ->
+        Map.lookup x (_localEnv e) <|> fmap VVar (Map.lookup x (_globalEnv e))
 
 genAppBuiltinVirtual :: TypedVar -> [Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) as = do
     -- TODO: The arguments are not generated in the same scope as the application if the
     --       builtin virtual is partially applied. If it's fully applied, there's no
     --       problem, as no additional wrapping lambda scope will be created, and the
-    --       local references to the argument values will be valid. If it's not applied
-    --       at all, there's no problem, as there are no generated arguments to try to
-    --       reach in the first place. Only partial application is a problem.
+    --       local references to the argument values will be valid. If it's not applied at
+    --       all, there's no problem, as there are no generated arguments to try to reach
+    --       in the first place. Only partial application is a problem. Update: I've fixed
+    --       this specific issue, right?
     --
     --       Currently, we fully wrap the virtual in lambdas, and then immediately apply
     --       with the generated arguments in the local scope. This is inefficient, as
@@ -386,7 +386,6 @@ genAppBuiltinVirtual (TypedVar g t) as = do
     --       handle variable capturing and closure generation. Only full application would
     --       be a special case. Sort of the same thinking as for normal function calls,
     --       see https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/rts/haskell-execution/function-calls
-    pos <- view srcPos
     let wrap xts genRt op = do
             rt' <- genRt
             if length as == length xts
@@ -394,88 +393,63 @@ genAppBuiltinVirtual (TypedVar g t) as = do
                 else do
                     f <- genWrapInLambdas rt' [] xts (op <=< mapM lookupVar)
                     apps Nothing f as
-    let wrap1 (xt, rt, f) = wrap [xt] rt (\xs -> f (xs !! 0))
-    let wrap2 (x0t, x1t, rt, f) = wrap [x0t, x1t] rt (\xs -> f (xs !! 0) (xs !! 1))
-    let noInst :: Gen a
-        noInst = throwError $ NoBuiltinVirtualInstance
-            (fromMaybe
-                (ice "genAppBuiltinVirtual: no srcpos when throwing noInst error!")
-                pos
-            )
-            g
-            t
-    let arithm u s f = \case
-            Ast.TFun a@(Ast.TPrim p) (Ast.TFun b c) | a == b && a == c -> pure
-                ( a
-                , a
-                , genType a
-                , \x y ->
-                    let op = if isInt' p then s else if isFloat p then f else u
-                    in  fmap VLocal . emitAnonReg =<< liftA2 op (getLocal x) (getLocal y)
-                )
-            _ -> noInst
-    let bitwise u s = \case
-            Ast.TFun a@(Ast.TPrim p) (Ast.TFun b c)
-                | a == b && a == c && (isInt' p || isNat p) -> pure
-                    ( a
-                    , a
-                    , genType a
-                    , \x y -> fmap VLocal . emitAnonReg =<< if isNat p
-                        then liftA2 u (getLocal x) (getLocal y)
-                        else liftA2 s (getLocal x) (getLocal y)
-                    )
-            _ -> noInst
-    let rel u s f = \case
-            Ast.TFun a@(Ast.TPrim p) (Ast.TFun b _) | a == b -> pure
-                ( a
-                , a
-                , pure typeBool
-                , \x y ->
-                    let op = if isInt' p
-                            then icmp s
-                            else if isFloat p then fcmp f else icmp u
-                    in  fmap VLocal
-                            . emitAnonReg
-                            . flip zext i8
-                            =<< emitAnonReg
-                            =<< liftA2 op (getLocal x) (getLocal y)
-                )
-            _ -> noInst
+    let wrap1 f = case t of
+            Ast.TFun a b -> wrap [a] (genType b) (\xs -> f (xs !! 0))
+            _ -> err
+    let wrap2 f = case t of
+            Ast.TFun a (Ast.TFun b c) ->
+                wrap [a, b] (genType c) (\xs -> f (xs !! 0) (xs !! 1))
+            _ -> err
+    let ta = case t of
+            Ast.TFun a _ -> a
+            _ -> err
+    let arithm u s f = \x y ->
+            let op = if isInt ta then s else if isFloat ta then f else u
+            in  fmap VLocal . emitAnonReg =<< liftA2 op (getLocal x) (getLocal y)
+    let bitwise u s = \x y -> fmap VLocal . emitAnonReg =<< if isInt ta
+            then liftA2 s (getLocal x) (getLocal y)
+            else liftA2 u (getLocal x) (getLocal y)
+    let rel u s f = \x y ->
+            let op = if isInt ta then icmp s else if isFloat ta then fcmp f else icmp u
+            in  fmap VLocal . emitAnonReg . flip zext i8 =<< emitAnonReg =<< liftA2
+                    op
+                    (getLocal x)
+                    (getLocal y)
     case g of
-        "+" -> wrap2 =<< arithm add add fadd t
-        "-" -> wrap2 =<< arithm sub sub fsub t
-        "*" -> wrap2 =<< arithm mul mul fmul t
-        "/" -> wrap2 =<< arithm udiv sdiv fdiv t
-        "rem" -> wrap2 =<< arithm urem srem frem t
-        "shift-l" -> wrap2 =<< bitwise shl shl t
-        "shift-r" -> wrap2 =<< bitwise lshr ashr t
-        "ashift-r" -> wrap2 =<< bitwise ashr ashr t
-        "bit-and" -> wrap2 =<< bitwise and' and' t
-        "bit-or" -> wrap2 =<< bitwise or' or' t
-        "bit-xor" -> wrap2 =<< bitwise xor xor t
+        "+" -> wrap2 $ arithm add add fadd
+        "-" -> wrap2 $ arithm sub sub fsub
+        "*" -> wrap2 $ arithm mul mul fmul
+        "/" -> wrap2 $ arithm udiv sdiv fdiv
+        "rem" -> wrap2 $ arithm urem srem frem
+        "shift-l" -> wrap2 $ bitwise shl shl
+        "shift-r" -> wrap2 $ bitwise lshr ashr
+        "ashift-r" -> wrap2 $ bitwise ashr ashr
+        "bit-and" -> wrap2 $ bitwise and' and'
+        "bit-or" -> wrap2 $ bitwise or' or'
+        "bit-xor" -> wrap2 $ bitwise xor xor
         -- NOTE: When comparing floats, one or both operands may be NaN. We can use either
-        -- the `o` or `u` prefix to change how NaNs are treated by `fcmp`. I'm not sure,
-        -- but I think that always using `o` will result in the most predictable code.
-        "=" -> wrap2 =<< rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ t
-        "/=" -> wrap2 =<< rel LLIPred.NE LLIPred.NE LLFPred.ONE t
-        ">" -> wrap2 =<< rel LLIPred.UGT LLIPred.SGT LLFPred.OGT t
-        ">=" -> wrap2 =<< rel LLIPred.UGE LLIPred.SGE LLFPred.OGE t
-        "<" -> wrap2 =<< rel LLIPred.ULT LLIPred.SLT LLFPred.OLT t
-        "<=" -> wrap2 =<< rel LLIPred.ULE LLIPred.SLE LLFPred.OLE t
+        --       the `o` or `u` prefix to change how NaNs are treated by `fcmp`. I'm not
+        --       sure, but I think that always using `o` will result in the most
+        --       predictable code.
+        "=" -> wrap2 $ rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ
+        "/=" -> wrap2 $ rel LLIPred.NE LLIPred.NE LLFPred.ONE
+        ">" -> wrap2 $ rel LLIPred.UGT LLIPred.SGT LLFPred.OGT
+        ">=" -> wrap2 $ rel LLIPred.UGE LLIPred.SGE LLFPred.OGE
+        "<" -> wrap2 $ rel LLIPred.ULT LLIPred.SLT LLFPred.OLT
+        "<=" -> wrap2 $ rel LLIPred.ULE LLIPred.SLE LLFPred.OLE
         "transmute" -> wrap1 $ case t of
-            Ast.TFun a b -> (a, genType b, \x -> genTransmute x a b)
-            _ -> ice "genAppBuiltinVirtual: t not TFun for transmute"
+            Ast.TFun a b -> \x -> genTransmute x a b
+            _ -> err
         "cast" -> wrap1 $ case t of
-            Ast.TFun a b -> (a, genType b, \x -> genCast x a b)
-            _ -> ice "genAppBuiltinVirtual: t not TFun for cast"
-        "deref" -> wrap1 $ case t of
-            Ast.TFun a b -> (a, genType b, genDeref)
-            _ -> ice "genAppBuiltinVirtual: t not TFun for deref"
-        "store" -> wrap2 $ case t of
-            Ast.TFun a (Ast.TFun b c) -> (a, b, genType c, genStore)
-            _ -> ice "genAppBuiltinVirtual: t not TFun of TFun for store"
+            Ast.TFun a b -> \x -> genCast x a b
+            _ -> err
+        "deref" -> wrap1 $ genDeref
+        "store" -> wrap2 $ genStore
         _ -> ice $ "genAppBuiltinVirtual: No builtin virtual function `" ++ g ++ "`"
   where
+    err :: a
+    err = ice $ "genAppBuiltinVirtual: " ++ g ++ " : " ++ pretty t
+
     -- Infer has checked that args to transmute are of the same size
     genTransmute :: Val -> Ast.Type -> Ast.Type -> Gen Val
     genTransmute x a b = do
@@ -534,7 +508,6 @@ genAppBuiltinVirtual (TypedVar g t) as = do
     genCast x a b = do
         a' <- genType a
         b' <- genType b
-        let err = ice $ "genCast: " ++ show a' ++ " to " ++ show b'
         let emit' instr = getLocal x >>= \x' -> emitAnonReg (instr x' b') <&> VLocal
         case (a', b') of
             _ | a' == b' -> pure x
@@ -561,22 +534,15 @@ genAppBuiltinVirtual (TypedVar g t) as = do
         emitDo (store x' p')
         pure p
 
-    isNat = \case
-        TNat _ -> True
-        TNatSize -> True
-        _ -> False
     isInt = \case
-        Ast.TPrim p -> isInt' p
-        _ -> False
-    isInt' = \case
-        TInt _ -> True
-        TIntSize -> True
+        Ast.TPrim (TInt _) -> True
+        Ast.TPrim TIntSize -> True
         _ -> False
     isFloat = \case
-        TF16 -> True
-        TF32 -> True
-        TF64 -> True
-        TF128 -> True
+        Ast.TPrim TF16 -> True
+        Ast.TPrim TF32 -> True
+        Ast.TPrim TF64 -> True
+        Ast.TPrim TF128 -> True
         _ -> False
 
 apps :: Maybe TailCallKind -> Val -> [Val] -> Gen Val
