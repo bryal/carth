@@ -164,11 +164,11 @@ genInit ds = do
 genDefineGlobVar :: VarDef -> Gen ()
 genDefineGlobVar (TypedVar v _, (ts, e)) = do
     let name = mkName (mangleName (v, ts))
-    e' <- getLocal =<< genExpr e
+    e' <- genExpr e
     let ref = LLConst.GlobalReference (LLType.ptr (typeOf e')) name
     -- Fix for Boehm GC to detect global vars when running in JIT
     genGcAddRoot ref
-    emitDo (store e' (ConstantOperand ref))
+    genStore e' (VLocal (ConstantOperand ref)) $> ()
 
 genGlobVarDecl :: VarDef -> Gen' Definition
 genGlobVarDecl (TypedVar v t, (ts, _)) = do

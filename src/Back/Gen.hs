@@ -290,7 +290,10 @@ simpleGlobVar' isconst name t initializer = GlobalVariable
 getVar :: Val -> Gen Operand
 getVar = \case
     VVar x -> pure x
-    VLocal x -> genStackAllocated x
+    VLocal x -> do
+        ptr <- emitAnonReg (alloca (typeOf x))
+        _ <- genStore (VLocal x) (VLocal ptr)
+        pure ptr
 
 getLocal :: Val -> Gen Operand
 getLocal = \case
@@ -317,20 +320,13 @@ genStruct xs = do
 
 genStructInPtr :: Operand -> [Val] -> Gen ()
 genStructInPtr ptr vs = forM_ (zip [0 ..] vs) $ \(i, v) -> do
-    dest <- emitAnonReg =<< getelementptr ptr (litI64 0) [i]
-    v' <- getLocal v
-    emitDo (store v' dest)
+    dest <- fmap VLocal . emitAnonReg =<< getelementptr ptr (litI64 0) [i]
+    genStore v dest
 
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
     size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
     emitAnonReg =<< callBuiltin "GC_malloc" [size]
-
-genStackAllocated :: Operand -> Gen Operand
-genStackAllocated v = do
-    ptr <- emitAnonReg (alloca (typeOf v))
-    emitDo (store v ptr)
-    pure ptr
 
 -- | Must be used on globals when running in JIT, as Boehm GC only detects global var
 --   roots when it can scan some segment in the ELF.
@@ -513,13 +509,6 @@ genAppBuiltinVirtual (TypedVar g t) as = do
                 emit' $ if isInt b then fptosi else fptoui
             _ -> err
 
-    genStore :: Val -> Val -> Gen Val
-    genStore x p = do
-        x' <- getLocal x
-        p' <- getLocal p
-        emitDo (store x' p')
-        pure p
-
     isInt = \case
         Ast.TPrim (TInt _) -> True
         Ast.TPrim TIntSize -> True
@@ -530,6 +519,24 @@ genAppBuiltinVirtual (TypedVar g t) as = do
         Ast.TPrim TF64 -> True
         Ast.TPrim TF128 -> True
         _ -> False
+
+genStore :: Val -> Val -> Gen Val
+genStore x p = sizeof (typeOf x) >>= \s -> if s == 0
+    then pure p
+    else do
+        x' <- getLocal x
+        p' <- getLocal p
+        emitDo (store x' p')
+        pure p
+  where
+    store :: Operand -> Operand -> Instruction
+    store srcVal destPtr = Store { volatile = False
+                                 , address = destPtr
+                                 , value = srcVal
+                                 , maybeAtomicity = Nothing
+                                 , alignment = 0
+                                 , metadata = []
+                                 }
 
 apps :: Maybe TailCallKind -> Val -> [Val] -> Gen Val
 apps tailkind f = \case
@@ -974,15 +981,6 @@ getelementptr addr offset memberIs = fmap
                                  }
     )
     (fmap LLType.ptr (getIndexed (getPointee (typeOf addr)) (map fromIntegral memberIs)))
-
-store :: Operand -> Operand -> Instruction
-store srcVal destPtr = Store { volatile = False
-                             , address = destPtr
-                             , value = srcVal
-                             , maybeAtomicity = Nothing
-                             , alignment = 0
-                             , metadata = []
-                             }
 
 load :: Operand -> FunInstr
 load p = WithRetType
