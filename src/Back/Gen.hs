@@ -63,7 +63,6 @@ data St = St
     -- | Keep track of the parent function name so that we can name the
     --   outermost lambdas of a function definition well.
     , _lambdaParentFunc :: Maybe String
-    , _outerLambdaN :: Word
     }
 
 type Gen' = StateT St (Reader Env)
@@ -202,7 +201,7 @@ populateCaptures ptrGeneric fvXs = do
 genLambda' :: TypedVar -> (Gen (), Type) -> Val -> [TypedVar] -> Gen Val
 genLambda' p@(TypedVar _ pt) (genBody, bt) captures fvXs = do
     fname <- use lambdaParentFunc >>= \case
-        Just s -> fmap (mkName . ((s ++ "_func_") ++) . show) (outerLambdaN <<+= 1)
+        Just s -> newName (s ++ "_lambda")
         Nothing -> newName "func"
     ft <- genType pt <&> \pt' -> closureFunType pt' bt
     let f = VLocal $ ConstantOperand $ LLConst.GlobalReference (LLType.ptr ft) fname
@@ -222,7 +221,6 @@ runGen' g = runReader (evalStateT g initSt) initEnv
                 , _currentBlockInstrs = []
                 , _registerCount = 0
                 , _lambdaParentFunc = Nothing
-                , _outerLambdaN = 1
                 }
 
 internFunc :: Name -> [Parameter] -> Type -> [BasicBlock] -> Global

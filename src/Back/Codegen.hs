@@ -199,7 +199,6 @@ genGlobFunDef :: FunDef -> Gen' [Definition]
 genGlobFunDef (TypedVar v _, (ts, (p, (body, rt)))) = do
     let name = mangleName (v, ts)
     assign lambdaParentFunc (Just name)
-    assign outerLambdaN 1
     let fName = mkName (name ++ "_func")
     (f, gs) <- genFunDef (fName, [], p, genTailExpr body *> genType rt)
     let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
@@ -213,13 +212,12 @@ genTailExpr = genExpr
 
 genExpr :: TailVal v => Expr -> Gen v
 genExpr expr = do
-    parent <- use lambdaParentFunc <* assign lambdaParentFunc Nothing
     case expr of
         Lit c -> propagate =<< genConst c
         Var (_, x) -> propagate =<< lookupVar x
         App f as -> genApp f as
         If p c a -> genExpr p >>= \p' -> genCondBr p' (genExpr c) (genExpr a)
-        Fun (p, b) -> assign lambdaParentFunc parent *> genExprLambda p b >>= propagate
+        Fun (p, b) -> genExprLambda p b >>= propagate
         Let d b -> genLet d b
         Match e cs -> genMatch e cs
         Ction c -> propagate =<< genCtion c
