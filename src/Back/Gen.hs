@@ -325,8 +325,10 @@ genStructInPtr ptr vs = forM_ (zip [0 ..] vs) $ \(i, v) -> do
 
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
-    size <- fmap (litI64 . fromIntegral) (lift (sizeof t))
-    emitAnonReg =<< callBuiltin "GC_malloc" [size]
+    size <- fmap fromIntegral (lift (sizeof t))
+    if size == 0
+        then pure (null' typeGenericPtr)
+        else emitAnonReg =<< callBuiltin "GC_malloc" [litI64 size]
 
 -- | Must be used on globals when running in JIT, as Boehm GC only detects global var
 --   roots when it can scan some segment in the ELF.
