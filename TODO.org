@@ -527,6 +527,8 @@ Features and other stuff to do/implement in/around Carth.
    make much sense for ~Vec3~, so you can't give a proper instance for
    ~Vec3~ to get ~+~. Maybe [[https://hackage.haskell.org/package/numeric-prelude-0.4.3.3][numeric-prelude]] could be a good
    alternative to look at?
+
+   [[https://typeclasses.com/featured/to-integral-sized][toIntegralSized]]
 ** INACTIVE Concurrency / parallelism primitives
    Mutex, semaphore, etc.
 
@@ -1190,4 +1192,8 @@ Features and other stuff to do/implement in/around Carth.
   collect some useful notes here.
 
   Check out Polonius, the new borrow checker in Rust. https://youtu.be/H54VDCuT0J0
-g
+
+** TODO Dead code elimination of externs & wrappers
+   We already do dead code elim almost by mistake in Monomorphize, but
+   we still generate declarations and wrappers for all
+   ~extern~:s. Getting rid of them would be nice.
