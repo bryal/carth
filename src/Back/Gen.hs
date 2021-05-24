@@ -48,9 +48,12 @@ import Back.Low (TypedVar(..), TPrim(..))
 --   may only produce side effects.
 data FunInstr = WithRetType Instruction Type
 
+type GlobalReference = (Type, Name)
+
 data Env = Env
     { _localEnv :: Map TypedVar Val
-    , _globalEnv :: Map TypedVar Operand
+    , _globalEnv :: Map TypedVar GlobalReference
+    , _globalFunEnv :: Map TypedVar GlobalReference
     , _enumTypes :: Map Name Word32
     , _dataTypes :: Map Name [Type]
     , _builtins :: Map String ([Parameter], Type)
@@ -212,6 +215,7 @@ runGen' :: StateT St (Reader Env) a -> a
 runGen' g = runReader (evalStateT g initSt) initEnv
   where
     initEnv = Env { _localEnv = Map.empty
+                  , _globalFunEnv = Map.empty
                   , _globalEnv = Map.empty
                   , _enumTypes = Map.empty
                   , _dataTypes = Map.empty
@@ -297,15 +301,28 @@ getVar = \case
 
 getLocal :: Val -> Gen Operand
 getLocal = \case
-    VVar x -> emitAnonReg (load x)
+    VVar x -> do
+        let tpointee = getPointee (typeOf x)
+        s <- sizeof tpointee
+        if s == 0 then pure (undef tpointee) else emitAnonReg (load x)
     VLocal x -> pure x
+  where
+    load :: Operand -> FunInstr
+    load p = WithRetType
+        (Load { volatile = False
+              , address = p
+              , maybeAtomicity = Nothing
+              , alignment = 0
+              , metadata = []
+              }
+        )
+        (getPointee (typeOf p))
 
 withVals :: [(TypedVar, Val)] -> Gen a -> Gen a
 withVals xs ma = foldr (uncurry withVal) ma xs
 
 withVal :: TypedVar -> Val -> Gen a -> Gen a
 withVal x v ga = do
-    -- var <- fmap VVar (getVar v)
     v' <- passByRef (typeOf v)
         >>= \b -> if b then fmap VVar (getVar v) else fmap VLocal (getLocal v)
     locally localEnv (Map.insert x v') ga
@@ -313,10 +330,19 @@ withVal x v ga = do
 genStruct :: [Val] -> Gen Val
 genStruct xs = do
     xs' <- mapM getLocal xs
-    let t = typeStruct (map typeOf xs')
-    fmap VLocal $ foldlM (\s (i, x) -> emitAnonReg (insertvalue s x [i]))
-                         (undef t)
-                         (zip [0 ..] xs')
+    let (inits, vars) = foldr
+            (flip $ \acc -> uncurry $ \i -> \case
+                ConstantOperand c -> first (c :) acc
+                x -> bimap (LLConst.Undef (typeOf x) :) ((i, x) :) acc
+            )
+            ([], [])
+            (zip [0 ..] xs')
+    let noConsts = length inits == length vars
+    -- Prefill any constant operands, if there are any. Less line noise.
+    let initial = if noConsts
+            then undef (typeStruct (map typeOf xs'))
+            else ConstantOperand (litStruct inits)
+    fmap VLocal $ foldlM (\acc (i, x) -> emitAnonReg (insertvalue acc x [i])) initial vars
 
 genStructInPtr :: Operand -> [Val] -> Gen ()
 genStructInPtr ptr vs = forM_ (zip [0 ..] vs) $ \(i, v) -> do
@@ -344,8 +370,20 @@ lookupVar x = lookupVar' x >>= \case
     Just y -> pure y
     Nothing -> genAppBuiltinVirtual x []
   where
-    lookupVar' x = ask <&> \e ->
-        Map.lookup x (_localEnv e) <|> fmap VVar (Map.lookup x (_globalEnv e))
+    lookupVar' x = ask <&> \e -> asum
+        [ Map.lookup x (_localEnv e)
+        , fmap
+            (VLocal
+            . ConstantOperand
+            . litStruct
+            . (LLConst.Null typeGenericPtr :)
+            . pure
+            . uncurry LLConst.GlobalReference
+            )
+            (Map.lookup x (_globalFunEnv e))
+        , fmap (VVar . ConstantOperand . uncurry LLConst.GlobalReference)
+               (Map.lookup x (_globalEnv e))
+        ]
 
 genAppBuiltinVirtual :: TypedVar -> [Val] -> Gen Val
 genAppBuiltinVirtual (TypedVar g t) as = do
@@ -546,14 +584,14 @@ apps tailkind f = \case
     a : [] -> app tailkind f a
     a : as -> app (Just NoTail) f a >>= \f' -> apps tailkind f' as
 
+-- TODO: Consider caching the loaded & extracted closure components for the next time
+--       the function is called in the same scope! Probably just a Reader with
+--       `closure` as key and `(captures, f)` as value. Might be beneficial.
 app :: Maybe TailCallKind -> Val -> Val -> Gen Val
 app tailkind closure a = do
-    -- TODO: Cache the loaded & extracted closure components for the next time the
-    --       function is called in the same scope! Probably just a Reader with `closure`
-    --       as key and `(captures, f)` as value.
-    closure' <- getLocal closure
-    captures <- emitReg "captures" =<< extractvalue closure' [0]
-    f <- emitReg "function" =<< extractvalue closure' [1]
+    closure' <- fmap VLocal $ getLocal closure
+    captures <- getLocal =<< genIndexStruct closure' [0]
+    f <- getLocal =<< genIndexStruct closure' [1]
     a' <- getLocal a
     let as = [(captures, []), (a', [])]
     let rt = getFunRet (getPointee (typeOf f))
@@ -563,9 +601,7 @@ app tailkind closure a = do
         else emitAnonReg $ WithRetType (callIntern tailkind f as) rt
 
 genDeref :: Val -> Gen Val
-genDeref = \case
-    VVar x -> fmap VVar (emitAnonReg (load x))
-    VLocal x -> pure (VVar x)
+genDeref = fmap VVar . getLocal
 
 callBuiltin :: String -> [Operand] -> Gen FunInstr
 callBuiltin f as = do
@@ -846,13 +882,23 @@ lookupDatatype x = view (enumTypes . to (Map.lookup x)) >>= \case
                     (view (dataTypes . to (Map.lookup x)))
 
 genIndexStruct :: Val -> [Word32] -> Gen Val
+genIndexStruct v [] = pure v
 genIndexStruct v is = case v of
+    VLocal (ConstantOperand (LLConst.AggregateZero t)) -> undefIndexedLocal t
+    VLocal (ConstantOperand (LLConst.Undef t)) -> undefIndexedLocal t
+    VLocal (ConstantOperand (LLConst.Struct { memberValues = vs })) ->
+        genIndexStruct (VLocal (ConstantOperand (vs !! fromIntegral (head is)))) (tail is)
     VLocal st -> fmap VLocal (emitAnonReg =<< extractvalue st is)
+    VVar (ConstantOperand (LLConst.Null t)) -> nullIndexedVar t
+    VVar (ConstantOperand (LLConst.Undef t)) -> nullIndexedVar t
     VVar ptr -> fmap VVar (emitAnonReg =<< getelementptr ptr (litI64 0) is)
+  where
+    undefIndexedLocal t = VLocal . undef <$> getIndexed t is
+    nullIndexedVar t = VVar . null' . LLType.ptr <$> getIndexed (getPointee t) is
 
-extractvalue :: Operand -> [Word32] -> Gen FunInstr
-extractvalue struct is = fmap (WithRetType (ExtractValue struct is []))
-                              (getIndexed (typeOf struct) (map fromIntegral is))
+    extractvalue :: Operand -> [Word32] -> Gen FunInstr
+    extractvalue struct is =
+        fmap (WithRetType (ExtractValue struct is [])) (getIndexed (typeOf struct) is)
 
 undef :: Type -> Operand
 undef = ConstantOperand . LLConst.Undef
@@ -982,18 +1028,7 @@ getelementptr addr offset memberIs = fmap
                                  , metadata = []
                                  }
     )
-    (fmap LLType.ptr (getIndexed (getPointee (typeOf addr)) (map fromIntegral memberIs)))
-
-load :: Operand -> FunInstr
-load p = WithRetType
-    (Load { volatile = False
-          , address = p
-          , maybeAtomicity = Nothing
-          , alignment = 0
-          , metadata = []
-          }
-    )
-    (getPointee (typeOf p))
+    (fmap LLType.ptr (getIndexed (getPointee (typeOf addr)) memberIs))
 
 phi :: [(Operand, Name)] -> FunInstr
 phi = \case
@@ -1085,18 +1120,18 @@ getPointee = \case
     LLType.PointerType t _ -> t
     t -> ice $ "Tried to get pointee of non-function type " ++ show t
 
-getIndexed :: Type -> [Int] -> Gen Type
+getIndexed :: MonadReader Env m => (Integral n, Show n) => Type -> [n] -> m Type
 getIndexed t is = foldlM
-    (\t' i -> getMembers t' <&> \us -> if i < length us
-        then us !! i
+    (\t' i -> getMembers t' <&> \us -> if fromIntegral i < length us
+        then us !! fromIntegral i
         else ice $ "getIndexed: index out of bounds: " ++ (show t ++ ", " ++ show is)
     )
     t
     is
 
-getMembers :: Type -> Gen [Type]
+getMembers :: MonadReader Env m => Type -> m [Type]
 getMembers = \case
-    NamedTypeReference x -> getMembers =<< lift (lookupDatatype x)
+    NamedTypeReference x -> getMembers =<< lookupDatatype x
     StructureType _ members -> pure members
     t -> ice $ "Tried to get member types of non-struct type " ++ show t
 

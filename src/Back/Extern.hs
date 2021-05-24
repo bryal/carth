@@ -41,11 +41,7 @@ withExternSigs :: [(String, Ast.Type)] -> Gen' a -> Gen' a
 withExternSigs es ga = do
     es' <- forM es $ \(name, t) -> do
         t' <- genType' t
-        pure
-            ( TypedVar name t
-            , ConstantOperand
-                $ LLConst.GlobalReference (LLType.ptr t') (mkName ("_wrapper_" ++ name))
-            )
+        pure (TypedVar name t, (LLType.ptr t', mkName ("_wrapper_" ++ name)))
     augment globalEnv (Map.fromList es') ga
 
 genExterns :: [(String, Ast.Type)] -> Gen' [Definition]

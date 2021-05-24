@@ -19,7 +19,7 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.List
 import Data.Function
-import Lens.Micro.Platform (use, assign, Lens', view)
+import Lens.Micro.Platform (use, assign, view)
 
 import Misc
 import FreeVars
@@ -53,7 +53,8 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
                     $ augment dataTypes tdefs''
                     $ withBuiltins
                     $ withExternSigs externs
-                    $ withGlobDefSigs globalEnv defs'
+                    $ withGlobFunSigs funDefs
+                    $ withGlobVarSigs varDefs
                     $ do
                           es <- genExterns externs
                           funDefs' <- mapM genGlobFunDef funDefs
@@ -79,22 +80,18 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
                                       ]
             }
   where
-    withGlobDefSigs
-        :: MonadReader Env m
-        => Lens' Env (Map TypedVar Operand)
-        -> [(TypedVar, ([Ast.Type], e))]
-        -> m x
-        -> m x
-    withGlobDefSigs env sigs ga = do
+    withGlobFunSigs sigs ga = do
         sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
             t' <- genType' t
-            pure
-                ( v
-                , ConstantOperand $ LLConst.GlobalReference
-                    (LLType.ptr t')
-                    (mkName (mangleName (x, us)))
-                )
-        augment env (Map.fromList sigs') ga
+            tf <- getIndexed t' [1 :: Int]
+            pure (v, (tf, mkName (mangleName (x, us) ++ "_func")))
+        augment globalFunEnv (Map.fromList sigs') ga
+
+    withGlobVarSigs sigs ga = do
+        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
+            t' <- genType' t
+            pure (v, (LLType.ptr t', mkName (mangleName (x, us))))
+        augment globalEnv (Map.fromList sigs') ga
 
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct
 --   where, if there are more than 1 variant, the first element is the
@@ -201,11 +198,7 @@ genGlobFunDef (TypedVar v _, (ts, (p, (body, rt)))) = do
     assign lambdaParentFunc (Just name)
     let fName = mkName (name ++ "_func")
     (f, gs) <- genFunDef (fName, [], p, genTailExpr body *> genType rt)
-    let fRef = LLConst.GlobalReference (LLType.ptr (typeOf f)) fName
-    let captures = LLConst.Null typeGenericPtr
-    let closure = litStruct [captures, fRef]
-    let closureDef = simpleGlobConst (mkName name) (typeOf closure) closure
-    pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
+    pure (GlobalDefinition f : gs)
 
 genTailExpr :: Expr -> Gen ()
 genTailExpr = genExpr
@@ -349,17 +342,21 @@ genCtion (i, span', dataType, as) = do
         Just 0 -> pure (VLocal litUnit)
         Just w -> pure (VLocal (ConstantOperand (LLConst.Int w i)))
         Nothing -> do
-            as' <- mapM genExpr as
-            let tagged = maybe
-                    as'
-                    ((: as') . VLocal . ConstantOperand . flip LLConst.Int i)
-                    (tagBitWidth span')
-            let t = typeStruct (map typeOf tagged)
+            as' <- mapM genExpr as -- can have side effects, so generate even if zero size
             let tgeneric = genDatatypeRef dataType
-            pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
-            p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
-            genStructInPtr p tagged
-            pure (VVar pGeneric)
+            size <- sizeof tgeneric
+            if size == 0
+                then pure (VLocal (undef tgeneric))
+                else do
+                    let tagged = maybe
+                            as'
+                            ((: as') . VLocal . ConstantOperand . flip LLConst.Int i)
+                            (tagBitWidth span')
+                    let t = typeStruct (map typeOf tagged)
+                    pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
+                    p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
+                    genStructInPtr p tagged
+                    pure (VVar pGeneric)
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 =
