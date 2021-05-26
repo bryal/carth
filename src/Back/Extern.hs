@@ -40,7 +40,7 @@ import Back.Gen
 withExternSigs :: [(String, Ast.Type)] -> Gen' a -> Gen' a
 withExternSigs es ga = do
     es' <- forM es $ \(name, t) -> do
-        t' <- genType' t
+        t' <- genType t
         pure (TypedVar name t, (LLType.ptr t', mkName ("_wrapper_" ++ name)))
     augment globalEnv (Map.fromList es') ga
 

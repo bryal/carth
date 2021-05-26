@@ -673,11 +673,11 @@ genExternTypeSig t = do
     let (pts, rt) = uncurryType t
     when (null pts) $ ice "genExternTypeSig of non-function"
     let anon = mkName ""
-    pts' <- mapM genType' pts
+    pts' <- mapM genType pts
     ps <- forM pts' $ \pt' -> passByRef' pt' <&> \case
         True -> Parameter (LLType.ptr pt') anon [ByVal]
         False -> Parameter pt' anon []
-    rt' <- genType' rt
+    rt' <- genType rt
     (rt'', ps') <- passByRef' rt' <&> \case
         True -> (LLType.void, Parameter (LLType.ptr rt') anon [SRet] : ps)
         False -> (rt', ps)
@@ -729,12 +729,9 @@ passByRef' = \case
     LabelType -> ice "passByRef of LabelType"
     TokenType -> ice "passByRef of TokenTyp"
 
-genType :: Ast.Type -> Gen Type
-genType = lift . genType'
-
 -- | Convert to the LLVM representation of a type in an expression-context.
-genType' :: MonadReader Env m => Ast.Type -> m Type
-genType' = \case
+genType :: MonadReader Env m => Ast.Type -> m Type
+genType = \case
     Ast.TPrim tc -> pure $ case tc of
         Ast.TNat w -> IntegerType w
         Ast.TNatSize -> IntegerType wordsizeBits
@@ -744,8 +741,8 @@ genType' = \case
         Ast.TF32 -> float
         Ast.TF64 -> double
         Ast.TF128 -> fp128
-    Ast.TFun a r -> liftA2 closureType (genType' a) (genType' r)
-    Ast.TBox t -> fmap LLType.ptr (genType' t)
+    Ast.TFun a r -> liftA2 closureType (genType a) (genType r)
+    Ast.TBox t -> fmap LLType.ptr (genType t)
     Ast.TConst tc -> lookupEnum tc <&> \case
         Just 0 -> typeUnit
         Just w -> IntegerType w
@@ -772,8 +769,10 @@ genCapturesType :: [Ast.TypedVar] -> Gen Type
 genCapturesType = fmap typeStruct . mapM (\(Ast.TypedVar _ t) -> genType t)
 
 genVariantType :: MonadReader Env m => Ast.Span -> [Ast.Type] -> m [Type]
-genVariantType totVariants =
-    fmap (maybe id ((:) . IntegerType) (tagBitWidth totVariants)) . mapM genType'
+genVariantType totVariants = fmap (maybe id (:) (tagType totVariants)) . mapM genType
+
+tagType :: Ast.Span -> Maybe Type
+tagType = fmap IntegerType . tagBitWidth
 
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and
 --       impl of `getTypeAllocSize`.

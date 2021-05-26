@@ -1,0 +1,41 @@
+;;;
+
+;; This test case is a bit artificial and could possibly me a little simpler and cleaner,
+;; but this is good enough.
+;;
+;; Change the Int8 in the Either to Int, and it starts working (pre-fix).
+;;
+;; The issue was that (Either (Fun Unit Unit)) ended up being represented by the Right
+;; variant, which in the pre-fix LLVM representation resulted in implicit padding of 7
+;; bytes between the Int8 and the following (Cons Int Unit). When (<o id id) was passed to
+;; foo in either/map-left, LLVM for some reason decided that the 7 bytes of padding could
+;; be zeroed, since it didn't think we could use them anyways. Maybe it passed the Int8 in
+;; a separate register, with the higher bytes zeroed or something. Anyways, this resulted
+;; in the captures pointer of the Fun in the Either having all but its least significant
+;; byte zeroed, et voila, segfault!
+
+(data (Either a)
+  (Left a)
+  (Right [Int8 Int]))
+
+(define: (seq a b)
+    (Fun (Either Unit) (IO Unit) (IO Unit))
+  b)
+(define: (foo f)
+    (Fun (Fun Unit Unit) Unit)
+  (f Unit))
+(define: (<o f g a)
+    (Fun (Fun Unit Unit) (Fun Unit Unit) Unit Unit)
+  (f (g a)))
+(define: (id x)
+    (Fun Unit Unit)
+  x)
+
+(define: (either/map-left f)
+    (Fun (Fun (Fun Unit Unit) Unit) (Either (Fun Unit Unit)) (Either Unit))
+  (fmatch (case (Left a) (Left (f a)))
+          (case (Right b) (Right b))))
+
+(define main
+  (seq (either/map-left foo (Left (<o id id)))
+       (IO (fun (real-world) [Unit real-world]))))

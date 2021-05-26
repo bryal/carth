@@ -82,22 +82,25 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
   where
     withGlobFunSigs sigs ga = do
         sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
-            t' <- genType' t
+            t' <- genType t
             tf <- getIndexed t' [1 :: Int]
             pure (v, (tf, mkName (mangleName (x, us) ++ "_func")))
         augment globalFunEnv (Map.fromList sigs') ga
 
     withGlobVarSigs sigs ga = do
         sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
-            t' <- genType' t
+            t' <- genType t
             pure (v, (LLType.ptr t', mkName (mangleName (x, us))))
         augment globalEnv (Map.fromList sigs') ga
 
 -- | A data-type is a tagged union, and we represent it in LLVM as a struct
---   where, if there are more than 1 variant, the first element is the
---   variant-index. The variant index is represented as an integer with the
---   smallest width 2^n that can fit all variants. The rest of the elements are
---   the field-types of the largest variant wrt allocation size.
+--
+--   If there's only one variant, the struct just contains the members of that variant. If
+--   there's more than one variant, the representing type consists of 2 members: the
+--   smallest integer type that can fit the variant index, followed by an array of integers
+--   with integer size equal to the alignment of the greatest aligned variant and array
+--   length equal to the smallest n that results in the array being of size >= the size of
+--   the largest sized variant.
 --
 --   If none of the variants of the data-type has any members, we say it's an
 --   enumeration, which is represented as a single integer, equal to the size it
@@ -118,14 +121,19 @@ defineDataTypes datasEnums = do
             $ augment enumTypes enums'
             $ augment dataTypes datas'
             $ forM datas
-            $ \(tc, vs) -> do
+            $ \(tc, vs) ->
                   let n = mkName (mangleTConst tc)
-                  let totVariants = fromIntegral (length vs)
-                  ts <- mapM (genVariantType totVariants) vs
-                  sizedTs <- mapM (\t -> sizeof (typeStruct t) <&> (, t)) ts
-                  if null sizedTs
-                      then ice ("defineDataTypes: sizedTs empty for " ++ show n)
-                      else pure (n, snd (maximum sizedTs))
+                      totVariants = fromIntegral (length vs)
+                  in  fmap (n, ) $ case tagType totVariants of
+                          Nothing -> mapM genType (head vs)
+                          Just tag -> do
+                              ts <- mapM (fmap typeStruct . genVariantType totVariants) vs
+                              aMax <- fmap (fromIntegral . maximum) $ mapM alignmentof ts
+                              sMax <- fmap maximum $ mapM sizeof ts
+                              sTag <- sizeof tag
+                              let sizer = ArrayType (sMax - sTag) i8
+                                  aligner = ArrayType 0 (IntegerType (aMax * 8))
+                              pure [tag, sizer, aligner]
     pure (enums', datas'')
 
 genMain :: Gen' Definition
@@ -170,7 +178,7 @@ genDefineGlobVar (TypedVar v _, (ts, e)) = do
 genGlobVarDecl :: VarDef -> Gen' Definition
 genGlobVarDecl (TypedVar v t, (ts, _)) = do
     let name = mkName (mangleName (v, ts))
-    t' <- genType' t
+    t' <- genType t
     pure (GlobalDefinition (simpleGlobVar name t' (LLConst.Undef t')))
 
 -- TODO: Detect when a fun def is nested lambdas, like (define (foo a b) (+ a b)). Now,
