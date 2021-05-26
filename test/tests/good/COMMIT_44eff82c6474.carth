@@ -1,5 +1,7 @@
 ;;;
 
+;; Test case for bug fixed in 44eff82c6474
+;;
 ;; This test case is a bit artificial and could possibly me a little simpler and cleaner,
 ;; but this is good enough.
 ;;
