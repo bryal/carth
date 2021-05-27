@@ -10,6 +10,7 @@
 (import string)
 (import queue)
 (import io)
+(import net)
 
 (define (car      [x . _])           x)
 (define (cadr     [_ x . _])         x)

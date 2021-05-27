@@ -8,11 +8,18 @@
   (map (<o deref (<o (ptr/+ ptr) cast))
        (xrange 0 (cast len))))
 
+(define array/nil (Array mem/unsafe-null (cast 0)))
+
+(define (array/nil? a) (= (cast 0) (array/length a)))
+
+(define: (array/unsafe-uninit n) (forall (a) (Fun Nat (Array a)))
+  (Array (cast-ptr (id@"GC_malloc" (* (sizeof a) n)))
+         n))
+
 (define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
-  (let ((n (count xs))
-        (ptr (: (transmute (id@"GC_malloc" (* (sizeof a) (cast n)))) (Box a))))
+  (let1 n (count xs)
     (foldl (fun (v [i x]) (array/insert i x v))
-           (Array ptr (cast n))
+           (array/unsafe-uninit n)
            (enumerate xs))))
 
 (define: (array/insert i x (Array ptr n))
@@ -21,6 +28,22 @@
       (panic "array/insert after end of array")
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
+
+(extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
+
+(define (memcpy' dest src count)
+  (: (transmute (memcpy (transmute (: dest (Box a)))
+                        (transmute (: src (Box a)))
+                        (* count (sizeof a))))
+     (Box a)))
+
+(define: (array/append (Array px nx) (Array py ny))
+    (forall (a) (Fun (Array a) (Array a) (Array a)))
+  (let1 (Array pz nz) (array/unsafe-uninit (nat/nowrap+ nx ny))
+    (apps seq
+          (memcpy' pz px nx)
+          (memcpy' (ptr/+ pz nx) py ny)
+          (Array pz nz))))
 
 (define (array/lookup i (Array ptr n))
   (if (< i n)
@@ -77,6 +100,16 @@
   (go (cast 0) (array/length ys)))
 
 (define (array/split i (Array ptr n))
-  (if (< i n)
+  (if (<= i n)
       (Some [(Array ptr i) (Array (ptr/+ ptr i) (- n i))])
     None))
+
+(define (array/take-split i a)
+  (match (array/split i a)
+    (case (Some p) p)
+    (case None [a array/nil])))
+
+(define (array/split-last (Array ptr n))
+  (if (= n (cast 0))
+      None
+    (Some [(Array ptr (- n (cast 1))) (deref (ptr/+ ptr (- n (cast 1))))])))

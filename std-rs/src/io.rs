@@ -30,30 +30,21 @@ pub unsafe extern "C" fn stdrs_close_handle(h: FfiHandle) {
 pub unsafe extern "C" fn stdrs_read_handle(
     h: FfiHandle,
     mut buf: Array<u8>,
-) -> Cons<Array<u8>, Maybe<usize>> {
+) -> Maybe<Cons<Array<u8>, usize>> {
     let res = (*handle_from_ffi(h)).read(buf.as_slice_mut());
-    Cons(
-        buf,
-        match res {
-            Ok(n) => Maybe::Some(n),
-            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => Maybe::Some(0),
-            Err(_) => Maybe::None,
-        },
-    )
+    match res {
+        Ok(n) => Maybe::Some(Cons(buf, n)),
+        Err(ref e) if e.kind() == io::ErrorKind::Interrupted => stdrs_read_handle(h, buf),
+        Err(_) => Maybe::None,
+    }
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn stdrs_write_handle(
-    h: FfiHandle,
-    buf: Array<u8>,
-) -> Cons<Array<u8>, Maybe<usize>> {
+pub unsafe extern "C" fn stdrs_write_handle(h: FfiHandle, buf: Array<u8>) -> Maybe<usize> {
     let res = (*handle_from_ffi(h)).write(buf.as_slice());
-    Cons(
-        buf,
-        match res {
-            Ok(n) => Maybe::Some(n),
-            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => Maybe::Some(0),
-            Err(_) => Maybe::None,
-        },
-    )
+    match res {
+        Ok(n) => Maybe::Some(n),
+        Err(ref e) if e.kind() == io::ErrorKind::Interrupted => Maybe::Some(0),
+        Err(_) => Maybe::None,
+    }
 }

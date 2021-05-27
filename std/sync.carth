@@ -16,7 +16,7 @@
 (define: mutex/new
     (IO Mutex)
   (io/wrap (let ((mx (Mutex (cast-ptr (id@"GC_malloc" sizeof_pthread_mutex_t))))
-                 (attrs (mem/unsafe-null Unit)))
+                 (attrs mem/unsafe-null))
              (seq (pthread_mutex_init mx attrs)
                   mx))))
 

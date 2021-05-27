@@ -1,0 +1,22 @@
+(import std)
+(import net)
+
+(define main
+  (do io/bind
+      (let ((host "gemini.circumlunar.space")
+            (port (cast 1965))))
+      (<- h (io/map unwrap! (tcp/connect-timeout host port (cast 2000))))
+      (<- h (io/map unwrap! (tls/connect-without-validation host h)))
+      (let1 query (apps str-append "gemini://" host "/\r\n"))
+      (handle/write-str query h)
+      (<- [h s] (io/map unwrap! (handle/read-to-str h)))
+      (let1 [(Str header) body] (unwrap! (string/split-first-line s)))
+      (let1 [code meta] (map-two (apps <o unwrap! parse-nat Str)
+                                 (<o Str (array/skip 1))
+                                 (unwrap! (array/split (cast 2) header))))
+      (display (str-append "Code: " (show-nat code)))
+      (display (str-append "Meta: " meta))
+      (display "Body")
+      (display "=================================================")
+      (display body)
+      (display "==================================================")))

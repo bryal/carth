@@ -38,3 +38,16 @@
   (go (cast 1) x y))
 
 (define sum (foldl + (cast 0)))
+
+(define: nat/maxval Nat (cast -1))
+
+(define: (nat/checked+ x y)
+    (Fun Nat Nat (Maybe Nat))
+  (let1 z (+ x y)
+    (if (< z x)
+        None
+      (Some z))))
+
+(define (nat/nowrap+ x y)
+  (unwrap-or-else (fun (Unit) (panic "nat/nowrap+: addition overflowed"))
+                  (nat/checked+ x y)))

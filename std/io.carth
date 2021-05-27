@@ -46,3 +46,46 @@
 
 (define (io/write-ref x ptr)
   (io/wrap (store x ptr)))
+
+(data Handle' (Handle' (Box Nat8) (Box Nat8)))
+
+(define (handle/new h') (Handle h' array/nil))
+
+(extern stdrs_close_handle (Fun Handle' Unit))
+(extern stdrs_read_handle  (Fun Handle' (Array Nat8) (Maybe (Cons (Array Nat8) Nat))))
+(extern stdrs_write_handle (Fun Handle' (Array Nat8) (Maybe Nat)))
+
+(define (close-handle' h) (io/wrap (stdrs_close_handle h)))
+(define (read-handle' h buf) (io/wrap (stdrs_read_handle h buf)))
+(define (write-handle' h buf) (io/wrap (stdrs_write_handle h buf)))
+
+(data Handle (Handle Handle' (Array Nat8)))
+
+(define (handle/close (Handle h _)) (close-handle' h))
+
+(define: (handle/write buf (Handle h _)) (Fun (Array Nat8) Handle (IO (Maybe Nat)))
+  (write-handle' h buf))
+
+(define: (handle/read-max n (Handle h buf))
+    (Fun Nat Handle (IO (Maybe [Handle (Array Nat8)])))
+  (if (not (array/nil? buf))
+      (let1 [out buf] (array/take-split n buf)
+        (io/pure (Some [(Handle h buf) out])))
+    (io/map (maybe/map (fun ([(Array p _) . m]) [(Handle h array/nil) (Array p m)]))
+            (read-handle' h (array/unsafe-uninit n)))))
+
+(define (handle/read-to-end h)
+  (define bufsize (: (cast (* 8 1024)) Nat))
+  (define (go [xs h])
+    (io/bind (maybe (io/pure None)
+                    (fun ([h ys])
+                      (if (array/nil? ys)
+                          (io/pure (Some [h xs]))
+                        (go [(array/append xs ys) h]))))
+             (handle/read-max bufsize h)))
+  (go [array/nil h]))
+
+(define (handle/read-to-str h)
+  (io/map (maybe/map (map-cadr Str)) (handle/read-to-end h)))
+
+(define (handle/write-str (Str a)) (handle/write a))

@@ -13,6 +13,10 @@
   (fmatch (case (Some x) x)
           (case None (panic "unwrap! of None"))))
 
+(define (unwrap-or-else f)
+  (fmatch (case (Some x) x)
+          (case None (f Unit))))
+
 (define (maybe/map f)
   (fmatch (case (Some x) (Some (f x)))
           (case None None)))

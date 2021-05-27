@@ -1,4 +1,5 @@
-#![feature(try_trait)]
+#![feature(try_trait_v2)]
+#![feature(control_flow_enum)]
 #![allow(non_camel_case_types)]
 
 mod ffi;
@@ -111,26 +112,28 @@ impl<A> Maybe<A> {
     }
 }
 
-impl<A> std::ops::Try for Maybe<A> {
-    type Ok = A;
-    type Error = std::option::NoneError;
-
+impl<A> std::ops::FromResidual for Maybe<A> {
     #[inline]
-    fn into_result(self) -> Result<A, std::option::NoneError> {
-        match self {
-            Maybe::None => Err(std::option::NoneError),
-            Maybe::Some(x) => Ok(x),
-        }
+    fn from_residual(_: <Self as std::ops::Try>::Residual) -> Self {
+        Maybe::None
     }
+}
+
+impl<A> std::ops::Try for Maybe<A> {
+    type Output = A;
+    type Residual = Option<std::convert::Infallible>;
 
     #[inline]
-    fn from_ok(v: A) -> Self {
+    fn from_output(v: A) -> Self {
         Maybe::Some(v)
     }
 
     #[inline]
-    fn from_error(_: std::option::NoneError) -> Self {
-        Maybe::None
+    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Maybe::None => std::ops::ControlFlow::Break(None),
+            Maybe::Some(x) => std::ops::ControlFlow::Continue(x),
+        }
     }
 }
 

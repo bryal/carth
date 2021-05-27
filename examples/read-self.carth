@@ -1,0 +1,9 @@
+(import std)
+
+(define main
+  (do io/bind
+      (<- s (io/map unwrap! (read-file "read-self.carth")))
+      (display "Printing ourselves...")
+      (display "==================================================")
+      (display s)
+      (display "==================================================")))

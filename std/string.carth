@@ -43,6 +43,9 @@
 (define (string/bytes (Str xs))
   (array/iter xs))
 
+(define (string/collect-bytes it)
+  (Str (array/collect it)))
+
 ;;? Show an integer in hexadecimal notation
 (define: (show-hex n) (Fun Int Str)
   (define: (it n) (Fun Int (Iter Nat8))
@@ -57,15 +60,25 @@
       "0x0"
     (str-append "0x" (Str (array/collect (reverse (it n)))))))
 
-(define: (lines (Str s))
+(define: (lines s)
     (Fun Str (Iter Str))
   (define (lines' s)
-    (Iter (fun (Unit) (maybe/map (fun (i) (map-two Str
-                                                   (<o lines' (array/skip 1))
-                                                   (unwrap! (array/split i s))))
-                                 (array/find (cast ascii-newline) s)))))
+    (Iter (fun (Unit) (maybe/map (map-cadr lines') (string/split-first-line s)))))
   (lines' s))
 
+(define (string/split-first-line (Str s))
+  (define (trim-carriage xs)
+    (match (array/split-last xs)
+      (case None xs)
+      (case (Some [ys y]) (if (= y ascii-carriage-return)
+                              ys
+                            xs))))
+  (maybe/map (fun (i) (map-two (<o Str trim-carriage)
+                               (<o Str (array/skip 1))
+                               (unwrap! (array/split i s))))
+             (array/find (cast ascii-newline) s)))
+
+(define: ascii-carriage-return Nat8 (cast 0xD))
 (define: ascii-newline Nat8 (cast 0xA))
 (define: ascii-minus Nat8 (cast 0x2D))
 (define: ascii-0 Nat8 (cast 0x30))
