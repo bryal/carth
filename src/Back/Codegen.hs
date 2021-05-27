@@ -19,11 +19,12 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.List
 import Data.Function
+import Data.Maybe
 import Lens.Micro.Platform (use, assign, view)
 
 import Misc
 import FreeVars
-import Sizeof (tagBitWidth)
+import Sizeof (toBytes, tagBitWidth)
 import qualified Back.Low as Ast
 import Back.Low hiding (Type, Const)
 import Front.TypeAst
@@ -32,14 +33,13 @@ import Back.Gen
 import Back.Extern
 
 instance Select Gen Val where
-    selectAs totVariants ts matchee = do
-        tvariant <- fmap typeStruct (lift (genVariantType totVariants ts))
-        pGeneric <- getVar matchee
-        fmap VVar
-             (emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr tvariant)))
-    selectSub span' i matchee =
-        let tagOffset = if span' > 1 then 1 else 0
-        in  genIndexStruct matchee [tagOffset + i]
+    selectAs span ts matchee = if span == 1
+        then pure matchee
+        else do
+            p <- getVar matchee
+            tvariant <- fmap typeStruct (mapM genType ts)
+            fmap VVar $ selectVarAs p tvariant
+    selectSub _span i matchee = genIndexStruct matchee [i]
     selectDeref = genDeref
 
 codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Module
@@ -93,19 +93,42 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
             pure (v, (LLType.ptr t', mkName (mangleName (x, us))))
         augment globalEnv (Map.fromList sigs') ga
 
--- | A data-type is a tagged union, and we represent it in LLVM as a struct
+-- | A data-type is a tagged union, and we represent it in LLVM as a representing struct
+--   of a tagged union, an untagged struct, an integer, or a zero-sized empty array,
+--   depending on how many variants and members it has.
 --
 --   If there's only one variant, the struct just contains the members of that variant. If
---   there's more than one variant, the representing type consists of 2 members: the
---   smallest integer type that can fit the variant index, followed by an array of integers
---   with integer size equal to the alignment of the greatest aligned variant and array
---   length equal to the smallest n that results in the array being of size >= the size of
---   the largest sized variant.
+--   there's more than one variant, the representing type consists of 2 members: an
+--   integer that can fit the variant index as well as "fill" the succeeding space
+--   (implied by alignment) until the second member starts, followed by the second member
+--   which is an array of integers with integer size equal to the alignment of the
+--   greatest aligned variant and array length equal to the smallest n that results in the
+--   array being of size >= the size of the largest sized variant.
 --
 --   If none of the variants of the data-type has any members, we say it's an
 --   enumeration, which is represented as a single integer, equal to the size it
 --   would have been as a tag. If further there's only a single variant, the
 --   data-type is represented as `{}`.
+--
+--   The reason we must make sure to "fill" all space in the representing struct is that
+--   LLVM may essentially otherwise incorrectly assume that the space is unused and
+--   doesn't have to be considered passing the type as an argument to a function.
+--
+--   The reason we fill it with values the size of the alignment instead of bytes is to
+--   not wrongfully signal to LLVM that the padding will be used as-is, and should be
+--   passed/returned in its own registers (or whatever exactly is going on). I just know
+--   from trial and error when debugging issues with how the representation of `(Maybe
+--   Int8)` affects how it is returned from a function. The intuitive definition (which
+--   indeed could be used for `Maybe` specifically without problems, since the only other
+--   variant is the non-data-carrying `None`) is `{i8, i64}`. Representing it instead with
+--   `{i64, i64}` (to make alignment-induced padding explicit, also this is how Rust
+--   represents it) works well -- it seems to be passed/returned in exactly the same
+--   way. However, if we represent it as `{i8, [7 x i8], i64}` or `{i8, [15 x i8], [0 x
+--   i64]}`: while having the same size and alignment, it is not returned in the same way
+--   (seeming instead to use an additional return parameter), and as such, a Carth
+--   function returning `(Maybe Int8)` represented as `{i8, [15 x i8], [0 x i64]}` is not
+--   ABI compatible with a Rust function returning `Maybe<i8>` represented as `{i64,
+--   i64}`.
 defineDataTypes :: Datas -> Gen' (Map Name Word32, Map Name [Type])
 defineDataTypes datasEnums = do
     let (enums, datas) = partition (all null . snd) (Map.toList datasEnums)
@@ -122,18 +145,25 @@ defineDataTypes datasEnums = do
             $ augment dataTypes datas'
             $ forM datas
             $ \(tc, vs) ->
-                  let n = mkName (mangleTConst tc)
+                  let
+                      n = mkName (mangleTConst tc)
                       totVariants = fromIntegral (length vs)
-                  in  fmap (n, ) $ case tagType totVariants of
-                          Nothing -> mapM genType (head vs)
-                          Just tag -> do
-                              ts <- mapM (fmap typeStruct . genVariantType totVariants) vs
-                              aMax <- fmap (fromIntegral . maximum) $ mapM alignmentof ts
+                  in
+                      fmap (n, ) $ if totVariants == 1
+                          then mapM genType (head vs)
+                          else do
+                              ts <- mapM (fmap typeStruct . mapM genType) vs
+                              aMax <- fmap maximum $ mapM alignmentof ts
                               sMax <- fmap maximum $ mapM sizeof ts
-                              sTag <- sizeof tag
-                              let sizer = ArrayType (sMax - sTag) i8
-                                  aligner = ArrayType 0 (IntegerType (aMax * 8))
-                              pure [tag, sizer, aligner]
+                              let sTag = max
+                                      (toBytes (fromJust (tagBitWidth totVariants)))
+                                      aMax
+                              let tag = IntegerType (fromIntegral sTag * 8)
+                              pure
+                                  [ tag
+                                  , ArrayType (div (sMax + aMax - 1) aMax)
+                                              (IntegerType (8 * fromIntegral aMax))
+                                  ]
     pure (enums', datas'')
 
 genMain :: Gen' Definition
@@ -314,18 +344,27 @@ genMatch m dt = genDecisionTree dt . newSelections =<< genExpr m
 genDecisionTree :: TailVal v => DecisionTree -> Selections Val -> Gen v
 genDecisionTree = \case
     Ast.DLeaf l -> genDecisionLeaf l
-    Ast.DSwitch selector cs def -> genDecisionSwitchIx selector cs def
+    Ast.DSwitch span selector cs def -> genDecisionSwitchIx span selector cs def
     Ast.DSwitchStr selector cs def -> genDecisionSwitchStr selector cs def
   where
     genDecisionLeaf (bs, e) selections = do
         bs' <- selectVarBindings selections bs
         withVals bs' (genExpr e)
-    genDecisionSwitchIx selector cs def selections = do
+    genDecisionSwitchIx span selector cs def selections = do
         let (variantIxs, variantDts) = unzip (Map.toAscList cs)
         (m, selections') <- select selector selections
-        mVariantIx <- getLocal =<< case typeOf m of
-            IntegerType _ -> pure m
-            _ -> genIndexStruct m [0]
+        mVariantIx <- case typeOf m of
+            IntegerType _ -> getLocal m
+            -- We can't read the index from the representative struct directly. We first
+            -- have to "remove the padding" on the index by truncating it to the smallest
+            -- size that can fit all variants. We have to do this because the padding
+            -- bytes may be nonzero.
+            _ -> do
+                tagBig <- getLocal =<< genIndexStruct m [0]
+                let tSmall = IntegerType (fromJust (tagBitWidth span))
+                if typeOf tagBig == tSmall
+                    then pure tagBig
+                    else emitAnonReg $ trunc tagBig tSmall
         let ixBits = getIntBitWidth (typeOf mVariantIx)
         let litIxInt = LLConst.Int ixBits
         variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
@@ -351,21 +390,25 @@ genCtion (i, span', dataType, as) = do
         Just w -> pure (VLocal (ConstantOperand (LLConst.Int w i)))
         Nothing -> do
             as' <- mapM genExpr as -- can have side effects, so generate even if zero size
-            let tgeneric = genDatatypeRef dataType
-            size <- sizeof tgeneric
-            if size == 0
-                then pure (VLocal (undef tgeneric))
+            let tnominal = genDatatypeRef dataType
+            pnominal <- emitReg "nominal" (alloca tnominal)
+            -- If span is 1, there is no tag & no need to bitcast etc
+            p <- if span' == 1
+                then pure pnominal
                 else do
-                    let tagged = maybe
-                            as'
-                            ((: as') . VLocal . ConstantOperand . flip LLConst.Int i)
-                            (tagBitWidth span')
-                    let t = typeStruct (map typeOf tagged)
-                    pGeneric <- emitReg "ction_ptr_nominal" (alloca tgeneric)
-                    p <- emitReg "ction_ptr_structural" (bitcast pGeneric (LLType.ptr t))
-                    genStructInPtr p tagged
-                    pure (VVar pGeneric)
+                    ptag <- emitReg "tag" =<< getelementptr pnominal (litI64 0) [0]
+                    let w = getIntBitWidth (getPointee (typeOf ptag))
+                    let tag = ConstantOperand (LLConst.Int w i)
+                    _ <- genStore (VLocal tag) (VLocal ptag)
+                    selectVarAs pnominal (typeStruct (map typeOf as'))
+            genStructInPtr p as'
+            pure (VVar pnominal)
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 =
     fmap VLocal . emitAnonReg =<< callBuiltin "carth_str_eq" =<< mapM getLocal [s1, s2]
+
+selectVarAs :: Operand -> Type -> Gen Operand
+selectVarAs pRepresentative tvariant = do
+    pGeneric <- emitReg "generic" =<< getelementptr pRepresentative (litI64 0) [1]
+    emitReg "structural" (bitcast pGeneric (LLType.ptr tvariant))

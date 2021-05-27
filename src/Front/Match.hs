@@ -209,8 +209,8 @@ addneg con = \case
 switchify :: DecisionTree' -> DecisionTree
 switchify = \case
     Success e -> DLeaf e
-    d@(IfEq obj (Con (VariantIx _) _ _) _ _) ->
-        uncurry (DSwitch obj) (switchifyIx obj [] d)
+    d@(IfEq obj (Con (VariantIx _) span _) _ _) ->
+        uncurry (DSwitch span obj) (switchifyIx obj [] d)
     d@(IfEq obj (Con (VariantStr _) _ _) _ _) ->
         uncurry (DSwitchStr obj) (switchifyStr obj [] d)
   where

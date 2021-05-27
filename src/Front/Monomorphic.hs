@@ -48,7 +48,7 @@ type VarBindings = [(TypedVar, Access)]
 
 data DecisionTree
     = DLeaf (VarBindings, Expr)
-    | DSwitch Access (Map VariantIx DecisionTree) DecisionTree
+    | DSwitch Span Access (Map VariantIx DecisionTree) DecisionTree
     | DSwitchStr Access (Map String DecisionTree) DecisionTree
     deriving Show
 

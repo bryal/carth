@@ -68,8 +68,8 @@ lowerApp = curry $ \case
 lowerDecisionTree :: Ast.DecisionTree -> DecisionTree
 lowerDecisionTree = \case
     Ast.DLeaf (bs, e) -> DLeaf (map (bimap lowerTypedVar lowerAccess) bs, lowerExpr e)
-    Ast.DSwitch a cs def ->
-        DSwitch (lowerAccess a) (fmap lowerDecisionTree cs) (lowerDecisionTree def)
+    Ast.DSwitch span a cs def ->
+        DSwitch span (lowerAccess a) (fmap lowerDecisionTree cs) (lowerDecisionTree def)
     Ast.DSwitchStr a cs def ->
         DSwitchStr (lowerAccess a) (fmap lowerDecisionTree cs) (lowerDecisionTree def)
 

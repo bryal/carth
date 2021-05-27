@@ -169,7 +169,7 @@ monoMatch e dt = liftA2 Match (mono e) (monoDecisionTree dt)
 
 monoDecisionTree :: Checked.DecisionTree -> Mono DecisionTree
 monoDecisionTree = \case
-    Checked.DSwitch obj cs def -> monoDecisionSwitch obj cs def DSwitch
+    Checked.DSwitch span obj cs def -> monoDecisionSwitch obj cs def (DSwitch span)
     Checked.DSwitchStr obj cs def -> monoDecisionSwitch obj cs def DSwitchStr
     Checked.DLeaf (bs, e) -> do
         let bs' = Map.toList bs
