@@ -11,7 +11,6 @@ import FreeVars
 import Front.TypeAst
 import Front.Lexd (Const (..))
 
-
 data IdCase = Big | Small
 
 newtype Id (case' :: IdCase) = Id (WithPos String)
@@ -31,7 +30,9 @@ data Type
     | TBox Type
     deriving (Show, Eq, Ord)
 
-data Scheme = Forall SrcPos (Set TVar) Type
+type ClassConstraint = (String, [(SrcPos, Type)])
+
+data Scheme = Forall SrcPos (Set TVar) (Set ClassConstraint) Type
     deriving (Show, Eq)
 
 data Pat

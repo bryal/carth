@@ -31,11 +31,11 @@
 
 (extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
 
-(define (memcpy' dest src count)
-  (: (transmute (memcpy (transmute (: dest (Box a)))
-                        (transmute (: src (Box a)))
-                        (* count (sizeof a))))
-     (Box a)))
+(define: (memcpy' dest src count)
+    (forall (a) (Fun (Box a) (Box a) Nat (Box a)))
+  (transmute (memcpy (transmute dest)
+                     (transmute src)
+                     (* count (sizeof a)))))
 
 (define: (array/append (Array px nx) (Array py ny))
     (forall (a) (Fun (Array a) (Array a) (Array a)))

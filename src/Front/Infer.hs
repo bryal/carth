@@ -263,15 +263,20 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
     checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
     checkScheme = curry $ \case
         ("main", Nothing) -> pure (Just (Forall Set.empty Set.empty mainType))
-        ("main", Just s@(Parsed.Forall pos vs t)) | Set.size vs /= 0 || t /= mainType ->
-            throwError (WrongMainType pos s)
+        ("main", Just s@(Parsed.Forall pos vs cs t))
+            | Set.size vs /= 0 || Set.size cs /= 0 || t /= mainType -> throwError
+                (WrongMainType pos s)
         (_, Nothing) -> pure Nothing
-        (_, Just (Parsed.Forall pos vs t)) -> do
+        (_, Just (Parsed.Forall pos vs cs t)) -> do
             t' <- checkType pos t
-            let s1 = Forall vs Set.empty t'
+            cs' <- mapM (secondM (mapM (uncurry checkType))) (Set.toList cs)
+            let s1 = Forall vs (Set.fromList cs') t'
             env <- view envLocalDefs
-            s2 <- generalize env (Just (_scmConstraints s1)) Map.empty t'
-            if (s1 == s2)
+            s2@(Forall vs2 _ t2) <- generalize env
+                                               (Just (_scmConstraints s1))
+                                               Map.empty
+                                               t'
+            if ((vs, t') == (vs2, t2))
                 then pure (Just s1)
                 else throwError (InvalidUserTypeSig pos s1 s2)
 

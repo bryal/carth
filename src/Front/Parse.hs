@@ -7,6 +7,7 @@ import Control.Monad
 import Control.Monad.State.Strict
 import Control.Monad.Except
 import Control.Monad.Combinators
+import Data.Bifunctor
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.List
@@ -167,9 +168,12 @@ pat = choice [patInt, patStr, patCtor, patVar, patTuple, ppat]
 scheme :: Parser Scheme
 scheme = do
     pos <- getSrcPos
-    let wrap = fmap (Forall pos Set.empty)
-        universal = reserved Kforall *> liftA2 (Forall pos) tvars type_
-        tvars = parens (fmap Set.fromList (many tvar))
+    let wrap = fmap (Forall pos Set.empty Set.empty)
+        universal =
+            reserved Kforall
+                *> liftA3 (Forall pos) tvars (option Set.empty (try constrs)) type_
+        tvars = parens (fmap Set.fromList (some tvar))
+        constrs = parens (reserved Kwhere *> fmap Set.fromList (some (parens tapp)))
     wrap nonptype <|> (parens (universal <|> wrap ptype))
 
 type_ :: Parser Type
@@ -202,7 +206,7 @@ tuple p unit f = brackets $ do
     pure $ foldr f r ls
 
 ptype :: Parser Type
-ptype = choice [tfun, tbox, tapp]
+ptype = choice [tfun, tbox, fmap (TConst . second (map snd)) tapp]
   where
     tfun = do
         reserved KFun
@@ -210,7 +214,9 @@ ptype = choice [tfun, tbox, tapp]
         ts <- some type_
         pure (foldr1 TFun (t : ts))
     tbox = reserved KBox *> fmap TBox type_
-    tapp = liftA2 (TConst .* (,) . idstr) big (some type_)
+
+tapp :: Parser (String, [(SrcPos, Type)])
+tapp = liftA2 ((,) . idstr) big (some (liftA2 (,) getSrcPos type_))
 
 tvar :: Parser TVar
 tvar = fmap TVExplicit small

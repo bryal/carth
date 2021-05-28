@@ -139,6 +139,7 @@ keyword = andSkipSpaceAfter $ choice $ (++)
         , string "define:" $> KdefineColon
         , string "extern" $> Kextern
         , string "forall" $> Kforall
+        , string "where" $> Kwhere
         , string "fmatch" $> Kfmatch
         , string "match" $> Kmatch
         , string "if" $> Kif

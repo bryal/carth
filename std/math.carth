@@ -7,7 +7,11 @@
 (extern cos (Fun F64 F64))
 (extern tan (Fun F64 F64))
 
-(define (inc n) (+ n (cast 1)))
+(define: (inc n)
+    (forall (a) (where (Num a) (Cast Int a))
+            (Fun a a))
+  (+ n (cast 1)))
+
 (define (dec n) (- n (cast 1)))
 
 (define (neg x) (- 0 x))

@@ -35,6 +35,7 @@ instance Pretty Lexd.Keyword where
         Lexd.Kcolon -> ":"
         Lexd.Kdot -> "."
         Lexd.Kforall -> "forall"
+        Lexd.Kwhere -> "where"
         Lexd.KFun -> "Fun"
         Lexd.KBox -> "Box"
         Lexd.Kdefine -> "define"
@@ -57,7 +58,8 @@ instance Pretty Lexd.Keyword where
 
 
 instance Pretty Parsed.Scheme where
-    pretty' _ (Parsed.Forall _ ps t) = prettyScheme ps t
+    pretty' _ (Parsed.Forall _ ps cs t) =
+        prettyScheme ps (map (second (map snd)) (Set.toList cs)) t
 instance Pretty Parsed.Type where
     pretty' _ = prettyType
 instance Pretty Parsed.TPrim where
@@ -67,9 +69,12 @@ instance Pretty Parsed.TVar where
 instance Pretty (Parsed.Id a) where
     pretty' _ = Parsed.idstr
 
-prettyScheme :: (Pretty p, Pretty t) => Set p -> t -> String
-prettyScheme ps t =
-    concat ["(forall (" ++ spcPretty (Set.toList ps) ++ ") ", pretty t ++ ")"]
+prettyScheme :: (Pretty p, Pretty t) => Set p -> [(String, [t])] -> t -> String
+prettyScheme ps cs t = concat
+    [ "(forall (" ++ spcPretty (Set.toList ps) ++ ") "
+    , "(where " ++ unwords (map prettyTConst cs) ++ ") "
+    , pretty t ++ ")"
+    ]
 
 prettyType :: Parsed.Type -> String
 prettyType = \case
@@ -111,9 +116,8 @@ prettyTVar = \case
     Parsed.TVExplicit v -> Parsed.idstr v
     Parsed.TVImplicit v -> "•" ++ v
 
-
 instance Pretty Inferred.Scheme where
-    pretty' _ (Inferred.Forall ps _ t) = prettyScheme ps t
+    pretty' _ (Inferred.Forall ps cs t) = prettyScheme ps (Set.toList cs) t
 instance Pretty Inferred.Type where
     pretty' _ = prettyAnType
 

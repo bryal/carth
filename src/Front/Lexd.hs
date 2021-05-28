@@ -12,7 +12,7 @@ data Const
 
 data Keyword
     = Kcolon | Kdot
-    | Kforall | KFun | KBox
+    | Kforall | Kwhere | KFun | KBox
     | Kdefine | KdefineColon
     | Kimport | Kextern | Kdata
     | Kfmatch | Kmatch | Kcase
