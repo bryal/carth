@@ -89,30 +89,25 @@ carth c -o examples/fizzbuzz examples/fizzbuzz.carth
 License
 -------
 
-Carth is released under the AGPL license, version 3 or later. See
-[LICENSE](./LICENSE).
+*Preface: copyright is a spook & capitalism is killing this planet.*
 
-Note that by default, all programs written in Carth will have to be
-distributed under the AGPLv3 license as well, as not just the compiler
-itself, but also the standard library you include and the core library
-you link with are AGPLv3 licensed. Technically you could write your own
-standard library and core library with some non-copyleft license to
-avoid this, but I hope you won't! ;)
+Carth is dual licensed under the Anti-Capitalist Software License or
+the AGPL version 3 or later. See [LICENSE-ACSL](./LICENSE-ACSL) and
+[LICENSE-AGPLv3](./LICENSE-AGPLv3) for the full license texts. For
+more information about the licenses, go to
+[anticapitalist.software](https://anticapitalist.software) or
+[gnu.org](https://www.gnu.org/licenses/agpl-3.0.en.html).
 
-Notice
-------
+About the seriousness and enforcability of the anti-capitalist
+software license, there's this quote from the homepage which sums it
+up quite well:
 
-Copyright (C) 2020 Johan Johansson
+> Copyright is easier to apply to how a work is used than to who uses
+> it, and this license has not been tested in court. That said, using
+> ACSL software against its terms would open the user to
+> litigation. ACSL may best be considered a strong deterrent [against
+> organizations organized along capitalist lines], as well as a way to
+> state the politics and moral center of your code.
 
-This program is free software: you can redistribute it and/or modify it
-under the terms of the GNU Affero General Public License as published by
-the Free Software Foundation, either version 3 of the License, or (at
-your option) any later version.
-
-This program is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero
-General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
+I include the AGPLv3+ as an alternative to be at least a little
+pragmatic ;)
