@@ -89,7 +89,24 @@ carth c -o examples/fizzbuzz examples/fizzbuzz.carth
 License
 -------
 
-*Preface: copyright is a spook & capitalism is killing this planet.*
+*Preface*
+
+- Copyright is a spook & capitalism is killing this planet.
+- The enforcability of the ACSL is questionable. Consider it more a
+  deterrent against capitalist organizations.
+- The (A)GPL is a cool hack that vaguely approximates my ideals, but I
+  have some problems with it, not least that it works "better" the
+  more expansive the reach of the copyright system is. I include it as
+  an alternative to be at least a little pragmatic ;)
+- What's important is the spirit of open source, not the letter of the
+  license. [Licences are not
+  sufficient](https://steveklabnik.com/writing/what-comes-after-open-source)
+  anyways.
+- If you're a fellow hacker and use this software to do *good* but
+  fail to follow the licenses to the letter, I won't be mad so please
+  rest without guilt! :D
+
+---
 
 Carth is dual licensed under the Anti-Capitalist Software License or
 the AGPL version 3 or later. See [LICENSE-ACSL](./LICENSE-ACSL) and
@@ -97,17 +114,3 @@ the AGPL version 3 or later. See [LICENSE-ACSL](./LICENSE-ACSL) and
 more information about the licenses, go to
 [anticapitalist.software](https://anticapitalist.software) or
 [gnu.org](https://www.gnu.org/licenses/agpl-3.0.en.html).
-
-About the seriousness and enforcability of the anti-capitalist
-software license, there's this quote from the homepage which sums it
-up quite well:
-
-> Copyright is easier to apply to how a work is used than to who uses
-> it, and this license has not been tested in court. That said, using
-> ACSL software against its terms would open the user to
-> litigation. ACSL may best be considered a strong deterrent [against
-> organizations organized along capitalist lines], as well as a way to
-> state the politics and moral center of your code.
-
-I include the AGPLv3+ as an alternative to be at least a little
-pragmatic ;)
