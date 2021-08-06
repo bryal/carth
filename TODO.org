@@ -61,6 +61,9 @@ Features and other stuff to do/implement in/around Carth.
   type families the same way, but functions from types to types or
   smth? Maybe we can come up with more intuitive terminology.
 
+  https://www.microsoft.com/en-us/research/wp-content/uploads/1994/04/classhask.pdf
+  https://static.aminer.org/pdf/PDF/000/542/781/implementing_type_classes.pdf
+
 ** Agda style classes w implicit args
    https://downloads.haskell.org/~ghc/latest/docs/html/users_guide/glasgow_exts.html#implicit-parameters
 
@@ -413,6 +416,8 @@ Features and other stuff to do/implement in/around Carth.
   Look at https://github.com/mkirchner/gc.
 
 * INACTIVE Effect system
+  tags: Algebraic effects
+  
   Seems like it could be more elegant than monad transformers,
   although maybe not as fast?
 
@@ -454,6 +459,10 @@ Features and other stuff to do/implement in/around Carth.
   that thing. If tuple types could contain higher kinded types, I
   think we only need classes.
 
+  See:
+  - https://youtu.be/z8SI7WBtlcA, https://youtu.be/z8SI7WBtlcA?t=1433
+  - Eff language
+
 * INACTIVE Macros?
 
 * INACTIVE Property system
@@ -490,7 +499,31 @@ Features and other stuff to do/implement in/around Carth.
   #+BEGIN_EXAMPLE
   guix environment --container --ad-hoc coreutils clang carth
   #+END_EXAMPLE
+* INACTIVE Carth + Guix = 💜?
+  Använd guix som pakethanterare + virtualenv för Carth, typ som Stack
+  för Haskell och Cargo för rust.
 
+  Tänk att carth antingen drar in guix som bibliotek, eller på något
+  annat vis kräver guix från systemet.
+
+  Tänk:
+    carth init
+  Skulle kunna köra
+    guix environment
+  och lite mer.
+
+** Extra säkert?
+   "guix environment allows you to run any application in an isolated
+    container that restricts network access, hides the filesystem (no
+    risk that the closed-source program steals any of your files, say
+    your Bitcoin wallet or your PGP keys) and even system-level
+    information such as your user name. This is essential to run any
+    non-trusted, closed-source program."
+
+   Skulle kanske förhindra vissa av problemen man sett i NPM, typ "event-stream" debaklet.
+
+** Läs mer
+   https://www.gnu.org/software/guix/manual/en/guix.html#Channels
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
@@ -521,6 +554,11 @@ Features and other stuff to do/implement in/around Carth.
   not afraid of releasing new major versions removing deprecated
   stuff.
 
+  Maybe separate stdlib into core and std. Core could be a smaller
+  subset which is pretty much purely implemented in carth, so it's
+  easy to use with interpreter and comptime. Conditional compilation
+  to use efficient C/Rust versions normally.
+
 ** INACTIVE Numbers, algebra, mathematics
    How to best structure the numeric typeclasses? ~Num~ in Haskell is
    a bit coarse. For example, you have to provide ~*~, which doesn't
@@ -542,6 +580,8 @@ Features and other stuff to do/implement in/around Carth.
    priority inversion which is a problem with spinlocks.
    https://matklad.github.io/2020/01/02/spinlocks-considered-harmful.html
    https://matklad.github.io/2020/01/04/mutexes-are-faster-than-spinlocks.html
+
+   Lock Free Data Structures using STM in Haskell: https://www.microsoft.com/en-us/research/wp-content/uploads/2006/04/2006-flops.pdf
 
 ** INACTIVE Random number generation
    References:
@@ -595,7 +635,12 @@ Features and other stuff to do/implement in/around Carth.
 
 * INACTIVE Boxing to allow for dynamic linking
   Boxing vs monomorphization. Boxing results in smaller binary and
-  dynamically-linkable interface, but results in slower code.
+  dynamically-linkable interface, but results in slower code (but not
+  necessarily always, and maybe not by much!).
+
+  Read /Tristan Hume - A Tour of Metaprogramming Models for Generics/
+  for an overview of how different languages implement
+  generics. [[https://thume.ca/2019/07/14/a-tour-of-metaprogramming-models-for-generics/][online]], [[file:~/Syncthing/books/papers/Tristan Hume - A Tour of Metaprogramming Models for Generics.html][locally]].
 
   When compiling a library, especially a dynamically linked one, how
   do we allow the export of polymorphic functions? We can't really use
@@ -608,6 +653,69 @@ Features and other stuff to do/implement in/around Carth.
   all public-facing polymorphic functions? Could require some keyword
   or special form, like `boxed`, to make it clear when the FFI will be
   affected.
+
+  <2021-06-21 mån>: Try implementing polymorphism w boxing (& dict
+  passing). Mono may really not be all that great, and it's really not
+  that elegant. Big code size, slow compile times, no HRT, etc. Look
+  at my own old post.
+
+  https://www.reddit.com/r/ProgrammingLanguages/comments/npn3cd/what_are_some_anti_features_in_a_language/
+
+  "With that said, I agree that eager monomorphization is an error, in my book.
+
+   In a sense, monomorphization is exactly like inlining
+   (copy/pasting). It feels strange that compilers would have complex
+   heuristics to determine when to inline, when not to, and even in
+   recent releases when to outline and yet... they just monomorphize
+   everything template/generic without pause."
+
+  Maybe box by default, and box all external functions, but like
+  inlining, do monomorphization of appropriate function instantiaitons
+  heuristically.
+
+  From Tristan's text, on Haskell's dictionary passing:
+
+  "Another way of implementing dynamic interfaces than associating
+   vtables with objects is to pass a table of the required function
+   pointers along to generic functions that need them. This approach
+   is in a way similar to constructing Go-style interface objects at
+   the call site, just that the table is passed as a hidden argument
+   instead of packaged into a bundle as one of the existing arguments.
+
+   This approach is used by Haskell type classes although GHC has the
+   ability to do a kind of monomorphization as an optimization through
+   inlining and specialization."
+
+  See [[https://www.youtube.com/watch?v=ctS8FzqcRug][Switf's approach with the Value Witness Table]]. Basically,
+  instead of passing generic types as completely opaque boxes, pass
+  them as more of a sort of trait object, with some bundles functions
+  for allocating and copying the type on the stack etc. Otherwise we
+  have to store everything on the heap, even primitive types?
+
+  Above paragraph is slightly misleading. Tristan explains witness
+  tables well:
+
+  "Swift makes the interesting realization that by using dictionary
+   passing and also putting the size of types and how to move, copy
+   and free them into the tables, they can provide all the information
+   required to work with any type in a uniform way without boxing
+   them. This way Swift can implement generics without
+   monomorphization and without allocating everything into a uniform
+   representation!  They still pay the cost of all the dynamic lookups
+   that all boxing-family implementations pay, but they save on the
+   allocation, memory and cache-incoherency costs. The Swift compiler
+   also has the ability to specialize (monomorphize) and inline
+   generics within a module and across modules with functions
+   annotated @inlinable to avoid these costs if it wants to,
+   presumably using heuristics about how much it would bloat the code.
+
+   This functionality also explains how Swift can implement ABI
+   stability in a way that allows adding and rearranging fields in
+   structs, although they provide a @frozen attribute to opt out of
+   dynamic lookups for performance reasons."
+
+  This sounds really good! Single definition generation without
+  expensive boxing! Monomorphization as an optimization!
 * NEXT Add separate pass before Codegen to compile SrcPos:s
   I think it could be done purely and independently from rest of codegen. Would be more clean.
 * NEXT Refactor & document Codegen & Gen
@@ -1119,6 +1227,8 @@ Features and other stuff to do/implement in/around Carth.
   level of the union of C and MIR it ought to be quite simple to
   translate from that to whatever backendest backend.
 
+  Ravi, a language using MIR: https://github.com/dibyendumajumdar/ravi
+
 ** References
    - [[https://gist.github.com/zeux/3ce4fcc3a43072b4315abde95319ecb6][How does clang 2.7 hold up in 2021?]]
 * NEXT Try our an alternative prelude, like relude
@@ -1197,3 +1307,8 @@ Features and other stuff to do/implement in/around Carth.
    We already do dead code elim almost by mistake in Monomorphize, but
    we still generate declarations and wrappers for all
    ~extern~:s. Getting rid of them would be nice.
+   
+* INACTIVE GPU targetable
+  Either in Carth directly, or via a DSL or something. Some method of
+  doing flattening and parallelisation like Futhark? Compile to OpenGL
+  & Vulkan maybe.
