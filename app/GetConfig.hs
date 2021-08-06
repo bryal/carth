@@ -57,13 +57,13 @@ usageSubs = unlines
 compileCfg :: [String] -> IO Conf
 compileCfg args = do
     (fs, inf) <- get args compileOpts usageCompile
-    let outf = dropExtension inf
+    let outf = replaceExtension inf "bin"
     when (inf == outf) $ do
         putStrLn
             $ ("Error: Input file \"" ++ inf ++ "\" ")
             ++ "would be overwritten by the generated executable"
         exitFailure
-    let defaultCfg = defaultCompileConfig inf outf
+    let defaultCfg = defaultCompileConfig inf
         cfg = foldl (&) defaultCfg fs
     pure (CompileConf cfg)
 

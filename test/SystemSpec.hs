@@ -65,7 +65,7 @@ run' f =
 
 compile' :: FilePath -> IO Bool
 compile' f =
-    let cfg = defaultCompileConfig f (dropExtension f)
+    let cfg = defaultCompileConfig f
     in  frontend f >>= \case
             Nothing -> pure False
             Just ast -> compile f cfg ast $> True

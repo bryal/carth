@@ -1,6 +1,7 @@
 module Conf where
 
 import Control.Monad
+import System.FilePath
 
 data Conf
     = CompileConf CompileConfig
@@ -31,13 +32,13 @@ instance Config RunConfig where
     getDebug = rDebug
     getVerbose = rVerbose
 
-defaultCompileConfig :: FilePath -> FilePath -> CompileConfig
-defaultCompileConfig inf outf = CompileConfig { cInfile = inf
-                                              , cOutfile = outf
-                                              , cCompiler = "cc"
-                                              , cDebug = False
-                                              , cVerbose = False
-                                              }
+defaultCompileConfig :: FilePath -> CompileConfig
+defaultCompileConfig inf = CompileConfig { cInfile = inf
+                                         , cOutfile = replaceExtension inf "bin"
+                                         , cCompiler = "cc"
+                                         , cDebug = False
+                                         , cVerbose = False
+                                         }
 
 defaultRunConfig :: FilePath -> RunConfig
 defaultRunConfig inf = RunConfig { rInfile = inf, rDebug = False, rVerbose = False }

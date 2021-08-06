@@ -76,7 +76,7 @@ carth help c
 
 # Compile and run a program with default output filename
 carth c examples/fizzbuzz.carth
-./out
+./examples/fizzbuzz.bin
 
 # Run with the JIT compiler
 carth run examples/fizzbuzz.carth
