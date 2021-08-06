@@ -12,6 +12,9 @@
 (import io)
 (import net)
 
+(define (cons x xs) [x . xs])
+(define (cons' x y) [x y])
+
 (define (car      [x . _])           x)
 (define (cadr     [_ x . _])         x)
 (define (caddr    [_ _ x . _])       x)

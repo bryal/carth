@@ -26,6 +26,35 @@ pub unsafe extern "C" fn stdrs_close_handle(h: FfiHandle) {
     drop(Box::from_raw(handle_from_ffi(h)))
 }
 
+struct MyStdin(std::io::Stdin);
+
+impl std::io::Read for MyStdin {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl std::io::Write for MyStdin {
+    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "cannot write to stdin",
+        ))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "cannot flush stdin as output stream",
+        ))
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn stdrs_stdin_handle() -> FfiHandle {
+    handle_to_ffi(Box::into_raw(Box::new(MyStdin(std::io::stdin())) as _))
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn stdrs_read_handle(
     h: FfiHandle,
