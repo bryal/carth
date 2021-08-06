@@ -1,0 +1,15 @@
+(import io)
+
+(extern stdrs_tcp_connect (Fun Str Nat16 (Maybe Handle')))
+(extern stdrs_tcp_connect_timeout (Fun Str Nat16 Nat64 (Maybe Handle')))
+(extern stdrs_tls_connect_without_validation (Fun Str Handle' (Maybe Handle')))
+
+(define: (tcp/connect host port)
+    (Fun Str Nat16 (IO (Maybe Handle)))
+  (io/wrap (maybe/map handle/new (stdrs_tcp_connect host port))))
+(define: (tcp/connect-timeout host port ms)
+    (Fun Str Nat16 Nat64 (IO (Maybe Handle)))
+  (io/wrap (maybe/map handle/new (stdrs_tcp_connect_timeout host port ms))))
+(define: (tls/connect-without-validation domain (Handle transport _))
+    (Fun Str Handle (IO (Maybe Handle)))
+  (io/wrap (maybe/map handle/new (stdrs_tls_connect_without_validation domain transport))))
