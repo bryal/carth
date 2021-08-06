@@ -8,7 +8,7 @@ author:         Johan Johansson
 maintainer:     jo@jo.zone
 copyright:      2020 Johan Johansson
 license:        AGPL-3.0-or-later
-license-file:   LICENSE
+license-file:   LICENSE-AGPLv3
 build-type:     Simple
 extra-source-files:
     README.md
