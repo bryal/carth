@@ -1,83 +1,104 @@
 module Back.Lower (lower, builtinExterns) where
 
+import Control.Applicative
+import Control.Monad.State
 import Data.Bifunctor
+import Data.Bitraversable
+import Data.Functor
+import Data.List
 import qualified Data.Map as Map
 import Data.Map (Map)
+import qualified Data.Vector as Vec
 
 import Misc
 import qualified Front.Monomorphic as Ast
 import qualified Front.Monomorphize as Monomorphize
 import Back.Low
 
+type StrLits = Map String Word
+
+type Lower = State StrLits
+
 lower :: Ast.Program -> Program
-lower (Ast.Program defs datas externs) =
-    Program (lowerDefs defs) (lowerDatas datas) (lowerExterns externs)
+lower (Ast.Program defs datas externs) = flip evalState Map.empty $ do
+    defs' <- lowerDefs defs
+    strs <- get
+    let strs' = Vec.fromList $ map fst $ sortOn snd $ Map.toList strs
+    pure (Program defs' (lowerDatas datas) (lowerExterns externs) strs')
 
 builtinExterns :: Map String Type
 builtinExterns = fmap lowerType Monomorphize.builtinExterns
 
-lowerDefs :: Ast.Defs -> Defs
-lowerDefs (Topo defs) = Topo $ map lowerDef defs
+lowerDefs :: Ast.Defs -> Lower Defs
+lowerDefs (Topo defs) = fmap Topo $ mapM lowerDef defs
 
-lowerDef :: Ast.Def -> Def
+lowerDef :: Ast.Def -> Lower Def
 lowerDef = \case
-    Ast.VarDef d -> VarDef $ lowerVarDef d
-    Ast.RecDefs ds -> RecDefs $ lowerRecDefs ds
+    Ast.VarDef d -> fmap VarDef $ lowerVarDef d
+    Ast.RecDefs ds -> fmap RecDefs $ lowerRecDefs ds
 
-lowerVarDef :: Ast.VarDef -> VarDef
-lowerVarDef = bimap lowerTypedVar (bimap (map lowerType) lowerExpr)
+lowerVarDef :: Ast.VarDef -> Lower VarDef
+lowerVarDef = bimapM (pure . lowerTypedVar) (bimapM (pure . map lowerType) lowerExpr)
 
-lowerRecDefs :: Ast.RecDefs -> RecDefs
-lowerRecDefs = map lowerFunDef
+lowerRecDefs :: Ast.RecDefs -> Lower RecDefs
+lowerRecDefs = mapM lowerFunDef
 
-lowerFunDef :: Ast.FunDef -> FunDef
-lowerFunDef = bimap lowerTypedVar (bimap (map lowerType) lowerFun)
+lowerFunDef :: Ast.FunDef -> Lower FunDef
+lowerFunDef = bimapM (pure . lowerTypedVar) (bimapM (pure . map lowerType) lowerFun)
 
-lowerFun :: Ast.Fun -> Fun
-lowerFun = bimap lowerTypedVar (bimap lowerExpr lowerType)
+lowerFun :: Ast.Fun -> Lower Fun
+lowerFun = bimapM (pure . lowerTypedVar) (bimapM lowerExpr (pure . lowerType))
 
-lowerExpr :: Ast.Expr -> Expr
+lowerExpr :: Ast.Expr -> Lower Expr
 lowerExpr = \case
-    Ast.Lit c -> Lit c
-    Ast.Var v -> Var $ second lowerTypedVar v
+    Ast.Lit (Ast.Int n) -> pure $ Lit (Int n)
+    Ast.Lit (Ast.F64 x) -> pure $ Lit (F64 x)
+    Ast.Lit (Ast.Str s) -> fmap (Lit . Str) (internStrLit s)
+    Ast.Var v -> pure $ Var $ second lowerTypedVar v
     Ast.App f a -> lowerApp f [a]
-    Ast.If p c a -> If (lowerExpr p) (lowerExpr c) (lowerExpr a)
-    Ast.Fun f -> Fun (lowerFun f)
-    Ast.Let d e -> Let (lowerDef d) (lowerExpr e)
-    Ast.Match m dt -> Match (lowerExpr m) (lowerDecisionTree dt)
-    Ast.Ction c -> Ction $ lowerCtion c
-    Ast.Sizeof t -> Sizeof $ lowerType t
-    Ast.Absurd t -> Absurd $ lowerType t
+    Ast.If p c a -> liftA3 If (lowerExpr p) (lowerExpr c) (lowerExpr a)
+    Ast.Fun f -> fmap Fun (lowerFun f)
+    Ast.Let d e -> liftA2 Let (lowerDef d) (lowerExpr e)
+    Ast.Match m dt -> liftA2 Match (lowerExpr m) (lowerDecisionTree dt)
+    Ast.Ction c -> fmap Ction $ lowerCtion c
+    Ast.Sizeof t -> pure $ Sizeof $ lowerType t
+    Ast.Absurd t -> pure $ Absurd $ lowerType t
+
+internStrLit :: String -> Lower Word
+internStrLit s = get >>= \m -> case Map.lookup s m of
+    Just n -> pure n
+    Nothing -> let n = fromIntegral (Map.size m) in modify (Map.insert s n) $> n
 
 -- | Performs a sort of beta reduction
-lowerApp :: Ast.Expr -> [Ast.Expr] -> Expr
+lowerApp :: Ast.Expr -> [Ast.Expr] -> Lower Expr
 lowerApp = curry $ \case
-    (Ast.Fun (p, (b, _)), a : as) -> Let
-        (VarDef
-            ( lowerTypedVar p
-            -- FIXME: This pos is pretty bad probably?
-            , (uniqueInst, lowerExpr a)
-            )
-        )
+    (Ast.Fun (p, (b, _)), a : as) -> liftA2
+        Let
+        (fmap (VarDef . (lowerTypedVar p, ) . (uniqueInst, )) (lowerExpr a))
         (lowerApp b as)
     (Ast.App f a, as) -> lowerApp f (a : as)
     (f, []) -> lowerExpr f
-    (f, as) -> App (lowerExpr f) (map lowerExpr as)
+    (f, as) -> liftA2 App (lowerExpr f) (mapM lowerExpr as)
     where uniqueInst = []
 
-lowerDecisionTree :: Ast.DecisionTree -> DecisionTree
+lowerDecisionTree :: Ast.DecisionTree -> Lower DecisionTree
 lowerDecisionTree = \case
-    Ast.DLeaf (bs, e) -> DLeaf (map (bimap lowerTypedVar lowerAccess) bs, lowerExpr e)
-    Ast.DSwitch span a cs def ->
-        DSwitch span (lowerAccess a) (fmap lowerDecisionTree cs) (lowerDecisionTree def)
-    Ast.DSwitchStr a cs def ->
-        DSwitchStr (lowerAccess a) (fmap lowerDecisionTree cs) (lowerDecisionTree def)
+    Ast.DLeaf (bs, e) -> liftA2 (DLeaf .* (,))
+                                (pure $ map (bimap lowerTypedVar lowerAccess) bs)
+                                (lowerExpr e)
+    Ast.DSwitch span a cs def -> liftA2 (DSwitch span (lowerAccess a))
+                                        (mapM lowerDecisionTree cs)
+                                        (lowerDecisionTree def)
+    Ast.DSwitchStr a cs def -> liftA2
+        (DSwitchStr (lowerAccess a))
+        (fmap Map.fromList $ mapM (bimapM internStrLit lowerDecisionTree) $ Map.toList cs)
+        (lowerDecisionTree def)
 
 lowerAccess :: Ast.Access -> Access
 lowerAccess = fmap lowerType
 
-lowerCtion :: Ast.Ction -> Ction
-lowerCtion (i, s, tc, es) = (i, s, lowerTConst tc, map lowerExpr es)
+lowerCtion :: Ast.Ction -> Lower Ction
+lowerCtion (i, s, tc, es) = fmap (i, s, lowerTConst tc, ) $ mapM lowerExpr es
 
 lowerDatas :: Ast.Datas -> Datas
 lowerDatas = Map.fromList . map (bimap lowerTConst (map (map lowerType))) . Map.toList

@@ -87,6 +87,8 @@ posd = posd' "Error"
 
 posd' :: String -> SrcPos -> Message -> IO ()
 posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
+    -- TODO: Keep source files in memory. They don't take up much space, and there's no
+    --       risk of them coming out of sync due to new changes.
     src <- readFile f
     let (lineN', colN') = (fromIntegral lineN, fromIntegral colN)
         lines' = lines src

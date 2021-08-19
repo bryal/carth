@@ -10,8 +10,9 @@ import Control.Monad.Writer
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Applicative
-import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.Map (Map)
+import Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import Data.Word
 import Data.Foldable
 import Data.Bifunctor
@@ -57,6 +58,7 @@ data Env = Env
     , _enumTypes :: Map Name Word32
     , _dataTypes :: Map Name [Type]
     , _builtins :: Map String ([Parameter], Type)
+    , _strLits :: Vector Val
     }
 
 data St = St
@@ -74,7 +76,6 @@ type Gen' = StateT St (Reader Env)
 --   function that must be generated at the top-level.
 data Out = Out
     { _outBlocks :: [BasicBlock]
-    , _outStrings :: [(Name, String)]
     , _outFuncs :: [(Name, [TypedVar], TypedVar, Gen Type)]
     }
 
@@ -90,9 +91,9 @@ makeLenses ''Out
 
 
 instance Semigroup Out where
-    Out bs1 ss1 fs1 <> Out bs2 ss2 fs2 = Out (bs1 <> bs2) (ss1 <> ss2) (fs1 <> fs2)
+    Out bs1 fs1 <> Out bs2 fs2 = Out (bs1 <> bs2) (fs1 <> fs2)
 instance Monoid Out where
-    mempty = Out [] [] []
+    mempty = Out [] []
 
 instance Typed Val where
     typeOf = \case
@@ -108,7 +109,7 @@ genFunDef :: (Name, [TypedVar], TypedVar, Gen Type) -> Gen' (Global, [Definition
 genFunDef (name, fvs, ptv@(TypedVar px pt), genBody) = do
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    ((rt, fParams), Out basicBlocks globStrings lambdaFuncs) <- runWriterT $ do
+    ((rt, fParams), Out basicBlocks lambdaFuncs) <- runWriterT $ do
         (capturesParam, captureMembers) <- genExtractCaptures
         pt' <- genType pt
         px' <- newName px
@@ -116,28 +117,12 @@ genFunDef (name, fvs, ptv@(TypedVar px pt), genBody) = do
         rt' <- withVal ptv pRef (withVals captureMembers genBody)
         let fParams' = [uncurry Parameter capturesParam [], Parameter pt' px' []]
         pure (rt', fParams')
-    ss <- mapM globStrVar globStrings
     ls <- fmap
         concat
         (mapM (fmap (uncurry ((:) . GlobalDefinition)) . genFunDef) lambdaFuncs)
     let f = internFunc name fParams rt basicBlocks
-    pure (f, concat ss ++ ls)
+    pure (f, ls)
   where
-    globStrVar (strName, s) = do
-        name_inner <- newName' "strlit_inner"
-        let bytes = UTF8.String.encode s
-            len = length bytes
-            tInner = ArrayType (fromIntegral len) i8
-            defInner =
-                simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
-            inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
-            ptrBytes = LLConst.BitCast inner typeGenericPtr
-            array =
-                litStructNamed ("Array", [Ast.TPrim (TNat 8)]) [ptrBytes, litI64' len]
-            str = litStructNamed ("Str", []) [array]
-            defStr = simpleGlobConst strName typeStr str
-        pure (map GlobalDefinition [defInner, defStr])
-
     genExtractCaptures :: Gen ((Type, Name), [(TypedVar, Val)])
     genExtractCaptures = do
         capturesName <- newName "captures"
@@ -220,6 +205,7 @@ runGen' g = runReader (evalStateT g initSt) initEnv
                   , _enumTypes = Map.empty
                   , _dataTypes = Map.empty
                   , _builtins = Map.empty
+                  , _strLits = Vec.empty
                   }
     initSt = St { _currentBlockLabel = "entry"
                 , _currentBlockInstrs = []
@@ -861,11 +847,8 @@ commitToNewBlock t l = do
     assign currentBlockLabel l
     assign currentBlockInstrs []
 
-newName :: String -> Gen Name
-newName = lift . newName'
-
-newName' :: String -> Gen' Name
-newName' s = fmap (mkName . ((s ++ "_") ++) . show) (registerCount <<+= 1)
+newName :: MonadState St m => String -> m Name
+newName s = fmap (mkName . ((s ++ "_") ++) . show) (registerCount <<+= 1)
 
 lookupEnum :: MonadReader Env m => Ast.TConst -> m (Maybe Word32)
 lookupEnum tc = view (enumTypes . to (tconstLookup tc))

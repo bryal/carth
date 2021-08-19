@@ -10,6 +10,7 @@ import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
+import qualified Codec.Binary.UTF8.String as UTF8.String
 import Data.String
 import System.FilePath
 import Control.Monad.Reader
@@ -20,6 +21,7 @@ import qualified Data.Set as Set
 import Data.List
 import Data.Function
 import Data.Maybe
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform (use, assign, view)
 
 import Misc
@@ -43,7 +45,7 @@ instance Select Gen Val where
     selectDeref = genDeref
 
 codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Module
-codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
+codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs strs) =
     let (tdefs', externs', globDefs) =
             let (enums, tdefs'') = runGen' (defineDataTypes tdefs)
                 defs' = defToVarDefs =<< defs
@@ -55,13 +57,14 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
                     $ withExternSigs externs
                     $ withGlobFunSigs funDefs
                     $ withGlobVarSigs varDefs
-                    $ do
+                    $ withStrLits strs
+                    $ \strDefs -> do
                           es <- genExterns externs
                           funDefs' <- mapM genGlobFunDef funDefs
                           varDecls <- mapM genGlobVarDecl varDefs
                           init_ <- genInit varDefs
                           main <- genMain
-                          let ds = main : init_ ++ join funDefs' ++ varDecls
+                          let ds = strDefs ++ main : init_ ++ join funDefs' ++ varDecls
                           pure (tdefs'', es, ds)
     in  Module
             { moduleName = fromString (takeBaseName moduleFilePath)
@@ -93,6 +96,30 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs) =
             pure (v, (LLType.ptr t', mkName (mangleName (x, us))))
         augment globalEnv (Map.fromList sigs') ga
 
+    withStrLits lits f = do
+        (defs, refs) <- fmap unzip $ mapM globStrVar (Vec.toList lits)
+        locallySet Back.Gen.strLits (Vec.fromList refs) $ f (concat defs)
+
+    globStrVar s = do
+        strName <- newName "strlit"
+        name_inner <- newName "strlit_inner"
+        let bytes = UTF8.String.encode s
+            len = length bytes
+            tInner = ArrayType (fromIntegral len) i8
+            defInner =
+                simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
+            inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
+            ptrBytes = LLConst.BitCast inner typeGenericPtr
+            array =
+                litStructNamed ("Array", [Ast.TPrim (TNat 8)]) [ptrBytes, litI64' len]
+            str = litStructNamed ("Str", []) [array]
+            defStr = simpleGlobConst strName typeStr str
+            ref = VVar $ ConstantOperand
+                (LLConst.GlobalReference (LLType.ptr typeStr) strName)
+        pure (map GlobalDefinition [defInner, defStr], ref)
+
+-- TODO: Use more specialized monad or none at all.
+--
 -- | A data-type is a tagged union, and we represent it in LLVM as a representing struct
 --   of a tagged union, an untagged struct, an integer, or a zero-sized empty array,
 --   depending on how many variants and members it has.
@@ -174,7 +201,7 @@ genMain = do
             (mkName "carth_init")
     assign currentBlockLabel (mkName "entry")
     assign currentBlockInstrs []
-    Out basicBlocks _ _ <- execWriterT $ do
+    Out basicBlocks _ <- execWriterT $ do
         emitDo' =<< callBuiltin "install_stackoverflow_handler" []
         emitDo (callIntern Nothing init_ [(null' typeGenericPtr, []), (litUnit, [])])
         iof <- lookupVar (TypedVar "main" mainType)
@@ -269,13 +296,10 @@ genConst :: Ast.Const -> Gen Val
 genConst = \case
     Int n -> pure (VLocal (litI64 n))
     F64 x -> pure (VLocal (litF64 x))
-    Str s -> genStrLit s
+    Str s -> getStrLit s
 
-genStrLit :: String -> Gen Val
-genStrLit s = do
-    var <- newName "strlit"
-    scribe outStrings [(var, s)]
-    pure $ VVar $ ConstantOperand (LLConst.GlobalReference (LLType.ptr typeStr) var)
+getStrLit :: Word -> Gen Val
+getStrLit s = view strLits <&> (Vec.! (fromIntegral s))
 
 class TailVal v where
     propagate :: Val -> Gen v
@@ -377,7 +401,7 @@ genDecisionTree = \case
         (matchee, selections') <- select selector selections
         let cs' = Map.toAscList cs
         let genCase (s, dt) next = do
-                s' <- genStrLit s
+                s' <- getStrLit s
                 isMatch <- genStrEq matchee s'
                 -- Do some wrapping to preserve effect order
                 pure $ genCondBr isMatch (genDecisionTree dt selections') next

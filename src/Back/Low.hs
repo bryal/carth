@@ -7,11 +7,11 @@ import Data.Map (Map)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Bifunctor
+import Data.Vector (Vector)
 
 import Misc
 import Front.Checked (VariantIx, Span)
 import FreeVars
-import Front.Parsed (Const(..))
 import Front.TypeAst hiding (TConst)
 import qualified Front.TypeAst as TypeAst
 import Front.Monomorphic (Access'(..), Virt(..))
@@ -37,13 +37,19 @@ type VarBindings = [(TypedVar, Access)]
 data DecisionTree
     = DLeaf (VarBindings, Expr)
     | DSwitch Span Access (Map VariantIx DecisionTree) DecisionTree
-    | DSwitchStr Access (Map String DecisionTree) DecisionTree
+    | DSwitchStr Access (Map Word DecisionTree) DecisionTree
     deriving Show
 
 type Ction = (VariantIx, Span, TConst, [Expr])
 type Fun = (TypedVar, (Expr, Type))
 
 type Var = (Virt, TypedVar)
+
+data Const
+    = Int Int
+    | F64 Double
+    | Str Word
+    deriving (Show, Eq)
 
 data Expr
     = Lit Const
@@ -67,7 +73,7 @@ type FunDef = (TypedVar, (Inst, Fun))
 type Datas = Map TConst [VariantTypes]
 type Externs = [(String, Type)]
 
-data Program = Program Defs Datas Externs
+data Program = Program Defs Datas Externs (Vector String)
     deriving Show
 
 instance TypeAst Type where

@@ -74,6 +74,7 @@ library
     , prettyprinter
     , process
     , utf8-string
+    , vector
   default-extensions:
       LambdaCase
     , TupleSections
