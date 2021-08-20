@@ -27,7 +27,6 @@ import LLVM.AST.ParameterAttribute
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
-import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Global as LLGlob
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Linkage as LLLink
@@ -145,7 +144,7 @@ genTailWrapInLambdas
     :: Type -> [TypedVar] -> [Ast.Type] -> ([TypedVar] -> Gen Val) -> Gen Type
 genTailWrapInLambdas rt fvs ps genBody = do
     r <- getLocal =<< genWrapInLambdas rt fvs ps genBody
-    commitFinalFuncBlock (ret r)
+    commitFinalFuncBlock (Ret (Just r) [])
     pure (typeOf r)
 
 genWrapInLambdas
@@ -401,40 +400,46 @@ genAppBuiltinVirtual (TypedVar g t) as = do
                 else do
                     f <- genWrapInLambdas rt' [] xts (op <=< mapM lookupVar)
                     apps Nothing f as
-    let wrap1 f = case t of
+        wrap1 f = case t of
             Ast.TFun a b -> wrap [a] (genType b) (\xs -> f (xs !! 0))
             _ -> err
-    let wrap2 f = case t of
+        wrap2 f = case t of
             Ast.TFun a (Ast.TFun b c) ->
                 wrap [a, b] (genType c) (\xs -> f (xs !! 0) (xs !! 1))
             _ -> err
     let ta = case t of
             Ast.TFun a _ -> a
             _ -> err
-    let arithm u s f = \x y ->
-            let op = if isInt ta then s else if isFloat ta then f else u
-            in  fmap VLocal . emitAnonReg =<< liftA2 op (getLocal x) (getLocal y)
-    let bitwise u s = \x y -> fmap VLocal . emitAnonReg =<< if isInt ta
-            then liftA2 s (getLocal x) (getLocal y)
-            else liftA2 u (getLocal x) (getLocal y)
-    let rel u s f = \x y ->
+    let binop op a b = WithRetType (op a b []) (typeOf a)
+        arithm u s f = \x y -> fmap VLocal . emitAnonReg =<< liftA2
+            (binop (if isInt ta then s else if isFloat ta then f else u))
+            (getLocal x)
+            (getLocal y)
+        bitwise u s = \x y -> fmap VLocal . emitAnonReg =<< liftA2
+            (binop (if isInt ta then s else u))
+            (getLocal x)
+            (getLocal y)
+        rel u s f = \x y ->
             let op = if isInt ta then icmp s else if isFloat ta then fcmp f else icmp u
-            in  fmap VLocal . emitAnonReg . flip zext i8 =<< emitAnonReg =<< liftA2
+                icmp p a b = WithRetType (ICmp p a b []) i1
+                fcmp p a b = WithRetType (FCmp p a b []) i1
+                zext x = WithRetType (ZExt x i8 []) i8
+            in  fmap VLocal . emitAnonReg . zext =<< emitAnonReg =<< liftA2
                     op
                     (getLocal x)
                     (getLocal y)
     case g of
-        "+" -> wrap2 $ arithm add add fadd
-        "-" -> wrap2 $ arithm sub sub fsub
-        "*" -> wrap2 $ arithm mul mul fmul
-        "/" -> wrap2 $ arithm udiv sdiv fdiv
-        "rem" -> wrap2 $ arithm urem srem frem
-        "shift-l" -> wrap2 $ bitwise shl shl
-        "shift-r" -> wrap2 $ bitwise lshr ashr
-        "ashift-r" -> wrap2 $ bitwise ashr ashr
-        "bit-and" -> wrap2 $ bitwise and' and'
-        "bit-or" -> wrap2 $ bitwise or' or'
-        "bit-xor" -> wrap2 $ bitwise xor xor
+        "+" -> wrap2 $ arithm (Add False False) (Add False False) (FAdd noFastMathFlags)
+        "-" -> wrap2 $ arithm (Sub False False) (Sub False False) (FSub noFastMathFlags)
+        "*" -> wrap2 $ arithm (Mul False False) (Mul False False) (FMul noFastMathFlags)
+        "/" -> wrap2 $ arithm (UDiv False) (SDiv False) (FDiv noFastMathFlags)
+        "rem" -> wrap2 $ arithm URem SRem (FRem noFastMathFlags)
+        "shift-l" -> wrap2 $ bitwise (Shl False False) (Shl False False)
+        "shift-r" -> wrap2 $ bitwise (LShr False) (AShr False)
+        "ashift-r" -> wrap2 $ bitwise (AShr False) (AShr False)
+        "bit-and" -> wrap2 $ bitwise And And
+        "bit-or" -> wrap2 $ bitwise Or Or
+        "bit-xor" -> wrap2 $ bitwise Xor Xor
         -- NOTE: When comparing floats, one or both operands may be NaN. We can use either
         --       the `o` or `u` prefix to change how NaNs are treated by `fcmp`. I'm not
         --       sure, but I think that always using `o` will result in the most
@@ -480,15 +485,15 @@ genAppBuiltinVirtual (TypedVar g t) as = do
         (_, VoidType) -> transmuteIce
 
         (IntegerType _, IntegerType _) -> bitcast'
-        (IntegerType _, PointerType _ _) ->
-            getLocal x >>= \x' -> emitAnonReg (inttoptr x' u) <&> VLocal
+        (IntegerType _, PointerType _ _) -> getLocal x
+            >>= \x' -> emitAnonReg (WithRetType (IntToPtr x' u []) u) <&> VLocal
         (IntegerType _, FloatingPointType _) -> bitcast'
         (IntegerType _, VectorType _ _) -> bitcast'
 
         (PointerType pt _, PointerType pu _) | pt == pu -> pure x
                                              | otherwise -> bitcast'
-        (PointerType _ _, IntegerType _) ->
-            getLocal x >>= \x' -> emitAnonReg (ptrtoint x' u) <&> VLocal
+        (PointerType _ _, IntegerType _) -> getLocal x
+            >>= \x' -> emitAnonReg (WithRetType (PtrToInt x' u []) u) <&> VLocal
         (PointerType _ _, _) -> stackCast
         (_, PointerType _ _) -> stackCast
 
@@ -516,23 +521,24 @@ genAppBuiltinVirtual (TypedVar g t) as = do
     genCast x a b = do
         a' <- genType a
         b' <- genType b
-        let emit' instr = getLocal x >>= \x' -> emitAnonReg (instr x' b') <&> VLocal
+        let emit' instr = getLocal x
+                >>= \x' -> emitAnonReg (WithRetType (instr x' b' []) b') <&> VLocal
         case (a', b') of
             _ | a' == b' -> pure x
             (IntegerType w1, IntegerType w2) ->
-                emit' $ if w2 < w1 then trunc else if isInt a then sext else zext
+                emit' $ if w2 < w1 then Trunc else if isInt a then SExt else ZExt
             (FloatingPointType f1, FloatingPointType f2) -> case (f1, f2) of
-                (HalfFP, _) -> emit' fpext
-                (_, HalfFP) -> emit' fptrunc
-                (FloatFP, _) -> emit' fpext
-                (_, FloatFP) -> emit' fptrunc
-                (DoubleFP, _) -> emit' fpext
-                (_, DoubleFP) -> emit' fptrunc
+                (HalfFP, _) -> emit' FPTrunc
+                (_, HalfFP) -> emit' FPTrunc
+                (FloatFP, _) -> emit' FPExt
+                (_, FloatFP) -> emit' FPTrunc
+                (DoubleFP, _) -> emit' FPExt
+                (_, DoubleFP) -> emit' FPTrunc
                 _ -> err
             (IntegerType _, FloatingPointType _) ->
-                emit' $ if isInt a then sitofp else uitofp
+                emit' $ if isInt a then SIToFP else UIToFP
             (FloatingPointType _, IntegerType _) ->
-                emit' $ if isInt b then fptosi else fptoui
+                emit' $ if isInt b then FPToSI else FPToUI
             _ -> err
 
     isInt = \case
@@ -640,9 +646,7 @@ defineBuiltinsHidden = map
 builtinsHidden :: Map String ([Parameter], Type)
 builtinsHidden = Map.fromList
     [ ( "carth_str_eq"
-      , ( [Parameter typeStr (mkName "s1") [], Parameter typeStr (mkName "s2") []]
-        , typeBool
-        )
+      , ([Parameter typeStr (mkName "s1") [], Parameter typeStr (mkName "s2") []], i8)
       )
     , ("install_stackoverflow_handler", ([], LLType.void))
     , ( "GC_add_roots"
@@ -888,127 +892,23 @@ undef = ConstantOperand . LLConst.Undef
 null' :: Type -> Operand
 null' = ConstantOperand . LLConst.Null
 
-condbr :: Operand -> Name -> Name -> Terminator
-condbr c t f = CondBr c t f []
-
-br :: Name -> Terminator
-br = flip Br []
-
-ret :: Operand -> Terminator
-ret = flip Ret [] . Just
-
-retVoid :: Terminator
-retVoid = Ret Nothing []
-
-switch :: Operand -> Name -> [(LLConst.Constant, Name)] -> Terminator
-switch x def cs = Switch x def cs []
-
-add :: Operand -> Operand -> FunInstr
-add a b = WithRetType (Add False False a b []) (typeOf a)
-
-fadd :: Operand -> Operand -> FunInstr
-fadd a b = WithRetType (FAdd noFastMathFlags a b []) (typeOf a)
-
-sub :: Operand -> Operand -> FunInstr
-sub a b = WithRetType (Sub False False a b []) (typeOf a)
-
-fsub :: Operand -> Operand -> FunInstr
-fsub a b = WithRetType (FSub noFastMathFlags a b []) (typeOf a)
-
-mul :: Operand -> Operand -> FunInstr
-mul a b = WithRetType (Mul False False a b []) (typeOf a)
-
-fmul :: Operand -> Operand -> FunInstr
-fmul a b = WithRetType (FMul noFastMathFlags a b []) (typeOf a)
-
-udiv :: Operand -> Operand -> FunInstr
-udiv a b = WithRetType (UDiv False a b []) (typeOf a)
-
-sdiv :: Operand -> Operand -> FunInstr
-sdiv a b = WithRetType (SDiv False a b []) (typeOf a)
-
-fdiv :: Operand -> Operand -> FunInstr
-fdiv a b = WithRetType (FDiv noFastMathFlags a b []) (typeOf a)
-
-urem :: Operand -> Operand -> FunInstr
-urem a b = WithRetType (URem a b []) (typeOf a)
-
-srem :: Operand -> Operand -> FunInstr
-srem a b = WithRetType (SRem a b []) (typeOf a)
-
-frem :: Operand -> Operand -> FunInstr
-frem a b = WithRetType (FRem noFastMathFlags a b []) (typeOf a)
-
-shl :: Operand -> Operand -> FunInstr
-shl a b = WithRetType (Shl False False a b []) (typeOf a)
-
-lshr :: Operand -> Operand -> FunInstr
-lshr a b = WithRetType (LShr False a b []) (typeOf a)
-
-ashr :: Operand -> Operand -> FunInstr
-ashr a b = WithRetType (AShr False a b []) (typeOf a)
-
-and' :: Operand -> Operand -> FunInstr
-and' a b = WithRetType (And a b []) (typeOf a)
-
-or' :: Operand -> Operand -> FunInstr
-or' a b = WithRetType (Or a b []) (typeOf a)
-
-xor :: Operand -> Operand -> FunInstr
-xor a b = WithRetType (Xor a b []) (typeOf a)
-
-icmp :: LLIPred.IntegerPredicate -> Operand -> Operand -> FunInstr
-icmp p a b = WithRetType (ICmp p a b []) i1
-
-fcmp :: LLFPred.FloatingPointPredicate -> Operand -> Operand -> FunInstr
-fcmp p a b = WithRetType (FCmp p a b []) i1
-
 bitcast :: Operand -> Type -> FunInstr
 bitcast x t = WithRetType (BitCast x t []) t
 
-inttoptr :: Operand -> Type -> FunInstr
-inttoptr x t = WithRetType (IntToPtr x t []) t
-
-ptrtoint :: Operand -> Type -> FunInstr
-ptrtoint x t = WithRetType (PtrToInt x t []) t
-
 trunc :: Operand -> Type -> FunInstr
 trunc x t = WithRetType (Trunc x t []) t
-
-zext :: Operand -> Type -> FunInstr
-zext x t = WithRetType (ZExt x t []) t
-
-sext :: Operand -> Type -> FunInstr
-sext x t = WithRetType (SExt x t []) t
-
-fptrunc :: Operand -> Type -> FunInstr
-fptrunc x t = WithRetType (FPTrunc x t []) t
-
-fpext :: Operand -> Type -> FunInstr
-fpext x t = WithRetType (FPExt x t []) t
-
-fptoui :: Operand -> Type -> FunInstr
-fptoui x t = WithRetType (FPToUI x t []) t
-
-fptosi :: Operand -> Type -> FunInstr
-fptosi x t = WithRetType (FPToSI x t []) t
-
-uitofp :: Operand -> Type -> FunInstr
-uitofp x t = WithRetType (UIToFP x t []) t
-
-sitofp :: Operand -> Type -> FunInstr
-sitofp x t = WithRetType (SIToFP x t []) t
 
 insertvalue :: Operand -> Operand -> [Word32] -> FunInstr
 insertvalue s e is = WithRetType (InsertValue s e is []) (typeOf s)
 
 getelementptr :: Operand -> Operand -> [Word32] -> Gen FunInstr
 getelementptr addr offset memberIs = fmap
-    (WithRetType $ GetElementPtr { inBounds = False
-                                 , address = addr
-                                 , indices = offset : map litU32 memberIs
-                                 , metadata = []
-                                 }
+    (WithRetType $ GetElementPtr
+        { inBounds = False
+        , address = addr
+        , indices = offset : map (ConstantOperand . LLConst.Int 32 . toInteger) memberIs
+        , metadata = []
+        }
     )
     (fmap LLType.ptr (getIndexed (getPointee (typeOf addr)) memberIs))
 
@@ -1020,23 +920,11 @@ phi = \case
 alloca :: Type -> FunInstr
 alloca t = WithRetType (Alloca t Nothing 0 []) (LLType.ptr t)
 
-litF64 :: Double -> Operand
-litF64 = ConstantOperand . LLConst.Float . LLFloat.Double
-
 litI64 :: Int -> Operand
 litI64 = ConstantOperand . litI64'
 
 litI64' :: Int -> LLConst.Constant
 litI64' = LLConst.Int 64 . toInteger
-
-litI32 :: Int -> Operand
-litI32 = ConstantOperand . LLConst.Int 32 . toInteger
-
-litU32 :: Word32 -> Operand
-litU32 = ConstantOperand . LLConst.Int 32 . toInteger
-
-litI8' :: Integral n => n -> LLConst.Constant
-litI8' = LLConst.Int 8 . toInteger
 
 litStruct :: [LLConst.Constant] -> LLConst.Constant
 litStruct = LLConst.Struct Nothing False
@@ -1058,9 +946,6 @@ litUnit = ConstantOperand (LLConst.Array i8 [])
 
 typeStr :: Type
 typeStr = NamedTypeReference (mkName (mangleTConst TypeAst.tStr'))
-
-typeBool :: Type
-typeBool = i8
 
 typeGenericPtr :: Type
 typeGenericPtr = LLType.ptr i8

@@ -8,6 +8,7 @@ import LLVM.AST hiding (args)
 import LLVM.AST.Typed
 import LLVM.AST.Type hiding (ptr)
 import LLVM.AST.DataLayout
+import qualified LLVM.AST.Float as LLFloat
 import qualified LLVM.AST.Type as LLType
 import qualified LLVM.AST.Constant as LLConst
 import qualified Codec.Binary.UTF8.String as UTF8.String
@@ -106,8 +107,10 @@ codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs strs) =
         let bytes = UTF8.String.encode s
             len = length bytes
             tInner = ArrayType (fromIntegral len) i8
-            defInner =
-                simpleGlobConst name_inner tInner (LLConst.Array i8 (map litI8' bytes))
+            defInner = simpleGlobConst
+                name_inner
+                tInner
+                (LLConst.Array i8 (map (LLConst.Int 8 . toInteger) bytes))
             inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
             ptrBytes = LLConst.BitCast inner typeGenericPtr
             array =
@@ -207,7 +210,7 @@ genMain = do
         iof <- lookupVar (TypedVar "main" mainType)
         f <- genIndexStruct iof [0]
         _ <- app' @Val f (VLocal litRealWorld)
-        commitFinalFuncBlock (ret (litI32 0))
+        commitFinalFuncBlock (Ret (Just (ConstantOperand (LLConst.Int 32 0))) [])
     pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks))
 
 separateFunDefs :: [VarDef] -> ([FunDef], [VarDef])
@@ -220,7 +223,9 @@ genInit ds = do
     let name = mkName "carth_init"
     let param = TypedVar "_" tUnit
     let genDefs =
-            forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
+            forM_ ds genDefineGlobVar
+                *> commitFinalFuncBlock (Ret Nothing [])
+                $> LLType.void
     fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
 
 genDefineGlobVar :: VarDef -> Gen ()
@@ -295,7 +300,7 @@ genExprLambda p (b, bt) = do
 genConst :: Ast.Const -> Gen Val
 genConst = \case
     Int n -> pure (VLocal (litI64 n))
-    F64 x -> pure (VLocal (litF64 x))
+    F64 x -> pure (VLocal (ConstantOperand (LLConst.Float (LLFloat.Double x))))
     Str s -> getStrLit s
 
 getStrLit :: Word -> Gen Val
@@ -313,14 +318,14 @@ instance TailVal Val where
         nextL <- newName "next"
         v <- liftA2 (,) (getLocal =<< default') (use currentBlockLabel)
         let genCase (l, mv) = do
-                commitToNewBlock (br nextL) l
+                commitToNewBlock (Br nextL []) l
                 liftA2 (,) (getLocal =<< mv) (use currentBlockLabel)
         vs <- mapM genCase cs
-        commitToNewBlock (br nextL) nextL
+        commitToNewBlock (Br nextL []) nextL
         fmap VLocal (emitAnonReg (phi (v : vs)))
 
 instance TailVal () where
-    propagate v = commitFinalFuncBlock . ret =<< getLocal v
+    propagate v = commitFinalFuncBlock . flip Ret [] . Just =<< getLocal v
     app' f e = propagate =<< app (Just Tail) f e
     converge default' cs = do
         () <- default'
@@ -341,7 +346,7 @@ genCondBr predV genConseq genAlt = do
     predV' <- emitAnonReg . flip trunc i1 =<< getLocal predV
     conseqL <- newName "consequent"
     altL <- newName "alternative"
-    commitToNewBlock (condbr predV' conseqL altL) conseqL
+    commitToNewBlock (CondBr predV' conseqL altL []) conseqL
     converge genConseq [(altL, genAlt)]
 
 genLet :: TailVal v => Def -> Expr -> Gen v
@@ -394,7 +399,7 @@ genDecisionTree = \case
         variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
         defaultL <- newName "default"
         let dests' = zip (map litIxInt variantIxs) variantLs
-        commitToNewBlock (switch mVariantIx defaultL dests') defaultL
+        commitToNewBlock (Switch mVariantIx defaultL dests' []) defaultL
         converge (genDecisionTree def selections')
                  (zip variantLs (map (flip genDecisionTree selections') variantDts))
     genDecisionSwitchStr selector cs def selections = do
