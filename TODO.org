@@ -329,6 +329,8 @@ Features and other stuff to do/implement in/around Carth.
            a : as -> Just (a, as)
    #+END_SRC
 
+   https://blog.rust-lang.org/2021/02/11/Rust-1.50.0.html#a-niche-for-file-on-unix-platforms
+
 ** Type families, Haskell
    #+BEGIN_SRC haskell
    class Iter c where
@@ -716,6 +718,147 @@ Features and other stuff to do/implement in/around Carth.
 
   This sounds really good! Single definition generation without
   expensive boxing! Monomorphization as an optimization!
+
+  Value Witness Table in Swift seems to contain:
+  
+  - Size
+  - Alignment
+  - Copy constructor
+  - Move constructor
+  - Destructor
+
+  If this was rust, .clone() would be an explicit call and a move
+  wouldn't call any constructor or destructor, so the only things
+  contained would be:
+
+  - Size
+  - Alignment
+  - Destructor (Drop)
+
+  We don't even have Drop yet, so the WVT only has to contain the
+  type's size and alignment. Not much of a table heh...
+
+  We'll have to do some kind of dictionary passing for the classes
+  Cast, Num, Bitwise, and Ord I think.
+
+  So for a polymorphic function, generate a single function that takes
+  a reference to the value, a VWT (size, alignment), and dictionaries
+  for any class constraints. In the generated code, use the VWT to get
+  the size for when we need to allocate memory for the type, or
+  memcpy. I'm thinking we won't need to though, right? Since it's
+  already on the stack since it's behind a reference, we don't need
+  the size for ~alloca~, and we only do store/load after a gep when
+  indexing into the type, right? And that will only be done in
+  monomorphic functions I believe.
+
+  We must have what Swift calls "Metadata Patterns" as well. Say we
+  have ~(define: (twice a) (Fun a [a . a]) (car (id [a . a])))~. We
+  only pass the VWT of ~a~ to ~twice~, but we must also pass the VWT
+  of ~(Pair a a)~ to ~id~, as well as the offset of the second element
+  of the pair to ~car~. The second VWT and the rest of the metadata
+  about the datatype must be constructed at runtime. So for every
+  parametric datatype, we must generate a function that takes a VWT
+  for each datatype parameter, and returns a /type metadata/
+  value. The type metadata, beyond the VWT of the datatype, must also
+  contain the offsets of each struct member.
+
+  Metadata pattern example in Swift:
+
+  #+BEGIN_EXAMPLE
+  metadata pattern for Pair<T>   
+  - first: T
+  - second: T
+  - value witness table
+
+  metadata for Pair<Bool>
+  - T: Bool
+  - first: offset 0
+  - second: offset 1
+  - value witness table
+
+  metadata for Pair<Int>
+  - T: Int
+  - first: offset 0
+  - second: offset 4
+  - value witness table
+  #+END_EXAMPLE
+
+  Generic member access in Swift:
+
+  - Example:
+    #+BEGIN_SRC swift
+    func getSecond<T>(_ pair: Pair<T>) -> T {
+        return pair.second
+    }
+    #+END_SRC
+    
+  - Implementation:
+    #+BEGIN_SRC c
+    void getSecond(opaque *result, opaque *pair, type *T) {
+        type *PairOfT = get_generic_metadata(&Pair_pattern, T);
+        const opaque *second =
+            (pair + PairOfT->fields[1]);
+        T->vwt->copy_init(result, second, T);
+        PairOfT->vwt->destroy(pair, PairOfT);
+    }
+    #+END_SRC
+
+  More things to consider when HOF:s are involved! https://youtu.be/ctS8FzqcRug?t=776
+
+  Consider the case of a HOF accepting a monomorphic function. Something like:
+
+  #+BEGIN_SRC carth
+  (define: (apply f a)
+      (forall (a) (Fun (Fun a a)
+                       a
+                       a))
+    (f a))
+  #+END_SRC
+
+  Apply is a higher order function, and the type of the parameter ~f~
+  is polymorphic (not higher ranked though). Therefore, in the lowered
+  ~apply~, the lowered type of ~f~ will be something like
+ 
+      void (*)(opaque *ret, opaque *arg, void *ctxt)
+      
+  What if we now have a simple, monomorphic function like ~neg~, of
+  higher type ~(Fun Int Int)~. In the high domain, ~(Fun Int Int)~ is
+  compatible with ~(Fun a a)~, but in the low domain,
+  
+      Int (*)(Int arg, void *ctxt)
+      
+  is not compatible with
+  
+      void (*)(opaque *ret, opaque *arg, void *ctxt)
+
+  We thus need to generate an abstracting wrapper around concrete
+  functions when passing them to a function that takes a non-concrete
+  function as argument.
+
+  Swift uses the terminology "Abstraction Patterns". "One formal type,
+  many lowered representations". "Introduce thunks to translate
+  between representations". To pass a concrete function as an abstract
+  argument, they use what they call a "re-abstraction thunk". "We need
+  to re-abstract the closure value, to match the abstraciton pattern
+  of the function parameter. We do this using a thunk".
+
+  The method itself is very obvious.
+
+  #+BEGIN_SRC c
+  Int closure(Int a) {
+      return a + 1;
+  }
+
+  void thunk(Int *ret, Int *arg, void *thunk_ctxt) {
+      Int (*fn_invoke)(Int, void*) = thunk_ctxt->...;
+      void *fn_context = thunk_ctxt->...;
+      ,*ret = fn_invoke(*arg, fn_context);
+  }
+  void *thunk_ctxt =allocate(..., closure, NULL);
+
+  apply(..., thunk, thunk_ctxt, ...);
+  #+END_SRC
+
 * NEXT Add separate pass before Codegen to compile SrcPos:s
   I think it could be done purely and independently from rest of codegen. Would be more clean.
 * NEXT Refactor & document Codegen & Gen
@@ -1312,3 +1455,24 @@ Features and other stuff to do/implement in/around Carth.
   Either in Carth directly, or via a DSL or something. Some method of
   doing flattening and parallelisation like Futhark? Compile to OpenGL
   & Vulkan maybe.
+
+* NEXT Write c compiler i carth
+  Look at tutorials. There are many minimal c compilers. tinycc(?) is one, IIRC.
+
+  At first, just a fun exercise. Seeing how well Carth fares at such a
+  task. Discovering new bugs & limitations of the compiler. Coming up
+  with new features.
+
+  In the future, may be integrated in a self-hosted Carth compiler for
+  C header parsing support, or even full-on C source library
+  support. Kind of like Zig.
+
+* NEXT Sugar for lambdas
+  Look at [[https://clojure.org/guides/learn/functions#_anonymous_function_syntax][Clojure's reader shorthand for anonymous functions]].
+
+  It's basically De Brujin notation. So ~(fn [a b] (* 5 (+ a b)))~ can
+  also be written ~#(* 5 (+ %1 %2))~. That's convenient! If one
+  instead does good point-free compositioning, like ~(<oo (* 5) +)~,
+  the sugar is "unneccesary", but it really is quite concise and
+  readable. Might be nice to have.
+
