@@ -1,7 +1,9 @@
-module Sizeof (sizeof, toBytes, wordsize, wordsizeBits, tagBitWidth) where
+module Sizeof (sizeof, toBytes, wordsize, wordsizeBits, tagSize, tagBitWidth, variantsTagSize) where
 
 import Data.Foldable
 import qualified Data.Map as Map
+import qualified Data.Vector as Vec
+import Data.Vector (Vector)
 import Data.Word
 
 import Misc
@@ -75,6 +77,12 @@ wordsize = toBytes wordsizeBits
 
 wordsizeBits :: Integral n => n
 wordsizeBits = 64 -- TODO: Make platform dependent
+
+variantsTagSize :: Integral n => Vector a -> Maybe n
+variantsTagSize = tagSize . fromIntegral . Vec.length
+
+tagSize :: Integral n => Span -> Maybe n
+tagSize = fmap toBytes . tagBitWidth
 
 tagBitWidth :: Integral n => Span -> Maybe n
 tagBitWidth span | span <= 2 ^ (0 :: Integer) = Nothing

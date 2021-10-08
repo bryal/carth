@@ -12,7 +12,6 @@ import Front.SrcPos
 import qualified Front.Lexd as Lexd
 import qualified Front.Parsed as Parsed
 import qualified Front.Inferred as Inferred
-import qualified Back.Low as Ast
 
 
 -- Pretty print starting at some indentation depth
@@ -138,23 +137,8 @@ prettyAnTFun a b =
     in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
 
-instance Pretty Ast.Type where
-    pretty' _ = prettyMonoType
 
-prettyMonoType :: Ast.Type -> String
-prettyMonoType = \case
-    Ast.TPrim c -> pretty c
-    Ast.TFun a b -> prettyMonoTFun a b
-    Ast.TBox t -> prettyTBox t
-    Ast.TConst tc -> prettyTConst tc
 
-prettyMonoTFun :: Ast.Type -> Ast.Type -> String
-prettyMonoTFun a b =
-    let (bParams, bBody) = f b
-        f = \case
-            Ast.TFun a' b' -> first (a' :) (f b')
-            t -> ([], t)
-    in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
 
 
 instance Pretty Module where

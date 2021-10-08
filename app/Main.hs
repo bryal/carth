@@ -70,9 +70,7 @@ frontend cfg f = do
     verbose cfg ("   Monomorphizing")
     let mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
-    let low = lower mon
-    when d $ writeFile ".dbg.low" (show low)
-    pure low
+    pure (lower mon)
 
 lex :: FilePath -> IO [Lexd.TokenTree]
 lex f = runExceptT (Lex.lex f) >>= \case

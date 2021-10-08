@@ -1,113 +1,95 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Back.Low (module Back.Low, TPrim(..), Const(..), VariantIx, Span, tUnit, Access'(..), Virt(..)) where
+module Back.Low (module Back.Low) where
 
-import qualified Data.Map as Map
-import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.Set (Set)
-import Data.Bifunctor
 import Data.Vector (Vector)
+import qualified Data.Vector as Vec
+import Data.Int
 
-import Misc
-import Front.Checked (VariantIx, Span)
-import FreeVars
-import Front.TypeAst hiding (TConst)
-import qualified Front.TypeAst as TypeAst
-import Front.Monomorphic (Access'(..), Virt(..))
+type Type = Word
 
-type TConst = TypeAst.TConst Type
-
-data Type
-    = TPrim TPrim
-    | TFun Type Type
-    | TBox Type
-    | TConst TConst
-    deriving (Show, Eq, Ord)
-
-data TypedVar = TypedVar String Type
-    deriving (Show, Eq, Ord)
-
-type Access = Access' Type
-
-type VariantTypes = [Type]
-
-type VarBindings = [(TypedVar, Access)]
-
-data DecisionTree
-    = DLeaf (VarBindings, Expr)
-    | DSwitch Span Access (Map VariantIx DecisionTree) DecisionTree
-    | DSwitchStr Access (Map Word DecisionTree) DecisionTree
-    deriving Show
-
-type Ction = (VariantIx, Span, TConst, [Expr])
-type Fun = (TypedVar, (Expr, Type))
-
-type Var = (Virt, TypedVar)
 
 data Const
-    = Int Int
+    = Undef Type
+    | I8 Int8
+    | I16 Int16
+    | I32 Int32
+    | I64 Int
+    | F32 Float
     | F64 Double
-    | Str Word
-    deriving (Show, Eq)
+    | Array [Type]
+    | Zero Type
+
+type LocalId = Word
+type GlobalId = Word
+
+data Local = Local LocalId Type
+data Global = Global GlobalId Type
+
+data Operand = OLocal Local | OGlobal Global | OConst Const
+
+
+data Branch term
+    = If Local (Block term) (Block term)
+    | Switch Operand [(Const, Block term)] (Block term)
+
+data Statement
+    = Let Local Expr
+    | Store Operand Operand
+    | Loop (Block LoopTerminator)
+    | SBranch (Branch ())
+    | Do Expr
+
+data Terminator
+    = Ret Operand
+    | TBranch Terminator
+
+data LoopTerminator
+    = Continue
+    | Break
+    | LBranch (Branch LoopTerminator)
 
 data Expr
-    = Lit Const
-    | Var Var
-    | App Expr [Expr]
-    | If Expr Expr Expr
-    | Fun Fun
-    | Let Def Expr
-    | Match Expr DecisionTree
-    | Ction Ction
-    | Sizeof Type
-    | Absurd Type
-    deriving (Show)
+    = Add Operand Operand
+    | Load Operand
+    | Call Operand [Operand]
+    | EBranch (Branch Expr)
 
-type Defs = TopologicalOrder Def
-data Def = VarDef VarDef | RecDefs RecDefs deriving Show
-type Inst = [Type]
-type VarDef = (TypedVar, (Inst, Expr))
-type RecDefs = [FunDef]
-type FunDef = (TypedVar, (Inst, Fun))
-type Datas = Map TConst [VariantTypes]
-type Externs = [(String, Type)]
+data Block term = Block [Statement] term
 
-data Program = Program Defs Datas Externs (Vector String)
-    deriving Show
+type TypeNames = Vector String
+type VarNames = Vector String
 
-instance TypeAst Type where
-    tprim = TPrim
-    tconst = TConst
-    tfun = TFun
-    tbox = TBox
+data FunDef = FunDef GlobalId [(LocalId, Type)] Type (Block Terminator) VarNames
+data ExternDecl = ExternDecl GlobalId [Type] Type
+data GlobDef
+    = GVarDef Global Const
+    | GConstDef Global Const
 
-instance FreeVars Expr TypedVar where
-    freeVars e = fvExpr e
+data Data = Data
+    { dataName :: String
+    , dataVariants :: Vector (String, [Type])
+    , dataAlignment :: Word
+    , dataSize :: Word
+    }
 
-fvExpr :: Expr -> Set TypedVar
-fvExpr = \case
-    Lit _ -> Set.empty
-    Var (_, x) -> Set.singleton x
-    App f a -> Set.unions (map freeVars (f : a))
-    If p c a -> fvIf p c a
-    Fun (p, (b, _)) -> fvFun p b
-    Let (VarDef (lhs, (_, rhs))) e ->
-        Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
-    Let (RecDefs ds) e -> fvLet (unzip (map (second (Fun . snd)) ds)) e
-    Match e dt -> Set.union (freeVars e) (fvDecisionTree dt)
-    Ction (_, _, _, as) -> Set.unions (map freeVars as)
-    Sizeof _t -> Set.empty
-    Absurd _ -> Set.empty
+data TypeDef
+    = Unit String
+    | Enum String (Vector String)
+    | Struct String [Type]
+    | Data' Data
 
-fvDecisionTree :: DecisionTree -> Set TypedVar
-fvDecisionTree = \case
-    DLeaf (bs, e) -> Set.difference (freeVars e) (Set.fromList (map fst bs))
-    DSwitch _ _ cs def -> fvDSwitch (Map.elems cs) def
-    DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
-    where fvDSwitch es def = Set.unions $ fvDecisionTree def : map fvDecisionTree es
+type TypeDefs = Vector TypeDef
 
-defToVarDefs :: Def -> [(TypedVar, (Inst, Expr))]
-defToVarDefs = \case
-    VarDef d -> [d]
-    RecDefs ds -> map (second (second Fun)) ds
+data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames
+
+typeName :: TypeDefs -> Word -> String
+typeName ds i = typeName' (ds Vec.! fromIntegral i)
+
+typeName' :: TypeDef -> String
+typeName' = \case
+    Unit n -> n
+    Enum n _ -> n
+    Struct n _ -> n
+    Data' (Data n _ _ _) -> n
+

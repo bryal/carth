@@ -73,7 +73,6 @@ library
     , parser-combinators
     , prettyprinter
     , process
-    , utf8-string
     , vector
   default-extensions:
       LambdaCase

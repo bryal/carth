@@ -19,83 +19,12 @@
 --
 --   See the definition of `passByRef` for up-to-date details about which types
 --   are passed how.
-module Back.Extern (withExternSigs, genExterns, callExtern) where
-
-import LLVM.AST
-import LLVM.AST.ParameterAttribute
-import qualified LLVM.AST.Constant as LLConst
-import Control.Monad.Writer
-import qualified Data.Map as Map
-import Lens.Micro.Platform (assign)
-import LLVM.AST.Typed
-import qualified LLVM.AST.Type as LLType
-import Data.Functor
-
-import Misc
-import qualified Back.Low as Ast
-import Back.Low hiding (Type, Const)
-import Back.Gen
+module Back.Extern (
+    ) where
 
 
-withExternSigs :: [(String, Ast.Type)] -> Gen' a -> Gen' a
-withExternSigs es ga = do
-    es' <- forM es $ \(name, t) -> do
-        t' <- genType t
-        pure (TypedVar name t, (LLType.ptr t', mkName ("_wrapper_" ++ name)))
-    augment globalEnv (Map.fromList es') ga
 
-genExterns :: [(String, Ast.Type)] -> Gen' [Definition]
-genExterns = fmap join . mapM genExtern
 
-genExtern :: (String, Ast.Type) -> Gen' [Definition]
-genExtern (name, t) = do
-    ((pts, rt), (ps, rt')) <- genExternTypeSig t
-    let externDef = GlobalDefinition (externFunc (mkName name) ps rt' [])
-    wrapperDefs <- genWrapper name rt pts
-    pure (externDef : wrapperDefs)
 
-genWrapper :: String -> Type -> [Ast.Type] -> Gen' [Definition]
-genWrapper externName rt = \case
-    [] -> ice "genWrapper of empty param list"
-    (firstParamT : restParamTs) -> do
-        let genCallExtern :: [TypedVar] -> Gen Val
-            genCallExtern vars = do
-                ts <- mapM (\(TypedVar _ t) -> genType t) vars
-                vars' <- mapM lookupVar vars
-                as <- forM (zip vars' ts) $ \(v, t) -> passByRef t >>= \case
-                    True -> fmap (, [ByVal]) (getVar v)
-                    False -> fmap (, []) (getLocal v)
-                let ats = map (typeOf . fst) as
-                let fname = mkName externName
-                passByRef rt >>= \case
-                    True -> do
-                        out <- emitReg "out" (alloca rt)
-                        let f = ConstantOperand $ LLConst.GlobalReference
-                                (LLType.ptr
-                                $ FunctionType LLType.void (typeOf out : ats) False
-                                )
-                                fname
-                        emitDo $ callExtern f ((out, [SRet]) : as)
-                        pure (VVar out)
-                    False ->
-                        let f = ConstantOperand $ LLConst.GlobalReference
-                                (LLType.ptr $ FunctionType rt ats False)
-                                fname
-                        in  if rt == LLType.void
-                                then emitDo (callExtern f as) $> VLocal litUnit
-                                else fmap VLocal $ emitAnonReg $ WithRetType
-                                    (callExtern f as)
-                                    rt
-        let genWrapper' fvs ps' = genTailWrapInLambdas rt fvs ps' genCallExtern
-        let wrapperName = "_wrapper_" ++ externName
-        assign lambdaParentFunc (Just wrapperName)
-        let fname = mkName (wrapperName ++ "_func")
-        let firstParam = TypedVar "x" firstParamT
-        (f, gs) <- genFunDef (fname, [], firstParam, genWrapper' [firstParam] restParamTs)
-        let fref = LLConst.GlobalReference (LLType.ptr (typeOf f)) fname
-        let captures = LLConst.Null typeGenericPtr
-        let closure = litStruct [captures, fref]
-        let closureDef = simpleGlobConst (mkName ("_wrapper_" ++ externName))
-                                         (typeOf closure)
-                                         closure
-        pure (GlobalDefinition closureDef : GlobalDefinition f : gs)
+
+

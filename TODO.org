@@ -415,7 +415,9 @@ Features and other stuff to do/implement in/around Carth.
   Implementing a tracing GC would be a fun challenge, and I'm sure it
   could be fun to try different algorithms etc.
 
-  Look at https://github.com/mkirchner/gc.
+  Look at
+  - https://github.com/mkirchner/gc
+  - https://youtu.be/FeLHo6tIgKI
 
 * INACTIVE Effect system
   tags: Algebraic effects
@@ -464,6 +466,7 @@ Features and other stuff to do/implement in/around Carth.
   See:
   - https://youtu.be/z8SI7WBtlcA, https://youtu.be/z8SI7WBtlcA?t=1433
   - Eff language
+  - https://youtu.be/XAnFUwIaZB8
 
 * INACTIVE Macros?
 
