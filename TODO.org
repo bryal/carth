@@ -3,7 +3,47 @@
 Features and other stuff to do/implement in/around Carth.
 
 * INACTIVE Package system
+  We will need some kind of package-management solution, or we will
+  end up like C where using dependencies is a chore.
 
+  I kind of want to just use Guix somehow, but it should ideally be
+  possible to use whatever package management solution on other
+  distros as well...
+
+  I'm thinking: the package manager shouldn't make too many
+  assumptions about the system and get in the way in unorthodox
+  scenarios. Consider how Guix and Nix have to use some hacks to get
+  packages to play nice with the store, not make assumptions about the
+  dir tree structure (like there being a /usr/lib, a /bin/bash) and
+  stuff like that.
+  
+  See: https://drewdevault.com/2021/09/27/Let-distros-do-their-job.html
+** Carth + Guix = 💜?
+   Använd guix som pakethanterare + virtualenv för Carth, typ som Stack
+   för Haskell och Cargo för rust.
+
+   Tänk att carth antingen drar in guix som bibliotek, eller på något
+   annat vis kräver guix från systemet.
+
+   Tänk:
+     carth init
+   Skulle kunna köra
+     guix environment
+   och lite mer.
+
+*** Extra säkert?
+    "guix environment allows you to run any application in an isolated
+     container that restricts network access, hides the filesystem (no
+     risk that the closed-source program steals any of your files, say
+     your Bitcoin wallet or your PGP keys) and even system-level
+     information such as your user name. This is essential to run any
+     non-trusted, closed-source program."
+
+    Skulle kanske förhindra vissa av problemen man sett i NPM, typ "event-stream" debaklet.
+
+*** Läs mer
+    https://www.gnu.org/software/guix/manual/en/guix.html#Channels
+  
 * NEXT Module system
   Postfix syntax for module paths? A bit like web-domains -
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
@@ -504,31 +544,6 @@ Features and other stuff to do/implement in/around Carth.
   #+BEGIN_EXAMPLE
   guix environment --container --ad-hoc coreutils clang carth
   #+END_EXAMPLE
-* INACTIVE Carth + Guix = 💜?
-  Använd guix som pakethanterare + virtualenv för Carth, typ som Stack
-  för Haskell och Cargo för rust.
-
-  Tänk att carth antingen drar in guix som bibliotek, eller på något
-  annat vis kräver guix från systemet.
-
-  Tänk:
-    carth init
-  Skulle kunna köra
-    guix environment
-  och lite mer.
-
-** Extra säkert?
-   "guix environment allows you to run any application in an isolated
-    container that restricts network access, hides the filesystem (no
-    risk that the closed-source program steals any of your files, say
-    your Bitcoin wallet or your PGP keys) and even system-level
-    information such as your user name. This is essential to run any
-    non-trusted, closed-source program."
-
-   Skulle kanske förhindra vissa av problemen man sett i NPM, typ "event-stream" debaklet.
-
-** Läs mer
-   https://www.gnu.org/software/guix/manual/en/guix.html#Channels
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]

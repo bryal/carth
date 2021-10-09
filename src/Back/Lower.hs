@@ -8,7 +8,7 @@ import Back.Low -- hiding (StrLits)
 
 
 lower :: Ast.Program -> Program
-lower = undefined lowerDatas
+lower = _ lowerDatas
 
 -- | To generate cleaner code, a data-type is only represented as a tagged union (Data) if
 --   it has to be. If there is only a single variant, we skip the tag and represent it as
@@ -19,4 +19,4 @@ lowerDatas :: ()
 lowerDatas = ()
 
 builtinExterns :: Map String Type
-builtinExterns = undefined
+builtinExterns = _

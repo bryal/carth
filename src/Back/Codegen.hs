@@ -3,9 +3,19 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Back.Codegen (codegen) where
 
-import LLVM.Prelude
-import LLVM.AST hiding (args)
+import LLVM.Prelude hiding (Const)
+import LLVM.AST hiding (args, Type)
+import qualified LLVM.AST.AddrSpace as LLAddr
+import qualified LLVM.AST.Typed as LL
+import qualified LLVM.AST.CallingConvention as LLCallConv
 import LLVM.AST.DataLayout
+import qualified LLVM.AST.Float as LL
+import qualified LLVM.AST.Global as LLGlob
+import qualified LLVM.AST.Linkage as LLLink
+import qualified LLVM.AST.ParameterAttribute as LL
+import qualified LLVM.AST.Type as LL
+import qualified LLVM.AST.Visibility as LLVis
+import qualified LLVM.AST.Constant as LL
 import Data.String
 import System.FilePath
 import qualified Data.Map as Map
@@ -15,10 +25,10 @@ import qualified Data.Vector as Vec
 import Misc
 import Sizeof (variantsTagSize)
 import qualified Back.Low as Low
-import Back.Low hiding (Type, Const)
+import Back.Low
 
 codegen :: FilePath -> Program -> DataLayout -> ShortByteString -> Module
-codegen moduleFilePath (Program fs es gs ts vs) layout triple = Module
+codegen moduleFilePath (Program fs es gs ts names) layout triple = Module
     { moduleName = fromString (takeBaseName moduleFilePath)
     , moduleSourceFileName = fromString moduleFilePath
     , moduleDataLayout = Just layout
@@ -26,7 +36,7 @@ codegen moduleFilePath (Program fs es gs ts vs) layout triple = Module
     , moduleDefinitions = concat
                               [ defineTypes ts
                               , declareExterns es
-                              , declareGlobals gs
+                              , declareGlobals names gs
                               , defineFunctions fs
                               , defineInit gs
                               , defineMain
@@ -83,10 +93,88 @@ defineTypes = (=<<) define . Vec.toList
             in  [TypeDefinition (mkName name) (Just (structType [tag, fill]))]
 
 declareExterns :: [ExternDecl] -> [Definition]
-declareExterns = _
+declareExterns = map declare
+  where
+    declare (ExternDecl name ps r) =
+        let anon = mkName ""
+            (f, rt) = case r of
+                RetVal rt' -> (id, genType rt')
+                OutParam rt' ->
+                    ((Parameter (LL.ptr (genType rt')) anon [LL.SRet] :), LL.void)
+            ps' = f $ flip map ps $ \case
+                ByVal () t -> Parameter (genType t) anon []
+                ByRef () t -> Parameter (LL.ptr (genType t)) anon [LL.ByVal]
+        in  GlobalDefinition $ externFunc name ps' rt []
 
-declareGlobals :: [GlobDef] -> [Definition]
-declareGlobals = _
+externFunc :: String -> [Parameter] -> LL.Type -> [BasicBlock] -> LLGlob.Global
+externFunc n ps rt bs = Function { LLGlob.linkage = LLLink.External
+                                 , LLGlob.visibility = LLVis.Default
+                                 , LLGlob.dllStorageClass = Nothing
+                                 , LLGlob.callingConvention = LLCallConv.C
+                                 , LLGlob.returnAttributes = []
+                                 , LLGlob.returnType = rt
+                                 , LLGlob.name = mkName n
+                                 , LLGlob.parameters = (ps, False)
+                                 , LLGlob.functionAttributes = []
+                                 , LLGlob.section = Nothing
+                                 , LLGlob.comdat = Nothing
+                                 , LLGlob.alignment = 0
+                                 , LLGlob.garbageCollectorName = Nothing
+                                 , LLGlob.prefix = Nothing
+                                 , LLGlob.basicBlocks = bs
+                                 , LLGlob.personalityFunction = Nothing
+                                 , LLGlob.metadata = []
+                                 }
+
+declareGlobals :: VarNames -> [GlobDef] -> [Definition]
+declareGlobals names = map declare
+  where
+    declare = \case
+        GVarDef (Global ident t) _ _ ->
+            GlobalDefinition $ simpleGlobVar (getName names ident) (LL.Undef (genType t))
+        GConstDef (Global ident _) c ->
+            GlobalDefinition $ simpleGlobConst (getName names ident) (genConst c)
+
+genConst :: Const -> LL.Constant
+genConst = \case
+    Undef t -> LL.Undef (genType t)
+    I8 n -> LL.Int 8 (fromIntegral n)
+    I16 n -> LL.Int 16 (fromIntegral n)
+    I32 n -> LL.Int 32 (fromIntegral n)
+    I64 n -> LL.Int 64 (fromIntegral n)
+    F32 x -> LL.Float (LL.Single x)
+    F64 x -> LL.Float (LL.Double x)
+    Array t xs -> LL.Array (genType t) (map genConst xs)
+    Zero t -> case genType t of
+        t'@(LL.PointerType _ _) -> LL.Null t'
+        t' -> LL.AggregateZero t'
+
+getName :: VarNames -> Word -> String
+getName ns i = ns Vec.! fromIntegral i
+
+simpleGlobVar :: String -> LL.Constant -> LLGlob.Global
+simpleGlobVar name c = simpleGlobVar' False (mkName name) (LL.typeOf c) (Just c)
+
+simpleGlobConst :: String -> LL.Constant -> LLGlob.Global
+simpleGlobConst name c = simpleGlobVar' True (mkName name) (LL.typeOf c) (Just c)
+
+simpleGlobVar' :: Bool -> Name -> LL.Type -> Maybe LL.Constant -> LLGlob.Global
+simpleGlobVar' isconst name t initializer = GlobalVariable
+    { LLGlob.name = name
+    , LLGlob.linkage = LLLink.Private
+    , LLGlob.visibility = LLVis.Default
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.threadLocalMode = Nothing
+    , LLGlob.addrSpace = LLAddr.AddrSpace 0
+    , LLGlob.unnamedAddr = Nothing
+    , LLGlob.isConstant = isconst
+    , LLGlob.type' = t
+    , LLGlob.initializer = initializer
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.metadata = []
+    }
 
 defineFunctions :: [FunDef] -> [Definition]
 defineFunctions = _
@@ -97,9 +185,9 @@ defineInit = _
 defineMain :: [Definition]
 defineMain = _
 
-genType :: Low.Type -> Type
+genType :: Type -> LL.Type
 genType = _
 
-structType :: [Type] -> Type
+structType :: [LL.Type] -> LL.Type
 structType ts = StructureType { isPacked = False, elementTypes = ts }
 

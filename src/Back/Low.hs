@@ -17,7 +17,7 @@ data Const
     | I64 Int
     | F32 Float
     | F64 Double
-    | Array [Type]
+    | Array Type [Const]
     | Zero Type
 
 type LocalId = Word
@@ -60,10 +60,13 @@ data Block term = Block [Statement] term
 type TypeNames = Vector String
 type VarNames = Vector String
 
+data Param name = ByVal name Type | ByRef name Type
+data Ret = RetVal Type | OutParam Type
+
 data FunDef = FunDef GlobalId [(LocalId, Type)] Type (Block Terminator) VarNames
-data ExternDecl = ExternDecl GlobalId [Type] Type
+data ExternDecl = ExternDecl String [Param ()] Ret
 data GlobDef
-    = GVarDef Global Const
+    = GVarDef Global Expr VarNames
     | GConstDef Global Const
 
 data Data = Data
