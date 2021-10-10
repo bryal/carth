@@ -6,8 +6,24 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Int
 
-type Type = Word
+data Param name = ByVal name Type | ByRef name Type
+data Ret = RetVal Type | RetVoid | OutParam Type
 
+-- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
+--   void-returns and void-calls are their own variants. This isn't very elegant from a
+--   functional perspective, but this fits imperative low-level IRs much better. In
+--   particular, LLVM is kind of bad at handling {} as a ZST, and fails to optimize tail
+--   calls returning {} in my experience.
+data Type
+    = TI8
+    | TI16
+    | TI32
+    | TI64
+    | TF32
+    | TF64
+    | TPtr Type
+    | TFun [Param ()] Ret
+    | TConst Word
 
 data Const
     = Undef Type
@@ -17,6 +33,7 @@ data Const
     | I64 Int
     | F32 Float
     | F64 Double
+    | EnumVal GlobalId Word
     | Array Type [Const]
     | Zero Type
 
@@ -42,7 +59,7 @@ data Statement
 
 data Terminator
     = Ret Operand
-    | TBranch Terminator
+    | TBranch (Branch Terminator)
 
 data LoopTerminator
     = Continue
@@ -53,6 +70,7 @@ data Expr
     = Add Operand Operand
     | Load Operand
     | Call Operand [Operand]
+    | VoidCall Operand [Operand]
     | EBranch (Branch Expr)
 
 data Block term = Block [Statement] term
@@ -60,13 +78,10 @@ data Block term = Block [Statement] term
 type TypeNames = Vector String
 type VarNames = Vector String
 
-data Param name = ByVal name Type | ByRef name Type
-data Ret = RetVal Type | OutParam Type
-
-data FunDef = FunDef GlobalId [(LocalId, Type)] Type (Block Terminator) VarNames
+data FunDef = FunDef GlobalId [Param LocalId] Ret (Block Terminator) VarNames
 data ExternDecl = ExternDecl String [Param ()] Ret
 data GlobDef
-    = GVarDef Global Expr VarNames
+    = GVarDef Global (Block Expr) VarNames
     | GConstDef Global Const
 
 data Data = Data
@@ -77,8 +92,7 @@ data Data = Data
     }
 
 data TypeDef
-    = Unit String
-    | Enum String (Vector String)
+    = Enum String (Vector String)
     | Struct String [Type]
     | Data' Data
 
@@ -91,7 +105,6 @@ typeName ds i = typeName' (ds Vec.! fromIntegral i)
 
 typeName' :: TypeDef -> String
 typeName' = \case
-    Unit n -> n
     Enum n _ -> n
     Struct n _ -> n
     Data' (Data n _ _ _) -> n

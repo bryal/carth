@@ -3,15 +3,18 @@
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Back.Codegen (codegen) where
 
+import Control.Monad.Reader
+import Control.Monad.State
 import LLVM.Prelude hiding (Const)
-import LLVM.AST hiding (args, Type)
+import LLVM.AST hiding (args, Type, Ret, Operand, Terminator)
+import qualified LLVM.AST as LL
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Typed as LL
 import qualified LLVM.AST.CallingConvention as LLCallConv
 import LLVM.AST.DataLayout
 import qualified LLVM.AST.Float as LL
 import qualified LLVM.AST.Global as LLGlob
-import qualified LLVM.AST.Linkage as LLLink
+import qualified LLVM.AST.Linkage as LL
 import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
@@ -37,9 +40,9 @@ codegen moduleFilePath (Program fs es gs ts names) layout triple = Module
                               [ defineTypes ts
                               , declareExterns es
                               , declareGlobals names gs
-                              , defineFunctions fs
-                              , defineInit gs
-                              , defineMain
+                              -- TODO: init should be part of this already
+                              , defineFuns names fs
+                              , [defineMain]
                               ]
     }
 
@@ -96,44 +99,62 @@ declareExterns :: [ExternDecl] -> [Definition]
 declareExterns = map declare
   where
     declare (ExternDecl name ps r) =
-        let anon = mkName ""
+        let
+            anon = mkName ""
             (f, rt) = case r of
-                RetVal rt' -> (id, genType rt')
-                OutParam rt' ->
-                    ((Parameter (LL.ptr (genType rt')) anon [LL.SRet] :), LL.void)
+                RetVal t -> (id, genType t)
+                RetVoid -> (id, LL.void)
+                OutParam t ->
+                    ((Parameter (LL.ptr (genType t)) anon [LL.SRet] :), LL.void)
             ps' = f $ flip map ps $ \case
                 ByVal () t -> Parameter (genType t) anon []
                 ByRef () t -> Parameter (LL.ptr (genType t)) anon [LL.ByVal]
-        in  GlobalDefinition $ externFunc name ps' rt []
+        in
+            simpleFun LL.External name ps' rt []
 
-externFunc :: String -> [Parameter] -> LL.Type -> [BasicBlock] -> LLGlob.Global
-externFunc n ps rt bs = Function { LLGlob.linkage = LLLink.External
-                                 , LLGlob.visibility = LLVis.Default
-                                 , LLGlob.dllStorageClass = Nothing
-                                 , LLGlob.callingConvention = LLCallConv.C
-                                 , LLGlob.returnAttributes = []
-                                 , LLGlob.returnType = rt
-                                 , LLGlob.name = mkName n
-                                 , LLGlob.parameters = (ps, False)
-                                 , LLGlob.functionAttributes = []
-                                 , LLGlob.section = Nothing
-                                 , LLGlob.comdat = Nothing
-                                 , LLGlob.alignment = 0
-                                 , LLGlob.garbageCollectorName = Nothing
-                                 , LLGlob.prefix = Nothing
-                                 , LLGlob.basicBlocks = bs
-                                 , LLGlob.personalityFunction = Nothing
-                                 , LLGlob.metadata = []
-                                 }
+simpleFun :: LL.Linkage -> String -> [Parameter] -> LL.Type -> [BasicBlock] -> Definition
+simpleFun link n ps rt bs = GlobalDefinition $ Function
+    { LLGlob.linkage = link
+    , LLGlob.visibility = LLVis.Default
+    , LLGlob.dllStorageClass = Nothing
+    , LLGlob.callingConvention = LLCallConv.C
+    , LLGlob.returnAttributes = []
+    , LLGlob.returnType = rt
+    , LLGlob.name = mkName n
+    , LLGlob.parameters = (ps, False)
+    , LLGlob.functionAttributes = []
+    , LLGlob.section = Nothing
+    , LLGlob.comdat = Nothing
+    , LLGlob.alignment = 0
+    , LLGlob.garbageCollectorName = Nothing
+    , LLGlob.prefix = Nothing
+    , LLGlob.basicBlocks = bs
+    , LLGlob.personalityFunction = Nothing
+    , LLGlob.metadata = []
+    }
 
 declareGlobals :: VarNames -> [GlobDef] -> [Definition]
 declareGlobals names = map declare
   where
-    declare = \case
-        GVarDef (Global ident t) _ _ ->
-            GlobalDefinition $ simpleGlobVar (getName names ident) (LL.Undef (genType t))
-        GConstDef (Global ident _) c ->
-            GlobalDefinition $ simpleGlobConst (getName names ident) (genConst c)
+    declare g =
+        let (isconst, ident, initializer) = case g of
+                GVarDef (Global x t) _ _ -> (False, x, LL.Undef (genType t))
+                GConstDef (Global x _) c -> (True, x, genConst c)
+        in  GlobalDefinition $ GlobalVariable { LLGlob.name = mkName (getName names ident)
+                                              , LLGlob.linkage = LL.Private
+                                              , LLGlob.visibility = LLVis.Default
+                                              , LLGlob.dllStorageClass = Nothing
+                                              , LLGlob.threadLocalMode = Nothing
+                                              , LLGlob.addrSpace = LLAddr.AddrSpace 0
+                                              , LLGlob.unnamedAddr = Nothing
+                                              , LLGlob.isConstant = isconst
+                                              , LLGlob.type' = LL.typeOf initializer
+                                              , LLGlob.initializer = Just initializer
+                                              , LLGlob.section = Nothing
+                                              , LLGlob.comdat = Nothing
+                                              , LLGlob.alignment = 0
+                                              , LLGlob.metadata = []
+                                              }
 
 genConst :: Const -> LL.Constant
 genConst = \case
@@ -152,41 +173,67 @@ genConst = \case
 getName :: VarNames -> Word -> String
 getName ns i = ns Vec.! fromIntegral i
 
-simpleGlobVar :: String -> LL.Constant -> LLGlob.Global
-simpleGlobVar name c = simpleGlobVar' False (mkName name) (LL.typeOf c) (Just c)
+defineFuns :: VarNames -> [FunDef] -> [Definition]
+defineFuns gnames = map define
+  where
+    define (FunDef ident ps r block lnames) =
+        let
+            (f, rt) = case r of
+                RetVal t -> (id, genType t)
+                RetVoid -> (id, LL.void)
+                OutParam t ->
+                    ((Parameter (LL.ptr (genType t)) (mkName "out") [LL.SRet] :), LL.void)
+            ps' = f $ flip map ps $ \case
+                ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
+                ByRef x t ->
+                    Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.ByVal]
+        in
+            simpleFun LL.Internal (getName gnames ident) ps' rt (run (genBlock block))
 
-simpleGlobConst :: String -> LL.Constant -> LLGlob.Global
-simpleGlobConst name c = simpleGlobVar' True (mkName name) (LL.typeOf c) (Just c)
+type St = ()
+type Gen = State St
 
-simpleGlobVar' :: Bool -> Name -> LL.Type -> Maybe LL.Constant -> LLGlob.Global
-simpleGlobVar' isconst name t initializer = GlobalVariable
-    { LLGlob.name = name
-    , LLGlob.linkage = LLLink.Private
-    , LLGlob.visibility = LLVis.Default
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.threadLocalMode = Nothing
-    , LLGlob.addrSpace = LLAddr.AddrSpace 0
-    , LLGlob.unnamedAddr = Nothing
-    , LLGlob.isConstant = isconst
-    , LLGlob.type' = t
-    , LLGlob.initializer = initializer
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.metadata = []
-    }
+run :: Gen () -> [BasicBlock]
+run = _
 
-defineFunctions :: [FunDef] -> [Definition]
-defineFunctions = _
+class GenBlock a where
+    type Out a
+    genBlock :: Block a -> Gen (Out a)
 
-defineInit :: [GlobDef] -> [Definition]
-defineInit = _
+instance GenBlock Terminator where
+    type Out Terminator = ()
+    genBlock = _
 
-defineMain :: [Definition]
-defineMain = _
+
+
+-- TODO: In this incarnation, this outermost main should just call init and
+--       user-main. init will in turn init global vars & setup stack overflow handler etc.
+defineMain :: Definition
+defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
+    (mkName "entry")
+    _
+    (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))
 
 genType :: Type -> LL.Type
-genType = _
+genType = \case
+    TI8 -> LL.IntegerType 8
+    TI16 -> LL.IntegerType 16
+    TI32 -> LL.IntegerType 32
+    TI64 -> LL.IntegerType 64
+    TF32 -> LL.FloatingPointType LL.FloatFP
+    TF64 -> LL.FloatingPointType LL.DoubleFP
+    TPtr u -> LL.ptr (genType u)
+    TFun ps r ->
+        let (f, rt) = case r of
+                RetVal t -> (id, genType t)
+                RetVoid -> (id, LL.void)
+                OutParam t -> ((LL.ptr (genType t) :), LL.void)
+        in  LL.FunctionType rt (f (map genParam ps)) False
+    TConst i -> _
+  where
+    genParam = \case
+        ByVal pt -> genType pt
+        ByRef pt -> LL.ptr (genType pt)
 
 structType :: [LL.Type] -> LL.Type
 structType ts = StructureType { isPacked = False, elementTypes = ts }
