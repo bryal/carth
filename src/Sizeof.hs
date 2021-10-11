@@ -1,4 +1,4 @@
-module Sizeof (sizeof, toBytes, wordsize, wordsizeBits, tagSize, tagBitWidth, variantsTagSize) where
+module Sizeof (sizeof, toBytes, wordsize, wordsizeBits, tagBits, tagBytes, variantsTagBits, variantsTagBytes) where
 
 import Data.Foldable
 import qualified Data.Map as Map
@@ -67,7 +67,7 @@ sizeof datas = \case
     tagUnion vs = map (tagVariant (fromIntegral (length vs))) vs
 
     tagVariant :: Span -> [Type] -> [Type]
-    tagVariant span ts = maybe ts ((: ts) . TPrim . TNat) (tagBitWidth span)
+    tagVariant span ts = if span <= 1 then ts else (TPrim (TNat (tagBits span)) : ts)
 
 toBytes :: Integral n => n -> n
 toBytes n = div (n + 7) 8
@@ -78,16 +78,19 @@ wordsize = toBytes wordsizeBits
 wordsizeBits :: Integral n => n
 wordsizeBits = 64 -- TODO: Make platform dependent
 
-variantsTagSize :: Integral n => Vector a -> Maybe n
-variantsTagSize = tagSize . fromIntegral . Vec.length
+variantsTagBytes :: Integral n => Vector a -> n
+variantsTagBytes = toBytes . variantsTagBits
 
-tagSize :: Integral n => Span -> Maybe n
-tagSize = fmap toBytes . tagBitWidth
+variantsTagBits :: Integral n => Vector a -> n
+variantsTagBits = tagBits . fromIntegral . Vec.length
 
-tagBitWidth :: Integral n => Span -> Maybe n
-tagBitWidth span | span <= 2 ^ (0 :: Integer) = Nothing
-                 | span <= 2 ^ (8 :: Integer) = Just 8
-                 | span <= 2 ^ (16 :: Integer) = Just 16
-                 | span <= 2 ^ (32 :: Integer) = Just 32
-                 | span <= 2 ^ (64 :: Integer) = Just 64
-                 | otherwise = ice $ "tagBitWidth: span = " ++ show span
+tagBytes :: Integral n => Span -> n
+tagBytes = toBytes . tagBits
+
+tagBits :: Integral n => Span -> n
+tagBits span | span <= 2 ^ (0 :: Integer) = ice $ "tagBits: span = " ++ show span
+             | span <= 2 ^ (8 :: Integer) = 8
+             | span <= 2 ^ (16 :: Integer) = 16
+             | span <= 2 ^ (32 :: Integer) = 32
+             | span <= 2 ^ (64 :: Integer) = 64
+             | otherwise = ice $ "tagBits: span = " ++ show span
