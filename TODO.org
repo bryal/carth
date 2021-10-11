@@ -1187,7 +1187,7 @@ Features and other stuff to do/implement in/around Carth.
        (_, y) => y,
    }
    #+END_SRC
-* TODO Move from LLVM to alternative backend
+* Move from LLVM to alternative backend
   LLVM is kind of not great in some ways. It's often not trivial to
   debug errors stemming from displeasing LLVM. It updates frequently,
   but the Haskell bindings lag behind, so I have to use an older
@@ -1209,7 +1209,7 @@ Features and other stuff to do/implement in/around Carth.
   rid of LLVM right away, but I'm not sure about what to replace it
   with just yet, so an interpreter is needed in the meantime.
 
-** INACTIVE Optinal step: Add low-level intermediate representation in Carth
+** TODO Add low-level intermediate representation in Carth
    Would require less work to change backend or add multiple ones of I
    just have to translate from a low-level IR to the backend code,
    instead of all the way from an AST. Might also be good for the
@@ -1304,6 +1304,24 @@ Features and other stuff to do/implement in/around Carth.
    encountered, just set the parameter stack variables and jump to the
    entry label kept in Reader.
 
+   https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md
+   https://www.cs.tufts.edu/~nr/c--/extern/man2.pdf
+   https://llvm.org/pubs/2009-10-TereiThesis.pdf
+   https://llvm.org/devmtg/2015-10/slides/GroffLattner-SILHighLevelIR.pdf
+
+*** INACTIVE Separate backend from Low and beyond into its own library?
+    Maybe a separate package in the same repo?
+
+    Not sure about this one, but maybe. The idea popped into my head
+    that I could test Low out before implementing Lower if a write a
+    simple C frontend or something for it, and just try compiling C
+    code. But it would be kind of ugly for the carth package to
+    contain a C frontend -- except it would not! it could be wicked
+    useful for generating bindings for C libraries!! but I digress --
+    so why not separate the backend into its own package, and the C
+    frontend wouldn't really have to be "a part of" carth.
+
+    Something to consider for sure.
 ** DONE Step 1: Re-add interpreter for pure Carth code
    Fairly self explanatory. Just operate on whatever is returned by
    the Optimize pass. Make sure to add / translate as many test-cases

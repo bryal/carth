@@ -108,4 +108,3 @@ typeName' = \case
     Enum n _ -> n
     Struct n _ -> n
     Data' (Data n _ _ _) -> n
-

@@ -10,7 +10,7 @@ import LLVM.AST hiding (args, Type, Ret, Operand, Terminator)
 import qualified LLVM.AST as LL
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Typed as LL
-import qualified LLVM.AST.CallingConvention as LLCallConv
+import qualified LLVM.AST.CallingConvention as LL
 import LLVM.AST.DataLayout
 import qualified LLVM.AST.Float as LL
 import qualified LLVM.AST.Global as LLGlob
@@ -42,7 +42,7 @@ codegen moduleFilePath (Program fs es gs ts names) layout triple = Module
                               , declareGlobals names gs
                               -- TODO: init should be part of this already
                               , defineFuns names fs
-                              , [defineMain]
+                              , [defineMain names]
                               ]
     }
 
@@ -117,7 +117,7 @@ simpleFun link n ps rt bs = GlobalDefinition $ Function
     { LLGlob.linkage = link
     , LLGlob.visibility = LLVis.Default
     , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = LLCallConv.C
+    , LLGlob.callingConvention = LL.C
     , LLGlob.returnAttributes = []
     , LLGlob.returnType = rt
     , LLGlob.name = mkName n
@@ -204,14 +204,15 @@ instance GenBlock Terminator where
     type Out Terminator = ()
     genBlock = _
 
-
-
 -- TODO: In this incarnation, this outermost main should just call init and
 --       user-main. init will in turn init global vars & setup stack overflow handler etc.
-defineMain :: Definition
-defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
+defineMain :: VarNames -> Definition
+defineMain gnames = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
     (mkName "entry")
-    _
+    [ LL.Do (callNamed "install_stackoverflow_handler" [] LL.void)
+    , LL.Do (callNamed "carth_init" [] LL.void)
+    , LL.Do (callNamed "carth_main" [] LL.void)
+    ]
     (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))
 
 genType :: Type -> LL.Type
@@ -232,9 +233,25 @@ genType = \case
     TConst i -> _
   where
     genParam = \case
-        ByVal pt -> genType pt
-        ByRef pt -> LL.ptr (genType pt)
+        ByVal () pt -> genType pt
+        ByRef () pt -> LL.ptr (genType pt)
 
 structType :: [LL.Type] -> LL.Type
 structType ts = StructureType { isPacked = False, elementTypes = ts }
 
+callNamed :: String -> [LL.Operand] -> LL.Type -> Instruction
+callNamed f as rt =
+    let f' = ConstantOperand $ LL.GlobalReference
+            (LL.ptr (FunctionType rt (map LL.typeOf as) False))
+            (mkName f)
+    in  call f' (map (, []) as)
+
+call :: LL.Operand -> [(LL.Operand, [LL.ParameterAttribute])] -> Instruction
+call f as = LL.Call { tailCallKind = Just NoTail
+                    , callingConvention = LL.C
+                    , returnAttributes = []
+                    , function = Right f
+                    , arguments = as
+                    , functionAttributes = []
+                    , metadata = []
+                    }
