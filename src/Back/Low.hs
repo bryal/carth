@@ -51,9 +51,11 @@ data Branch term
 
 data Statement
     = Let Local Expr
+    | Alloc LocalId Type
     | Store Operand Operand
     | Loop (Block LoopTerminator)
     | SBranch (Branch ())
+    | VoidCall Operand [Operand]
     | Do Expr
 
 data Terminator
@@ -71,7 +73,6 @@ data Expr
     = Add Operand Operand
     | Load Operand
     | Call Operand [Operand]
-    | VoidCall Operand [Operand]
     | EBranch (Branch Expr)
 
 data Block term = Block [Statement] term

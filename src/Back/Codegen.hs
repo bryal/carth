@@ -7,7 +7,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import LLVM.Prelude hiding (Const)
-import LLVM.AST hiding (args, Type, Ret, Operand, Terminator, Switch, Add, Do, Store)
+import LLVM.AST hiding (args, Type, Ret, Operand, Terminator, Switch, Add, Do, Store, Load, Call, Global)
 import qualified LLVM.AST as LL
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Typed as LL
@@ -188,17 +188,30 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
     genFunBody :: VarNames -> Block Terminator -> [LL.BasicBlock]
     genFunBody lnames body = execWriter (evalStateT (genTBlock body) (St "entry" [] 0 0))
       where
-        genEBranch :: Branch Expr -> Gen LL.Operand
+        genEBranch :: Branch Expr -> Gen (LL.Type, LL.Instruction)
         genEBranch = \case
             If p c a -> do
                 lc <- label "CONSEQ"
                 la <- label "ALTERN"
                 commitThen (LL.CondBr (genLocal p) lc la []) lc
-                econverge (genEBlock c) [(la, genEBlock a)]
+                econverge (uncurry emit =<< genEBlock c)
+                          [(la, uncurry emit =<< genEBlock a)]
             Switch _ _ _ -> _
 
-        econverge :: Gen LL.Operand -> [(Name, Gen LL.Operand)] -> Gen LL.Operand
-        econverge default' cases = _
+        econverge
+            :: Gen LL.Operand -> [(Name, Gen LL.Operand)] -> Gen (LL.Type, LL.Instruction)
+        econverge genDefault cases = do
+            ln <- label "NEXT"
+            d <- genDefault
+            ld <- gets currentLabel
+            cs <- forM cases $ \(l, genCase) -> do
+                commitThen (LL.Br ln []) l
+                c <- genCase
+                lc <- gets currentLabel
+                pure (c, lc)
+            commitThen (LL.Br ln []) ln
+            let t = LL.typeOf d
+            pure (t, LL.Phi t ((d, ld) : cs) [])
 
         genTBranch :: Branch Terminator -> Gen ()
         genTBranch = \case
@@ -247,10 +260,16 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
 
         genStm :: Statement -> Gen ()
         genStm = \case
-            Let lhs rhs -> _
+            Let (Local x _) rhs ->
+                genExpr rhs >>= \(t, i) -> emitNamed (getName lnames x) t i $> ()
+            Alloc x t ->
+                let t' = genType t
+                in  emitNamed (getName lnames x) (LL.ptr t') (LL.Alloca t' Nothing 0 [])
+                        $> ()
             Store v dst -> store (genOperand v) (genOperand dst)
             Loop blk -> _
             SBranch br -> genSBranch br
+            VoidCall f as -> emitDo (call (genOperand f) (map genOperand as))
             Do e -> genExpr e $> ()
 
         genTerm :: Terminator -> Gen ()
@@ -273,28 +292,58 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                                         }
 
 
-        genEBlock :: Block Expr -> Gen LL.Operand
+        genEBlock :: Block Expr -> Gen (LL.Type, LL.Instruction)
         genEBlock = \case
             Block [] e -> genExpr e
             Block (stm : stms) e -> genStm stm *> (genEBlock (Block stms e))
 
         -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
         --       instead of level-wise.
-        genExpr :: Expr -> Gen LL.Operand
+        genExpr :: Expr -> Gen (LL.Type, LL.Instruction)
         genExpr = \case
             Add a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  emit (LL.typeOf a') (LL.Add False False a' b' [])
+                in  pure (LL.typeOf a', LL.Add False False a' b' [])
+            Load src ->
+                let src' = genOperand src
+                in  pure
+                        ( getPointee (LL.typeOf src')
+                        , LL.Load { volatile = False
+                                  , address = src'
+                                  , maybeAtomicity = Nothing
+                                  , alignment = 0
+                                  , metadata = []
+                                  }
+                        )
+            Call f as ->
+                let f' = genOperand f
+                    rt = getReturn (getPointee (LL.typeOf f'))
+                in  pure (rt, call f' (map genOperand as))
             EBranch br -> genEBranch br
+
+        getPointee :: LL.Type -> LL.Type
+        getPointee = \case
+            LL.PointerType t _ -> t
+            t -> ice $ "Tried to get pointee of non-pointer type " ++ show t
+
+        getReturn :: LL.Type -> LL.Type
+        getReturn = \case
+            LL.FunctionType rt _ _ -> rt
+            t -> ice $ "Tried to get return of non-function type " ++ show t
 
         genOperand :: Operand -> LL.Operand
         genOperand = \case
             OLocal x -> genLocal x
-            _ -> _
+            OGlobal x -> LL.ConstantOperand (genGlobal x)
+            OConst c -> LL.ConstantOperand (genConst c)
 
         genLocal :: Local -> LL.Operand
         genLocal (Local ident t) =
             LocalReference (genType t) (mkName (getName lnames ident))
+
+        genGlobal :: Global -> LL.Constant
+        genGlobal (Global ident t) =
+            LL.GlobalReference (genType t) (mkName (getGName ident))
 
         emit :: LL.Type -> LL.Instruction -> Gen LL.Operand
         emit t instr = do
@@ -367,14 +416,14 @@ callNamed f as rt =
     let f' = ConstantOperand $ LL.GlobalReference
             (LL.ptr (FunctionType rt (map LL.typeOf as) False))
             (mkName f)
-    in  call f' (map (, []) as)
+    in  call f' as
 
-call :: LL.Operand -> [(LL.Operand, [LL.ParameterAttribute])] -> Instruction
+call :: LL.Operand -> [LL.Operand] -> Instruction
 call f as = LL.Call { tailCallKind = Just NoTail
                     , callingConvention = LL.C
                     , returnAttributes = []
                     , function = Right f
-                    , arguments = as
+                    , arguments = map (, []) as
                     , functionAttributes = []
                     , metadata = []
                     }
