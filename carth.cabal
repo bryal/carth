@@ -50,8 +50,6 @@ library
       Back.Low
       Back.Selections
       Back.Codegen
-      Back.Extern
-      Back.Gen
       Back.Compile
   other-modules:
   hs-source-dirs:

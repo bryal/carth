@@ -11,7 +11,8 @@
 (use-package-modules haskell haskell-xyz haskell-check
                      llvm
                      crates-io
-                     libsigsegv)
+                     libsigsegv
+                     tls)
 
 (define carth-std-rs
   (package
@@ -22,10 +23,12 @@
                  `(("Cargo.toml" ,(local-file "std-rs/Cargo.toml"))
                    ("src" ,(local-file "std-rs/src" #:recursive? #t)))))
     (build-system cargo-build-system)
-    (inputs `(("libsigsegv" ,libsigsegv)))
+    (inputs `(("libsigsegv" ,libsigsegv)
+              ("openssl" ,openssl)))
     (arguments
      `(#:cargo-inputs
-       (("rust-libc" ,rust-libc-0.2))
+       (("rust-libc" ,rust-libc-0.2)
+        ("rust-native-tls" ,rust-native-tls-0.2))
        #:phases
        (modify-phases %standard-phases
          (replace 'install
@@ -52,9 +55,10 @@ programming language with Scheme-like syntax. Work in progress.")
   (source
    (file-union name
                `(("carth.cabal" ,(local-file "carth.cabal"))
-                 ("README.org" ,(local-file "README.org"))
+                 ("README.md" ,(local-file "README.md"))
                  ("CHANGELOG.org" ,(local-file "CHANGELOG.org"))
-                 ("LICENSE" ,(local-file "LICENSE"))
+                 ("LICENSE-AGPLv3" ,(local-file "LICENSE-AGPLv3"))
+                 ("LICENSE-ACSL" ,(local-file "LICENSE-ACSL"))
                  ("Setup.hs" ,(local-file "Setup.hs"))
                  ("src" ,(local-file "src" #:recursive? #t))
                  ("app" ,(local-file "app" #:recursive? #t))
