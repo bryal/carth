@@ -45,10 +45,9 @@ data Global = Global GlobalId Type
 
 data Operand = OLocal Local | OGlobal Global | OConst Const
 
-
 data Branch term
     = If Local (Block term) (Block term)
-    | Switch Operand [(Const, Block term)] (Block term)
+    | Switch Local [(Const, Block term)] (Block term)
 
 data Statement
     = Let Local Expr
@@ -58,7 +57,9 @@ data Statement
     | Do Expr
 
 data Terminator
-    = Ret Operand
+    = TRetVal Operand
+    | TRetVoid
+    | TOutParam Operand
     | TBranch (Branch Terminator)
 
 data LoopTerminator

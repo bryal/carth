@@ -5,8 +5,9 @@ module Back.Codegen (codegen) where
 
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Writer
 import LLVM.Prelude hiding (Const)
-import LLVM.AST hiding (args, Type, Ret, Operand, Terminator)
+import LLVM.AST hiding (args, Type, Ret, Operand, Terminator, Switch, Add, Do, Store)
 import qualified LLVM.AST as LL
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Typed as LL
@@ -18,7 +19,7 @@ import qualified LLVM.AST.Linkage as LL
 import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
-import qualified LLVM.AST.Constant as LL
+import qualified LLVM.AST.Constant as LL hiding (Add)
 import Data.String
 import System.FilePath
 import qualified Data.Map as Map
@@ -30,16 +31,13 @@ import Sizeof (variantsTagBits, variantsTagBytes)
 import qualified Back.Low as Low
 import Back.Low
 
-type St = ()
-type Gen = State St
-
-class GenBlock a where
-    type Out a
-    genBlock :: Block a -> Gen (Out a)
-
-instance GenBlock Terminator where
-    type Out Terminator = ()
-    genBlock = _
+data St = St
+    { currentLabel :: Name
+    , currentInstrs :: [Named LL.Instruction] -- In reverser order
+    , labelCount :: Word
+    , tmpCount :: Word
+    }
+type Gen = StateT St (Writer [BasicBlock])
 
 codegen :: FilePath -> Program -> DataLayout -> ShortByteString -> Module
 codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Module
@@ -52,7 +50,7 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                               , declareExterns
                               , declareGlobals
                               -- TODO: init should be part of this already
-                              , defineFuns
+                              , map defineFun funs
                               , [defineMain]
                               ]
     }
@@ -161,28 +159,20 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             t'@(LL.PointerType _ _) -> LL.Null t'
             t' -> LL.AggregateZero t'
 
-    defineFuns :: [Definition]
-    defineFuns = map define funs
-      where
-        define (FunDef ident ps r block lnames) =
-            let
-                (f, rt) = case r of
-                    RetVal t -> (id, genType t)
-                    RetVoid -> (id, LL.void)
-                    OutParam t ->
-                        ( (Parameter (LL.ptr (genType t)) (mkName "out") [LL.SRet] :)
-                        , LL.void
-                        )
-                ps' = f $ flip map ps $ \case
-                    ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
-                    ByRef x t -> Parameter (LL.ptr (genType t))
-                                           (mkName (getName lnames x))
-                                           [LL.ByVal]
-            in
-                simpleFun LL.Internal (getGName ident) ps' rt (run (genBlock block))
-
-    run :: Gen () -> [BasicBlock]
-    run = _
+    defineFun :: FunDef -> Definition
+    defineFun (FunDef ident ps r block lnames) =
+        let
+            (f, rt) = case r of
+                RetVal t -> (id, genType t)
+                RetVoid -> (id, LL.void)
+                OutParam t ->
+                    ((Parameter (LL.ptr (genType t)) (mkName "out") [LL.SRet] :), LL.void)
+            ps' = f $ flip map ps $ \case
+                ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
+                ByRef x t ->
+                    Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.ByVal]
+        in
+            simpleFun LL.Internal (getGName ident) ps' rt (genFunBody lnames block)
 
     -- TODO: In this incarnation, this outermost main should just call init and
     --       user-main. init will in turn init global vars & setup stack overflow handler etc.
@@ -194,6 +184,140 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
         , LL.Do (callNamed "carth_main" [] LL.void)
         ]
         (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))
+
+    genFunBody :: VarNames -> Block Terminator -> [LL.BasicBlock]
+    genFunBody lnames body = execWriter (evalStateT (genTBlock body) (St "entry" [] 0 0))
+      where
+        genEBranch :: Branch Expr -> Gen LL.Operand
+        genEBranch = \case
+            If p c a -> do
+                lc <- label "CONSEQ"
+                la <- label "ALTERN"
+                commitThen (LL.CondBr (genLocal p) lc la []) lc
+                econverge (genEBlock c) [(la, genEBlock a)]
+            Switch _ _ _ -> _
+
+        econverge :: Gen LL.Operand -> [(Name, Gen LL.Operand)] -> Gen LL.Operand
+        econverge default' cases = _
+
+        genTBranch :: Branch Terminator -> Gen ()
+        genTBranch = \case
+            If p c a -> do
+                lc <- label "CONSEQ"
+                la <- label "ALTERN"
+                commitThen (LL.CondBr (genLocal p) lc la []) lc
+                tconverge (genTBlock c) [(la, genTBlock a)]
+            Switch _ _ _ -> _
+
+        tconverge :: Gen () -> [(Name, Gen ())] -> Gen ()
+        tconverge genDefault cases = do
+            genDefault
+            forM_ cases $ \(l, genCase) -> do
+                modify (\st -> st { currentLabel = l })
+                genCase
+
+        genSBranch :: Branch () -> Gen ()
+        genSBranch = \case
+            If p c a -> do
+                lc <- label "CONSEQ"
+                la <- label "ALTERN"
+                ln <- label "NEXT"
+                commitThen (LL.CondBr (genLocal p) lc la []) lc
+                sconverge (genSBlock c) [(la, genSBlock a)]
+            Switch _ _ _ -> _
+
+        sconverge :: Gen () -> [(Name, Gen ())] -> Gen ()
+        sconverge genDefault cases = do
+            ln <- label "NEXT"
+            genDefault
+            forM cases $ \(l, genCase) -> do
+                commitThen (LL.Br ln []) l
+                genCase
+            commitThen (LL.Br ln []) ln
+
+        genTBlock :: Block Terminator -> Gen ()
+        genTBlock = \case
+            Block [] term -> genTerm term
+            Block (stm : stms) term -> genStm stm *> (genTBlock (Block stms term))
+
+        genSBlock :: Block () -> Gen ()
+        genSBlock = \case
+            Block [] () -> pure ()
+            Block (stm : stms) () -> genStm stm *> genSBlock (Block stms ())
+
+        genStm :: Statement -> Gen ()
+        genStm = \case
+            Let lhs rhs -> _
+            Store v dst -> store (genOperand v) (genOperand dst)
+            Loop blk -> _
+            SBranch br -> genSBranch br
+            Do e -> genExpr e $> ()
+
+        genTerm :: Terminator -> Gen ()
+        genTerm = \case
+            TRetVal x -> commitFinal (LL.Ret (Just (genOperand x)) [])
+            TRetVoid -> commitFinal (LL.Ret Nothing [])
+            TOutParam x ->
+                let x' = genOperand x
+                in  store x' (LocalReference (LL.ptr (LL.typeOf x')) (mkName "out"))
+                        *> commitFinal (LL.Ret Nothing [])
+            TBranch br -> genTBranch br
+
+        store :: LL.Operand -> LL.Operand -> Gen ()
+        store v dst = emitDo $ LL.Store { volatile = False
+                                        , address = dst
+                                        , value = v
+                                        , maybeAtomicity = Nothing
+                                        , alignment = 0
+                                        , metadata = []
+                                        }
+
+
+        genEBlock :: Block Expr -> Gen LL.Operand
+        genEBlock = \case
+            Block [] e -> genExpr e
+            Block (stm : stms) e -> genStm stm *> (genEBlock (Block stms e))
+
+        -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
+        --       instead of level-wise.
+        genExpr :: Expr -> Gen LL.Operand
+        genExpr = \case
+            Add a b ->
+                let (a', b') = (genOperand a, genOperand b)
+                in  emit (LL.typeOf a') (LL.Add False False a' b' [])
+            EBranch br -> genEBranch br
+
+        genOperand :: Operand -> LL.Operand
+        genOperand = \case
+            OLocal x -> genLocal x
+            _ -> _
+
+        genLocal :: Local -> LL.Operand
+        genLocal (Local ident t) =
+            LocalReference (genType t) (mkName (getName lnames ident))
+
+        emit :: LL.Type -> LL.Instruction -> Gen LL.Operand
+        emit t instr = do
+            n <- gets tmpCount
+            modify (\st -> st { tmpCount = n + 1 })
+            let name = "tmp" ++ show n
+            emitNamed name t instr
+
+        emitNamed :: String -> LL.Type -> LL.Instruction -> Gen LL.Operand
+        emitNamed x t instr = do
+            let instr' = mkName x LL.:= instr
+            modify (\st -> st { currentInstrs = instr' : currentInstrs st })
+            pure (LL.LocalReference t (mkName x))
+
+        emitDo :: LL.Instruction -> Gen ()
+        emitDo instr =
+            modify (\st -> st { currentInstrs = LL.Do instr : currentInstrs st })
+
+        label :: String -> Gen Name
+        label s = do
+            n <- gets labelCount
+            modify (\st -> st { labelCount = n + 1 })
+            pure $ mkName ("L" ++ show n ++ s)
 
     genType :: Type -> LL.Type
     genType = \case
@@ -220,6 +344,17 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             ByRef () pt -> LL.ptr (genType pt)
 
     getGName = getName gnames
+
+commitThen :: LL.Terminator -> Name -> Gen ()
+commitThen term next = do
+    current <- gets currentLabel
+    rinstrs <- gets currentInstrs
+    let instrs = reverse rinstrs
+    tell [BasicBlock current instrs (LL.Do term)]
+    modify (\st -> st { currentLabel = next, currentInstrs = [] })
+
+commitFinal :: LL.Terminator -> Gen ()
+commitFinal term = commitThen term (ice "Continued codegen after commitFinal")
 
 getName :: VarNames -> Word -> String
 getName names i = names Vec.! fromIntegral i

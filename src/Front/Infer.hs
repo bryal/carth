@@ -211,6 +211,9 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
         t <- fresh
         mayscm' <- checkScheme (idstr lhs) mayscm
         (body', cs) <- listen $ inferDef t mayscm' (getPos body) (infer body)
+        -- TODO: Can't we get rid of this somehow? It makes our solution more complex and
+        --       expensive if we have to do nested solves. Also re-solves many constraints
+        --       in vain.
         (sub, ccs) <- solve cs
         env <- view envLocalDefs
         scm <- generalize (substEnv sub env)
