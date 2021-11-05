@@ -31,6 +31,29 @@ Features and other stuff to do/implement in/around Carth.
      guix environment
    och lite mer.
 
+   Update <2021-10-20 ons>: I think pulling in guix as a dependency
+   would not work well. That's not how it's designed to be used. Would
+   also work weirdly when actually using Guix as the OS package
+   manager on top as well. Also, asking users to install Guix and add
+   our channel would not be ergonomic enough to be the simplest way to
+   do things.
+
+   Instead, I think we should do something like what this comment
+   proposes: https://news.ycombinator.com/item?id=24847060, i.e.,
+   imitate cargo. Cargo is fairly primitive, and maybe allows "too
+   much" when it comes to using different versions, but it's fairly
+   simple and does its job well. Then we can "bless" Guix as a package
+   manager to use on top of our primitive cargo-clone for more
+   advanced features, like releases with compatible packages,
+   environments, etc etc. Basically, we don't put too much
+   responsibility on our own shoulders, and let OS distributions do
+   what they do best. Make sure that cargo-clone never gets in the way
+   of Guix and other distributions. For example, overriding dependency
+   config to use local files and other versions should have first
+   class support.
+
+   Maybe help maintain the Guix (& Nix?) packages myself.
+   
 *** Extra säkert?
     "guix environment allows you to run any application in an isolated
      container that restricts network access, hides the filesystem (no
@@ -1512,3 +1535,32 @@ Features and other stuff to do/implement in/around Carth.
   the sugar is "unneccesary", but it really is quite concise and
   readable. Might be nice to have.
 
+* NEXT Look at these languages
+  For inspiration, learn from their mistakes, etc.
+  
+  Also add related work to readme, after looking closer at it, if applicable.
+
+  - Hackett
+  - Liskell
+  - Axellang
+  - Kalyn
+    https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
+  - Unison
+    https://github.com/unisonweb/unison
+* TODO Add flag for disabling GC
+  and just allocate with malloc & leak memory instead. Use this in
+  tests, until we've added our own GC, so I won't have that constant,
+  annoying error about "allocating from another thread" or whatever it
+  was.
+* NEXT Refactor type checker
+  keywords: type checking, inferenc, inferrer
+
+  I'm not completely happy with the typechecking. 4 module files
+  (Check, Checked, Infer, Inferred) totalling over 900 SLOC. Also,
+  ~solve~ is not just run once at the outermost level, visiting each
+  constraint at most once. Because of nested ~let~ with polymorphism,
+  we currently run ~solve~ nestedly, and in total, each constraint is
+  likely visited more than once. This is ugly.
+
+  See:
+  - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
