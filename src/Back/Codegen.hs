@@ -190,13 +190,8 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
       where
         genEBranch :: Branch Expr -> Gen (LL.Type, LL.Instruction)
         genEBranch = \case
-            If p c a -> do
-                lc <- label "CONSEQ"
-                la <- label "ALTERN"
-                commitThen (LL.CondBr (genLocal p) lc la []) lc
-                econverge (uncurry emit =<< genEBlock c)
-                          [(la, uncurry emit =<< genEBlock a)]
-            Switch _ _ _ -> _
+            If p c a -> genIf p c a (uncurry emit <=< genEBlock) econverge
+            Switch x cs d -> genSwitch x cs d (uncurry emit <=< genEBlock) econverge
 
         econverge
             :: Gen LL.Operand -> [(Name, Gen LL.Operand)] -> Gen (LL.Type, LL.Instruction)
@@ -213,14 +208,15 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             let t = LL.typeOf d
             pure (t, LL.Phi t ((d, ld) : cs) [])
 
+        genEBlock :: Block Expr -> Gen (LL.Type, LL.Instruction)
+        genEBlock = \case
+            Block [] e -> genExpr e
+            Block (stm : stms) e -> genStm stm *> (genEBlock (Block stms e))
+
         genTBranch :: Branch Terminator -> Gen ()
         genTBranch = \case
-            If p c a -> do
-                lc <- label "CONSEQ"
-                la <- label "ALTERN"
-                commitThen (LL.CondBr (genLocal p) lc la []) lc
-                tconverge (genTBlock c) [(la, genTBlock a)]
-            Switch _ _ _ -> _
+            If p c a -> genIf p c a genTBlock tconverge
+            Switch x cs d -> genSwitch x cs d genTBlock tconverge
 
         tconverge :: Gen () -> [(Name, Gen ())] -> Gen ()
         tconverge genDefault cases = do
@@ -229,15 +225,15 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                 modify (\st -> st { currentLabel = l })
                 genCase
 
+        genTBlock :: Block Terminator -> Gen ()
+        genTBlock = \case
+            Block [] term -> genTerm term
+            Block (stm : stms) term -> genStm stm *> (genTBlock (Block stms term))
+
         genSBranch :: Branch () -> Gen ()
         genSBranch = \case
-            If p c a -> do
-                lc <- label "CONSEQ"
-                la <- label "ALTERN"
-                ln <- label "NEXT"
-                commitThen (LL.CondBr (genLocal p) lc la []) lc
-                sconverge (genSBlock c) [(la, genSBlock a)]
-            Switch _ _ _ -> _
+            If p c a -> genIf p c a genSBlock sconverge
+            Switch x cs d -> genSwitch x cs d genSBlock sconverge
 
         sconverge :: Gen () -> [(Name, Gen ())] -> Gen ()
         sconverge genDefault cases = do
@@ -248,15 +244,24 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                 genCase
             commitThen (LL.Br ln []) ln
 
-        genTBlock :: Block Terminator -> Gen ()
-        genTBlock = \case
-            Block [] term -> genTerm term
-            Block (stm : stms) term -> genStm stm *> (genTBlock (Block stms term))
-
         genSBlock :: Block () -> Gen ()
         genSBlock = \case
             Block [] () -> pure ()
             Block (stm : stms) () -> genStm stm *> genSBlock (Block stms ())
+
+        genIf p c a genBlock converge = do
+            lc <- label "CONSEQ"
+            la <- label "ALTERN"
+            commitThen (LL.CondBr (genLocal p) lc la []) lc
+            converge (genBlock c) [(la, genBlock a)]
+
+        genSwitch x cs d genBlock converge = do
+            ld <- label "DEFAULT"
+            lcs <- mapM (const (label "CASE")) cs
+            commitThen
+                (LL.Switch (genLocal x) ld (zip (map (genConst . fst) cs) lcs) [])
+                ld
+            converge (genBlock d) (zip lcs (map (genBlock . snd) cs))
 
         genStm :: Statement -> Gen ()
         genStm = \case
@@ -290,12 +295,6 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                                         , alignment = 0
                                         , metadata = []
                                         }
-
-
-        genEBlock :: Block Expr -> Gen (LL.Type, LL.Instruction)
-        genEBlock = \case
-            Block [] e -> genExpr e
-            Block (stm : stms) e -> genStm stm *> (genEBlock (Block stms e))
 
         -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
         --       instead of level-wise.
