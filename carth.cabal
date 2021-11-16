@@ -54,7 +54,7 @@ library
   other-modules:
   hs-source-dirs:
       src
-  ghc-options: -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports
+  ghc-options: -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports -Wno-deprecations
   build-depends:
       base
     , bytestring
@@ -120,6 +120,7 @@ test-suite carth-test
   main-is: Spec.hs
   other-modules:
       SystemSpec
+    , LowPgms
   hs-source-dirs:
       test
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports
@@ -131,6 +132,7 @@ test-suite carth-test
     , mtl
     , hspec
     , silently
+    , vector
   default-extensions:
       LambdaCase
     , TupleSections

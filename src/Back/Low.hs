@@ -25,15 +25,18 @@ data Type
     | TFun [Param ()] Ret
     | TConst Word
 
-data Const
-    = Undef Type
-    | I8 Int8
+data LowInt
+    = I8 Int8
     | I16 Int16
     | I32 Int32
-    | I64 Int
+    | I64 Prelude.Int
+
+data Const
+    = Undef Type
+    | CInt LowInt
     | F32 Float
     | F64 Double
-    | EnumVal GlobalId Word
+    | EnumVal GlobalId LowInt
     | Array Type [Const]
     | Zero Type
 
@@ -51,9 +54,7 @@ data Branch term
 
 data Statement
     = Let Local Expr
-    | Alloc LocalId Type
     | Store Operand Operand
-    | Loop (Block LoopTerminator)
     | SBranch (Branch ())
     | VoidCall Operand [Operand]
     | Do Expr
@@ -66,13 +67,16 @@ data Terminator
 
 data LoopTerminator
     = Continue
-    | Break
+    | Break Operand
     | LBranch (Branch LoopTerminator)
 
 data Expr
     = Add Operand Operand
+    | Sub Operand Operand
+    | Mul Operand Operand
     | Load Operand
     | Call Operand [Operand]
+    | Loop Type (Block LoopTerminator)
     | EBranch (Branch Expr)
 
 data Block term = Block [Statement] term
@@ -80,7 +84,9 @@ data Block term = Block [Statement] term
 type TypeNames = Vector String
 type VarNames = Vector String
 
-data FunDef = FunDef GlobalId [Param LocalId] Ret (Block Terminator) VarNames
+type Allocs = [(LocalId, Type)]
+
+data FunDef = FunDef GlobalId [Param LocalId] Ret (Block Terminator) Allocs VarNames
 data ExternDecl = ExternDecl String [Param ()] Ret
 data GlobDef
     = GVarDef Global (Block Expr) VarNames

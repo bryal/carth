@@ -85,7 +85,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                           f cfg tm mod
 
 codegen' :: DataLayout -> ShortByteString -> FilePath -> Ast.Program -> LLAST.Module
-codegen' layout triple f pgm = codegen layout triple f pgm
+codegen' layout triple f pgm = codegen f pgm layout triple
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do
