@@ -179,6 +179,11 @@ pub extern "C" fn show_f64(n: f64) -> Str {
     Str::new(&n.to_string())
 }
 
+#[export_name = "-print-int"]
+pub extern "C" fn print_int(n: i64) {
+    println!("-print-int: {}", n);
+}
+
 #[export_name = "-panic"]
 pub extern "C" fn panic(s: Str) {
     eprintln!("*** Panic: {}", s.as_str());
