@@ -20,6 +20,8 @@ import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LL hiding (Add, Sub, Mul)
+import Data.Either
+import Data.List
 import Data.String
 import System.FilePath
 import qualified Data.Vector as Vec
@@ -332,22 +334,32 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                 let f' = genOperand f
                     rt = getReturn (getPointee (LL.typeOf f'))
                 in  pure (rt, call f' (map genOperand as))
-            Loop t blk -> genLoop t blk
+            Loop params rt blk -> genLoop params rt blk
             EBranch br -> genEBranch br
 
-        genLoop :: Type -> Block LoopTerminator -> Gen (LL.Type, LL.Instruction)
-        genLoop t (Block stms term) = do
-            ll <- label "LOOP"
-            le <- label "END"
-            commitThen (LL.Br ll []) ll
-            forM_ stms genStm
-            let genLTerm :: LoopTerminator -> Gen [(LL.Operand, Name)]
+        genLoop
+            :: [(Local, Operand)]
+            -> Type
+            -> Block LoopTerminator
+            -> Gen (LL.Type, LL.Instruction)
+        genLoop params t (Block stms term) = do
+            ll <- label "LOOP_BODY"
+            la <- label "LOOP_ASSIGN"
+            le <- label "LOOP_END"
+            lprev <- gets currentLabel
+            commitThen (LL.Br la []) ll
+            let genLTerm
+                    :: LoopTerminator
+                    -> Gen [Either ([LL.Operand], Name) (LL.Operand, Name)]
                 genLTerm = \case
-                    Continue -> commitThen (LL.Br ll []) le $> []
+                    Continue args -> do
+                        l <- gets currentLabel
+                        commitThen (LL.Br la []) la
+                        pure [Left (map genOperand args, l)]
                     Break x -> do
                         l <- gets currentLabel
-                        commitThen (LL.Br le []) le
-                        pure [(genOperand x, l)]
+                        commitThen (LL.Br le []) la
+                        pure [Right (genOperand x, l)]
                     LBranch br -> genLBranch br
 
                 genLBranch = \case
@@ -355,18 +367,29 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                     Switch x cs d -> genSwitch x cs d genLTerm lconverge
 
                 lconverge
-                    :: Gen [(LL.Operand, Name)]
-                    -> [(Name, Gen [(LL.Operand, Name)])]
-                    -> Gen [(LL.Operand, Name)]
+                    :: Gen [Either ([LL.Operand], Name) (LL.Operand, Name)]
+                    -> [(Name, Gen [Either ([LL.Operand], Name) (LL.Operand, Name)])]
+                    -> Gen [Either ([LL.Operand], Name) (LL.Operand, Name)]
                 lconverge genDefault cases = do
                     d <- genDefault
                     cs <- forM cases $ \(l, genCase) -> do
                         modify (\st -> st { currentLabel = l })
                         genCase
                     pure (concat (d : cs))
-            bs <- genLTerm term
-            let t' = genType t
-            pure (t', LL.Phi t' bs [])
+
+            -- In LOOP
+            forM_ stms genStm
+            (conts, breaks) <- fmap partitionEithers $ genLTerm term
+            -- In ASSIGN
+            let conts' = transpose
+                    (map (\(nexts, lnext) -> zip nexts (repeat lnext)) conts)
+            forM_ (zip params conts') $ \((lhs, init), nexts) ->
+                let init' = genOperand init
+                    u = LL.typeOf init'
+                in  emitLocal lhs (LL.Phi u ((init', lprev) : nexts) [])
+            commitThen (LL.Br ll []) le
+            -- In END
+            let t' = genType t in pure (t', LL.Phi t' breaks [])
 
         getPointee :: LL.Type -> LL.Type
         getPointee = \case
@@ -398,6 +421,9 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             modify (\st -> st { tmpCount = n + 1 })
             let name = "tmp" ++ show n
             emitNamed name t instr
+
+        emitLocal :: Local -> LL.Instruction -> Gen LL.Operand
+        emitLocal (Local x t) = emitNamed (getName lnames x) (genType t)
 
         emitNamed :: String -> LL.Type -> LL.Instruction -> Gen LL.Operand
         emitNamed x t instr = do

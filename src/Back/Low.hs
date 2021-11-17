@@ -66,7 +66,7 @@ data Terminator
     | TBranch (Branch Terminator)
 
 data LoopTerminator
-    = Continue
+    = Continue [Operand]
     | Break Operand
     | LBranch (Branch LoopTerminator)
 
@@ -76,7 +76,9 @@ data Expr
     | Mul Operand Operand
     | Load Operand
     | Call Operand [Operand]
-    | Loop Type (Block LoopTerminator)
+    | Loop [(Local, Operand)] -- loop params
+           Type -- loop return
+           (Block LoopTerminator)
     | EBranch (Branch Expr)
 
 data Block term = Block [Statement] term
