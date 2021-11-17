@@ -1,4 +1,4 @@
-module LowPgms (emptyPgm, printPgm, factPgm) where
+module LowPgms (emptyPgm, printPgm, factPgm, factLoopPgm) where
 
 import Back.Low
 import qualified Data.Vector as Vec
@@ -71,6 +71,47 @@ factPgm = Program [empty_carth_init, carth_main, factDef]
         (Vec.fromList ["result", "n", "tmp1", "tmp2"])
     result = Local 0 TI64
     fact = OGlobal (Global factIx (TFun [ByVal () TI64] (RetVal TI64)))
+
+factLoopPgm :: Program
+factLoopPgm = Program [empty_carth_init, carth_main]
+                      [install_stackoverflow_handler, printIntDecl]
+                      []
+                      (Vec.fromList [])
+                      (Vec.fromList initNames)
+  where
+    carth_main = FunDef
+        mainIx
+        []
+        RetVoid
+        (Block
+            [ Let result $ Loop [(n, ci64 5), (prod, ci64 1)] TI64 $ Block
+                []
+                (LBranch
+                    (Switch
+                        n
+                        [(CInt (I64 0), Block [] (Break (OLocal prod)))]
+                        (Block
+                            [ Let prod' (Mul (OLocal n) (OLocal prod))
+                            , Let n' (Sub (OLocal n) (ci64 1))
+                            ]
+                            (Continue [OLocal n', OLocal prod'])
+                        )
+                    )
+                )
+            , Do (Call printIntOperand [OLocal result])
+            ]
+            TRetVoid
+        )
+        []
+        (Vec.fromList ["result", "prod", "prod_next", "n", "n_next"])
+    result = Local 0 TI64
+    prod = Local 1 TI64
+    prod' = Local 2 TI64
+    n = Local 3 TI64
+    n' = Local 4 TI64
+
+ci64 :: Int -> Operand
+ci64 = OConst . CInt . I64
 
 install_stackoverflow_handler :: ExternDecl
 install_stackoverflow_handler = ExternDecl "install_stackoverflow_handler" [] RetVoid

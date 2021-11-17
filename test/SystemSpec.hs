@@ -31,6 +31,7 @@ spec = do
         it "emptyPgm" $ shouldReturn (compileLow "test_emptyPgm" emptyPgm) True
         it "printPgm" $ shouldReturn (compileLow "test_printPgm" printPgm) True
         it "factPgm" $ shouldReturn (compileLow "test_factPgm" factPgm) True
+        it "factLoopPgm" $ shouldReturn (compileLow "test_factLoopPgm" factLoopPgm) True
     describe "Good programs run with expected output" $ do
         let d = "test/tests/good"
         fs <- runIO $ listDirectory d <&> filter isSourceFile
