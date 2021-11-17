@@ -57,14 +57,16 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
     -- A minimum optimization level of -O1 ensures that all sibling calls are
     -- optimized, even if we don't use a calling convention like `fastcc` that
     -- can optimize any tail call.
-    let optLvl = if (getDebug cfg) then CodeGenOpt.Less else CodeGenOpt.Default
+    let
+        optLvl = if (getDebug cfg) then CodeGenOpt.Less else CodeGenOpt.Default
+        dbgfile = ".dbg." ++ file
     in
         withMyTargetMachine optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
             triple <- getProcessTargetTriple
             verbose cfg ("   Generating LLVM")
             let amod = codegen' layout triple file pgm
-            when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
+            when (getDebug cfg) (writeFile (addExtension dbgfile ".gen.ll") (pretty amod))
             flip
                     catch
                     (\case
@@ -73,7 +75,8 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                 $ withModuleFromAST ctx amod
                 $ \mod -> do
                       verbose cfg ("   Verifying LLVM")
-                      when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                      when (getDebug cfg)
+                          $ writeLLVMAssemblyToFile' (addExtension dbgfile ".ll") mod
                       catch (verify mod) $ \case
                           VerifyException msg ->
                               ice $ "LLVM verification exception:\n" ++ msg
@@ -81,7 +84,10 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                           verbose cfg "   Optimizing"
                           r <- runPassManager passman mod
                           when (not r) $ putStrLn "DEBUG: runPassManager returned False"
-                          when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
+                          when (getDebug cfg)
+                              $ writeLLVMAssemblyToFile'
+                                    (addExtension dbgfile ".opt.ll")
+                                    mod
                           f cfg tm mod
 
 codegen' :: DataLayout -> ShortByteString -> FilePath -> Ast.Program -> LLAST.Module
