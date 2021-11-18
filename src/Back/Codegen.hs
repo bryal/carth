@@ -27,7 +27,7 @@ import System.FilePath
 import qualified Data.Vector as Vec
 
 import Misc
-import Sizeof (variantsTagBits, variantsTagBytes)
+import Sizeof (variantsTagBits, toBits)
 import Back.Low
 
 data St = St
@@ -97,11 +97,11 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             DStruct s -> pure $ TypeDefinition
                 (mkName (structName s))
                 (Just (structType (map genType (structMembers s))))
-            DData (Data name vs aMax sMax) ->
-                let sTag = max (variantsTagBytes vs) aMax
-                    tag = IntegerType (8 * fromIntegral sTag)
-                    fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
-                                     (IntegerType (8 * fromIntegral aMax))
+            DData (Data name _ align size aMax) ->
+                let tagSize = align
+                    tag = IntegerType (fromIntegral (toBits tagSize))
+                    fillElem = IntegerType (fromIntegral (toBits aMax))
+                    fill = ArrayType (fromIntegral (div (size - tagSize) aMax)) fillElem
                 in  [TypeDefinition (mkName name) (Just (structType [tag, fill]))]
 
     declareExterns :: [Definition]

@@ -76,7 +76,7 @@ type Inst = [Type]
 type VarDef = (TypedVar, (Inst, Expr))
 type RecDefs = [FunDef]
 type FunDef = (TypedVar, (Inst, Fun))
-type Datas = Map TConst [VariantTypes]
+type Datas = Map TConst [(String, VariantTypes)]
 type Externs = [(String, [Type], Type)]
 
 data Program = Program Defs Datas Externs

@@ -1,8 +1,10 @@
 module Back.Lower (lower, builtinExterns) where
 
+import Data.Bifunctor
 import Data.Function
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 
@@ -33,7 +35,48 @@ lower (Program _Defs datas externs) =
     -- Iff a TConst is zero sized, it will have no entry in tenv & tids
     tenv :: TypeEnv
     tids :: TypeIds
-    (tenv, tids) = _ datas
+    (tenv, tids) =
+        bimap (Vec.fromList . nameUniquely Low.typeName' Low.setTypeName) Map.fromList
+            $ unzip
+            $ zipWith (\i (a, b) -> (a, (b, i))) [0 ..]
+            $ flip mapMaybe (Map.toList datas)
+            $ \(tc@(tname, _), vs) ->
+                  let vs' = map (second (mapMaybe (sizedMaybe . genType))) vs
+                  in
+                      fmap (, tc) $ case vs' of
+                          [] -> ice "uninhabited type when creating Lower.tenv"
+                          [(_, [])] -> Nothing
+                          [(_, ts)] -> Just $ Low.DStruct $ Low.Struct
+                              tname
+                              ts
+                              (alignmentofStruct ts)
+                              (sizeofStruct ts)
+                          _ | all (null . snd) vs' ->
+                              Just $ Low.DEnum tname (Vec.fromList (map fst vs'))
+                          _ ->
+                              let aMax = maximum $ map (alignmentofStruct . snd) vs'
+                                  sMax = maximum $ map (sizeofStruct . snd) vs'
+                                  vs'' = Vec.fromList vs'
+                                  tagSize = max (variantsTagBytes vs'') aMax
+                                  align = tagSize
+                                  size = tagSize + div (sMax + aMax - 1) aMax * aMax
+                              in  Just $ Low.DData $ Low.Data tname vs'' align size aMax
+
+    nameUniquely :: (a -> String) -> (String -> a -> a) -> [a] -> [a]
+    nameUniquely get set =
+        ((reverse . fst) .) $ flip foldl ([], Map.empty) $ \(ds, seen) d ->
+            let name = get d
+                uq n =
+                    let name' = if n == 0 then name else name ++ "_" ++ show n
+                    in  if Map.findWithDefault 0 name' seen == 0
+                            then (name', Map.insert name (n + 1) seen)
+                            else uq (n + 1)
+                (name', seen') = uq (Map.findWithDefault 0 name seen)
+            in  (set name' d : ds, seen')
+
+    sizedMaybe = \case
+        ZeroSized -> Nothing
+        Sized t -> Just t
 
     -- Since Carth has no concept of arity > 1 for functions, neither accepting a tuple
     -- nor currying is a perfect translation of an n-ary function. If we for example
@@ -108,6 +151,14 @@ lower (Program _Defs datas externs) =
     passByRef :: Low.Type -> Bool
     passByRef t = sizeof t > 2 * 8
 
+    sizeofStruct = foldl addMember 0
+      where
+        addMember accSize u =
+            let align = alignmentof u
+                padding = if align == 0 then 0 else mod (align - accSize) align
+                size = sizeof u
+            in  accSize + padding + size
+
     sizeof = \case
         Low.TI8 -> 1
         Low.TI16 -> 2
@@ -118,10 +169,19 @@ lower (Program _Defs datas externs) =
         Low.TPtr _ -> wordsize
         Low.VoidPtr -> wordsize
         Low.TFun _ _ -> wordsize
-        Low.TConst ix -> tenv Vec.! fromIntegral ix & \case
+        Low.TConst ix -> case tenv Vec.! fromIntegral ix of
             Low.DEnum _ vs -> variantsTagBytes vs
             Low.DStruct s -> Low.structSize s
             Low.DData d -> Low.dataSize d
+
+    alignmentofStruct = maximum . map alignmentof
+
+    alignmentof = \case
+        Low.TConst ix -> case tenv Vec.! fromIntegral ix of
+            Low.DEnum _ vs -> variantsTagBytes vs
+            Low.DStruct s -> Low.structAlignment s
+            Low.DData d -> Low.dataAlignment d
+        t -> sizeof t
 
 -- | To generate cleaner code, a data-type is only represented as a tagged union (Data) if
 --   it has to be. If there is only a single variant, we skip the tag and represent it as

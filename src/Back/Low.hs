@@ -105,8 +105,11 @@ data Struct = Struct
 data Data = Data
     { dataName :: String
     , dataVariants :: Vector (String, [Type])
+    -- Alignment of the complete representing type
     , dataAlignment :: Word
     , dataSize :: Word
+    -- Max alignment of all variants, excluding tag
+    , dataAlignmentMax :: Word
     }
 
 data TypeDef
@@ -126,3 +129,9 @@ typeName' = \case
     DEnum n _ -> n
     DStruct s -> structName s
     DData d -> dataName d
+
+setTypeName :: String -> TypeDef -> TypeDef
+setTypeName n = \case
+    DEnum _ vs -> DEnum n vs
+    DStruct s -> DStruct $ s { structName = n }
+    DData d -> DData $ d { dataName = n }

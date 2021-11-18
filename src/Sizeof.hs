@@ -1,4 +1,4 @@
-module Sizeof (sizeof, toBytes, wordsize, wordsizeBits, tagBits, tagBytes, variantsTagBits, variantsTagBytes) where
+module Sizeof (sizeof, toBytes, toBits, wordsize, wordsizeBits, tagBits, tagBytes, variantsTagBits, variantsTagBytes) where
 
 import Data.Foldable
 import qualified Data.Map as Map
@@ -69,6 +69,9 @@ sizeof datas = \case
 
 toBytes :: Integral n => n -> n
 toBytes n = div (n + 7) 8
+
+toBits :: Integral n => n -> n
+toBits n = 8 * n
 
 wordsize :: Integral n => n
 wordsize = toBytes wordsizeBits
