@@ -1,5 +1,7 @@
 {-# LANGUAGE TemplateHaskell, DataKinds #-}
 
+-- TODO: Can this and Checked be merged to a single, parametrized AST?
+
 -- | Type annotated AST as a result of typechecking
 module Front.Inferred (module Front.Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) where
 

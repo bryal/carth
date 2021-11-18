@@ -84,6 +84,7 @@ library
     , GeneralizedNewtypeDeriving
     , TypeFamilies
     , TypeApplications
+    , MultiWayIf
   default-language: Haskell2010
 
 executable carth

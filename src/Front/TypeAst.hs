@@ -10,10 +10,8 @@ data TPrim
     | TNatSize
     | TInt Word32
     | TIntSize
-    | TF16
     | TF32
     | TF64
-    | TF128
     deriving (Show, Eq, Ord)
 
 type TConst t = (String, [t])

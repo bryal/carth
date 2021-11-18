@@ -13,7 +13,7 @@ import Front.Subst
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and impl of
 --       `getTypeAllocSize`.  https://llvm.org/doxygen/classllvm_1_1DataLayout.html
 --
--- See the [System V ABI docs](https://software.intel.com/sites/default/files/article/402129/mpx-linux64-abi.pdf)
+-- See the [System V ABI docs](https://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf)
 -- for more info.
 sizeof :: TypeDefs -> Type -> Maybe Word32
 sizeof datas = \case
@@ -24,10 +24,8 @@ sizeof datas = \case
     -- integer sized to fit a pointer, which is of word size (right?)
     TPrim TNatSize -> Just wordsize
     TPrim TIntSize -> Just wordsize
-    TPrim TF16 -> Just (toBytes 16)
     TPrim TF32 -> Just (toBytes 32)
     TPrim TF64 -> Just (toBytes 64)
-    TPrim TF128 -> Just (toBytes 128)
     -- pointer to captures struct + function pointer, word alignment => no padding
     TFun _ _ -> Just (2 * wordsize)
     TBox _ -> Just wordsize -- single pointer

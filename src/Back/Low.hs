@@ -22,6 +22,8 @@ data Type
     | TF32
     | TF64
     | TPtr Type
+    | VoidPtr
+    -- Really a function pointer, like `fn` in rust
     | TFun [Param ()] Ret
     | TConst Word
 
@@ -83,7 +85,6 @@ data Expr
 
 data Block term = Block [Statement] term
 
-type TypeNames = Vector String
 type VarNames = Vector String
 
 type Allocs = [(LocalId, Type)]
@@ -94,6 +95,13 @@ data GlobDef
     = GVarDef Global (Block Expr) VarNames
     | GConstDef Global Const
 
+data Struct = Struct
+    { structName :: String
+    , structMembers :: [Type]
+    , structAlignment :: Word
+    , structSize :: Word
+    }
+
 data Data = Data
     { dataName :: String
     , dataVariants :: Vector (String, [Type])
@@ -102,9 +110,9 @@ data Data = Data
     }
 
 data TypeDef
-    = Enum String (Vector String)
-    | Struct String [Type]
-    | Data' Data
+    = DEnum String (Vector String)
+    | DStruct Struct
+    | DData Data
 
 type TypeDefs = Vector TypeDef
 
@@ -115,6 +123,6 @@ typeName ds i = typeName' (ds Vec.! fromIntegral i)
 
 typeName' :: TypeDef -> String
 typeName' = \case
-    Enum n _ -> n
-    Struct n _ -> n
-    Data' (Data n _ _ _) -> n
+    DEnum n _ -> n
+    DStruct s -> structName s
+    DData d -> dataName d

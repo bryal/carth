@@ -48,7 +48,6 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                               [ defineTypes
                               , declareExterns
                               , declareGlobals
-                              -- TODO: init should be part of this already
                               , map defineFun funs
                               , [defineMain]
                               ]
@@ -94,10 +93,11 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
       where
         define :: TypeDef -> [Definition]
         define = \case
-            Enum _ _ -> []
-            Struct name ms ->
-                [TypeDefinition (mkName name) (Just (structType (map genType ms)))]
-            Data' (Data name vs aMax sMax) ->
+            DEnum _ _ -> []
+            DStruct s -> pure $ TypeDefinition
+                (mkName (structName s))
+                (Just (structType (map genType (structMembers s))))
+            DData (Data name vs aMax sMax) ->
                 let sTag = max (variantsTagBytes vs) aMax
                     tag = IntegerType (8 * fromIntegral sTag)
                     fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
@@ -180,8 +180,8 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
         in
             simpleFun LL.Internal (getGName ident) ps' rt (genFunBody lnames allocs block)
 
-    -- TODO: In this incarnation, this outermost main should just call init and
-    --       user-main. init will in turn init global vars & setup stack overflow handler etc.
+    -- In this incarnation, this outermost main should just call init and
+    -- user-main. init will in turn init global vars & setup stack overflow handler etc.
     defineMain :: Definition
     defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
         (mkName "entry")
@@ -391,12 +391,10 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             -- In END
             let t' = genType t in pure (t', LL.Phi t' breaks [])
 
-        getPointee :: LL.Type -> LL.Type
         getPointee = \case
             LL.PointerType t _ -> t
             t -> ice $ "Tried to get pointee of non-pointer type " ++ show t
 
-        getReturn :: LL.Type -> LL.Type
         getReturn = \case
             LL.FunctionType rt _ _ -> rt
             t -> ice $ "Tried to get return of non-function type " ++ show t
@@ -450,6 +448,7 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
         TF32 -> LL.FloatingPointType LL.FloatFP
         TF64 -> LL.FloatingPointType LL.DoubleFP
         TPtr u -> LL.ptr (genType u)
+        VoidPtr -> LL.ptr (LL.IntegerType 8)
         TFun ps r ->
             let (f, rt) = case r of
                     RetVal t -> (id, genType t)
@@ -457,9 +456,9 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                     OutParam t -> ((LL.ptr (genType t) :), LL.void)
             in  LL.ptr $ LL.FunctionType rt (f (map genParam ps)) False
         TConst i -> case (tdefs Vec.! fromIntegral i) of
-            Enum _ vs -> LL.IntegerType (variantsTagBits vs)
-            Struct x _ -> LL.NamedTypeReference (mkName x)
-            Data' (Data x _ _ _) -> LL.NamedTypeReference (mkName x)
+            DEnum _ vs -> LL.IntegerType (variantsTagBits vs)
+            DStruct s -> LL.NamedTypeReference (mkName (structName s))
+            DData d -> LL.NamedTypeReference (mkName (dataName d))
       where
         genParam = \case
             ByVal () pt -> genType pt
