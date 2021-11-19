@@ -2,6 +2,7 @@ module Back.Lower (lower, builtinExterns) where
 
 import Data.Bifunctor
 import Data.Function
+import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -12,9 +13,6 @@ import qualified Back.Low as Low
 import Front.Monomorphic
 import Misc
 import Sizeof
-
-type TypeEnv = Vector Low.TypeDef
-type TypeIds = Map TConst Word
 
 data SizedType = ZeroSized | Sized Low.Type
 
@@ -31,36 +29,41 @@ lower (Program _Defs datas externs) =
     resolveNameConflicts :: [String] -> [String] -> Vector String
     resolveNameConflicts = _
 
+    builtinTypeDefs =
+        -- closure: pointer to captures struct & function pointer, genericized
+        [("closure", Low.DStruct (Low.Struct [Low.VoidPtr, Low.VoidPtr] (8 * 2) 8))]
 
-    -- Iff a TConst is zero sized, it will have no entry in tenv & tids
-    tenv :: TypeEnv
-    tids :: TypeIds
+    closureType = builtinType "closure"
+
+    builtinType name =
+        Low.TConst $ fromIntegral $ fromJust $ findIndex ((== name) . fst) builtinTypeDefs
+
+    -- Iff a TConst is zero sized, it will have no entry in tids
+    tenv :: Vector Low.TypeDef
+    tids :: Map TConst Word
     (tenv, tids) =
-        bimap (Vec.fromList . nameUniquely Low.typeName' Low.setTypeName) Map.fromList
+        bimap (Vec.fromList . nameUniquely fst (first . const) . (builtinTypeDefs ++))
+              Map.fromList
             $ unzip
-            $ zipWith (\i (a, b) -> (a, (b, i))) [0 ..]
+            $ zipWith (\i (a, b) -> (a, (b, i)))
+                      [fromIntegral (length builtinTypeDefs) ..]
             $ flip mapMaybe (Map.toList datas)
             $ \(tc@(tname, _), vs) ->
                   let vs' = map (second (mapMaybe (sizedMaybe . genType))) vs
                   in
-                      fmap (, tc) $ case vs' of
+                      fmap ((, tc) . (tname, )) $ case vs' of
                           [] -> ice "uninhabited type when creating Lower.tenv"
                           [(_, [])] -> Nothing
                           [(_, ts)] -> Just $ Low.DStruct $ Low.Struct
-                              tname
                               ts
                               (alignmentofStruct ts)
                               (sizeofStruct ts)
                           _ | all (null . snd) vs' ->
-                              Just $ Low.DEnum tname (Vec.fromList (map fst vs'))
+                              Just $ Low.DEnum (Vec.fromList (map fst vs'))
                           _ ->
                               let aMax = maximum $ map (alignmentofStruct . snd) vs'
                                   sMax = maximum $ map (sizeofStruct . snd) vs'
-                                  vs'' = Vec.fromList vs'
-                                  tagSize = max (variantsTagBytes vs'') aMax
-                                  align = tagSize
-                                  size = tagSize + div (sMax + aMax - 1) aMax * aMax
-                              in  Just $ Low.DData $ Low.Data tname vs'' align size aMax
+                              in  Just $ Low.DData (Low.Data (Vec.fromList vs') sMax aMax)
 
     nameUniquely :: (a -> String) -> (String -> a -> a) -> [a] -> [a]
     nameUniquely get set =
@@ -109,7 +112,7 @@ lower (Program _Defs datas externs) =
         TPrim TIntSize -> genIntT wordsizeBits
         TPrim TF32 -> Sized Low.TF32
         TPrim TF64 -> Sized Low.TF64
-        TFun a r -> Sized $ closureType (genType a) (genType r)
+        TFun _ _ -> Sized closureType
         TBox t -> Sized $ case genType t of
             ZeroSized -> Low.VoidPtr
             Sized t' -> Low.TPtr t'
@@ -124,8 +127,6 @@ lower (Program _Defs datas externs) =
             | w <= 32 -> Sized Low.TI32
             | w <= 64 -> Sized Low.TI64
             | otherwise -> ice "Lower.genType: integral type larger than 64-bit"
-
-        closureType a r = _
 
     -- NOTE: This post is helpful:
     --       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
@@ -151,37 +152,10 @@ lower (Program _Defs datas externs) =
     passByRef :: Low.Type -> Bool
     passByRef t = sizeof t > 2 * 8
 
-    sizeofStruct = foldl addMember 0
-      where
-        addMember accSize u =
-            let align = alignmentof u
-                padding = if align == 0 then 0 else mod (align - accSize) align
-                size = sizeof u
-            in  accSize + padding + size
-
-    sizeof = \case
-        Low.TI8 -> 1
-        Low.TI16 -> 2
-        Low.TI32 -> 4
-        Low.TI64 -> 8
-        Low.TF32 -> 4
-        Low.TF64 -> 8
-        Low.TPtr _ -> wordsize
-        Low.VoidPtr -> wordsize
-        Low.TFun _ _ -> wordsize
-        Low.TConst ix -> case tenv Vec.! fromIntegral ix of
-            Low.DEnum _ vs -> variantsTagBytes vs
-            Low.DStruct s -> Low.structSize s
-            Low.DData d -> Low.dataSize d
-
-    alignmentofStruct = maximum . map alignmentof
-
-    alignmentof = \case
-        Low.TConst ix -> case tenv Vec.! fromIntegral ix of
-            Low.DEnum _ vs -> variantsTagBytes vs
-            Low.DStruct s -> Low.structAlignment s
-            Low.DData d -> Low.dataAlignment d
-        t -> sizeof t
+    sizeof = Low.sizeof tenv
+    alignmentof = Low.alignmentof tenv
+    sizeofStruct = Low.sizeofStruct tenv
+    alignmentofStruct = Low.alignmentofStruct tenv
 
 -- | To generate cleaner code, a data-type is only represented as a tagged union (Data) if
 --   it has to be. If there is only a single variant, we skip the tag and represent it as

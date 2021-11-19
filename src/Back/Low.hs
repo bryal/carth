@@ -6,6 +6,8 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Int
 
+import Sizeof hiding (sizeof)
+
 data Param name = ByVal name Type | ByRef name Type
 data Ret = RetVal Type | RetVoid | OutParam Type
 
@@ -38,12 +40,13 @@ data Const
     | CInt LowInt
     | F32 Float
     | F64 Double
-    | EnumVal GlobalId LowInt
+    | EnumVal TypeId LowInt
     | Array Type [Const]
     | Zero Type
 
 type LocalId = Word
 type GlobalId = Word
+type TypeId = Word
 
 data Local = Local LocalId Type
 data Global = Global GlobalId Type
@@ -96,42 +99,64 @@ data GlobDef
     | GConstDef Global Const
 
 data Struct = Struct
-    { structName :: String
-    , structMembers :: [Type]
+    { structMembers :: [Type]
     , structAlignment :: Word
     , structSize :: Word
     }
 
 data Data = Data
-    { dataName :: String
-    , dataVariants :: Vector (String, [Type])
-    -- Alignment of the complete representing type
-    , dataAlignment :: Word
-    , dataSize :: Word
-    -- Max alignment of all variants, excluding tag
-    , dataAlignmentMax :: Word
+    { dataVariants :: Vector (String, [Type])
+    , dataGreatestSize :: Word
+    , dataGreatestAlignment :: Word
     }
 
-data TypeDef
-    = DEnum String (Vector String)
+data TypeDef'
+    = DEnum (Vector String)
     | DStruct Struct
     | DData Data
+
+type TypeDef = (String, TypeDef')
 
 type TypeDefs = Vector TypeDef
 
 data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames
 
 typeName :: TypeDefs -> Word -> String
-typeName ds i = typeName' (ds Vec.! fromIntegral i)
+typeName ds i = fst (ds Vec.! fromIntegral i)
 
-typeName' :: TypeDef -> String
-typeName' = \case
-    DEnum n _ -> n
-    DStruct s -> structName s
-    DData d -> dataName d
+sizeof :: Vector TypeDef -> Type -> Word
+sizeof tenv = \case
+    TI8 -> 1
+    TI16 -> 2
+    TI32 -> 4
+    TI64 -> 8
+    TF32 -> 4
+    TF64 -> 8
+    TPtr _ -> wordsize
+    VoidPtr -> wordsize
+    TFun _ _ -> wordsize
+    TConst ix -> case snd (tenv Vec.! fromIntegral ix) of
+        DEnum vs -> variantsTagBytes vs
+        DStruct s -> structSize s
+        DData (Data { dataVariants = vs, dataGreatestSize = s, dataGreatestAlignment = a })
+            -> max (variantsTagBytes vs) a + a * div (s + a - 1) a
 
-setTypeName :: String -> TypeDef -> TypeDef
-setTypeName n = \case
-    DEnum _ vs -> DEnum n vs
-    DStruct s -> DStruct $ s { structName = n }
-    DData d -> DData $ d { dataName = n }
+sizeofStruct :: Vector TypeDef -> [Type] -> Word
+sizeofStruct tenv = foldl addMember 0
+  where
+    addMember accSize u =
+        let align = alignmentof tenv u
+            padding = if align == 0 then 0 else mod (align - accSize) align
+            size = sizeof tenv u
+        in  accSize + padding + size
+
+alignmentof :: Vector TypeDef -> Type -> Word
+alignmentof tenv = \case
+    TConst ix -> case snd (tenv Vec.! fromIntegral ix) of
+        DEnum vs -> variantsTagBytes vs
+        DStruct s -> structAlignment s
+        DData d -> max (variantsTagBytes (dataVariants d)) (dataGreatestAlignment d)
+    t -> sizeof tenv t
+
+alignmentofStruct :: Vector TypeDef -> [Type] -> Word
+alignmentofStruct tenv = maximum . map (alignmentof tenv)

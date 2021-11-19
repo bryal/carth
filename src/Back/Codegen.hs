@@ -92,17 +92,16 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
     defineTypes = define =<< Vec.toList tdefs
       where
         define :: TypeDef -> [Definition]
-        define = \case
-            DEnum _ _ -> []
+        define (name, d) = case d of
+            DEnum _ -> []
             DStruct s -> pure $ TypeDefinition
-                (mkName (structName s))
+                (mkName name)
                 (Just (structType (map genType (structMembers s))))
-            DData (Data name _ align size aMax) ->
-                let tagSize = align
-                    tag = IntegerType (fromIntegral (toBits tagSize))
-                    fillElem = IntegerType (fromIntegral (toBits aMax))
-                    fill = ArrayType (fromIntegral (div (size - tagSize) aMax)) fillElem
-                in  [TypeDefinition (mkName name) (Just (structType [tag, fill]))]
+            DData (Data { dataVariants = vs, dataGreatestSize = sMax, dataGreatestAlignment = aMax })
+                -> let tag = IntegerType (variantsTagBits vs)
+                       fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
+                                        (IntegerType (fromIntegral (toBits aMax)))
+                   in  [TypeDefinition (mkName name) (Just (structType [tag, fill]))]
 
     declareExterns :: [Definition]
     declareExterns = map declare exts
@@ -456,9 +455,8 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
                     OutParam t -> ((LL.ptr (genType t) :), LL.void)
             in  LL.ptr $ LL.FunctionType rt (f (map genParam ps)) False
         TConst i -> case (tdefs Vec.! fromIntegral i) of
-            DEnum _ vs -> LL.IntegerType (variantsTagBits vs)
-            DStruct s -> LL.NamedTypeReference (mkName (structName s))
-            DData d -> LL.NamedTypeReference (mkName (dataName d))
+            (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
+            (name, _) -> LL.NamedTypeReference (mkName name)
       where
         genParam = \case
             ByVal () pt -> genType pt
