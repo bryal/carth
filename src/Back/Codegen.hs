@@ -185,10 +185,8 @@ defineDataTypes datasEnums = do
                               ts <- mapM (fmap typeStruct . mapM genType) vs
                               aMax <- fmap maximum $ mapM alignmentof ts
                               sMax <- fmap maximum $ mapM sizeof ts
-                              let sTag = max
-                                      (toBytes (fromJust (tagBitWidth totVariants)))
-                                      aMax
-                              let tag = IntegerType (fromIntegral sTag * 8)
+                              let sTag = toBytes (fromJust (tagBitWidth totVariants))
+                              let tag = IntegerType (sTag * 8)
                               pure
                                   [ tag
                                   , ArrayType (div (sMax + aMax - 1) aMax)
