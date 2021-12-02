@@ -78,6 +78,20 @@
                                (unwrap! (array/split i s))))
              (array/find (cast ascii-newline) s)))
 
+
+;; May produce invalid UTF-8 strings
+(define: (string/skip-bytes n (Str arr))
+    (Fun Nat Str Str)
+  (Str (array/from (cast n) arr)))
+(define: (string/take-bytes n (Str arr))
+    (Fun Nat Str Str)
+  (Str (array/to (cast n) arr)))
+
+(define (string/empty? (Str s))
+  (array/nil? s))
+
+(define (string/nonempty? (Str s))
+  (> (array/length s) (cast 0)))
 (define: ascii-carriage-return Nat8 (cast 0xD))
 (define: ascii-newline Nat8 (cast 0xA))
 (define: ascii-minus Nat8 (cast 0x2D))
