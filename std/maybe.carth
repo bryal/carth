@@ -13,6 +13,10 @@
   (fmatch (case (Some x) x)
           (case None (panic "unwrap! of None"))))
 
+(define (unwrap-or b)
+  (fmatch (case (Some a) a)
+          (case None b)))
+
 (define (unwrap-or-else f)
   (fmatch (case (Some x) x)
           (case None (f Unit))))
@@ -33,3 +37,10 @@
 
 (define maybe/bindl maybe/bind)
 (define maybe/bindr (flip maybe/bind))
+
+(define maybe/iter (maybe iter/nil iter/once))
+
+(define some? (fmatch (case (Some _) True)
+                      (case None False)))
+(define none? (fmatch (case (Some _) False)
+                      (case None True)))

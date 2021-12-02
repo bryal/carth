@@ -12,6 +12,9 @@
 (define iter/nil
   (Iter (fun (_) None)))
 
+(define (iter/nil? it)
+  (none? (next it)))
+
 (define (iter/once x)
   (iter/cons x iter/nil))
 
@@ -26,6 +29,8 @@
 
 (define (next (Iter it)) (it Unit))
 (define next! (<o unwrap! next))
+
+(define (iter/first it) (maybe/map car (next it)))
 
 (define: (iter/nth n)
     (forall (a) (Fun Nat (Iter a) (Maybe a)))
@@ -109,3 +114,5 @@
   (Iter (fun (_) (maybe/map2 (fun ([x xs'] [y ys'])
                                [[x y] (zip xs' ys')])
                              (next xs) (next ys)))))
+(define (any f xs)
+  (not (iter/nil? (filter f xs))))
