@@ -88,6 +88,12 @@
             acc)))
   (foldl' [acc xs]))
 
+(define: (unfoldr f a)
+    (forall (a b) (Fun (Fun a (Maybe [b a]))
+                       a
+                       (Iter b)))
+  (Iter (fun (_) (maybe/map (map-cadr (unfoldr f)) (f a)))))
+
 (define (reverse xs)
   (define (rev xs a)
     (maybe a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
