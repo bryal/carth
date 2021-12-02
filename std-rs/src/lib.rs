@@ -145,7 +145,7 @@ fn heap_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
-#[no_mangle]
+#[export_name = "str-eq"]
 pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
     let (s1, s2) = (s1.as_str(), s2.as_str());
     s1 == s2

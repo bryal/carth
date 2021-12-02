@@ -433,7 +433,7 @@ genCtion (i, span', dataType, as) = do
 
 genStrEq :: Val -> Val -> Gen Val
 genStrEq s1 s2 =
-    fmap VLocal . emitAnonReg =<< callBuiltin "carth_str_eq" =<< mapM getLocal [s1, s2]
+    fmap VLocal . emitAnonReg =<< callBuiltin "str-eq" =<< mapM getLocal [s1, s2]
 
 selectVarAs :: Operand -> Type -> Gen Operand
 selectVarAs pRepresentative tvariant = do

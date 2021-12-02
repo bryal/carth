@@ -645,10 +645,7 @@ defineBuiltinsHidden = map
 
 builtinsHidden :: Map String ([Parameter], Type)
 builtinsHidden = Map.fromList
-    [ ( "carth_str_eq"
-      , ([Parameter typeStr (mkName "s1") [], Parameter typeStr (mkName "s2") []], i8)
-      )
-    , ("install_stackoverflow_handler", ([], LLType.void))
+    [ ("install_stackoverflow_handler", ([], LLType.void))
     , ( "GC_add_roots"
       , ( [ Parameter (LLType.ptr i8) (mkName "low_address") []
           , Parameter (LLType.ptr i8) (mkName "high_address_plus_1") []
