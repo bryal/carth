@@ -83,6 +83,19 @@
   (Iter (fun (_) (maybe/map (map-cadr (filter pred))
                             (next (skip-while (<o not pred) xs))))))
 
+(define: (flat-map f xs)
+    (forall (a b) (Fun (Fun a (Iter b)) (Iter a) (Iter b)))
+  (iter/join (map f xs)))
+
+(define: (iter/join xss)
+    (forall (a) (Fun (Iter (Iter a)) (Iter a)))
+  (Iter (fun (Unit) (maybe/bind (fun ([xs xss'])
+                                  (next (iter/chain xs (iter/join xss'))))
+                                (next xss)))))
+
+(define (filter-map f)
+  (flat-map (<o maybe/iter f)))
+
 (define: (foldl f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
   (define (foldl' [acc xs])
