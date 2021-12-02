@@ -10,6 +10,13 @@
 ;;? is. Iteration over grapheme clusters may instead be what you really want.
 (define: (string/codepoints s)
     (Fun Str (Iter Nat32))
+  (define (go bs)
+    (Iter (fun (_) (maybe/map (map-cadr (fun (n) (go (skip (cast n) bs))))
+                              (string/next-codepoint bs)))))
+  (go (string/bytes s)))
+
+(define: (string/next-codepoint bytes)
+    (Fun (Iter Nat8) (Maybe [Nat32 Nat]))
   (define: (init-byte b)
       (Fun Nat8 [Nat8 Nat])
     (if (= (cast 0) (bit-and b (cast 0b10000000)))
@@ -26,15 +33,11 @@
   (define: (join a b) (Fun Nat32 Nat8 Nat32)
     (+ (shift-l (cast a) (cast 6))
        (cast (cont-byte b))))
-  (define (go bs)
-    (Iter
-     (fun (_)
-       (maybe/map (fun ([b0 bs'])
-                    (let1 [b0' n] (init-byte b0)
-                      [(foldl join (cast b0') (take (cast n) bs'))
-                       (go (skip (cast n) bs'))]))
-                  (next bs)))))
-  (go (string/bytes s)))
+  (maybe/map (fun ([b0 bytes'])
+               (let1 [b0' n] (init-byte b0)
+                 [(foldl join (cast b0') (take (cast n) bytes'))
+                  (+ n (cast 1))]))
+             (next bytes)))
 
 ;;? Iterate over the indivitual bytes of a string.
 ;;?
@@ -78,6 +81,23 @@
                                (unwrap! (array/split i s))))
              (array/find (cast ascii-newline) s)))
 
+(define (words s)
+  (filter string/nonempty?
+          (string/split-by (fun (s) (if (maybe False whitespace-byte? (iter/first (string/bytes s)))
+                                        (Some (cast 1))
+                                      None))
+                           s)))
+
+(define: (string/split-by f (Str bs))
+    (Fun (Fun Str (Maybe Nat)) Str (Iter Str))
+  (unfoldr (fun (bs)
+             (if (array/nil? bs)
+                 None
+               (match (array/find-slice-by (<o f Str) bs)
+                 (case (Some [i n]) (Some [(Str (array/slice 0 (cast i) bs))
+                                           (array/from (cast (+ i n)) bs)]))
+                 (case None (Some [(Str bs) array/nil])))))
+           bs))
 
 ;; May produce invalid UTF-8 strings
 (define: (string/skip-bytes n (Str arr))
@@ -92,6 +112,10 @@
 
 (define (string/nonempty? (Str s))
   (> (array/length s) (cast 0)))
+
+(define (whitespace-byte? b)
+  (any (= b) (string/bytes " \t\r\n")))
+
 (define: ascii-carriage-return Nat8 (cast 0xD))
 (define: ascii-newline Nat8 (cast 0xA))
 (define: ascii-minus Nat8 (cast 0x2D))
