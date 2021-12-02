@@ -69,6 +69,16 @@
         (Some i)
       None)))
 
+(define: (array/find-slice-by f xs)
+    (forall (a b) (Fun (Fun (Array a) (Maybe b)) (Array a) (Maybe [Nat b])))
+  (iter/first (filter-map (fun ([i ys]) (maybe/map (cons' i) (f ys)))
+                          (enumerate (array/suffixes xs)))))
+
+(define (array/suffixes xs)
+  (if (array/nil? xs)
+      iter/nil
+    (iter/cons xs (map (fun (i) (array/from i xs)) (xrange 1 (cast (array/length xs)))))))
+
 ;;? Supports negative `m` for python like range indexing
 (define: (array/from i (Array ptr len))
     (forall (a) (Fun Int (Array a) (Array a)))
