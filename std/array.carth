@@ -60,7 +60,6 @@
 
 ;;? Returns index of the first occurence of the element in the array, if it *is* an element
 (define (array/find x xs)
-  ;; (forall (a) (Fun (Fun a a Bool) a (Array a) (Maybe Nat)))
   (array/find-by (= x) xs))
 
 ;;? Returns the index of the first element that satisfies the predicate
@@ -70,24 +69,28 @@
         (Some i)
       None)))
 
-;;? Positive m: skip from beginning, take from end. Negative m: skip from end, take from
-;;? beginning.
-(define: (array/skip m (Array ptr n))
+;;? Supports negative `m` for python like range indexing
+(define: (array/from i (Array ptr len))
     (forall (a) (Fun Int (Array a) (Array a)))
-  (if (< m 0)
-      (let1 m (min n (cast (neg m)))
-        (Array ptr (- n m)))
-    (let1 m (min n (cast m))
-      (Array (ptr/+ ptr m) (- n m)))))
+  (let1 i (if (< i 0)
+              (cast (max 0 (+ (cast len) i)))
+            (min len (cast i)))
+    (Array (ptr/+ ptr i) (- len i))))
 
-;;? Positive m: take from beginning, skip from end. Negative m: take from end, skip from
-;;? beginning.
-(define: (array/take m (Array ptr n))
+;;? Supports negative `m` for python-like range indexing
+(define: (array/to i (Array ptr len))
     (forall (a) (Fun Int (Array a) (Array a)))
-  (if (< m 0)
-      (let1 m (min n (cast (neg m)))
-        (Array (ptr/+ ptr (- n m)) m))
-    (Array ptr (min n (cast m)))))
+  (let1 i (if (< i 0)
+              (cast (max 0 (+ (cast len) i)))
+            (min len (cast i)))
+    (Array ptr i)))
+
+(define (array/slice i j xs)
+  (let ((len (array/length xs))
+        (i (if (< i 0)
+               (cast (max 0 (+ (cast len) i)))
+             (min len (cast i)))))
+    (array/from (cast i) (array/to j xs))))
 
 ;;? Binary search
 ;;?

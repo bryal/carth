@@ -74,7 +74,7 @@
                               ys
                             xs))))
   (maybe/map (fun (i) (map-two (<o Str trim-carriage)
-                               (<o Str (array/skip 1))
+                               (<o Str (array/from 1))
                                (unwrap! (array/split i s))))
              (array/find (cast ascii-newline) s)))
 
