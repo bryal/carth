@@ -23,13 +23,23 @@
 (defmacro nonstrict ()
   (case (computation) (fun (Unit) computation)))
 
+;; TODO: Fix macro case lhs name to be unique and not collide with user names. Example
+;;       when `do-a` was called `a`:
+;;
+;;       (do maybe/bind
+;;           (<- [inp a] (pa inp))
+;;           (<- [inp _b] (pb inp))
+;;           (Some [inp a]))
+;;
+;;       The type error was hard to parse, but I think that the `a` in the last line is
+;;       what caused it. Resulted in some strange macro expansion.
 (defmacro do (<-)
-  (case (do-bind ma) ma)
-  (case (do-bind (<- a ma) mbs ...)
-        (do-bind (fun (a) (do do-bind mbs ...)) ma))
-  (case (do-bind (let1 x a) mbs ...)
-        (let1 x a (do do-bind mbs ...)))
-  (case (do-bind (let bs) mbs ...)
-        (let bs (do do-bind mbs ...)))
-  (case (do-bind ma mbs ...)
-        (do-bind (fun (_) (do do-bind mbs ...)) ma)))
+  (case (do-bind do-ma) do-ma)
+  (case (do-bind (<- do-a do-ma) do-mbs ...)
+        (do-bind (fun (do-a) (do do-bind do-mbs ...)) do-ma))
+  (case (do-bind (let1 do-x do-a) do-mbs ...)
+        (let1 do-x do-a (do do-bind do-mbs ...)))
+  (case (do-bind (let do-bs) do-mbs ...)
+        (let do-bs (do do-bind do-mbs ...)))
+  (case (do-bind do-ma do-mbs ...)
+        (do-bind (fun (_) (do do-bind do-mbs ...)) do-ma)))
