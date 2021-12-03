@@ -22,7 +22,7 @@
   (Iter (fun (_) (Some [x xs]))))
 
 (define (iter/chain xs ys)
-  (Iter (fun (_) (maybe (next ys)
+  (Iter (fun (_) (maybe (nonstrict (next ys))
                         (fun ([x xs'])
                           (Some [x (iter/chain xs' ys)]))
                         (next xs)))))
@@ -31,6 +31,7 @@
 (define next! (<o unwrap! next))
 
 (define (iter/first it) (maybe/map car (next it)))
+(define (iter/first! it) (car (next! it)))
 
 (define: (iter/nth n)
     (forall (a) (Fun Nat (Iter a) (Maybe a)))
@@ -89,8 +90,7 @@
 
 (define: (iter/join xss)
     (forall (a) (Fun (Iter (Iter a)) (Iter a)))
-  (Iter (fun (Unit) (maybe/bind (fun ([xs xss'])
-                                  (next (iter/chain xs (iter/join xss'))))
+  (Iter (fun (Unit) (maybe/bind (fun ([xs xss']) (next (iter/chain xs (iter/join xss'))))
                                 (next xss)))))
 
 (define (filter-map f)
@@ -114,7 +114,7 @@
 
 (define (reverse xs)
   (define (rev xs a)
-    (maybe a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
+    (maybe' a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
   (rev xs iter/nil))
 
 (define: (count xs)
@@ -127,5 +127,23 @@
   (Iter (fun (_) (maybe/map2 (fun ([x xs'] [y ys'])
                                [[x y] (zip xs' ys')])
                              (next xs) (next ys)))))
+
+(define (ands xs) (foldl and True xs))
+(define (all f xs) (ands (map f xs)))
 (define (any f xs)
   (not (iter/nil? (filter f xs))))
+
+(define (iter/cartesian xs ys)
+  (flat-map (fun (x) (map (cons' x) ys)) xs))
+
+(define (repeat x)
+  (Iter (fun (Unit) (Some [x (repeat x)]))))
+
+(define (intersperse x ys)
+  (iter/chain (take 1 ys) (precalate x (skip (to-nat 1) ys))))
+
+(define (precalate x ys)
+  (flat-map (fun (y) (iter/cons x (iter/once y))) ys))
+
+(define (intercalate x ys)
+  (iter/join (intersperse x ys)))

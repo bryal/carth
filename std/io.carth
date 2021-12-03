@@ -80,11 +80,11 @@
 (define (handle/read-to-end h)
   (define bufsize (: (cast (* 8 1024)) Nat))
   (define (go [xs h])
-    (io/bind (maybe (io/pure None)
-                    (fun ([h ys])
-                      (if (array/nil? ys)
-                          (io/pure (Some [h xs]))
-                        (go [(array/append xs ys) h]))))
+    (io/bind (fmatch
+               (case None (io/pure None))
+               (case (Some [h ys]) (if (array/nil? ys)
+                                       (io/pure (Some [h xs]))
+                                     (go [(array/append xs ys) h]))))
              (handle/read-max bufsize h)))
   (go [array/nil h]))
 
@@ -95,3 +95,7 @@
 
 (extern stdrs_stdin_handle (Fun Unit Handle'))
 (define handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))
+
+(define (trace-show show x)
+  (seq (unsafe-perform-io (display (show x)))
+       x))

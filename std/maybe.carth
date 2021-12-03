@@ -7,6 +7,12 @@
 (define (maybe b f)
   (fmatch
     (case (Some a) (f a))
+    (case None     (b Unit))))
+
+;; Version of `maybe` that is scrict in `b`
+(define (maybe' b f)
+  (fmatch
+    (case (Some a) (f a))
     (case None     b)))
 
 (define unwrap!
@@ -30,7 +36,8 @@
 (define (maybe/lift2 f ma mb)
   (maybe/bindr ma (fun (a) (maybe/bindr mb (f a)))))
 
-(define (maybe/bind f)
+(define: (maybe/bind f)
+    (forall (a b) (Fun (Fun a (Maybe b)) (Maybe a) (Maybe b)))
   (fmatch
     (case (Some a) (f a))
     (case None None)))
@@ -38,7 +45,7 @@
 (define maybe/bindl maybe/bind)
 (define maybe/bindr (flip maybe/bind))
 
-(define maybe/iter (maybe iter/nil iter/once))
+(define maybe/iter (maybe' iter/nil iter/once))
 
 (define some? (fmatch (case (Some _) True)
                       (case None False)))

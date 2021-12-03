@@ -8,6 +8,11 @@
   (map (<o deref (<o (ptr/+ ptr) cast))
        (xrange 0 (cast len))))
 
+(define: (array/iter-rev (Array ptr len))
+    (forall (a) (Fun (Array a) (Iter a)))
+  (map (fun (i) (deref (ptr/+ ptr (- len (cast i)))))
+       (xrange 1 (+ 1 (cast len)))))
+
 (define array/nil (Array mem/unsafe-null (cast 0)))
 
 (define (array/nil? a) (= (cast 0) (array/length a)))
@@ -19,18 +24,33 @@
 (define (array/singleton x)
   (Array (box x) (cast 1)))
 
+;; TODO: This is inefficient. Do something similar to Rust's Vec instead. Start array at
+;; reserved size 1, and everytime space is full, increase the reserved size
+;; exponentially. At the end, do a final reallocation to shrink to the now known size.
 (define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
-  (let1 n (count xs)
-    (foldl (fun (v [i x]) (array/insert i x v))
+  (let ((xs (list/collect xs))
+        (n (list/count xs)))
+    (foldl (fun (v [i x]) (array/mutate i x v))
            (array/unsafe-uninit n)
-           (enumerate xs))))
+           (enumerate (list/iter xs)))))
 
-(define: (array/insert i x (Array ptr n))
+(define: (array/mutate i x (Array ptr n))
     (forall (a) (Fun Nat a (Array a) (Array a)))
   (if (>= i n)
-      (panic "array/insert after end of array")
+      (panic "array/mutate after end of array")
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
+
+(define (array/clone (Array p n))
+  (let1 (Array p' _) (array/unsafe-uninit n)
+    (seq (memcpy' p' p n)
+         (Array p' n))))
+
+(define (array/insert! i x arr)
+  (array/mutate i x (array/clone arr)))
+
+(define (array/modify! f i a)
+  (array/insert! i (f (array/lookup! i a)) a))
 
 (extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
 
@@ -72,6 +92,11 @@
 (define: (array/find-slice-by f xs)
     (forall (a b) (Fun (Fun (Array a) (Maybe b)) (Array a) (Maybe [Nat b])))
   (iter/first (filter-map (fun ([i ys]) (maybe/map (cons' i) (f ys)))
+                          (enumerate (array/suffixes xs)))))
+
+(define: (array/find-slice-by' f xs)
+    (forall (a) (Fun (Fun (Array a) Bool) (Array a) (Maybe Nat)))
+  (iter/first (filter-map (fun ([i ys]) (if (f ys) (Some i) None))
                           (enumerate (array/suffixes xs)))))
 
 (define (array/suffixes xs)
@@ -137,3 +162,11 @@
   (if (= n (cast 0))
       None
     (Some [(Array ptr (- n (cast 1))) (deref (ptr/+ ptr (- n (cast 1))))])))
+
+(define (array/= xs ys)
+  (if (= (array/length xs) (array/length ys))
+      (all (fun ([x y]) (= x y)) (zip (array/iter xs) (array/iter ys)))
+    False))
+
+(define (array/show show-elem a)
+  (apps str-append "{" (string/concat (intersperse " " (map show-elem (array/iter a)))) "}"))

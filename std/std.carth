@@ -44,6 +44,8 @@
 (define (map-two f g [a b]) [(f a) (g b)])
 (define (map-three f g h [a b c]) [(f a) (g b) (h c)])
 
+(define (swap [a b]) [b a])
+
 (define: (undefined x)
     (forall (a) (Fun Unit a))
   (panic "undefined"))
@@ -97,3 +99,6 @@
 (define: void-elim
     (forall (a) (Fun Void a))
   (fmatch))
+
+(define (to-nat x) (: (cast x) Nat))
+(define (to-int x) (: (cast x) Int))

@@ -43,7 +43,7 @@
 
 (define (list/reverse xs)
   (define (rev xs a)
-    (maybe a (fun ([x xs']) (rev xs' (list/cons x a))) (list/uncons xs)))
+    (maybe' a (fun ([x xs']) (rev xs' (list/cons x a))) (list/uncons xs)))
   (rev xs Nil))
 
 (define (list/cons x xs)
@@ -81,3 +81,9 @@
 
 (define (list/singleton x)
   (list/cons x Nil))
+
+(define (list/collect it)
+  (list/reverse (foldl (fun (acc x) (list/cons x acc)) Nil it)))
+
+(define (list/count xs)
+  (count (list/iter xs)))

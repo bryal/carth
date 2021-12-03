@@ -45,9 +45,14 @@
 ;;? string is actually only of the ASCII subset.
 (define (string/bytes (Str xs))
   (array/iter xs))
+(define (string/bytes-rev (Str xs))
+  (array/iter-rev xs))
 
 (define (string/collect-bytes it)
   (Str (array/collect it)))
+
+(define (string/length-bytes (Str bs))
+  (array/length bs))
 
 ;;? Show an integer in hexadecimal notation
 (define: (show-hex n) (Fun Int Str)
@@ -83,12 +88,12 @@
 
 (define (words s)
   (filter string/nonempty?
-          (string/split-by (fun (s) (if (maybe False whitespace-byte? (iter/first (string/bytes s)))
-                                        (Some (cast 1))
-                                      None))
-                           s)))
+          (string/splits-by (fun (s) (if (maybe' False whitespace-byte? (iter/first (string/bytes s)))
+                                         (Some (cast 1))
+                                       None))
+                            s)))
 
-(define: (string/split-by f (Str bs))
+(define: (string/splits-by f (Str bs))
     (Fun (Fun Str (Maybe Nat)) Str (Iter Str))
   (unfoldr (fun (bs)
              (if (array/nil? bs)
@@ -98,6 +103,18 @@
                                            (array/from (cast (+ i n)) bs)]))
                  (case None (Some [(Str bs) array/nil])))))
            bs))
+
+(define: (string/split-by f (Str bs))
+    (Fun (Fun Str Bool) Str (Maybe [Str Str]))
+  (maybe/map (fun (i) [(Str (array/slice 0 (cast i) bs))
+                       (Str (array/from (cast i) bs))])
+             (array/find-slice-by' (<o f Str) bs)))
+
+(define (string/split-first-codepoint s)
+  (maybe/map (map-cadr (fun (n) (string/skip-bytes n s))) (string/next-codepoint (string/bytes s))))
+
+(define (string/split-at-byte i s)
+  [(string/take-bytes i s) (string/skip-bytes i s)])
 
 ;; May produce invalid UTF-8 strings
 (define: (string/skip-bytes n (Str arr))
@@ -118,8 +135,10 @@
 
 (define: ascii-carriage-return Nat8 (cast 0xD))
 (define: ascii-newline Nat8 (cast 0xA))
+(define: ascii-space Nat8 (cast 0x20))
 (define: ascii-minus Nat8 (cast 0x2D))
 (define: ascii-0 Nat8 (cast 0x30))
+(define: ascii-1 Nat8 (cast 0x31))
 (define: ascii-9 Nat8 (cast 0x39))
 
 (define (parse-int s)
@@ -146,3 +165,23 @@
 (define (digit? c) (and (>= c ascii-0) (<= c ascii-9)))
 
 (define (parse-digit c) (if (digit? c) (Some (- c ascii-0)) None))
+
+(define: (parse-binary s)
+    (forall (a) (where (Cast Int a)
+                       (Cast Nat a)
+                       (Bitwise a))
+            (Fun Str a))
+  (foldl (fun (acc [i b]) (bit-or acc (cast (shift-l (cast (- b ascii-0)) i))))
+         (cast 0)
+         (enumerate (string/bytes-rev s))))
+
+(define (string/prefix? (Str as) (Str bs))
+  (array/= as (array/to (cast (array/length as)) bs)))
+
+(define (string/find-byte-by p (Str bs))
+  (array/find-by p bs))
+
+(define (string/concat ss)
+  (foldl str-append "" ss))
+
+(define (string/as-array (Str a)) a)

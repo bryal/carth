@@ -20,6 +20,9 @@
   (case (computation) (Lazy [(unsafe-perform-io mutex/new)
                              (box (Left (fun (Unit) computation)))])))
 
+(defmacro nonstrict ()
+  (case (computation) (fun (Unit) computation)))
+
 (defmacro do (<-)
   (case (do-bind ma) ma)
   (case (do-bind (<- a ma) mbs ...)
