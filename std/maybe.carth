@@ -51,3 +51,14 @@
                       (case None False)))
 (define none? (fmatch (case (Some _) False)
                       (case None True)))
+
+(define (maybe/show show-a)
+  (fmatch (case (Some a) (apps str-append "(Some " (show-a a) ")"))
+          (case None     "None")))
+
+(define (maybe/= inner= ma mb)
+  (match [ma mb]
+    (case [(Some a) (Some b)] (inner= a b))
+    (case _                   False)))
+
+(define cat-maybes (filter-map id))

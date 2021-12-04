@@ -33,6 +33,11 @@
 (define (iter/first it) (maybe/map car (next it)))
 (define (iter/first! it) (car (next! it)))
 
+(define: (iter/last xs)
+    (forall (a) (Fun (Iter a) (Maybe a)))
+  (maybe/map (fun ([x xs']) (unwrap-or x (iter/last xs'))) (next xs)))
+(define (iter/last! it) (unwrap! (iter/last it)))
+
 (define: (iter/nth n)
     (forall (a) (Fun Nat (Iter a) (Maybe a)))
   (apps <o (maybe/map car) next (skip n)))
@@ -147,3 +152,36 @@
 
 (define (intercalate x ys)
   (iter/join (intersperse x ys)))
+
+(define (skip-every-nth n it)
+  (define (go m it)
+    (Iter (nonstrict (if (= m n)
+                         (next (go 0 (skip (to-nat 1) it)))
+                       (maybe/map (map-cadr (go (+ 1 m))) (next it))))))
+  (go 0 it))
+
+;; Sliding windows over an iterator, each of width `n`
+(define: (iter/windows n)
+    (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
+  (unfoldr (fun (xs)
+             (let1 window (array/collect (take (cast n) xs))
+               (if (< (array/length window) n)  ; At the end
+                   None
+                 (Some [window (skip (cast 1) xs)]))))))
+
+(define: (iter/next-n n it)
+    (forall (a) (Fun Nat (Iter a) (Maybe [(Array a) (Iter a)])))
+  (define (go a i it)
+    (if (= i n)
+        (Some [a it])
+      (match (next it)
+        (case (Some [x it']) (go (array/mutate i x a) (+ i (to-nat 1)) it'))
+        (case None           None))))
+  (go (array/unsafe-uninit n) (to-nat 0) it))
+
+(define: (iter/chunks width it)
+    (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
+  (unfoldr (iter/next-n width) it))
+
+(define (maximum xs)
+  (uncurry (foldl max) (next! xs)))

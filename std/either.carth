@@ -1,3 +1,14 @@
+(import iter)
+
 (data (Either a b)
   (Left a)
   (Right b))
+
+(define: (partition-eithers es)
+    (forall (a b) (Fun (Iter (Either a b)) [(List a) (List b)]))
+  (map-two list/reverse list/reverse
+           (foldl (fun ([as bs])
+                    (fmatch (case (Left a)  [(list/cons a as) bs])
+                            (case (Right b) [as (list/cons b bs)])))
+                  [Nil Nil]
+                  es)))

@@ -28,11 +28,12 @@
 ;; reserved size 1, and everytime space is full, increase the reserved size
 ;; exponentially. At the end, do a final reallocation to shrink to the now known size.
 (define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
-  (let ((xs (list/collect xs))
-        (n (list/count xs)))
-    (foldl (fun (v [i x]) (array/mutate i x v))
-           (array/unsafe-uninit n)
-           (enumerate (list/iter xs)))))
+  (array/collect-list (list/collect xs)))
+
+(define (array/collect-list xs)
+  (foldl (fun (v [i x]) (array/mutate i x v))
+         (array/unsafe-uninit (list/count xs))
+         (enumerate (list/iter xs))))
 
 (define: (array/mutate i x (Array ptr n))
     (forall (a) (Fun Nat a (Array a) (Array a)))
@@ -46,11 +47,11 @@
     (seq (memcpy' p' p n)
          (Array p' n))))
 
-(define (array/insert! i x arr)
+(define (array/set! i x arr)
   (array/mutate i x (array/clone arr)))
 
 (define (array/modify! f i a)
-  (array/insert! i (f (array/lookup! i a)) a))
+  (array/set! i (f (array/lookup! i a)) a))
 
 (extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
 
@@ -170,3 +171,36 @@
 
 (define (array/show show-elem a)
   (apps str-append "{" (string/concat (intersperse " " (map show-elem (array/iter a)))) "}"))
+
+(define (array/build f acc n)
+  (foldl (fun ([acc a] i) (let1 [acc' x] (f acc i)
+                            [acc' (array/mutate i x a)]) )
+         [acc (array/unsafe-uninit n)]
+         (map to-nat (xrange 0 (to-int n)))))
+
+(define: (merge-sort cmp xs)
+    (forall (a) (Fun (Fun a a Cmp) (Array a) (Array a)))
+  (define (merge a i [y ys] zs)
+    (match (next zs)
+      (case (Some [z zs']) (if (cmp/< cmp y z)
+                               (merge (array/mutate i y a) (+ i (to-nat 1)) [z zs'] ys)
+                             (merge (array/mutate i z a) (+ i (to-nat 1)) [y ys] zs')))
+      (case None (foldl (fun (a [k y]) (array/mutate (+ i k) y a))
+                        a
+                        (enumerate (iter/cons y ys))))))
+  (if (<= (array/length xs) (to-nat 1))
+      xs
+    (let1 [ys zs] (unwrap! (array/split (/ (array/length xs) (to-nat 2)) xs))
+      (merge (array/unsafe-uninit (array/length xs))
+             (to-nat 0)
+             (next! (array/iter (merge-sort cmp ys)))
+             (array/iter (merge-sort cmp zs))))))
+
+(define (array/first! a)
+  (array/lookup! (to-nat 0) a))
+
+(define (array/last! a)
+  (let1 n (array/length a)
+    (if (= n (to-nat 0))
+        (panic "array/last! of empty array")
+      (array/lookup! (- n (to-nat 1)) a))))

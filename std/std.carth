@@ -62,6 +62,11 @@
     (if (= a b) Eq
       Gt)))
 
+(define (cmp/< cmp a b)
+  (match (cmp a b)
+    (case Lt True)
+    (case _  False)))
+
 ;;; Strings
 
 (extern show-int (Fun Int Str))

@@ -71,7 +71,12 @@
 (define: (lines s)
     (Fun Str (Iter Str))
   (define (lines' s)
-    (Iter (fun (Unit) (maybe/map (map-cadr lines') (string/split-first-line s)))))
+    (Iter (fun (Unit)
+            (if (string/empty? s)
+                None
+              (Some (match (string/split-first-line s)
+                      (case (Some [l s']) [l (lines' s')])
+                      (case None          [s iter/nil])))))))
   (lines' s))
 
 (define (string/split-first-line (Str s))
@@ -92,6 +97,13 @@
                                          (Some (cast 1))
                                        None))
                             s)))
+
+(define: (string/splits-on sep s)
+    (Fun Str Str (Iter Str))
+  (string/splits-by (fun (s') (if (string/prefix? sep s')
+                                  (Some (string/length-bytes sep))
+                                None))
+                    s))
 
 (define: (string/splits-by f (Str bs))
     (Fun (Fun Str (Maybe Nat)) Str (Iter Str))
