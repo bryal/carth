@@ -14,3 +14,15 @@
                                (box [Nil . Nil])
                                es)
     [(list/reverse as) (list/reverse bs)]))
+
+(define (either/show show-a show-b)
+  (fmatch (case (Left a) (apps str-append "(Left " (show-a a) ")"))
+          (case (Right b) (apps str-append "(Right " (show-b b) ")"))))
+
+(define (either/map f g)
+  (fmatch (case (Left a)  (Left (f a)))
+          (case (Right b) (Right (g b)))))
+
+(define (either/map-left f)
+  (fmatch (case (Left a)  (Left (f a)))
+          (case (Right b) (Right b))))

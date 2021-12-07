@@ -1,0 +1,67 @@
+(import std)
+
+;; TODO: Use better tree structure & balance. Benchmark implementations, with and without array for
+;;       cache friendliness etc.
+;;
+;; Unbalanced binary tree with array for somewhat less depth and more cache friendliness. Using this
+;; as a Map data structure for now.
+(data (Map k v)
+  (MTree (Box (Map k v)) (Array [k v]) (Box (Map k v)))
+  MLeaf)
+
+(defmacro map/n () (case () 32))
+
+(define map/nil MLeaf)
+(define (map/singleton k v) (MTree (box MLeaf) (array/singleton [k v]) (box MLeaf)))
+
+(define (map/insert cmp k v) (map/adjust-or-insert cmp (const v) k v))
+(define (map/insert-with cmp f k v2) (map/adjust-or-insert cmp (fun (v1) (f v1 v2)) k v2))
+
+(define: (map/adjust-or-insert cmp f k v m)
+    (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k v (Map k v) (Map k v)))
+  (define (go k v)
+    (fmatch (case MLeaf (map/singleton k v))
+            (case (MTree l es r)
+                  (match (either/map-left to-int (array/search (<o (cmp k) car) es))
+                    (case (Right i) (MTree l (array/modify! (map-cadr f) i es) r))
+                    (case (Left 0) (MTree (box (go k v (deref l))) es r))
+                    (case (Left (map/n)) (MTree l es (box (go k v (deref r)))))
+                    (case (Left i) (if (< (array/length es) (to-nat (map/n)))
+                                       (MTree l (array/insert-grow! (to-nat i) [k v] es) r)
+                                     (if (< i (/ (map/n) 2))
+                                         (let1 [[k' v'] es'] (array/insert-displace-left! (to-nat (- i 1)) [k v] es)
+                                           (MTree (box (go k' v' (deref l))) es' r))
+                                       (let1 [es' [k' v']] (array/insert-displace! (to-nat i) [k v] es)
+                                         (MTree l es' (box (go k' v' (deref r))))))))))))
+  (go k v m))
+
+(define (map/lookup cmp k)
+  (fmatch (case MLeaf None)
+          (case (MTree l es r) (match (either/map-left to-int (array/search (<o (cmp k) car) es))
+                                 (case (Right i) (Some (cadr (array/lookup! i es))))
+                                 (case (Left 0) (map/lookup cmp k (deref l)))
+                                 (case (Left i) (if (= (to-nat i) (array/length es))
+                                                    (map/lookup cmp k (deref r))
+                                                  None))))))
+(define map/iter
+  (fmatch (case MLeaf iter/nil)
+          (case (MTree (Box l) es (Box r))
+                (apps iter/chain (map/iter l) (array/iter es) (map/iter r)))))
+
+(define (map/collect-with-count cmp)
+  (map/extend-with-count cmp map/nil))
+
+(define (map/extend-with-count cmp m it)
+  (deref (foldl (fun ((Box m) x) (box (map/insert-with cmp + x (to-nat 1) m))) (box m) it)))
+
+(define map/height
+  (fmatch (case MLeaf (to-nat 0))
+          (case (MTree (Box l) _ (Box r)) (+ (to-nat 1) (max (map/height l) (map/height r))))))
+
+
+(define map/left-child
+  (fmatch (case MLeaf None)
+          (case (MTree (Box l) _ _) (Some l))))
+(define map/right-child
+  (fmatch (case MLeaf None)
+          (case (MTree _ _ (Box r)) (Some r))))

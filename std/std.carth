@@ -12,6 +12,7 @@
 (import io)
 (import net)
 (import parse)
+(import map)
 
 (define (cons x xs) [x . xs])
 (define (cons' x y) [x y])
@@ -70,6 +71,11 @@
 (define (cmp/< cmp a b)
   (match (cmp a b)
     (case Lt True)
+    (case _  False)))
+
+(define (cmp/= cmp a b)
+  (match (cmp a b)
+    (case Eq True)
     (case _  False)))
 
 ;;; Strings

@@ -140,18 +140,21 @@
 ;;? Binary search
 ;;?
 ;;? If there are multiple matches, the index of any of them may be returned.
-(define: (array/search cmp x ys)
-    (forall (a) (Fun (Fun a a Cmp) a (Array a) (Maybe Nat)))
+(define: (array/search cmp-x ys)
+    (forall (a) (Fun (Fun a Cmp) (Array a) (Either Nat Nat)))
   (define (go start end)
     (if (= start end)
-        None
+        (Left start)
       (let ((i (+ start (/ (- end start) (cast 2))))
             (y (array/lookup! i ys)))
-        (match (cmp x y)
-          (case Eq (Some i))
+        (match (cmp-x y)
+          (case Eq (Right i))
           (case Lt (go start i))
           (case Gt (go (inc i) end))))))
   (go (cast 0) (array/length ys)))
+
+;; (define main
+;;   (display (either/show show-nat show-nat (array/search int/cmp 3 (array/collect (skip-every-nth 1 (xrange 0 10)))))))
 
 (define (array/split i (Array ptr n))
   (if (<= i n)
@@ -215,3 +218,25 @@
     (if (= n (to-nat 0))
         (panic "array/last! of empty array")
       (array/lookup! (- n (to-nat 1)) a))))
+
+(define: (array/concat as) (forall (a) (Fun (List (Array a)) (Array a)))
+  (let1 len (sum (map array/length (list/iter as)))
+    (cadr (foldl (fun ([i (Array pacc nacc)] (Array p n))
+                   (seq (memcpy' (ptr/+ pacc i) p n)
+                        [(+ i n) (Array pacc nacc)]))
+                 [(to-nat 0) (array/unsafe-uninit len)]
+                 (list/iter as)))))
+
+(define: (array/insert-grow! i x xs) (forall (a) (Fun Nat a (Array a) (Array a)))
+  (let1 [ys zs] (unwrap! (array/split i xs))
+    (array/concat (list ys (array/singleton x) zs))))
+
+(define: (array/insert-displace-left! i x xs) (forall (a) (Fun Nat a (Array a) [a (Array a)]))
+  (let (([ys zs] (unwrap! (array/split (+ i (to-nat 1)) xs)))
+        ([y ys] (unwrap! (array/split-first ys))))
+    [y (array/concat (list ys (array/singleton x) zs))]))
+
+(define: (array/insert-displace! i x xs) (forall (a) (Fun Nat a (Array a) [(Array a) a]))
+  (let (([ys zs] (unwrap! (array/split i xs)))
+        ([zs z] (unwrap! (array/split-last zs))))
+    [(array/concat (list ys (array/singleton x) zs)) z]))
