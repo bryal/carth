@@ -4,11 +4,13 @@
   (Left a)
   (Right b))
 
+;; TODO: Boxing is workaround for when the type of the accumulation is too big/complex and breaks
+;;       TCO. Must be fixed in compiler and indirection can then be removed here.
 (define: (partition-eithers es)
     (forall (a b) (Fun (Iter (Either a b)) [(List a) (List b)]))
-  (map-two list/reverse list/reverse
-           (foldl (fun ([as bs])
-                    (fmatch (case (Left a)  [(list/cons a as) bs])
-                            (case (Right b) [as (list/cons b bs)])))
-                  [Nil Nil]
-                  es)))
+  (let1 (Box [as . bs]) (foldl (fun ((Box [as . bs]))
+                                 (fmatch (case (Left a)  (box [(list/cons a as) . bs]))
+                                         (case (Right b) (box [as . (list/cons b bs)]))))
+                               (box [Nil . Nil])
+                               es)
+    [(list/reverse as) (list/reverse bs)]))

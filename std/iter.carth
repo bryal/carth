@@ -129,9 +129,9 @@
 (define enumerate (zip (range-from (: (cast 0) Nat))))
 
 (define (zip xs ys)
-  (Iter (fun (_) (maybe/map2 (fun ([x xs'] [y ys'])
-                               [[x y] (zip xs' ys')])
-                             (next xs) (next ys)))))
+  (Iter (fun (_) (match [(next xs) (next ys)]
+                   (case [(Some [x xs']) (Some [y ys'])] (Some [[x y] (zip xs' ys')]))
+                   (case _ None)))))
 
 (define (ands xs) (foldl and True xs))
 (define (all f xs) (ands (map f xs)))

@@ -191,12 +191,14 @@
     (forall (a) (Fun (Fun a a Cmp) (Array a) (Array a)))
   (define (merge a i [y ys] zs)
     (match (next zs)
-      (case (Some [z zs']) (if (cmp/< cmp y z)
-                               (merge (array/mutate i y a) (+ i (to-nat 1)) [z zs'] ys)
-                             (merge (array/mutate i z a) (+ i (to-nat 1)) [y ys] zs')))
-      (case None (foldl (fun (a [k y]) (array/mutate (+ i k) y a))
-                        a
-                        (enumerate (iter/cons y ys))))))
+      (case (Some [z zs'])
+            (match (cmp y z)
+              (case Lt (merge (array/mutate i y a) (+ i (to-nat 1)) [z zs'] ys))
+              (case _  (merge (array/mutate i z a) (+ i (to-nat 1)) [y ys] zs'))))
+      (case None
+            (foldl (fun (a [k y]) (array/mutate (+ i k) y a))
+                   a
+                   (enumerate (iter/cons y ys))))))
   (if (<= (array/length xs) (to-nat 1))
       xs
     (let1 [ys zs] (unwrap! (array/split (/ (array/length xs) (to-nat 2)) xs))
