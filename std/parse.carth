@@ -1,0 +1,75 @@
+(import std)
+
+(data (Parser a)
+  (Parser (Fun Str (Maybe [Str a]))))
+
+(define: (parse (Parser p) input)
+    (forall (a) (Fun (Parser a) Str (Maybe a)))
+  (maybe/map cadr (p input)))
+
+(define: (parse/between left right middle)
+    (forall (a b c) (Fun (Parser a) (Parser b) (Parser c) (Parser c)))
+  (parse/thenr left (parse/thenl middle right)))
+
+;; The return-string is the equivalent slice in the input string of the given
+;; literal. Might be good for reducing memory usage?
+(define (parse/string lit)
+  (Parser (fun (inp)
+            (if (string/prefix? lit inp)
+                (let1 n (string/length-bytes lit)
+                  (Some [(string/skip-bytes n inp)
+                         (string/take-bytes n inp)]))
+              None))))
+
+(define parse/take-rest
+  (Parser (fun (inp) (Some ["" inp]))))
+
+(define (parse/take-bytes-while f)
+  (Parser (fun (inp) (Some (match (string/find-byte-by (<o not f) inp)
+                             (case None ["" inp])
+                             (case (Some i) (swap (string/split-at-byte i inp))))))))
+
+(define (parse/take-codepoints-while f)
+  (define (go s)
+    (match (string/split-first-codepoint s)
+      (case None s)
+      (case (Some [c s']) (if (f c)
+                              (go s')
+                            s))))
+  (Parser (fun (inp)
+            (let1 i (- (string/length-bytes inp) (string/length-bytes (go inp)))
+              (Some (swap (string/split-at-byte i inp)))))))
+
+(define: (parse/thenr (Parser pa) (Parser pb))
+    (forall (a b) (Fun (Parser a) (Parser b) (Parser b)))
+  (Parser (fun (inp) (maybe/bindr (pa inp) (fun ([inp _a]) (pb inp))))))
+
+(define: (parse/thenl (Parser pa) (Parser pb))
+    (forall (a b) (Fun (Parser a) (Parser b) (Parser a)))
+  (Parser (fun (inp)
+            (do maybe/bind
+                (<- [inp a] (pa inp))
+                (<- [inp _b] (pb inp))
+                (Some [inp a])))))
+
+(define parse/bindr
+  (flip parse/bind))
+
+(define: (parse/bind f (Parser pa))
+    (forall (a b) (Fun (Fun a (Parser b)) (Parser a) (Parser b)))
+  (Parser (fun (inp) (maybe/bind (fun ([inp a]) (let1 (Parser pb) (f a) (pb inp))) (pa inp)))))
+
+(define (parse/lift2 f pa pb)
+  (parse/bindr pa (fun (a) (parse/bindr pb (f a)))))
+
+(define (parse/binary-digit? b)
+  (or (= b ascii-0) (= b ascii-1)))
+
+(define (parse/map f (Parser pa))
+  (Parser (fun (inp) (maybe/map (map-cadr f) (pa inp)))))
+
+(define: (parse/pure x) (forall (a) (Fun a (Parser a)))
+  (Parser (fun (inp) (Some [inp x]))))
+
+(define: parse/nat (Parser Nat)
+  (parse/map (<o unwrap! parse-nat) (parse/take-bytes-while digit?)))

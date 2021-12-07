@@ -11,6 +11,7 @@
 (import queue)
 (import io)
 (import net)
+(import parse)
 
 (define (cons x xs) [x . xs])
 (define (cons' x y) [x y])
