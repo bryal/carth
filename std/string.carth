@@ -197,3 +197,15 @@
   (foldl str-append "" ss))
 
 (define (string/as-array (Str a)) a)
+
+(define (trim s) (trim-end (trim-start s)))
+
+(define (trim-start s)
+  (match (array/find-by (<o not whitespace-byte?) (string/as-array s))
+    (case (Some i) (cadr (string/split-at-byte i s)))
+    (case None "")))
+
+(define (trim-end s)
+  (match (array/find-by-end (<o not whitespace-byte?) (string/as-array s))
+    (case (Some i) (car (string/split-at-byte i s)))
+    (case None "")))

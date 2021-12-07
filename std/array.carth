@@ -83,11 +83,20 @@
 (define (array/find x xs)
   (array/find-by (= x) xs))
 
+(define (array/find-end x xs)
+  (array/find-by-end (= x) xs))
+
 ;;? Returns the index of the first element that satisfies the predicate
 (define (array/find-by p xs)
   (let1 i (count (take-while (<o not p) (array/iter xs)))
     (if (< i (array/length xs))
         (Some i)
+      None)))
+
+(define (array/find-by-end p xs)
+  (let1 i (count (take-while (<o not p) (array/iter-rev xs)))
+    (if (< i (array/length xs))
+        (Some (- (array/length xs) i))
       None)))
 
 (define: (array/find-slice-by f xs)
