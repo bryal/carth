@@ -14,7 +14,7 @@
 
 (define (dec n) (- n (cast 1)))
 
-(define (neg x) (- 0 x))
+(define (neg x) (- (cast 0) x))
 
 (define (min a b) (if (< a b) a b))
 (define (max a b) (if (> a b) a b))
@@ -66,3 +66,6 @@
 
 (define (bit-not n)
   (- (- (cast 0) n) (cast 1)))
+
+(define (abs x) (if (> x 0) x (neg x)))
+(define (sign x) (if (> x 0) 1 -1))

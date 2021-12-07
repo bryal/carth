@@ -44,6 +44,10 @@
 (define (map-two f g [a b]) [(f a) (g b)])
 (define (map-three f g h [a b c]) [(f a) (g b) (h c)])
 
+(define (map-both f [a1 a2]) [(f a1) (f a2)])
+
+(define (show-two show-a show-b [a b]) (apps str-append "[" (show-a a) " " (show-b b) "]"))
+
 (define (swap [a b]) [b a])
 
 (define: (undefined x)
@@ -94,6 +98,9 @@
 (define (o> f g a) (g (f a)))
 (define (oo> f g a b) (g (f a b)))
 (define (ooo> f g a b c) (g (f a b c)))
+
+(define (<| f a) (f a))
+(define (|> a f) (f a))
 
 (define (flip f a b) (f b a))
 
