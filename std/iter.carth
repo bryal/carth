@@ -185,3 +185,8 @@
 
 (define (maximum xs)
   (uncurry (foldl max) (next! xs)))
+
+(define (iter/find pred xs)
+  (match (next xs)
+    (case (Some [x xs']) (if (pred x) (Some x) (iter/find pred xs')))
+    (case None None)))

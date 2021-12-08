@@ -240,3 +240,6 @@
   (let (([ys zs] (unwrap! (array/split i xs)))
         ([zs z] (unwrap! (array/split-last zs))))
     [(array/concat (list ys (array/singleton x) zs)) z]))
+
+(define: (array/map f xs) (forall (a b) (Fun (Fun a b) (Array a) (Array b)))
+  (cadr (array/build (fun (Unit i) [Unit (f (array/lookup! i xs))]) Unit (array/length xs))))

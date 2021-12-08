@@ -13,6 +13,7 @@
 (import net)
 (import parse)
 (import map)
+(import set)
 
 (define (cons x xs) [x . xs])
 (define (cons' x y) [x y])
@@ -63,7 +64,7 @@
 (data Cmp
   Lt Eq Gt)
 
-(define (int/cmp a b)
+(define (num/cmp a b)
   (if (< a b) Lt
     (if (= a b) Eq
       Gt)))

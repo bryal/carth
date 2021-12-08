@@ -87,3 +87,8 @@
 
 (define (list/count xs)
   (count (list/iter xs)))
+
+(define (list/elem? cmp x)
+  (fmatch (case Nil False)
+          (case (LCons (Box [y ys]))
+                (match (cmp x y) (case Eq True) (case _ (list/elem? cmp x ys))))))

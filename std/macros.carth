@@ -43,3 +43,11 @@
         (let do-bs (do do-bind do-mbs ...)))
   (case (do-bind do-ma do-mbs ...)
         (do-bind (fun (_) (do do-bind do-mbs ...)) do-ma)))
+
+(defmacro cond (else)
+  (case ((else cond-else))
+        cond-else)
+  (case ((cond-pred cond-conseq) cond-alt ...)
+        (if cond-pred
+            cond-conseq
+          (cond cond-alt ...))))

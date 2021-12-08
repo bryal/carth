@@ -35,6 +35,18 @@
                                          (MTree l es' (box (go k' v' (deref r))))))))))))
   (go k v m))
 
+(define: (map/adjust cmp f k m)
+    (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k (Map k v) (Map k v)))
+  (define go
+    (fmatch (case MLeaf MLeaf)
+            (case (MTree l es r)
+                  (match (either/map-left to-int (array/search (<o (cmp k) car) es))
+                    (case (Right i) (MTree l (array/modify! (map-cadr f) i es) r))
+                    (case (Left 0) (MTree (box (go (deref l))) es r))
+                    (case (Left (map/n)) (MTree l es (box (go (deref r)))))
+                    (case (Left _) (MTree l es r))))))
+  (go m))
+
 (define (map/lookup cmp k)
   (fmatch (case MLeaf None)
           (case (MTree l es r) (match (either/map-left to-int (array/search (<o (cmp k) car) es))
@@ -43,10 +55,19 @@
                                  (case (Left i) (if (= (to-nat i) (array/length es))
                                                     (map/lookup cmp k (deref r))
                                                   None))))))
+
+(define (map/lookup! cmp k m) (unwrap! (map/lookup cmp k m)))
+
 (define map/iter
   (fmatch (case MLeaf iter/nil)
           (case (MTree (Box l) es (Box r))
                 (apps iter/chain (map/iter l) (array/iter es) (map/iter r)))))
+
+(define (map/collect cmp kvs)
+  (map/extend cmp map/nil kvs))
+
+(define (map/extend cmp m kvs)
+  (deref (foldl (fun ((Box m) [k v]) (box (map/insert cmp k v m))) (box m) kvs)))
 
 (define (map/collect-with-count cmp)
   (map/extend-with-count cmp map/nil))
@@ -58,10 +79,30 @@
   (fmatch (case MLeaf (to-nat 0))
           (case (MTree (Box l) _ (Box r)) (+ (to-nat 1) (max (map/height l) (map/height r))))))
 
-
 (define map/left-child
   (fmatch (case MLeaf None)
           (case (MTree (Box l) _ _) (Some l))))
 (define map/right-child
   (fmatch (case MLeaf None)
           (case (MTree _ _ (Box r)) (Some r))))
+
+(define (map/map f)
+  (fmatch (case MLeaf MLeaf)
+          (case (MTree (Box l) es (Box r))
+                (MTree (box (map/map f l)) (array/map (map-cadr f) es) (box (map/map f r))))))
+
+(define (map/unions cmp) (foldl (map/union cmp) map/nil))
+
+;; TODO: Use more efficient algorithm
+(define (map/union cmp m1 m2)
+  (map/extend cmp m1 (map/iter m2)))
+
+;; TODO: Use more efficient algorithm
+;;
+;; Data of first map for keys of second map
+(define (map/isect cmp m1 m2)
+  (map/collect cmp (filter-map (fun (k) (maybe/map (cons' k) (map/lookup cmp k m1))) (map/keys m2))))
+
+(define (map/keys m) (map car (map/iter m)))
+
+(define (map/member? cmp k m) (some? (map/lookup cmp k m)))

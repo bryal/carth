@@ -31,10 +31,10 @@
 
 (define (powi x y)
   (define (go acc x y)
-    (if (= y 0)
+    (if (= y (cast 0))
         acc
-      (if (divisible? y 2)
-          (go acc (square x) (/ y 2))
+      (if (divisible? y (cast 2))
+          (go acc (square x) (/ y (cast 2)))
         (go (* acc x) x (dec y)))))
   (go (cast 1) x y))
 

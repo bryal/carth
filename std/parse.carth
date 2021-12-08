@@ -29,6 +29,11 @@
                              (case None ["" inp])
                              (case (Some i) (swap (string/split-at-byte i inp))))))))
 
+(define (parse/take-bytes-while1 f)
+  (Parser (fun (inp) (match (string/find-byte-by (<o not f) inp)
+                       (case None None)
+                       (case (Some i) (Some (swap (string/split-at-byte i inp))))))))
+
 (define (parse/take-codepoints-while f)
   (define (go s)
     (match (string/split-first-codepoint s)
@@ -73,3 +78,14 @@
 
 (define: parse/nat (Parser Nat)
   (parse/map (<o unwrap! parse-nat) (parse/take-bytes-while digit?)))
+
+(define (parse/n-times n pa)
+  (foldl (fun (pacc i) (do parse/bind
+                           (<- acc pacc)
+                           (<- a pa)
+                           (parse/pure (array/mutate (to-nat i) a acc))))
+         (parse/pure (array/unsafe-uninit n))
+         (xrange 0 (to-int n))))
+
+(define parse/space (parse/map (const Unit) (parse/take-bytes-while whitespace-byte?)))
+(define parse/space1 (parse/map (const Unit) (parse/take-bytes-while1 whitespace-byte?)))
