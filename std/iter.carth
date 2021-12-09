@@ -42,21 +42,20 @@
     (forall (a) (Fun Nat (Iter a) (Maybe a)))
   (apps <o (maybe/map car) next (skip n)))
 
-(define: (xrange a b) (Fun Int Int (Iter Int))
-  (take (- b a)       (range-from a)))
-(define: (range  a b) (Fun Int Int (Iter Int))
+(define (xrange a b)
+  (take (- b a) (range-from a)))
+(define (range  a b)
   (take (inc (- b a)) (range-from a)))
 
 (define (range-from a)
   (Iter (fun (_) (Some [a (range-from (inc a))]))))
 
 (define (take n xs)
-  (Iter (if (> n 0)
-            (fun (_) (maybe/map (map-cadr (take (- n 1))) (next xs)))
+  (Iter (if (> n (cast 0))
+            (fun (_) (maybe/map (map-cadr (take (- n (cast 1)))) (next xs)))
           (fun (_) None))))
 
-(define: (skip n xs)
-    (forall (a) (Fun Nat (Iter a) (Iter a)))
+(define (skip n xs)
   (if (= n (cast 0))
       xs
     (match (next xs)

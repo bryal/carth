@@ -7,7 +7,7 @@
   (case (appsr-op appsr-x appsr-xs ...) (appsr-op appsr-x (appsr appsr-op appsr-xs ...))))
 
 (defmacro list ()
-  (case (list-xs ...) (appsr list/cons list-xs ... Nil)))
+  (case (list-xs ...) (appsr list/cons list-xs ... LNil)))
 
 (defmacro +s () (case (+s-xs ...) (apps + +s-xs ...)))
 (defmacro =s ()
@@ -51,3 +51,6 @@
         (if cond-pred
             cond-conseq
           (cond cond-alt ...))))
+
+(defmacro orelse () (case (orelse-p orelse-q) (if orelse-p True orelse-q)))
+(defmacro andalso () (case (andalso-p andalso-q) (if andalso-p andalso-q False)))

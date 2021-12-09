@@ -2,49 +2,49 @@
 
 (data (List a)
   (LCons (Box [a (List a)]))
-  Nil)
+  LNil)
 
 (define first
   (fmatch (case (LCons (Box [x _])) (Some x))
-          (case Nil None)))
+          (case LNil None)))
 (define first!
   (fmatch (case (LCons (Box [x _])) x)
-          (case Nil (panic "first! of empty list"))))
+          (case LNil (panic "first! of empty list"))))
 
 (define rest
   (fmatch (case (LCons (Box [_ xs])) (Some xs))
-          (case Nil None)))
+          (case LNil None)))
 (define rest!
   (fmatch (case (LCons (Box [_ xs])) xs)
-          (case Nil (panic "rest! of empty list"))))
+          (case LNil (panic "rest! of empty list"))))
 
 (define list/uncons
   (fmatch (case (LCons (Box p)) (Some p))
-          (case Nil None)))
+          (case LNil None)))
 
 (define last
-  (fmatch (case (LCons (Box [x Nil])) (Some x))
+  (fmatch (case (LCons (Box [x LNil])) (Some x))
           (case (LCons (Box [_ xs])) (last xs))
-          (case Nil None)))
+          (case LNil None)))
 (define last!
-  (fmatch (case (LCons (Box [x Nil])) x)
+  (fmatch (case (LCons (Box [x LNil])) x)
           (case (LCons (Box [_ xs])) (last! xs))
-          (case Nil (panic "last! of empty list"))))
+          (case LNil (panic "last! of empty list"))))
 
 (define init
-  (fmatch (case Nil None)
+  (fmatch (case LNil None)
           (case xs (Some (init! xs)))))
 (define init!
-  (fmatch (case (LCons (Box [_ Nil])) Nil)
+  (fmatch (case (LCons (Box [_ LNil])) LNil)
           (case (LCons (Box [x xs])) (list/cons x (init! xs)))
-          (case Nil (panic "init! of empty list"))))
+          (case LNil (panic "init! of empty list"))))
 
-(define list/nil? (fmatch (case Nil True) (case _ False)))
+(define list/nil? (fmatch (case LNil True) (case _ False)))
 
 (define (list/reverse xs)
   (define (rev xs a)
     (maybe' a (fun ([x xs']) (rev xs' (list/cons x a))) (list/uncons xs)))
-  (rev xs Nil))
+  (rev xs LNil))
 
 (define (list/cons x xs)
   (LCons (box [x xs])))
@@ -54,21 +54,26 @@
           (match xs
             (case (LCons (Box [y ys]))
                   (Some [y (list/iter ys)]))
-            (case Nil
+            (case LNil
                   None)))))
 
 (define (list/append xs ys)
   (match xs
     (case (LCons (Box [x xs'])) (list/cons x (list/append xs' ys)))
-    (case Nil ys)))
+    (case LNil ys)))
+
+(define (list/append' xs ys)
+  (match (next xs)
+    (case (Some [x xs']) (list/cons x (list/append' xs' ys)))
+    (case None ys)))
 
 (define list/concat
   (fmatch (case (LCons (Box [xs xss])) (list/append xs (list/concat xss)))
-          (case Nil Nil)))
+          (case LNil LNil)))
 
 (define (list/map f)
   (fmatch (case (LCons (Box [x xs])) (list/cons (f x) (list/map f xs)))
-          (case Nil Nil)))
+          (case LNil LNil)))
 
 (define (list/bind f xs)
   (list/concat (list/map f xs)))
@@ -77,18 +82,18 @@
   (list/concat (list/map f xs)))
 
 (define (list/when condition xs)
-  (if condition xs Nil))
+  (if condition xs LNil))
 
 (define (list/singleton x)
-  (list/cons x Nil))
+  (list/cons x LNil))
 
 (define (list/collect it)
-  (list/reverse (foldl (fun (acc x) (list/cons x acc)) Nil it)))
+  (list/reverse (foldl (fun (acc x) (list/cons x acc)) LNil it)))
 
 (define (list/count xs)
   (count (list/iter xs)))
 
 (define (list/elem? cmp x)
-  (fmatch (case Nil False)
+  (fmatch (case LNil False)
           (case (LCons (Box [y ys]))
                 (match (cmp x y) (case Eq True) (case _ (list/elem? cmp x ys))))))

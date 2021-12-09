@@ -32,3 +32,5 @@
 ;; TODO: better algo
 (define (set/diff cmp s1 s2)
   (set/collect cmp (filter (<o not (flip (set/member? cmp) s2)) (set/iter s1))))
+
+(define (set/insert cmp x (Set m)) (Set (map/insert cmp x Unit m)))

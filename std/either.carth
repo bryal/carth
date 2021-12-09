@@ -11,7 +11,7 @@
   (let1 (Box [as . bs]) (foldl (fun ((Box [as . bs]))
                                  (fmatch (case (Left a)  (box [(list/cons a as) . bs]))
                                          (case (Right b) (box [as . (list/cons b bs)]))))
-                               (box [Nil . Nil])
+                               (box [LNil . LNil])
                                es)
     [(list/reverse as) (list/reverse bs)]))
 

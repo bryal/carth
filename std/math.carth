@@ -39,6 +39,7 @@
   (go (cast 1) x y))
 
 (define sum (foldl + (cast 0)))
+(define product (foldl * (cast 1)))
 
 (define: nat/maxval Nat (cast -1))
 

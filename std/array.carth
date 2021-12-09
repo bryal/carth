@@ -79,6 +79,13 @@
 (define (array/unsafe-lookup-unchecked i (Array ptr _))
   (deref (ptr/+ ptr i)))
 
+(define (array/lookup2d [i j] rows)
+  (match (array/lookup i rows)
+    (case (Some row) (array/lookup j row))
+    (case None None)))
+
+(define array/lookup2d! (<oo unwrap! array/lookup2d))
+
 ;;? Returns index of the first occurence of the element in the array, if it *is* an element
 (define (array/find x xs)
   (array/find-by (= x) xs))
@@ -243,3 +250,7 @@
 
 (define: (array/map f xs) (forall (a b) (Fun (Fun a b) (Array a) (Array b)))
   (cadr (array/build (fun (Unit i) [Unit (f (array/lookup! i xs))]) Unit (array/length xs))))
+
+;;? Iterate over contiguous chunks of the underlying array
+(define (array/chunks width)
+  (unfoldr (array/split width)))
