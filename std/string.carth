@@ -209,3 +209,5 @@
   (match (array/find-by-end (<o not whitespace-byte?) (string/as-array s))
     (case (Some i) (car (string/split-at-byte i s)))
     (case None "")))
+
+(define (string/singleton-byte b) (Str (array/singleton b)))

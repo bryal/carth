@@ -163,10 +163,10 @@
 (define: (iter/windows n)
     (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
   (unfoldr (fun (xs)
-             (let1 window (array/collect (take (cast n) xs))
+             (let1 window (array/collect (take n xs))
                (if (< (array/length window) n)  ; At the end
                    None
-                 (Some [window (skip (cast 1) xs)]))))))
+                 (Some [window (skip 1 xs)]))))))
 
 (define: (iter/next-n n it)
     (forall (a) (Fun Nat (Iter a) (Maybe [(Array a) (Iter a)])))

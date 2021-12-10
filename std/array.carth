@@ -254,3 +254,6 @@
 ;;? Iterate over contiguous chunks of the underlying array
 (define (array/chunks width)
   (unfoldr (array/split width)))
+
+;;? For a sorted array, this is the median
+(define (array/middle xs) (array/lookup (/ (array/length xs) (to-nat 2)) xs))
