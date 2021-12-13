@@ -125,8 +125,10 @@
 (define (string/split-first-codepoint s)
   (maybe/map (map-cadr (fun (n) (string/skip-bytes n s))) (string/next-codepoint (string/bytes s))))
 
-(define (string/split-at-byte i s)
-  [(string/take-bytes i s) (string/skip-bytes i s)])
+(define (string/split-at-byte i (Str a))
+  (match (array/split i a)
+    (case (Some [a1 a2]) (Some [(Str a1) (Str a2)]))
+    (case None None)))
 
 ;; May produce invalid UTF-8 strings
 (define: (string/skip-bytes n (Str arr))
@@ -145,6 +147,13 @@
 (define (whitespace-byte? b)
   (any (= b) (string/bytes " \t\r\n")))
 
+(define (alphabetic-byte? b)
+  (or (and (>= b ascii-A) (<= b ascii-Z))
+      (and (>= b ascii-a) (<= b ascii-z))))
+
+(define (uppercase-byte? b) (and (>= b ascii-A) (<= b ascii-Z)))
+(define (lowercase-byte? b) (and (>= b ascii-a) (<= b ascii-z)))
+
 (define: ascii-carriage-return Nat8 (cast 0xD))
 (define: ascii-newline Nat8 (cast 0xA))
 (define: ascii-space Nat8 (cast 0x20))
@@ -152,6 +161,10 @@
 (define: ascii-0 Nat8 (cast 0x30))
 (define: ascii-1 Nat8 (cast 0x31))
 (define: ascii-9 Nat8 (cast 0x39))
+(define: ascii-A Nat8 (cast 0x41))
+(define: ascii-Z Nat8 (cast 0x5A))
+(define: ascii-a Nat8 (cast 0x61))
+(define: ascii-z Nat8 (cast 0x7A))
 
 (define (parse-int s)
   (maybe/bindr (next (string/bytes s))
@@ -204,12 +217,12 @@
 
 (define (trim-start s)
   (match (array/find-by (<o not whitespace-byte?) (string/as-array s))
-    (case (Some i) (cadr (string/split-at-byte i s)))
+    (case (Some i) (cadr (unwrap! (string/split-at-byte i s))))
     (case None "")))
 
 (define (trim-end s)
   (match (array/find-by-end (<o not whitespace-byte?) (string/as-array s))
-    (case (Some i) (car (string/split-at-byte i s)))
+    (case (Some i) (car (unwrap! (string/split-at-byte i s))))
     (case None "")))
 
 (define (string/singleton-byte b) (Str (array/singleton b)))
