@@ -121,6 +121,16 @@
                        (Iter b)))
   (Iter (fun (_) (maybe/map (map-cadr (unfoldr f)) (f a)))))
 
+(define: (unfoldr' f)
+    (forall (inp x) (Fun (Fun inp (Maybe [x inp]))
+                         inp
+                         [(List x) inp]))
+  (define (go xs inp)
+    (match (f inp)
+      (case None [(list/reverse xs) inp])
+      (case (Some [x inp]) (go (list/cons x xs) inp))))
+  (go LNil))
+
 (define (reverse xs)
   (define (rev xs a)
     (maybe' a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
@@ -194,3 +204,9 @@
   (match (next xs)
     (case (Some [x xs']) (if (pred x) (Some x) (iter/find pred xs')))
     (case None None)))
+
+(define (unzip it)
+  (map-two list/reverse list/reverse
+           (foldl (fun ([xs ys] [x y]) [(list/cons x xs) (list/cons y ys)])
+                  [LNil LNil]
+                  it)))

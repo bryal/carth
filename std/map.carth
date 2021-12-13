@@ -65,11 +65,13 @@
           (case (MTree (Box l) es (Box r))
                 (apps iter/chain (map/iter l) (array/iter es) (map/iter r)))))
 
-(define (map/collect cmp kvs)
-  (map/extend cmp map/nil kvs))
+(define (map/collect cmp kvs) (map/extend cmp map/nil kvs))
+(define (map/collect-with cmp f kvs) (map/extend-with cmp f map/nil kvs))
 
 (define (map/extend cmp m kvs)
   (deref (foldl (fun ((Box m) [k v]) (box (map/insert cmp k v m))) (box m) kvs)))
+(define (map/extend-with cmp f m kvs)
+  (deref (foldl (fun ((Box m) [k v]) (box (map/insert-with cmp f k v m))) (box m) kvs)))
 
 (define (map/collect-with-count cmp)
   (map/extend-with-count cmp map/nil))
@@ -108,3 +110,5 @@
 (define (map/keys m) (map car (map/iter m)))
 
 (define (map/member? cmp k m) (some? (map/lookup cmp k m)))
+
+(define (map/count m) (count (map/iter m)))

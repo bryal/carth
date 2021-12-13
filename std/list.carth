@@ -100,3 +100,6 @@
   (fmatch (case LNil False)
           (case (LCons (Box [y ys]))
                 (match (cmp x y) (case Eq True) (case _ (list/elem? cmp x ys))))))
+
+(define (list/show show-x xs)
+  (apps str-append "{" (string/concat (intersperse " " (map show-x (list/iter xs)))) "}"))

@@ -50,8 +50,14 @@
 (define (array/set! i x arr)
   (array/mutate i x (array/clone arr)))
 
+(define (array/set2d! [i j] x arr)
+  (array/mutate i (array/set! j x (array/lookup! i arr)) (array/clone arr)))
+
 (define (array/modify! f i a)
   (array/set! i (f (array/lookup! i a)) a))
+
+(define (array/modify2d! f ij a)
+  (array/set2d! ij (f (array/lookup2d! ij a)) a))
 
 (extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
 

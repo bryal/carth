@@ -195,6 +195,8 @@
 
 (define (string/concat ss)
   (foldl str-append "" ss))
+(define (string/concat-list ss)
+  (string/concat (list/iter ss)))
 
 (define (string/as-array (Str a)) a)
 
@@ -214,3 +216,5 @@
 
 (extern str-cmp (Fun Str Str Cmp))
 (extern str-show (Fun Str Str))
+
+(define (string/nth-byte! i (Str a)) (array/lookup! i a))
