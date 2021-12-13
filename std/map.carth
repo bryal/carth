@@ -47,14 +47,16 @@
                     (case (Left _) (MTree l es r))))))
   (go m))
 
-(define (map/lookup cmp k)
-  (fmatch (case MLeaf None)
-          (case (MTree l es r) (match (either/map-left to-int (array/search (<o (cmp k) car) es))
-                                 (case (Right i) (Some (cadr (array/lookup! i es))))
-                                 (case (Left 0) (map/lookup cmp k (deref l)))
-                                 (case (Left i) (if (= (to-nat i) (array/length es))
-                                                    (map/lookup cmp k (deref r))
-                                                  None))))))
+(define (map/lookup cmp k m)
+  (define go
+    (fmatch (case MLeaf None)
+            (case (MTree l es r) (match (either/map-left to-int (array/search (<o (cmp k) car) es))
+                                   (case (Right i) (Some (cadr (array/lookup! i es))))
+                                   (case (Left 0) (go (deref l)))
+                                   (case (Left i) (if (= (to-nat i) (array/length es))
+                                                      (go (deref r))
+                                                    None))))))
+  (go m))
 
 (define (map/lookup! cmp k m) (unwrap! (map/lookup cmp k m)))
 

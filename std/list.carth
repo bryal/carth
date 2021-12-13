@@ -43,7 +43,10 @@
 
 (define (list/reverse xs)
   (define (rev xs a)
-    (maybe' a (fun ([x xs']) (rev xs' (list/cons x a))) (list/uncons xs)))
+    (match xs
+      (case LNil a)
+      (case (LCons (Box [x xs']))
+            (rev xs' (list/cons x a)))))
   (rev xs LNil))
 
 (define (list/cons x xs)

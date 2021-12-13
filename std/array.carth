@@ -74,7 +74,10 @@
       (Some (array/unsafe-lookup-unchecked i a))
     None))
 
-(define array/lookup! (<oo unwrap! array/lookup))
+(define (array/lookup! i a)
+  (if (< i (array/length a))
+      (array/unsafe-lookup-unchecked i a)
+    (panic "array/lookup!: index out of bounds")))
 
 (define (array/unsafe-lookup-unchecked i (Array ptr _))
   (deref (ptr/+ ptr i)))
@@ -149,19 +152,16 @@
 ;;? If there are multiple matches, the index of any of them may be returned.
 (define: (array/search cmp-x ys)
     (forall (a) (Fun (Fun a Cmp) (Array a) (Either Nat Nat)))
-  (define (go start end)
+  (define (go [start end])
     (if (= start end)
         (Left start)
       (let ((i (+ start (/ (- end start) (cast 2))))
             (y (array/lookup! i ys)))
         (match (cmp-x y)
           (case Eq (Right i))
-          (case Lt (go start i))
-          (case Gt (go (inc i) end))))))
-  (go (cast 0) (array/length ys)))
-
-;; (define main
-;;   (display (either/show show-nat show-nat (array/search int/cmp 3 (array/collect (skip-every-nth 1 (xrange 0 10)))))))
+          (case Lt (go [start i]))
+          (case Gt (go [(inc i) end]))))))
+  (go [(cast 0) (array/length ys)]))
 
 (define (array/split i (Array ptr n))
   (if (<= i n)

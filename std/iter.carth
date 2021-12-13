@@ -22,10 +22,11 @@
   (Iter (fun (_) (Some [x xs]))))
 
 (define (iter/chain xs ys)
-  (Iter (fun (_) (maybe (nonstrict (next ys))
-                        (fun ([x xs'])
-                          (Some [x (iter/chain xs' ys)]))
-                        (next xs)))))
+  (Iter (fun (Unit)
+          (match (next xs)
+            (case None (next ys))
+            (case (Some [x xs'])
+                  (Some [x (iter/chain xs' ys)]))))))
 
 (define (next (Iter it)) (it Unit))
 (define next! (<o unwrap! next))
@@ -82,7 +83,9 @@
 (define (for xs f) (foldl (const f) Unit xs))
 
 (define (map f xs)
-  (Iter (fun (_) (maybe/map (map-two f (map f)) (next xs)))))
+  (Iter (fun (Unit) (match (next xs)
+                      (case None None)
+                      (case (Some [x xs]) (Some [(f x) (map f xs)]))))))
 
 (define (filter pred xs)
   (Iter (fun (_) (maybe/map (map-cadr (filter pred))
@@ -90,7 +93,9 @@
 
 (define: (flat-map f xs)
     (forall (a b) (Fun (Fun a (Iter b)) (Iter a) (Iter b)))
-  (iter/join (map f xs)))
+  (Iter (fun (Unit) (match (next xs)
+                      (case None None)
+                      (case (Some [x xs]) (next (iter/chain (f x) (flat-map f xs))))))))
 
 (define: (iter/join xss)
     (forall (a) (Fun (Iter (Iter a)) (Iter a)))
