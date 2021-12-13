@@ -1169,6 +1169,12 @@ Features and other stuff to do/implement in/around Carth.
        (_, y) => y,
    }
    #+END_SRC
+** INACTIVE Active Patterns
+   Like F# has. Something to
+   consider. https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/active-patterns
+
+   Could enable us to use pattern matching more?
+   
 * TODO Move from LLVM to alternative backend
   LLVM is kind of not great in some ways. It's often not trivial to
   debug errors stemming from displeasing LLVM. It updates frequently,

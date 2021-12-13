@@ -211,3 +211,6 @@
     (case None "")))
 
 (define (string/singleton-byte b) (Str (array/singleton b)))
+
+(extern str-cmp (Fun Str Str Cmp))
+(extern str-show (Fun Str Str))
