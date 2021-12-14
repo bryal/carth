@@ -197,8 +197,8 @@
     (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
   (unfoldr (iter/next-n width) it))
 
-(define (maximum xs)
-  (uncurry (foldl max) (next! xs)))
+(define (maximum xs) (uncurry (foldl max) (next! xs)))
+(define (minimum xs) (uncurry (foldl min) (next! xs)))
 
 (define (iter/find pred xs)
   (match (next xs)

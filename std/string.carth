@@ -87,7 +87,7 @@
                               ys
                             xs))))
   (maybe/map (fun (i) (map-two (<o Str trim-carriage)
-                               (<o Str (array/from 1))
+                               (<o Str (array/slice-from 1))
                                (unwrap! (array/split i s))))
              (array/find (cast ascii-newline) s)))
 
@@ -112,18 +112,18 @@
                  None
                (match (array/find-slice-by (<o f Str) bs)
                  (case (Some [i n]) (Some [(Str (array/slice 0 (cast i) bs))
-                                           (array/from (cast (+ i n)) bs)]))
+                                           (array/slice-from (cast (+ i n)) bs)]))
                  (case None (Some [(Str bs) array/nil])))))
            bs))
 
 (define: (string/split-by f (Str bs))
     (Fun (Fun Str Bool) Str (Maybe [Str Str]))
   (maybe/map (fun (i) [(Str (array/slice 0 (cast i) bs))
-                       (Str (array/from (cast i) bs))])
+                       (Str (array/slice-from (cast i) bs))])
              (array/find-slice-by' (<o f Str) bs)))
 
 (define (string/split-first-codepoint s)
-  (maybe/map (map-cadr (fun (n) (string/skip-bytes n s))) (string/next-codepoint (string/bytes s))))
+  (maybe/map (map-cadr (fun (n) (string/substr-from (to-int n) s))) (string/next-codepoint (string/bytes s))))
 
 (define (string/split-at-byte i (Str a))
   (match (array/split i a)
@@ -131,12 +131,9 @@
     (case None None)))
 
 ;; May produce invalid UTF-8 strings
-(define: (string/skip-bytes n (Str arr))
-    (Fun Nat Str Str)
-  (Str (array/from (cast n) arr)))
-(define: (string/take-bytes n (Str arr))
-    (Fun Nat Str Str)
-  (Str (array/to (cast n) arr)))
+(define (string/substr-from i (Str arr)) (Str (array/slice-from i arr)))
+(define (string/substr-to i (Str arr))   (Str (array/slice-to i arr)))
+(define (string/substr i j (Str arr))    (Str (array/slice i j arr)))
 
 (define (string/empty? (Str s))
   (array/nil? s))
@@ -201,13 +198,13 @@
          (enumerate (string/bytes-rev s))))
 
 (define (string/prefix? (Str as) (Str bs))
-  (array/= as (array/to (cast (array/length as)) bs)))
+  (array/= as (array/slice-to (cast (array/length as)) bs)))
 
 (define (string/find-byte-by p (Str bs))
   (array/find-by p bs))
 
 (define (string/concat ss)
-  (foldl str-append "" ss))
+  (Str (array/concat (map string/as-array ss))))
 (define (string/concat-list ss)
   (string/concat (list/iter ss)))
 

@@ -53,11 +53,17 @@
 (define (array/set2d! [i j] x arr)
   (array/mutate i (array/set! j x (array/lookup! i arr)) (array/clone arr)))
 
+(define (array/set-multiple! arr ivs)
+  (foldl (fun (arr [i v]) (array/mutate i v arr)) (array/clone arr) ivs))
+
 (define (array/modify! f i a)
   (array/set! i (f (array/lookup! i a)) a))
 
 (define (array/modify2d! f ij a)
   (array/set2d! ij (f (array/lookup2d! ij a)) a))
+
+(define (array/modify-multiple! arr ifs)
+  (foldl (fun (arr [i f]) (array/mutate i (f (array/lookup! i arr)) arr)) (array/clone arr) ifs))
 
 (extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
 
@@ -102,6 +108,16 @@
 (define (array/find-end x xs)
   (array/find-by-end (= x) xs))
 
+(define (array/find-by2 f xs)
+  (if (array/nil? xs)
+      None
+    (Some (foldl (fun ([max-i max-x] [i x])
+                   (if (f x max-x)
+                       [i x]
+                     [max-i max-x]))
+                 [(to-nat 0) (array/first! xs)]
+                 (enumerate (array/iter (array/slice-from 1 xs)))))))
+
 ;;? Returns the index of the first element that satisfies the predicate
 (define (array/find-by p xs)
   (let1 i (count (take-while (<o not p) (array/iter xs)))
@@ -128,10 +144,10 @@
 (define (array/suffixes xs)
   (if (array/nil? xs)
       iter/nil
-    (iter/cons xs (map (fun (i) (array/from i xs)) (xrange 1 (cast (array/length xs)))))))
+    (iter/cons xs (map (fun (i) (array/slice-from i xs)) (xrange 1 (cast (array/length xs)))))))
 
 ;;? Supports negative `m` for python like range indexing
-(define: (array/from i (Array ptr len))
+(define: (array/slice-from i (Array ptr len))
     (forall (a) (Fun Int (Array a) (Array a)))
   (let1 i (if (< i 0)
               (cast (max 0 (+ (cast len) i)))
@@ -139,7 +155,7 @@
     (Array (ptr/+ ptr i) (- len i))))
 
 ;;? Supports negative `m` for python-like range indexing
-(define: (array/to i (Array ptr len))
+(define: (array/slice-to i (Array ptr len))
     (forall (a) (Fun Int (Array a) (Array a)))
   (let1 i (if (< i 0)
               (cast (max 0 (+ (cast len) i)))
@@ -151,7 +167,7 @@
         (i (if (< i 0)
                (cast (max 0 (+ (cast len) i)))
              (min len (cast i)))))
-    (array/from (cast i) (array/to j xs))))
+    (array/slice-from (cast i) (array/slice-to j xs))))
 
 ;;? Binary search
 ;;?
@@ -232,27 +248,29 @@
         (panic "array/last! of empty array")
       (array/lookup! (- n (to-nat 1)) a))))
 
-(define: (array/concat as) (forall (a) (Fun (List (Array a)) (Array a)))
-  (let1 len (sum (map array/length (list/iter as)))
+(define: (array/concat as) (forall (a) (Fun (Iter (Array a)) (Array a)))
+  (let1 len (sum (map array/length as))
     (cadr (foldl (fun ([i (Array pacc nacc)] (Array p n))
                    (seq (memcpy' (ptr/+ pacc i) p n)
                         [(+ i n) (Array pacc nacc)]))
                  [(to-nat 0) (array/unsafe-uninit len)]
-                 (list/iter as)))))
+                 as))))
+
+(define (array/concat-list as) (array/concat (list/iter as)))
 
 (define: (array/insert-grow! i x xs) (forall (a) (Fun Nat a (Array a) (Array a)))
   (let1 [ys zs] (unwrap! (array/split i xs))
-    (array/concat (list ys (array/singleton x) zs))))
+    (array/concat-list (list ys (array/singleton x) zs))))
 
 (define: (array/insert-displace-left! i x xs) (forall (a) (Fun Nat a (Array a) [a (Array a)]))
   (let (([ys zs] (unwrap! (array/split (+ i (to-nat 1)) xs)))
         ([y ys] (unwrap! (array/split-first ys))))
-    [y (array/concat (list ys (array/singleton x) zs))]))
+    [y (array/concat-list (list ys (array/singleton x) zs))]))
 
 (define: (array/insert-displace! i x xs) (forall (a) (Fun Nat a (Array a) [(Array a) a]))
   (let (([ys zs] (unwrap! (array/split i xs)))
         ([zs z] (unwrap! (array/split-last zs))))
-    [(array/concat (list ys (array/singleton x) zs)) z]))
+    [(array/concat-list (list ys (array/singleton x) zs)) z]))
 
 (define: (array/map f xs) (forall (a b) (Fun (Fun a b) (Array a) (Array b)))
   (cadr (array/build (fun (Unit i) [Unit (f (array/lookup! i xs))]) Unit (array/length xs))))
@@ -263,3 +281,18 @@
 
 ;;? For a sorted array, this is the median
 (define (array/middle xs) (array/lookup (/ (array/length xs) (to-nat 2)) xs))
+
+(define: (array/windows n)
+    (forall (a) (Fun Nat (Array a) (Iter (Array a))))
+  (unfoldr (fun (xs)
+             (let1 window (array/slice-to (to-int n) xs)
+               (if (< (array/length window) n)  ; At the end
+                   None
+                 (Some [window (array/slice-from 1 xs)]))))))
+
+(define (array/first-two! a)
+  [(array/lookup! (to-nat 0) a) (array/lookup! (to-nat 1) a)])
+(define (array/first-three! a)
+  (cons (array/lookup! (to-nat 0) a) (array/first-two! (array/slice-from 1 a))))
+(define (array/first-four! a)
+  (cons (array/lookup! (to-nat 0) a) (array/first-three! (array/slice-from 1 a))))

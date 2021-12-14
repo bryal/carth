@@ -24,7 +24,7 @@
      (list msg "\n"
            "at i = " (show-nat i) "\n"
            "--------------------\n"
-           (string/take-bytes (to-nat 30) remaining)
+           (string/substr-to 30 remaining)
            "\n"))))
 
 (define: (parse/between left right middle)
@@ -37,8 +37,8 @@
   (Parser (fun ((ParseInp inp))
             (if (string/prefix? lit inp)
                 (let1 n (string/length-bytes lit)
-                  (Right [(ParseInp (string/skip-bytes n inp))
-                          (string/take-bytes n inp)]))
+                  (Right [(ParseInp (string/substr-from (to-int n) inp))
+                          (string/substr-to (to-int n) inp)]))
               (Left (ParseErr (ParseInp inp) (str-append "Failed to match literally " (str-show lit))))))))
 
 (define parse/take-rest
