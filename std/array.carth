@@ -42,15 +42,20 @@
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
 
+(define (array/mutate2d! [i j] x arr)
+  (seq (array/mutate j x (array/lookup! i arr))
+       arr))
+
 (define (array/clone (Array p n))
   (let1 (Array p' _) (array/unsafe-uninit n)
     (seq (memcpy' p' p n)
          (Array p' n))))
 
 (define (array/reverse a)
-  (cadr (array/build (fun (Unit i) [Unit (array/lookup! (- (dec (array/length a)) i) a)])
-                     Unit
-                     (array/length a))))
+  (if (array/nil? a) a
+    (cadr (array/build (fun (Unit i) [Unit (array/lookup! (- (dec (array/length a)) i) a)])
+                       Unit
+                       (array/length a)))))
 
 (define (array/set! i x arr)
   (array/mutate i x (array/clone arr)))

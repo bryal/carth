@@ -2,70 +2,71 @@
 
 ;; Binomial heap, from Okasaki's Purely Functional Data Structures
 
-(data (PQTree a) (PQTree (PQHeap a) a Nat8)) ; Children, element, rank
-(data (PQHeap a) (PQHeap (Array (PQTree a))))
+(data (PQTree a) (PQTree (List (PQTree a)) a Nat8)) ; Children, element, rank
+(data (PQHeap a) (PQHeap (List (PQTree a))))
 
-(define (pq/empty? (PQHeap ts)) (array/nil? ts))
-(define (pq/cons t (PQHeap ts)) (PQHeap (array/insert-grow! (to-nat 0) t ts)))
+(define (pq/empty? (PQHeap ts)) (list/nil? ts))
+;; (define (pq/cons t (PQHeap ts)) (PQHeap (list/cons t ts)))
 (define (pq/rank (PQTree _ _ r)) r)
 (define (pq/root (PQTree _ x _)) x)
 (define (pq/trees (PQHeap ts)) ts)
-(define pq/empty (PQHeap array/nil))
+(define pq/empty (PQHeap LNil))
+(define (pq/singleton x) (PQHeap (list/singleton (PQTree LNil x (cast 0)))))
 
 (define (pq/link cmp t1 t2)
   (let (((PQTree cs1 x1 r) t1)
         ((PQTree cs2 x2 _) t2))
     (match (cmp x1 x2)
-      (case Gt (PQTree (pq/cons t1 cs2) x2 (inc r)))
-      (case _  (PQTree (pq/cons t2 cs1) x1 (inc r))))))
+      (case Gt (PQTree (list/cons t1 cs2) x2 (inc r)))
+      (case _  (PQTree (list/cons t2 cs1) x1 (inc r))))))
 
-(define (pq/ins-tree cmp t1 (PQHeap ts))
-  (match (array/split-first ts)
-    (case None (PQHeap (array/singleton t1)))
-    (case (Some [t2 rest])
+(define (pq/ins-tree cmp t1 ts)
+  (match ts
+    (case LNil (list/singleton t1))
+    (case (LCons (Box [t2 rest]))
           (if (< (pq/rank t1) (pq/rank t2))
-              (pq/cons t1 (PQHeap ts))
-            (pq/ins-tree cmp (pq/link cmp t1 t2) (PQHeap rest))))))
+              (list/cons t1 ts)
+            (pq/ins-tree cmp (pq/link cmp t1 t2) rest)))))
 
-(define (pq/insert cmp x ts) (pq/ins-tree cmp (PQTree pq/empty x (cast 0)) ts))
+(define (pq/insert cmp x (PQHeap ts)) (PQHeap (pq/ins-tree cmp (PQTree LNil x (cast 0)) ts)))
 
 (define (pq/merge cmp (PQHeap ts1) (PQHeap ts2))
-  (define (acons a as) (array/insert-grow! (to-nat 0) a as))
   (define (go ts1 ts2)
-    (match [(array/split-first ts1) (array/split-first ts2)]
-      (case [_ None] ts1)
-      (case [None _] ts2)
-      (case [(Some [t1 ts1']) (Some [t2 ts2'])]
+    (match [ts1 ts2]
+      (case [_ LNil] ts1)
+      (case [LNil _] ts2)
+      (case [(LCons (Box [t1 ts1'])) (LCons (Box [t2 ts2']))]
             (match (num/cmp (pq/rank t1) (pq/rank t2))
-              (case Lt (acons t1 (go ts1' ts2)))
-              (case Gt (acons t2 (go ts1 ts2')))
-              (case Eq (pq/trees (pq/ins-tree cmp (pq/link cmp t1 t2) (PQHeap (go ts1' ts2')))))))))
+              (case Lt (list/cons t1 (go ts1' ts2)))
+              (case Gt (list/cons t2 (go ts1 ts2')))
+              (case Eq (pq/ins-tree cmp (pq/link cmp t1 t2) (go ts1' ts2')))))))
   (PQHeap (go ts1 ts2)))
 
 (define (pq/find-min cmp (PQHeap ts))
-  (match (array/split-first ts)
+  (match (list/uncons ts)
     (case None None)
     (case (Some [(PQTree _ x _) ts])
           (Some (match (pq/find-min cmp (PQHeap ts))
                   (case None x)
                   (case (Some y) (match (cmp x y) (case Gt y) (case _ x))))))))
 
-(define (pq/delete-min cmp ts)
-  (define (get-min (PQHeap ts))
-    (match (array/split-first ts)
-      (case None None)
-      (case (Some [t ts])
-            (Some (let1 ts (PQHeap ts)
-                    (match (get-min ts)
-                      (case None [t pq/empty])
-                      (case (Some [t' ts'])
-                            (match (cmp (pq/root t) (pq/root t'))
-                              (case Gt [t' (pq/cons t ts')])
-                              (case _  [t ts])))))))))
+(define (pq/delete-min cmp (PQHeap ts))
+  (define get-min
+    (fmatch
+      (case LNil None)
+      (case (LCons (Box [t ts]))
+            (Some (match (get-min ts)
+                    (case None [t LNil])
+                    (case (Some [t' ts'])
+                          (match (cmp (pq/root t) (pq/root t'))
+                            (case Gt [t' (list/cons t ts')])
+                            (case _  [t ts]))))))))
   (match (get-min ts)
     (case None None)
-    (case (Some [(PQTree (PQHeap ts1) x _) ts2])
-          (Some [x (pq/merge cmp (PQHeap (array/reverse ts1)) ts2)]))))
+    (case (Some [(PQTree ts1 x _) ts2])
+          (Some [x (pq/merge cmp (PQHeap (list/reverse ts1)) (PQHeap ts2))]))))
+
+(define (pq/delete-min! cmp ts) (unwrap! (pq/delete-min cmp ts)))
 
 (define (pq/iter cmp heap)
   (Iter (fun (Unit)

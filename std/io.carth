@@ -97,5 +97,8 @@
 (define handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))
 
 (define (trace-show show x)
-  (seq (unsafe-perform-io (display (show x)))
+  (trace (show x) x))
+
+(define (trace msg x)
+  (seq (unsafe-perform-io (display msg))
        x))
