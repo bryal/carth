@@ -786,7 +786,9 @@ sizeof = \case
     FloatingPointType FP128FP -> pure 16
     FloatingPointType X86_FP80FP -> pure 16
     FloatingPointType PPC_FP128FP -> pure 16
-    StructureType _ us -> foldlM addMember 0 us
+    StructureType _ us -> do
+        (s, a) <- foldlM addMember (0, 1) us
+        pure $ s + (mod (a - s) a)
     VectorType n u -> fmap (fromIntegral n *) (sizeof u)
     ArrayType n u -> fmap (n *) (sizeof u)
     VoidType -> ice "sizeof VoidType"
@@ -795,11 +797,11 @@ sizeof = \case
     LabelType -> ice "sizeof LabelType"
     TokenType -> ice "sizeof TokenType"
   where
-    addMember accSize u = do
+    addMember (accSize, maxAlign) u = do
         align <- alignmentof u
         let padding = if align == 0 then 0 else mod (align - accSize) align
         size <- sizeof u
-        pure (accSize + padding + size)
+        pure (accSize + padding + size, max align maxAlign)
 
 alignmentof :: MonadReader Env m => Type -> m Word64
 alignmentof = \case
