@@ -47,6 +47,11 @@
     (seq (memcpy' p' p n)
          (Array p' n))))
 
+(define (array/reverse a)
+  (cadr (array/build (fun (Unit i) [Unit (array/lookup! (- (dec (array/length a)) i) a)])
+                     Unit
+                     (array/length a))))
+
 (define (array/set! i x arr)
   (array/mutate i x (array/clone arr)))
 
