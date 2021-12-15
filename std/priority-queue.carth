@@ -71,8 +71,8 @@
   (Iter (fun (Unit)
           (maybe/map (map-cadr (pq/iter cmp)) (pq/delete-min cmp heap)))))
 
-(define main
-  (do io/bind
-      (let1 pq (foldl (flip (pq/insert num/cmp)) pq/empty (list/iter (list 1 2 3 100 101 50 51 23 22 21 1 100 101 2))))
-      (io/for (pq/iter num/cmp pq)
-              (<o display show-int))))
+;; (define main
+;;   (do io/bind
+;;       (let1 pq (foldl (flip (pq/insert num/cmp)) pq/empty (list/iter (list 1 2 3 100 101 50 51 23 22 21 1 100 101 2))))
+;;       (io/for (pq/iter num/cmp pq)
+;;               (<o display show-int))))
