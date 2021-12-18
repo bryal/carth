@@ -9,11 +9,14 @@
     (case (Some a) (f a))
     (case None     (b Unit))))
 
-;; Version of `maybe` that is scrict in `b`
+;; Version of `maybe` that is strict in `b`
 (define (maybe' b f)
   (fmatch
     (case (Some a) (f a))
     (case None     b)))
+
+(define (maybe/or ma f)
+  (if (some? ma) ma (f Unit)))
 
 (define unwrap!
   (fmatch (case (Some x) x)

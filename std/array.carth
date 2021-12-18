@@ -200,6 +200,11 @@
       (Some [(Array ptr i) (Array (ptr/+ ptr i) (- n i))])
     None))
 
+(define (array/split! i (Array ptr n))
+  (if (<= i n)
+      [(Array ptr i) (Array (ptr/+ ptr i) (- n i))]
+    (panic "array/split: index out of bounds")))
+
 (define (array/take-split i a)
   (match (array/split i a)
     (case (Some p) p)

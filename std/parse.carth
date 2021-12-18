@@ -110,6 +110,26 @@
   (parse/map (fun (s) (unwrap-or-else (fun (_) (panic (str-append "parse/nat: digits not a nat, " (str-show s)))) (parse-nat s)))
              (parse/take-bytes-while1 digit?)))
 
+(define: parse/int (Parser Int)
+  (parse/or (parse/map (<o neg to-int) (parse/thenr (parse/string "-") parse/nat))
+            (parse/map to-int parse/nat)))
+
+;; TODO: If both fail, pick the error of the longest partial match
+(define: (parse/or (Parser pa) (Parser pb)) (forall (a) (Fun (Parser a) (Parser a) (Parser a)))
+  (Parser (fun (inp) (match (pa inp)
+                       (case (Right res) (Right res))
+                       (case (Left (ParseErr (ParseInp rem1) msg1))
+                             (match (pb inp)
+                               (case (Right res) (Right res))
+                               (case (Left (ParseErr (ParseInp rem2) msg2))
+                                     (let (((ParseInp inp) inp)
+                                           (lin (string/length-bytes inp))
+                                           (l1 (- lin  (string/length-bytes rem1)))
+                                           (l2 (- lin  (string/length-bytes rem2))))
+                                       (Left (if (> l2 l1)
+                                                 (ParseErr (ParseInp rem1) msg1)
+                                               (ParseErr (ParseInp rem2) msg2)))))))))))
+
 (define (parse/n-times n pa)
   (foldl (fun (pacc i) (do parse/bind
                            (<- acc pacc)
@@ -129,3 +149,24 @@
       (<- a pa)
       (<- as (parse/many (parse/thenr psep pa)))
       (parse/pure (list/cons a as))))
+
+;; TODO: Allow recursive definitions not just for direct functions, but for all expressions with the
+;;       recursion gated behind a function/lambda of some sort. I'm thinking of recursive parsers,
+;;       specifically.
+;;
+;;       Consider the following definition. At the moment, we have to juggle with the Parser
+;;       wrapper, just to get the recursion allowed by the compiler.
+;;
+;; (define parse-snailfish-num
+;;   (define (p-snailfish-num inp)
+;;     (let1 (Parser p)
+;;         (parse/or (parse/map SfRegular parse/int)
+;;                   (parse/between (parse/string "[")
+;;                                  (parse/string "]")
+;;                                  (do parse/bind
+;;                                      (<- a (Parser p-snailfish-num))
+;;                                      (parse/string ",")
+;;                                      (<- b (Parser p-snailfish-num))
+;;                                      (parse/pure (SfPair (box [a b]))))))
+;;       (p inp)))
+;;   (parse! (Parser p-snailfish-num)))

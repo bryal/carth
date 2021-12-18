@@ -57,7 +57,7 @@
                   (nat/checked+ x y)))
 
 (define (bit-set? i n)
-  (/= 0 (bit-and n (shift-l 1 i))))
+  (/= (cast 0) (bit-and n (shift-l (cast 1) i))))
 
 (define (set-bit i b n)
   (if b

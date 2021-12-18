@@ -51,6 +51,8 @@
 (define (map-both f [a1 a2]) [(f a1) (f a2)])
 
 (define (show-two show-a show-b [a b]) (apps str-append "[" (show-a a) " " (show-b b) "]"))
+(define (show-three show-a show-b show-c [a b c])
+  (apps str-append "[" (show-a a) " " (show-b b) " " (show-c c) "]"))
 
 (define (swap [a b]) [b a])
 
@@ -124,3 +126,4 @@
 (define (to-nat x) (: (cast x) Nat))
 (define (to-int x) (: (cast x) Int))
 (define (to-n16 x) (: (cast x) Nat16))
+(define (to-n8 x) (: (cast x) Nat8))
