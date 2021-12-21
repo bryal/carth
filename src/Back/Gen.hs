@@ -58,6 +58,7 @@ data Env = Env
     , _dataTypes :: Map Name [Type]
     , _builtins :: Map String ([Parameter], Type)
     , _strLits :: Vector Val
+    , _noGC :: Bool
     }
 
 data St = St
@@ -195,8 +196,8 @@ genLambda' p@(TypedVar _ pt) (genBody, bt) captures fvXs = do
     scribe outFuncs [(fname, fvXs, p, genBody $> bt)]
     genStruct [captures, f]
 
-runGen' :: StateT St (Reader Env) a -> a
-runGen' g = runReader (evalStateT g initSt) initEnv
+runGen' :: Bool -> StateT St (Reader Env) a -> a
+runGen' noGC' g = runReader (evalStateT g initSt) initEnv
   where
     initEnv = Env { _localEnv = Map.empty
                   , _globalFunEnv = Map.empty
@@ -205,6 +206,7 @@ runGen' g = runReader (evalStateT g initSt) initEnv
                   , _dataTypes = Map.empty
                   , _builtins = Map.empty
                   , _strLits = Vec.empty
+                  , _noGC = noGC'
                   }
     initSt = St { _currentBlockLabel = "entry"
                 , _currentBlockInstrs = []
@@ -337,18 +339,23 @@ genStructInPtr ptr vs = forM_ (zip [0 ..] vs) $ \(i, v) -> do
 genHeapAllocGeneric :: Type -> Gen Operand
 genHeapAllocGeneric t = do
     size <- fmap fromIntegral (lift (sizeof t))
+    noGC' <- view noGC
     if size == 0
         then pure (null' typeGenericPtr)
-        else emitAnonReg =<< callBuiltin "GC_malloc" [litI64 size]
+        else emitAnonReg
+            =<< callBuiltin (if noGC' then "malloc" else "GC_malloc") [litI64 size]
 
 -- | Must be used on globals when running in JIT, as Boehm GC only detects global var
 --   roots when it can scan some segment in the ELF.
 genGcAddRoot :: LLConst.Constant -> Gen ()
-genGcAddRoot globRef =
-    let p0 = LLConst.BitCast globRef (LLType.ptr i8)
-        ptrSize = litI64' 8
-        p1 = LLConst.GetElementPtr False p0 [ptrSize]
-    in  emitDo' =<< callBuiltin "GC_add_roots" [ConstantOperand p0, ConstantOperand p1]
+genGcAddRoot globRef = view noGC >>= \case
+    True -> pure ()
+    False ->
+        let p0 = LLConst.BitCast globRef (LLType.ptr i8)
+            ptrSize = litI64' 8
+            p1 = LLConst.GetElementPtr False p0 [ptrSize]
+        in  emitDo' =<< callBuiltin "GC_add_roots"
+                                    [ConstantOperand p0, ConstantOperand p1]
 
 lookupVar :: TypedVar -> Gen Val
 lookupVar x = lookupVar' x >>= \case

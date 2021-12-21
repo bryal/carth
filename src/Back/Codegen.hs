@@ -45,13 +45,13 @@ instance Select Gen Val where
     selectSub _span i matchee = genIndexStruct matchee [i]
     selectDeref = genDeref
 
-codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Module
-codegen layout triple moduleFilePath (Program (Topo defs) tdefs externs strs) =
+codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
+codegen layout triple noGC' moduleFilePath (Program (Topo defs) tdefs externs strs) =
     let (tdefs', externs', globDefs) =
-            let (enums, tdefs'') = runGen' (defineDataTypes tdefs)
+            let (enums, tdefs'') = runGen' noGC' (defineDataTypes tdefs)
                 defs' = defToVarDefs =<< defs
                 (funDefs, varDefs) = separateFunDefs defs'
-            in  runGen'
+            in  runGen' noGC'
                     $ augment enumTypes enums
                     $ augment dataTypes tdefs''
                     $ withBuiltins

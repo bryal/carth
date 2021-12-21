@@ -122,12 +122,20 @@ compileOpts =
              "Output filepath"
     , Option [] ["debug"] (NoArg (\c -> c { cDebug = True })) "Enable debugging"
     , Option ['v'] ["verbose"] (NoArg (\c -> c { cVerbose = True })) "Verbose output"
+    , Option []
+             ["no-gc"]
+             (NoArg (\c -> c { cNoGC = True }))
+             "Disable garbage collection. Leak with malloc instead."
     ]
 
 runOpts :: [OptDescr (RunConfig -> RunConfig)]
 runOpts =
     [ Option [] ["debug"] (NoArg (\c -> c { rDebug = True })) "Enable debugging"
     , Option ['v'] ["verbose"] (NoArg (\c -> c { rVerbose = True })) "Verbose output"
+    , Option []
+             ["no-gc"]
+             (NoArg (\c -> c { rNoGC = True }))
+             "Disable garbage collection. Leak with malloc instead."
     ]
 
 printVersion :: IO ()

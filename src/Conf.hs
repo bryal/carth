@@ -14,23 +14,28 @@ data CompileConfig = CompileConfig
     , cCompiler :: FilePath
     , cDebug :: Bool
     , cVerbose :: Bool
+    , cNoGC :: Bool
     }
 
 data RunConfig = RunConfig
     { rInfile :: FilePath
     , rDebug :: Bool
     , rVerbose :: Bool
+    , rNoGC :: Bool
     }
 
 class Config cfg where
     getDebug :: cfg -> Bool
     getVerbose :: cfg -> Bool
+    getNoGC :: cfg -> Bool
 instance Config CompileConfig where
     getDebug = cDebug
     getVerbose = cVerbose
+    getNoGC = cNoGC
 instance Config RunConfig where
     getDebug = rDebug
     getVerbose = rVerbose
+    getNoGC = rNoGC
 
 defaultCompileConfig :: FilePath -> CompileConfig
 defaultCompileConfig inf = CompileConfig { cInfile = inf
@@ -38,10 +43,12 @@ defaultCompileConfig inf = CompileConfig { cInfile = inf
                                          , cCompiler = "cc"
                                          , cDebug = False
                                          , cVerbose = False
+                                         , cNoGC = False
                                          }
 
 defaultRunConfig :: FilePath -> RunConfig
-defaultRunConfig inf = RunConfig { rInfile = inf, rDebug = False, rVerbose = False }
+defaultRunConfig inf =
+    RunConfig { rInfile = inf, rDebug = False, rVerbose = False, rNoGC = False }
 
 verbose :: Config cfg => cfg -> String -> IO ()
 verbose cfg msg = when (getVerbose cfg) $ putStrLn msg
