@@ -147,6 +147,11 @@
                    (case [(Some [x xs']) (Some [y ys'])] (Some [[x y] (zip xs' ys')]))
                    (case _ None)))))
 
+(define (zip-with f xs ys)
+  (Iter (fun (_) (match [(next xs) (next ys)]
+                   (case [(Some [x xs]) (Some [y ys])] (Some [(f x y) (zip xs ys)]))
+                   (case _ None)))))
+
 (define (ands xs) (foldl and True xs))
 (define (all f xs) (ands (map f xs)))
 (define (any f xs)

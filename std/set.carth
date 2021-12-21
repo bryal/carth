@@ -25,7 +25,7 @@
 (define (set/isect cmp (Set m1) (Set m2))
   (Set (map/isect cmp m1 m2)))
 
-(define (set/count s) (count (set/iter s)))
+(define (set/size (Set m)) (map/size m))
 
 (define (set/member? cmp x (Set m)) (map/member? cmp x m))
 
