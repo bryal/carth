@@ -63,6 +63,9 @@
 (define (array/set2d! [i j] x arr)
   (array/mutate i (array/set! j x (array/lookup! i arr)) (array/clone arr)))
 
+(define (array/set3d! [i . rest] x arr)
+  (array/mutate i (array/set2d! rest x (array/lookup! i arr)) (array/clone arr)))
+
 (define (array/set-multiple! arr ivs)
   (foldl (fun (arr [i v]) (array/mutate i v arr)) (array/clone arr) ivs))
 

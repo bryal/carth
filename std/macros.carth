@@ -10,6 +10,7 @@
   (case (list-xs ...) (appsr list/cons list-xs ... LNil)))
 
 (defmacro +s () (case (+s-xs ...) (apps + +s-xs ...)))
+(defmacro *s () (case (*s-xs ...) (apps * *s-xs ...)))
 (defmacro =s ()
   (case (=s-x =s-xs ...) (all (= =s-x) (list/iter (list =s-xs ...)))))
 

@@ -92,6 +92,23 @@
     (case Lt b)
     (case _ a)))
 
+(define (cmp-two cmp-a cmp-b [a1 b1] [a2 b2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-b b1 b2))
+    (case c c)))
+(define (cmp-three cmp-a cmp-b cmp-c [a1 . rest1] [a2 . rest2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-two cmp-b cmp-c rest1 rest2))
+    (case c c)))
+(define (cmp-four cmp-a cmp-b cmp-c cmp-d [a1 . rest1] [a2 . rest2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-three cmp-b cmp-c cmp-d rest1 rest2))
+    (case c c)))
+(define (cmp-five cmp-a cmp-b cmp-c cmp-d cmp-e [a1 . rest1] [a2 . rest2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-four cmp-b cmp-c cmp-d cmp-e rest1 rest2))
+    (case c c)))
+
 ;;; Strings
 
 (extern show-int (Fun Int Str))

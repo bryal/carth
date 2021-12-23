@@ -1482,3 +1482,41 @@ Features and other stuff to do/implement in/around Carth.
   the sugar is "unneccesary", but it really is quite concise and
   readable. Might be nice to have.
 
+* INACTIVE Nonstrict parameters
+  Similar to how you can mark parameters as strict and force
+  evaluation in Haskell, we could benefit from having params marked as
+  nonstrict similarly.
+
+  Then we can write functions that perform some sort of
+  short-circuiting logic, like ~or~, ~parse/or~, ~maybe/or~, ~maybe~,
+  etc, without having to resort to macros or explicit wrappings of
+  ~(fun (Unit) ...)~s.
+
+  It could look something like this
+  
+  #+BEGIN_SRC carth
+  (define (or p #nonstrict q)
+    (if p True q))
+
+  (or (cheap-computation ...)
+      (expensive-computation ...))
+  #+END_SRC
+
+  Also consider the nested case
+
+  #+BEGIN_SRC carth
+  (define (foo a b #nonstrict computation)
+    (if (bar a)
+        (baz b computation)
+      3))
+
+  (define (baz b #nonstrict computation)
+    (or b (f computation)))
+  #+END_SRC
+
+* INACTIVE Better unicode support
+  Possibly using Rust's builtin stuff. Also possibly use some Zig library?
+
+  Otherwise, this Suckless library seems quite nice: https://libs.suckless.org/libgrapheme/
+
+  Very small! That's always a plus :)

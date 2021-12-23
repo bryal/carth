@@ -21,6 +21,9 @@
 (define list/uncons
   (fmatch (case (LCons (Box p)) (Some p))
           (case LNil None)))
+(define list/uncons!
+  (fmatch (case (LCons (Box p)) p)
+          (case LNil (panic "list/uncons! of empty list"))))
 
 (define last
   (fmatch (case (LCons (Box [x LNil])) (Some x))
