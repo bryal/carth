@@ -6,7 +6,7 @@
   (MTree (Box [k v Nat (Map k v) (Map k v)]))
   MLeaf)
 
-(define map/nil MLeaf)
+(define map/empty MLeaf)
 (define (map/singleton k v) (MTree (box [k v (to-nat 1) MLeaf MLeaf])))
 
 (define map/size
@@ -116,8 +116,8 @@
           (case (MTree (Box [k v _ l r]))
                 (apps iter/chain (map/iter l) (iter/once [k v]) (map/iter r)))))
 
-(define (map/collect cmp kvs) (map/extend cmp map/nil kvs))
-(define (map/collect-with cmp f kvs) (map/extend-with cmp f map/nil kvs))
+(define (map/collect cmp kvs) (map/extend cmp map/empty kvs))
+(define (map/collect-with cmp f kvs) (map/extend-with cmp f map/empty kvs))
 
 (define (map/extend cmp m kvs)
   (deref (foldl (fun ((Box m) [k v]) (box (map/insert cmp k v m))) (box m) kvs)))
@@ -125,7 +125,7 @@
   (deref (foldl (fun ((Box m) [k v]) (box (map/insert-with cmp f k v m))) (box m) kvs)))
 
 (define (map/collect-with-count cmp)
-  (map/extend-with-count cmp map/nil))
+  (map/extend-with-count cmp map/empty))
 
 (define (map/extend-with-count cmp m it)
   (deref (foldl (fun ((Box m) x) (box (map/insert-with cmp + x (to-nat 1) m))) (box m) it)))
@@ -149,7 +149,7 @@
           (case (MTree (Box [k v n l r]))
                 (MTree (box [k (f v) n (map/map f l) (map/map f r)])))))
 
-(define (map/unions cmp) (foldl (map/union cmp) map/nil))
+(define (map/unions cmp) (foldl (map/union cmp) map/empty))
 
 ;; TODO: Use more efficient algorithm
 (define (map/union cmp m1 m2)
@@ -165,3 +165,47 @@
 (define (map/vals m) (map cadr (map/iter m)))
 
 (define (map/member? cmp k m) (some? (map/lookup cmp k m)))
+
+(define map/empty? (fmatch (case MLeaf True) (case _ False)))
+
+;; Wiki says maintenance after deleting is extraneous
+(define: map/remove-min
+    (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
+  (fmatch (case MLeaf None)
+          (case (MTree (Box [k v n l r]))
+                (match (map/remove-min l)
+                  (case (Some [x l]) (Some [x (MTree (box [k v (dec n) l r]))]))
+                  (case None (Some [[k v] r]))))))
+
+;; Wiki says maintenance after deleting is extraneous
+(define: map/remove-max
+    (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
+  (fmatch (case MLeaf None)
+          (case (MTree (Box [k v n l r]))
+                (match (map/remove-max r)
+                  (case (Some [x r]) (Some [x (MTree (box [k v (dec n) l r]))]))
+                  (case None (Some [[k v] l]))))))
+
+(define (map/remove cmp k m)
+  (define go
+    (fmatch (case MLeaf None)
+            (case (MTree (Box [k' v n l r]))
+                  (match (cmp k k')
+                    (case Eq (Some [v (if (map/empty? l)
+                                          r
+                                        (match (map/remove-min r)
+                                          (case None l)
+                                          (case (Some [[ksucc vsucc] r])
+                                                (MTree (box [ksucc vsucc (dec n) l r])))))]))
+                    (case Lt (maybe/map (map-cadr (fun (l) (MTree (box [k' v (dec n) l r]))))
+                                        (go l)))
+                    (case Gt (maybe/map (map-cadr (fun (r) (MTree (box [k' v (dec n) l r]))))
+                                        (go r)))))))
+  (go m))
+
+(define (map/delete cmp k m) (maybe' m cadr (map/remove cmp k m)))
+
+(define (map/show show-k show-v)
+  (fmatch (case MLeaf "MLeaf")
+          (case (MTree (Box [k v n l r]))
+                (apps str-append "(MTree " (show-k k) " " (show-v v) " " (show-nat n) " " (map/show show-k show-v l) " " (map/show show-k show-v r) ")"))))

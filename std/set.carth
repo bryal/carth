@@ -2,7 +2,7 @@
 
 (data (Set a) (Set (Map a Unit)))
 
-(define set/nil (Set map/nil))
+(define set/empty (Set map/empty))
 (define (set/singleton a) (Set (map/singleton a Unit)))
 
 (define (set/unsingleton! s)
@@ -14,10 +14,10 @@
 
 (define (set/iter (Set m)) (map car (map/iter m)))
 
-(define (set/collect cmp xs) (set/extend cmp set/nil xs))
+(define (set/collect cmp xs) (set/extend cmp set/empty xs))
 (define (set/extend cmp (Set m) xs) (Set (map/extend cmp m (zip xs (repeat Unit)))))
 
-(define (set/unions cmp) (foldl (set/union cmp) set/nil))
+(define (set/unions cmp) (foldl (set/union cmp) set/empty))
 
 ;; TODO: Use more efficient algorithm
 (define (set/union cmp (Set m1) (Set m2)) (Set (map/union cmp m1 m2)))
@@ -34,3 +34,5 @@
   (set/collect cmp (filter (<o not (flip (set/member? cmp) s2)) (set/iter s1))))
 
 (define (set/insert cmp x (Set m)) (Set (map/insert cmp x Unit m)))
+
+(define (set/delete cmp x (Set m)) (Set (map/delete cmp x m)))
