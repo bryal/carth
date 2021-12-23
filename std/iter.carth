@@ -93,9 +93,15 @@
 
 (define: (flat-map f xs)
     (forall (a b) (Fun (Fun a (Iter b)) (Iter a) (Iter b)))
-  (Iter (fun (Unit) (match (next xs)
-                      (case None None)
-                      (case (Some [x xs]) (next (iter/chain (f x) (flat-map f xs))))))))
+  (define (go xs)
+    (match (next xs)
+      (case None None)
+      (case (Some [x xs])
+            (let1 ys (f x)
+              (match (next ys)
+                (case None (go xs))
+                (case (Some [y ys]) (Some [y (iter/chain ys (flat-map f xs))])))))))
+  (Iter (fun (Unit) (go xs))))
 
 (define: (iter/join xss)
     (forall (a) (Fun (Iter (Iter a)) (Iter a)))
