@@ -551,8 +551,6 @@ Features and other stuff to do/implement in/around Carth.
    lang? I mean, couldn't pretty much any closure actually heap
    allocate for the captures? Hmm.
   
-* INACTIVE Macros?
-
 * INACTIVE Property system
   I'm thinking of a system where you annotate functions in a source
   file with pre- and postconditions, which can then be checked in
@@ -1019,7 +1017,7 @@ Features and other stuff to do/implement in/around Carth.
   of all names necessary to parse the entry definition. Make a
   topological order. Compile them (to interpretable AST) in order. If
   there are any cyclical groups, compilation error.
-* INACTIVE Benchmark, profile, optimize
+* TODO Benchmark, profile, optimize
   Check out
   https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
   tips!
@@ -1042,22 +1040,6 @@ Features and other stuff to do/implement in/around Carth.
   type ParsedExpr = Expr (Type, SrcPos)
   type CheckedExpr = Expr CheckedType
   #+END_SRC
-* INACTIVE Use algebraic effects instead of mtl
-  Not 100% about this one -- maybe my monad use is simple enough that
-  there wouldn't actually be any gain? But still, I'd like to learn
-  effects, so maybe it's worth trying out.
-
-  Polysemy seems like the best one, but I'd have to do a little
-  research. https://github.com/thma/PolysemyCleanArchitecture/tree/3a9354a5c31eaf03009e389ce49b318881a2460f#readme
-
-  https://koka-lang.github.io/koka/doc/index.html
-* INACTIVE GRIN as alternative to LLVM and some of my own Codegen
-  https://github.com/grin-compiler/grin
-
-  GRIN seems promising. I wouldn't have to perform as complex
-  transformations from Carth IR to LLVM, instead transforming to this
-  more functional IR. GRIN might also be able to perform more
-  optimizations.
 * INACTIVE Optimize away zero-sized types before codegen
   It's bad that many operations on zero-sized types are currently
   actually compiled to, in practice, a ton of no-ops. I think it might
@@ -1188,24 +1170,6 @@ Features and other stuff to do/implement in/around Carth.
   itself, but the ~ptr/+~ function in the stdlib transmutes to int for
   addition. Should add a builtin virtual function that uses gep to
   offset pointer.
-* INACTIVE Is my llvm representation of unions causing problems?
-  Just had a bug which I haven't quite fixed yet. My current guess is
-  that it's caused by an (Either (Fun Unit (Maybe Int)) (Maybe Int))
-  being represented as a (Maybe Int) when generic in LLVM. This should
-  not be a problem, as both variants are equally (some basic testing
-  with equivalent structs in Rust and C seems to confirm this), but
-  maybe it's a problem that a function pointer is cast to integer. The
-  reference mentioned that LLVM has a harder time doing pointer
-  analysis if pointers are cast to integers and back.
-
-  Check out that approach that Troels used in Futhark, with
-  deduplicating but otherwise laying out all the members of all
-  variants in a single sequence. Why did he pick that approach? I
-  remember that I asked when he had a zoom presentation, but I don't
-  remember his answer.
-
-  Ooh, this seems cool:
-  https://mapping-high-level-constructs-to-llvm-ir.readthedocs.io/en/latest/README.html
 * Pattern matching
 ** INACTIVE Var pattern syntax, comparison
   What if we did
@@ -1578,11 +1542,6 @@ Features and other stuff to do/implement in/around Carth.
     https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
   - Unison
     https://github.com/unisonweb/unison
-* TODO Add flag for disabling GC
-  and just allocate with malloc & leak memory instead. Use this in
-  tests, until we've added our own GC, so I won't have that constant,
-  annoying error about "allocating from another thread" or whatever it
-  was.
 * NEXT Refactor type checker
   keywords: type checking, inferenc, inferrer
 
@@ -1729,3 +1688,12 @@ Features and other stuff to do/implement in/around Carth.
   (define (pair x y) [x y])
   (pair 5 (: _ Nat)) ;; Type Nat ascribed to placeholder, to lock it
   #+END_EXAMPLE
+* INACTIVE Have error messages quote section numbers for the spec
+  when there is a spec.
+
+  Would be nice, to have concrete documentation for what is ok and what is not.
+* NEXT Dump everythiong to Graphviz
+  Particularly the pre-LLVM ASTs. They're very hard to read as text,
+  but would probably fit really well as a graph. This could be useful
+  both for debugging the compiler, as well as to debug compiled
+  programs.
