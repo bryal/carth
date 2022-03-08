@@ -12,6 +12,9 @@
 (define iter/nil
   (Iter (fun (_) None)))
 
+(define (iter/nil? it)
+  (none? (next it)))
+
 (define (iter/once x)
   (iter/cons x iter/nil))
 
@@ -19,33 +22,41 @@
   (Iter (fun (_) (Some [x xs]))))
 
 (define (iter/chain xs ys)
-  (Iter (fun (_) (maybe (next ys)
-                        (fun ([x xs'])
-                          (Some [x (iter/chain xs' ys)]))
-                        (next xs)))))
+  (Iter (fun (Unit)
+          (match (next xs)
+            (case None (next ys))
+            (case (Some [x xs'])
+                  (Some [x (iter/chain xs' ys)]))))))
 
 (define (next (Iter it)) (it Unit))
 (define next! (<o unwrap! next))
+
+(define (iter/first it) (maybe/map car (next it)))
+(define (iter/first! it) (car (next! it)))
+
+(define: (iter/last xs)
+    (forall (a) (Fun (Iter a) (Maybe a)))
+  (maybe/map (fun ([x xs']) (unwrap-or x (iter/last xs'))) (next xs)))
+(define (iter/last! it) (unwrap! (iter/last it)))
 
 (define: (iter/nth n)
     (forall (a) (Fun Nat (Iter a) (Maybe a)))
   (apps <o (maybe/map car) next (skip n)))
 
-(define: (xrange a b) (Fun Int Int (Iter Int))
-  (take (- b a)       (range-from a)))
-(define: (range  a b) (Fun Int Int (Iter Int))
+(define (xrange a b)
+  (take (- b a) (range-from a)))
+(define (range  a b)
   (take (inc (- b a)) (range-from a)))
 
 (define (range-from a)
   (Iter (fun (_) (Some [a (range-from (inc a))]))))
 
 (define (take n xs)
-  (Iter (if (> n 0)
-            (fun (_) (maybe/map (map-cadr (take (- n 1))) (next xs)))
+  (Iter (if (> n (cast 0))
+            (fun (_) (maybe/map (map-cadr (take (- n (cast 1)))) (next xs)))
           (fun (_) None))))
 
-(define: (skip n xs)
-    (forall (a) (Fun Nat (Iter a) (Iter a)))
+(define (skip n xs)
   (if (= n (cast 0))
       xs
     (match (next xs)
@@ -72,11 +83,33 @@
 (define (for xs f) (foldl (const f) Unit xs))
 
 (define (map f xs)
-  (Iter (fun (_) (maybe/map (map-two f (map f)) (next xs)))))
+  (Iter (fun (Unit) (match (next xs)
+                      (case None None)
+                      (case (Some [x xs]) (Some [(f x) (map f xs)]))))))
 
 (define (filter pred xs)
   (Iter (fun (_) (maybe/map (map-cadr (filter pred))
                             (next (skip-while (<o not pred) xs))))))
+
+(define: (flat-map f xs)
+    (forall (a b) (Fun (Fun a (Iter b)) (Iter a) (Iter b)))
+  (define (go xs)
+    (match (next xs)
+      (case None None)
+      (case (Some [x xs])
+            (let1 ys (f x)
+              (match (next ys)
+                (case None (go xs))
+                (case (Some [y ys]) (Some [y (iter/chain ys (flat-map f xs))])))))))
+  (Iter (fun (Unit) (go xs))))
+
+(define: (iter/join xss)
+    (forall (a) (Fun (Iter (Iter a)) (Iter a)))
+  (Iter (fun (Unit) (maybe/bind (fun ([xs xss']) (next (iter/chain xs (iter/join xss'))))
+                                (next xss)))))
+
+(define (filter-map f)
+  (flat-map (<o maybe/iter f)))
 
 (define: (foldl f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
@@ -88,9 +121,25 @@
             acc)))
   (foldl' [acc xs]))
 
+(define: (unfoldr f a)
+    (forall (a b) (Fun (Fun a (Maybe [b a]))
+                       a
+                       (Iter b)))
+  (Iter (fun (_) (maybe/map (map-cadr (unfoldr f)) (f a)))))
+
+(define: (unfoldr' f)
+    (forall (inp x) (Fun (Fun inp (Maybe [x inp]))
+                         inp
+                         [(List x) inp]))
+  (define (go xs inp)
+    (match (f inp)
+      (case None [(list/reverse xs) inp])
+      (case (Some [x inp]) (go (list/cons x xs) inp))))
+  (go LNil))
+
 (define (reverse xs)
   (define (rev xs a)
-    (maybe a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
+    (maybe' a (fun ([x xs']) (rev xs' (iter/cons x a))) (next xs)))
   (rev xs iter/nil))
 
 (define: (count xs)
@@ -100,6 +149,75 @@
 (define enumerate (zip (range-from (: (cast 0) Nat))))
 
 (define (zip xs ys)
-  (Iter (fun (_) (maybe/map2 (fun ([x xs'] [y ys'])
-                               [[x y] (zip xs' ys')])
-                             (next xs) (next ys)))))
+  (Iter (fun (_) (match [(next xs) (next ys)]
+                   (case [(Some [x xs']) (Some [y ys'])] (Some [[x y] (zip xs' ys')]))
+                   (case _ None)))))
+
+(define (zip-with f xs ys)
+  (Iter (fun (_) (match [(next xs) (next ys)]
+                   (case [(Some [x xs]) (Some [y ys])] (Some [(f x y) (zip-with f xs ys)]))
+                   (case _ None)))))
+
+(define (ands xs) (foldl and True xs))
+(define (all f xs) (ands (map f xs)))
+(define (any f xs)
+  (not (iter/nil? (filter f xs))))
+
+(define (iter/cartesian xs ys)
+  (flat-map (fun (x) (map (cons' x) ys)) xs))
+
+(define (repeat x)
+  (Iter (fun (Unit) (Some [x (repeat x)]))))
+
+(define (intersperse x ys)
+  (iter/chain (take 1 ys) (precalate x (skip (to-nat 1) ys))))
+
+(define (precalate x ys)
+  (flat-map (fun (y) (iter/cons x (iter/once y))) ys))
+
+(define (intercalate x ys)
+  (iter/join (intersperse x ys)))
+
+(define (skip-every-nth n it)
+  (define (go m it)
+    (Iter (nonstrict (if (= m n)
+                         (next (go 0 (skip (to-nat 1) it)))
+                       (maybe/map (map-cadr (go (+ 1 m))) (next it))))))
+  (go 0 it))
+
+;; Sliding windows over an iterator, each of width `n`
+(define: (iter/windows n)
+    (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
+  (unfoldr (fun (xs)
+             (let1 window (array/collect (take n xs))
+               (if (< (array/length window) n)  ; At the end
+                   None
+                 (Some [window (skip 1 xs)]))))))
+
+(define: (iter/next-n n it)
+    (forall (a) (Fun Nat (Iter a) (Maybe [(Array a) (Iter a)])))
+  (define (go a i it)
+    (if (= i n)
+        (Some [a it])
+      (match (next it)
+        (case (Some [x it']) (go (array/mutate i x a) (+ i (to-nat 1)) it'))
+        (case None           None))))
+  (go (array/unsafe-uninit n) (to-nat 0) it))
+
+(define: (iter/chunks width it)
+    (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
+  (unfoldr (iter/next-n width) it))
+
+(define (maximum xs) (uncurry (foldl max) (next! xs)))
+(define (minimum xs) (uncurry (foldl min) (next! xs)))
+
+(define (iter/find pred xs)
+  (match (next xs)
+    (case (Some [x xs']) (if (pred x) (Some x) (iter/find pred xs')))
+    (case None None)))
+
+(define (unzip it)
+  (map-two list/reverse list/reverse
+           (foldl (fun ([xs ys] [x y]) [(list/cons x xs) (list/cons y ys)])
+                  [LNil LNil]
+                  it)))

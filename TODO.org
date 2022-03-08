@@ -531,6 +531,26 @@ Features and other stuff to do/implement in/around Carth.
   - Eff language
   - https://youtu.be/XAnFUwIaZB8
 
+** INACTIVE Memory allocation as an explicit effect
+   In Rust, you can override the global memory allocator. Situational
+   override is not really possible? I think either you use the global
+   allocator, or you allocate with e.g. an arena explicitly.
+
+   In Zig, all allocation is explicit, and you have to pass around
+   whichever allocator you want the functions to use. Pro: easy to
+   override allocation for an object or sub-program with e.g. an
+   arena. Con: verbose, bothersome, less convenient.
+
+   Maybe we could make heap allocations sort of semi-explicit in
+   Carth, via an Effect system? Easy to override with e.g. arena
+   allocator for specific functions, and not as inconvenient as
+   Zig. Do-notation (or better? (like generalized application)) could
+   make it fairly convenient, and there really is some usefulness to
+   doing it. Would encourage keeping things on the stack whenever
+   possible. But maybe it's too much inconvenience for a high-level
+   lang? I mean, couldn't pretty much any closure actually heap
+   allocate for the captures? Hmm.
+  
 * INACTIVE Macros?
 
 * INACTIVE Property system
@@ -610,6 +630,11 @@ Features and other stuff to do/implement in/around Carth.
    alternative to look at?
 
    [[https://typeclasses.com/featured/to-integral-sized][toIntegralSized]]
+*** INACTIVE Division of integers should return Rational?
+    Lossless etc. No truncation by accident. SBCL LISP does this I think?
+
+    Consider type size and overflow though. Maybe only do this for
+    arbitrary-sized Integer, and not for fixed-sized Int.
 ** INACTIVE Concurrency / parallelism primitives
    Mutex, semaphore, etc.
 
@@ -1210,7 +1235,13 @@ Features and other stuff to do/implement in/around Carth.
        (_, y) => y,
    }
    #+END_SRC
-* Move from LLVM to alternative backend
+** INACTIVE Active Patterns
+   Like F# has. Something to
+   consider. https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/active-patterns
+
+   Could enable us to use pattern matching more?
+   
+* TODO Move from LLVM to alternative backend
   LLVM is kind of not great in some ways. It's often not trivial to
   debug errors stemming from displeasing LLVM. It updates frequently,
   but the Haskell bindings lag behind, so I have to use an older
@@ -1564,3 +1595,137 @@ Features and other stuff to do/implement in/around Carth.
 
   See:
   - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
+
+* INACTIVE Nonstrict parameters
+  Similar to how you can mark parameters as strict and force
+  evaluation in Haskell, we could benefit from having params marked as
+  nonstrict similarly.
+
+  Then we can write functions that perform some sort of
+  short-circuiting logic, like ~or~, ~parse/or~, ~maybe/or~, ~maybe~,
+  etc, without having to resort to macros or explicit wrappings of
+  ~(fun (Unit) ...)~s.
+
+  It could look something like this
+  
+  #+BEGIN_SRC carth
+  (define (or p #nonstrict q)
+    (if p True q))
+
+  (or (cheap-computation ...)
+      (expensive-computation ...))
+  #+END_SRC
+
+  Also consider the nested case
+
+  #+BEGIN_SRC carth
+  (define (foo a b #nonstrict computation)
+    (if (bar a)
+        (baz b computation)
+      3))
+
+  (define (baz b #nonstrict computation)
+    (or b (f computation)))
+  #+END_SRC
+
+* INACTIVE Better unicode support
+  Possibly using Rust's builtin stuff. Also possibly use some Zig library?
+
+  Otherwise, this Suckless library seems quite nice: https://libs.suckless.org/libgrapheme/
+
+  Very small! That's always a plus :)
+
+* INACTIVE Dynamic dispatch
+  Like Box<dyn TRAIT> in Rust. Might be useful in places. Should not
+  be that hard to implement -- just heap allocate a vtable, and
+  populate it with all of the class functions. Might need to add
+  wrappers so that the functions always accept the type by reference?
+  Or all args by reference? Unless we modify the compiler to *always*
+  pass args by reference. In Rust, I suppose they defer the problem by
+  only allowing one to call ~&self~ and optionally ~&mut self~ methods
+  on a trait objects. Don't have to consider sizes if you can't even
+  call ~self~ methods in the first place.
+
+  Must consider how this interacts with monomorphization vs. boxing
+  vs. value witness tables for static dispatch.b
+* TODO Don't curry by default
+  I did currying by default mostly because it's the Haskell way of
+  doing things, but this has, among other things, performance
+  implications. And we're not Haskell, we're a Lisp.
+
+  Maybe let's do function application a bit more like Clojure? We
+  reduce the complexity of our call stacks and make profiling more
+  clear and easy. We'd also improve performance by not having to heap
+  allocate as many closure captures for the wrapping
+  curry-closures. Also, variadic special forms and macros wouldn't
+  cause confusion about whether it's a curried application or an extra
+  argument. Maybe we could even have variadic functions in some
+  way. ~(+ 1 2 3)~, ~(|> x f g h)~.
+
+  In Clojure, one direct way of making a curried application is with
+  ~partial~. 
+
+  #+BEGIN_SRC carth
+  ((cons 1) [2]) ;; error
+  ((partial cons 1) [2]) ;; [1 2]
+  #+END_SRC
+
+  We probably couldn't implement it as a function, but we could have
+  it as a special form. Or, I guess we could implement it by doing
+  Rust-style
+  implement-a-class-for-every-arity-version-up-to-a-big-number-like-11. Another
+  possibility might be if function arguments were behind the scenes a
+  tuple. Then we might implement it like
+
+  #+BEGIN_SRC carth
+  (define: (partial f a)
+      (Fun [a . bs] c)
+    (fun bs (f (cons a bs))))
+  #+END_SRC
+  
+  This might have other negative implications, however.
+
+  I suppose it would be nice if we could treat the function
+  paramer-list as if it were a tuple, but under the scenes they
+  actually don't, and the tuple stuff is just wrapped around it, and
+  optimized away when calls are saturated. Then you could fmatch
+  directly on the whole argument list, e.g.
+
+  #+BEGIN_SRC carth
+  (foldl (fmatch (case [(Left n) x]
+                       (Left (inc n)))
+                 (case [(Right xs) x]
+                       (if (> 10 x)
+                           (Right (list/cons x xs))
+                         (Left 1))))
+         ...)
+  #+END_SRC
+
+  --------------------------------------
+
+  If we don't do currying, we could also better fit a nice
+  arbitrary-position anonymous function syntax into Carth. Like
+  Clojure's,
+  https://clojure.org/guides/learn/functions#_anonymous_function_syntax.
+
+  #+BEGIN_SRC clojure
+  ;; Equivalent to: (fn [x] (+ 6 x))
+  #(+ 6 %)
+
+  ;; Equivalent to: (fn [x y] (+ x y))
+  #(+ %1 %2)
+
+  ;; Equivalent to: (fn [x y & zs] (println x y zs))
+  #(println %1 %2 %&)
+  #+END_SRC
+
+  Or like Scala's (optionally typed) holes:
+
+  #+BEGIN_EXAMPLE
+  ;; In this example, _ is not a hole, but a partial application placeholder
+
+  (+ 10 _) ;; Type of placeholder inferred to Int
+
+  (define (pair x y) [x y])
+  (pair 5 (: _ Nat)) ;; Type Nat ascribed to placeholder, to lock it
+  #+END_EXAMPLE

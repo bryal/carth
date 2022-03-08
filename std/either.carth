@@ -1,3 +1,49 @@
+(import iter)
+
 (data (Either a b)
   (Left a)
   (Right b))
+
+;; TODO: Boxing is workaround for when the type of the accumulation is too big/complex and breaks
+;;       TCO. Must be fixed in compiler and indirection can then be removed here.
+(define: (partition-eithers es)
+    (forall (a b) (Fun (Iter (Either a b)) [(List a) (List b)]))
+  (let1 (Box [as . bs]) (foldl (fun ((Box [as . bs]))
+                                 (fmatch (case (Left a)  (box [(list/cons a as) . bs]))
+                                         (case (Right b) (box [as . (list/cons b bs)]))))
+                               (box [LNil . LNil])
+                               es)
+    [(list/reverse as) (list/reverse bs)]))
+
+(define (either/show show-a show-b)
+  (fmatch (case (Left a) (apps str-append "(Left " (show-a a) ")"))
+          (case (Right b) (apps str-append "(Right " (show-b b) ")"))))
+
+(define (either/bimap f g)
+  (fmatch (case (Left a)  (Left (f a)))
+          (case (Right b) (Right (g b)))))
+
+(define (either/map-left f)
+  (fmatch (case (Left a)  (Left (f a)))
+          (case (Right b) (Right b))))
+
+(define (either/map f)
+  (fmatch (case (Left a)  (Left a))
+          (case (Right b) (Right (f b)))))
+
+(define (either/bind f)
+  (fmatch (case (Left a) (Left a))
+          (case (Right b) (f b))))
+
+(define (either/bindr e f)
+  (match e
+    (case (Left a) (Left a))
+    (case (Right b) (f b))))
+
+(define left-to-maybe
+  (fmatch (case (Left x) (Some x))
+          (case (Right _) None)))
+
+(define right-to-maybe
+  (fmatch (case (Left _) None)
+          (case (Right x) (Some x))))

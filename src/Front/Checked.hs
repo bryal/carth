@@ -68,7 +68,12 @@ data Expr
     deriving (Show)
 
 builtinExterns :: Map String Type
-builtinExterns = Map.fromList $ [("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))]
+builtinExterns =
+    Map.fromList
+        $ [ ("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))
+          , ("malloc", tfun (TPrim TNatSize) (TBox tByte))
+          , ("str-eq", tfun tStr (tfun tStr tBool))
+          ]
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show

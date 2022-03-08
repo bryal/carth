@@ -8,6 +8,11 @@
   (map (<o deref (<o (ptr/+ ptr) cast))
        (xrange 0 (cast len))))
 
+(define: (array/iter-rev (Array ptr len))
+    (forall (a) (Fun (Array a) (Iter a)))
+  (map (fun (i) (deref (ptr/+ ptr (- len (cast i)))))
+       (xrange 1 (+ 1 (cast len)))))
+
 (define array/nil (Array mem/unsafe-null (cast 0)))
 
 (define (array/nil? a) (= (cast 0) (array/length a)))
@@ -19,18 +24,59 @@
 (define (array/singleton x)
   (Array (box x) (cast 1)))
 
+;; TODO: This is inefficient. Do something similar to Rust's Vec instead. Start array at
+;; reserved size 1, and everytime space is full, increase the reserved size
+;; exponentially. At the end, do a final reallocation to shrink to the now known size.
 (define: (array/collect xs) (forall (a) (Fun (Iter a) (Array a)))
-  (let1 n (count xs)
-    (foldl (fun (v [i x]) (array/insert i x v))
-           (array/unsafe-uninit n)
-           (enumerate xs))))
+  (array/collect-list (list/collect xs)))
 
-(define: (array/insert i x (Array ptr n))
+(define (array/collect-list xs)
+  (foldl (fun (v [i x]) (array/mutate i x v))
+         (array/unsafe-uninit (list/count xs))
+         (enumerate (list/iter xs))))
+
+(define: (array/mutate i x (Array ptr n))
     (forall (a) (Fun Nat a (Array a) (Array a)))
   (if (>= i n)
-      (panic "array/insert after end of array")
+      (panic "array/mutate after end of array")
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
+
+(define (array/mutate2d! [i j] x arr)
+  (seq (array/mutate j x (array/lookup! i arr))
+       arr))
+
+(define (array/clone (Array p n))
+  (let1 (Array p' _) (array/unsafe-uninit n)
+    (seq (memcpy' p' p n)
+         (Array p' n))))
+
+(define (array/reverse a)
+  (if (array/nil? a) a
+    (cadr (array/build (fun (Unit i) [Unit (array/lookup! (- (dec (array/length a)) i) a)])
+                       Unit
+                       (array/length a)))))
+
+(define (array/set! i x arr)
+  (array/mutate i x (array/clone arr)))
+
+(define (array/set2d! [i j] x arr)
+  (array/mutate i (array/set! j x (array/lookup! i arr)) (array/clone arr)))
+
+(define (array/set3d! [i . rest] x arr)
+  (array/mutate i (array/set2d! rest x (array/lookup! i arr)) (array/clone arr)))
+
+(define (array/set-multiple! arr ivs)
+  (foldl (fun (arr [i v]) (array/mutate i v arr)) (array/clone arr) ivs))
+
+(define (array/modify! f i a)
+  (array/set! i (f (array/lookup! i a)) a))
+
+(define (array/modify2d! f ij a)
+  (array/set2d! ij (f (array/lookup2d! ij a)) a))
+
+(define (array/modify-multiple! arr ifs)
+  (foldl (fun (arr [i f]) (array/mutate i (f (array/lookup! i arr)) arr)) (array/clone arr) ifs))
 
 (extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
 
@@ -53,15 +99,37 @@
       (Some (array/unsafe-lookup-unchecked i a))
     None))
 
-(define array/lookup! (<oo unwrap! array/lookup))
+(define (array/lookup! i a)
+  (if (< i (array/length a))
+      (array/unsafe-lookup-unchecked i a)
+    (panic "array/lookup!: index out of bounds")))
 
 (define (array/unsafe-lookup-unchecked i (Array ptr _))
   (deref (ptr/+ ptr i)))
 
+(define (array/lookup2d [i j] rows)
+  (match (array/lookup i rows)
+    (case (Some row) (array/lookup j row))
+    (case None None)))
+
+(define array/lookup2d! (<oo unwrap! array/lookup2d))
+
 ;;? Returns index of the first occurence of the element in the array, if it *is* an element
 (define (array/find x xs)
-  ;; (forall (a) (Fun (Fun a a Bool) a (Array a) (Maybe Nat)))
   (array/find-by (= x) xs))
+
+(define (array/find-end x xs)
+  (array/find-by-end (= x) xs))
+
+(define (array/find-by2 f xs)
+  (if (array/nil? xs)
+      None
+    (Some (foldl (fun ([max-i max-x] [i x])
+                   (if (f x max-x)
+                       [i x]
+                     [max-i max-x]))
+                 [(to-nat 0) (array/first! xs)]
+                 (enumerate (array/iter (array/slice-from 1 xs)))))))
 
 ;;? Returns the index of the first element that satisfies the predicate
 (define (array/find-by p xs)
@@ -70,45 +138,75 @@
         (Some i)
       None)))
 
-;;? Positive m: skip from beginning, take from end. Negative m: skip from end, take from
-;;? beginning.
-(define: (array/skip m (Array ptr n))
-    (forall (a) (Fun Int (Array a) (Array a)))
-  (if (< m 0)
-      (let1 m (min n (cast (neg m)))
-        (Array ptr (- n m)))
-    (let1 m (min n (cast m))
-      (Array (ptr/+ ptr m) (- n m)))))
+(define (array/find-by-end p xs)
+  (let1 i (count (take-while (<o not p) (array/iter-rev xs)))
+    (if (< i (array/length xs))
+        (Some (- (array/length xs) i))
+      None)))
 
-;;? Positive m: take from beginning, skip from end. Negative m: take from end, skip from
-;;? beginning.
-(define: (array/take m (Array ptr n))
+(define: (array/find-slice-by f xs)
+    (forall (a b) (Fun (Fun (Array a) (Maybe b)) (Array a) (Maybe [Nat b])))
+  (iter/first (filter-map (fun ([i ys]) (maybe/map (cons' i) (f ys)))
+                          (enumerate (array/suffixes xs)))))
+
+(define: (array/find-slice-by' f xs)
+    (forall (a) (Fun (Fun (Array a) Bool) (Array a) (Maybe Nat)))
+  (iter/first (filter-map (fun ([i ys]) (if (f ys) (Some i) None))
+                          (enumerate (array/suffixes xs)))))
+
+(define (array/suffixes xs)
+  (if (array/nil? xs)
+      iter/nil
+    (iter/cons xs (map (fun (i) (array/slice-from i xs)) (xrange 1 (cast (array/length xs)))))))
+
+;;? Supports negative `m` for python like range indexing
+(define: (array/slice-from i (Array ptr len))
     (forall (a) (Fun Int (Array a) (Array a)))
-  (if (< m 0)
-      (let1 m (min n (cast (neg m)))
-        (Array (ptr/+ ptr (- n m)) m))
-    (Array ptr (min n (cast m)))))
+  (let1 i (if (< i 0)
+              (cast (max 0 (+ (cast len) i)))
+            (min len (cast i)))
+    (Array (ptr/+ ptr i) (- len i))))
+
+;;? Supports negative `m` for python-like range indexing
+(define: (array/slice-to i (Array ptr len))
+    (forall (a) (Fun Int (Array a) (Array a)))
+  (let1 i (if (< i 0)
+              (cast (max 0 (+ (cast len) i)))
+            (min len (cast i)))
+    (Array ptr i)))
+
+(define (array/slice i j xs)
+  (let ((len (array/length xs))
+        (i (if (< i 0)
+               (cast (max 0 (+ (cast len) i)))
+             (min len (cast i)))))
+    (array/slice-from (cast i) (array/slice-to j xs))))
 
 ;;? Binary search
 ;;?
 ;;? If there are multiple matches, the index of any of them may be returned.
-(define: (array/search cmp x ys)
-    (forall (a) (Fun (Fun a a Cmp) a (Array a) (Maybe Nat)))
-  (define (go start end)
+(define: (array/search cmp-x ys)
+    (forall (a) (Fun (Fun a Cmp) (Array a) (Either Nat Nat)))
+  (define (go [start end])
     (if (= start end)
-        None
+        (Left start)
       (let ((i (+ start (/ (- end start) (cast 2))))
             (y (array/lookup! i ys)))
-        (match (cmp x y)
-          (case Eq (Some i))
-          (case Lt (go start i))
-          (case Gt (go (inc i) end))))))
-  (go (cast 0) (array/length ys)))
+        (match (cmp-x y)
+          (case Eq (Right i))
+          (case Lt (go [start i]))
+          (case Gt (go [(inc i) end]))))))
+  (go [(cast 0) (array/length ys)]))
 
 (define (array/split i (Array ptr n))
   (if (<= i n)
       (Some [(Array ptr i) (Array (ptr/+ ptr i) (- n i))])
     None))
+
+(define (array/split! i (Array ptr n))
+  (if (<= i n)
+      [(Array ptr i) (Array (ptr/+ ptr i) (- n i))]
+    (panic "array/split: index out of bounds")))
 
 (define (array/take-split i a)
   (match (array/split i a)
@@ -124,3 +222,95 @@
   (if (= n (cast 0))
       None
     (Some [(Array ptr (- n (cast 1))) (deref (ptr/+ ptr (- n (cast 1))))])))
+
+(define (array/= xs ys)
+  (if (= (array/length xs) (array/length ys))
+      (all (fun ([x y]) (= x y)) (zip (array/iter xs) (array/iter ys)))
+    False))
+
+(define (array/show show-elem a)
+  (apps str-append "{" (string/concat (intersperse " " (map show-elem (array/iter a)))) "}"))
+
+(define (array/build f acc n)
+  (foldl (fun ([acc a] i) (let1 [acc' x] (f acc i)
+                            [acc' (array/mutate i x a)]) )
+         [acc (array/unsafe-uninit n)]
+         (map to-nat (xrange 0 (to-int n)))))
+
+(define: (merge-sort cmp xs)
+    (forall (a) (Fun (Fun a a Cmp) (Array a) (Array a)))
+  (define (merge a i [y ys] zs)
+    (match (next zs)
+      (case (Some [z zs'])
+            (match (cmp y z)
+              (case Lt (merge (array/mutate i y a) (+ i (to-nat 1)) [z zs'] ys))
+              (case _  (merge (array/mutate i z a) (+ i (to-nat 1)) [y ys] zs'))))
+      (case None
+            (foldl (fun (a [k y]) (array/mutate (+ i k) y a))
+                   a
+                   (enumerate (iter/cons y ys))))))
+  (if (<= (array/length xs) (to-nat 1))
+      xs
+    (let1 [ys zs] (unwrap! (array/split (/ (array/length xs) (to-nat 2)) xs))
+      (merge (array/unsafe-uninit (array/length xs))
+             (to-nat 0)
+             (next! (array/iter (merge-sort cmp ys)))
+             (array/iter (merge-sort cmp zs))))))
+
+(define (array/first! a)
+  (array/lookup! (to-nat 0) a))
+
+(define (array/last! a)
+  (let1 n (array/length a)
+    (if (= n (to-nat 0))
+        (panic "array/last! of empty array")
+      (array/lookup! (- n (to-nat 1)) a))))
+
+(define: (array/concat as) (forall (a) (Fun (Iter (Array a)) (Array a)))
+  (let1 len (sum (map array/length as))
+    (cadr (foldl (fun ([i (Array pacc nacc)] (Array p n))
+                   (seq (memcpy' (ptr/+ pacc i) p n)
+                        [(+ i n) (Array pacc nacc)]))
+                 [(to-nat 0) (array/unsafe-uninit len)]
+                 as))))
+
+(define (array/concat-list as) (array/concat (list/iter as)))
+
+(define: (array/insert-grow! i x xs) (forall (a) (Fun Nat a (Array a) (Array a)))
+  (let1 [ys zs] (unwrap! (array/split i xs))
+    (array/concat-list (list ys (array/singleton x) zs))))
+
+(define: (array/insert-displace-left! i x xs) (forall (a) (Fun Nat a (Array a) [a (Array a)]))
+  (let (([ys zs] (unwrap! (array/split (+ i (to-nat 1)) xs)))
+        ([y ys] (unwrap! (array/split-first ys))))
+    [y (array/concat-list (list ys (array/singleton x) zs))]))
+
+(define: (array/insert-displace! i x xs) (forall (a) (Fun Nat a (Array a) [(Array a) a]))
+  (let (([ys zs] (unwrap! (array/split i xs)))
+        ([zs z] (unwrap! (array/split-last zs))))
+    [(array/concat-list (list ys (array/singleton x) zs)) z]))
+
+(define: (array/map f xs) (forall (a b) (Fun (Fun a b) (Array a) (Array b)))
+  (cadr (array/build (fun (Unit i) [Unit (f (array/lookup! i xs))]) Unit (array/length xs))))
+
+;;? Iterate over contiguous chunks of the underlying array
+(define (array/chunks width)
+  (unfoldr (array/split width)))
+
+;;? For a sorted array, this is the median
+(define (array/middle xs) (array/lookup (/ (array/length xs) (to-nat 2)) xs))
+
+(define: (array/windows n)
+    (forall (a) (Fun Nat (Array a) (Iter (Array a))))
+  (unfoldr (fun (xs)
+             (let1 window (array/slice-to (to-int n) xs)
+               (if (< (array/length window) n)  ; At the end
+                   None
+                 (Some [window (array/slice-from 1 xs)]))))))
+
+(define (array/first-two! a)
+  [(array/lookup! (to-nat 0) a) (array/lookup! (to-nat 1) a)])
+(define (array/first-three! a)
+  (cons (array/lookup! (to-nat 0) a) (array/first-two! (array/slice-from 1 a))))
+(define (array/first-four! a)
+  (cons (array/lookup! (to-nat 0) a) (array/first-three! (array/slice-from 1 a))))

@@ -16,8 +16,6 @@ import LLVM.Exception
 import qualified LLVM.Relocation as Reloc
 import qualified LLVM.CodeModel as CodeModel
 import qualified LLVM.CodeGenOpt as CodeGenOpt
-import LLVM.AST.DataLayout
-import qualified LLVM.AST as LLAST
 import Control.Monad.Catch
 import System.FilePath
 import System.Process
@@ -65,7 +63,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             layout <- getTargetMachineDataLayout tm
             triple <- getProcessTargetTriple
             verbose cfg ("   Generating LLVM")
-            let amod = codegen' layout triple file pgm
+            let amod = codegen layout triple (getNoGC cfg) file pgm
             when (getDebug cfg) (writeFile (addExtension dbgfile ".gen.ll") (pretty amod))
             flip
                     catch
@@ -89,9 +87,6 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                                     (addExtension dbgfile ".opt.ll")
                                     mod
                           f cfg tm mod
-
-codegen' :: DataLayout -> ShortByteString -> FilePath -> Ast.Program -> LLAST.Module
-codegen' layout triple f pgm = codegen f pgm layout triple
 
 compileModule :: CompileConfig -> TargetMachine -> Module -> IO ()
 compileModule cfg tm mod = do

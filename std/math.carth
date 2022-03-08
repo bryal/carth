@@ -7,6 +7,8 @@
 (extern cos (Fun F64 F64))
 (extern tan (Fun F64 F64))
 
+(extern sqrt (Fun F64 F64))
+
 (define: (inc n)
     (forall (a) (where (Num a) (Cast Int a))
             (Fun a a))
@@ -14,7 +16,7 @@
 
 (define (dec n) (- n (cast 1)))
 
-(define (neg x) (- 0 x))
+(define (neg x) (- (cast 0) x))
 
 (define (min a b) (if (< a b) a b))
 (define (max a b) (if (> a b) a b))
@@ -24,9 +26,6 @@
 (define (and p q) (if p q    False))
 (define (or  p q) (if p True q))
 
-(define (ands xs) (foldl and True xs))
-(define (all f xs) (ands (map f xs)))
-
 (define not (fmatch (case True False)
                     (case False True)))
 
@@ -34,14 +33,15 @@
 
 (define (powi x y)
   (define (go acc x y)
-    (if (= y 0)
+    (if (= y (cast 0))
         acc
-      (if (divisible? y 2)
-          (go acc (square x) (/ y 2))
+      (if (divisible? y (cast 2))
+          (go acc (square x) (/ y (cast 2)))
         (go (* acc x) x (dec y)))))
   (go (cast 1) x y))
 
 (define sum (foldl + (cast 0)))
+(define product (foldl * (cast 1)))
 
 (define: nat/maxval Nat (cast -1))
 
@@ -55,3 +55,20 @@
 (define (nat/nowrap+ x y)
   (unwrap-or-else (fun (Unit) (panic "nat/nowrap+: addition overflowed"))
                   (nat/checked+ x y)))
+
+(define (bit-set? i n)
+  (/= (cast 0) (bit-and n (shift-l (cast 1) i))))
+
+(define (set-bit i b n)
+  (if b
+      (bit-or n (shift-l (cast 1) i))
+    (bit-and n (bit-not (shift-l (cast 1) i)))))
+
+(define (index-bit i n)
+  (bit-and 1 (shift-r n i)))
+
+(define (bit-not n)
+  (- (- (cast 0) n) (cast 1)))
+
+(define (abs x) (if (> x 0) x (neg x)))
+(define (sign x) (if (> x 0) 1 -1))

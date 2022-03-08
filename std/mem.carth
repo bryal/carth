@@ -1,3 +1,5 @@
+(import std)
+
 (define: (box x)
     (forall (a) (Fun a (Box a)))
   (store x (cast-ptr (id@"GC_malloc" (sizeof a)))))

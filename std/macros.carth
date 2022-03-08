@@ -1,17 +1,18 @@
 (defmacro apps ()
-  (case (op x) x)
-  (case (op x1 x2 xs ...) (apps op (op x1 x2) xs ...)))
+  (case (apps-op apps-x) apps-x)
+  (case (apps-op apps-x1 apps-x2 apps-xs ...) (apps apps-op (apps-op apps-x1 apps-x2) apps-xs ...)))
 
 (defmacro appsr ()
-  (case (op x) x)
-  (case (op x xs ...) (op x (appsr op xs ...))))
+  (case (appsr-op appsr-x) appsr-x)
+  (case (appsr-op appsr-x appsr-xs ...) (appsr-op appsr-x (appsr appsr-op appsr-xs ...))))
 
 (defmacro list ()
-  (case (xs ...) (appsr list/cons xs ... Nil)))
+  (case (list-xs ...) (appsr list/cons list-xs ... LNil)))
 
-(defmacro +s () (case (xs ...) (apps + xs ...)))
+(defmacro +s () (case (+s-xs ...) (apps + +s-xs ...)))
+(defmacro *s () (case (*s-xs ...) (apps * *s-xs ...)))
 (defmacro =s ()
-  (case (x xs ...) (all (= x) (list/iter (list xs ...)))))
+  (case (=s-x =s-xs ...) (all (= =s-x) (list/iter (list =s-xs ...)))))
 
 (defmacro io/wrap ()
   (case (computation) (IO (fun (real-world) [computation real-world]))))
@@ -20,13 +21,37 @@
   (case (computation) (Lazy [(unsafe-perform-io mutex/new)
                              (box (Left (fun (Unit) computation)))])))
 
+(defmacro nonstrict ()
+  (case (computation) (fun (Unit) computation)))
+
+;; TODO: Fix macro case lhs name to be unique and not collide with user names. Example
+;;       when `do-a` was called `a`:
+;;
+;;       (do maybe/bind
+;;           (<- [inp a] (pa inp))
+;;           (<- [inp _b] (pb inp))
+;;           (Some [inp a]))
+;;
+;;       The type error was hard to parse, but I think that the `a` in the last line is
+;;       what caused it. Resulted in some strange macro expansion.
 (defmacro do (<-)
-  (case (do-bind ma) ma)
-  (case (do-bind (<- a ma) mbs ...)
-        (do-bind (fun (a) (do do-bind mbs ...)) ma))
-  (case (do-bind (let1 x a) mbs ...)
-        (let1 x a (do do-bind mbs ...)))
-  (case (do-bind (let bs) mbs ...)
-        (let bs (do do-bind mbs ...)))
-  (case (do-bind ma mbs ...)
-        (do-bind (fun (_) (do do-bind mbs ...)) ma)))
+  (case (do-bind do-ma) do-ma)
+  (case (do-bind (<- do-a do-ma) do-mbs ...)
+        (do-bind (fun (do-a) (do do-bind do-mbs ...)) do-ma))
+  (case (do-bind (let1 do-x do-a) do-mbs ...)
+        (let1 do-x do-a (do do-bind do-mbs ...)))
+  (case (do-bind (let do-bs) do-mbs ...)
+        (let do-bs (do do-bind do-mbs ...)))
+  (case (do-bind do-ma do-mbs ...)
+        (do-bind (fun (_) (do do-bind do-mbs ...)) do-ma)))
+
+(defmacro cond (else)
+  (case ((else cond-else))
+        cond-else)
+  (case ((cond-pred cond-conseq) cond-alt ...)
+        (if cond-pred
+            cond-conseq
+          (cond cond-alt ...))))
+
+(defmacro orelse () (case (orelse-p orelse-q) (if orelse-p True orelse-q)))
+(defmacro andalso () (case (andalso-p andalso-q) (if andalso-p andalso-q False)))

@@ -38,20 +38,21 @@ data St = St
     }
 type Gen = StateT St (Writer [BasicBlock])
 
-codegen :: FilePath -> Program -> DataLayout -> ShortByteString -> Module
-codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Module
-    { moduleName = fromString (takeBaseName moduleFilePath)
-    , moduleSourceFileName = fromString moduleFilePath
-    , moduleDataLayout = Just layout
-    , moduleTargetTriple = Just triple
-    , moduleDefinitions = concat
-                              [ defineTypes
-                              , declareExterns
-                              , declareGlobals
-                              , map defineFun funs
-                              , [defineMain]
-                              ]
-    }
+codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
+codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames) =
+    Module
+        { moduleName = fromString (takeBaseName moduleFilePath)
+        , moduleSourceFileName = fromString moduleFilePath
+        , moduleDataLayout = Just layout
+        , moduleTargetTriple = Just triple
+        , moduleDefinitions = concat
+                                  [ defineTypes
+                                  , declareExterns
+                                  , declareGlobals
+                                  , map defineFun funs
+                                  , [defineMain]
+                                  ]
+        }
   where
 
     -- | How the different sorts of types are represented in LLVM:
@@ -462,7 +463,12 @@ codegen moduleFilePath (Program funs exts gvars tdefs gnames) layout triple = Mo
             ByVal () pt -> genType pt
             ByRef () pt -> LL.ptr (genType pt)
 
-    getGName = getName gnames
+    getGName = getName $ if noGC'
+        then flip Vec.map gnames $ \case
+            "GC_malloc" -> "malloc"
+            s -> s
+        else gnames
+
 
 commitThen :: LL.Terminator -> Name -> Gen ()
 commitThen term next = do

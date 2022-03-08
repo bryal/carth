@@ -65,7 +65,7 @@ isSourceFile f = let e = takeExtension f in e == ".carth" || e == ".org"
 
 run' :: FilePath -> IO String
 run' f =
-    let cfg = defaultRunConfig f
+    let cfg = (defaultRunConfig f) { rNoGC = True }
     in  frontend f >>= \case
             Nothing -> error "Program failed to pass through frontend"
             Just ast -> capture_ (run f cfg ast)

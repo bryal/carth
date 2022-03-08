@@ -10,6 +10,13 @@
 ;;? is. Iteration over grapheme clusters may instead be what you really want.
 (define: (string/codepoints s)
     (Fun Str (Iter Nat32))
+  (define (go bs)
+    (Iter (fun (_) (maybe/map (map-cadr (fun (n) (go (skip (cast n) bs))))
+                              (string/next-codepoint bs)))))
+  (go (string/bytes s)))
+
+(define: (string/next-codepoint bytes)
+    (Fun (Iter Nat8) (Maybe [Nat32 Nat]))
   (define: (init-byte b)
       (Fun Nat8 [Nat8 Nat])
     (if (= (cast 0) (bit-and b (cast 0b10000000)))
@@ -26,15 +33,11 @@
   (define: (join a b) (Fun Nat32 Nat8 Nat32)
     (+ (shift-l (cast a) (cast 6))
        (cast (cont-byte b))))
-  (define (go bs)
-    (Iter
-     (fun (_)
-       (maybe/map (fun ([b0 bs'])
-                    (let1 [b0' n] (init-byte b0)
-                      [(foldl join (cast b0') (take (cast n) bs'))
-                       (go (skip (cast n) bs'))]))
-                  (next bs)))))
-  (go (string/bytes s)))
+  (maybe/map (fun ([b0 bytes'])
+               (let1 [b0' n] (init-byte b0)
+                 [(foldl join (cast b0') (take (cast n) bytes'))
+                  (+ n (cast 1))]))
+             (next bytes)))
 
 ;;? Iterate over the indivitual bytes of a string.
 ;;?
@@ -42,9 +45,14 @@
 ;;? string is actually only of the ASCII subset.
 (define (string/bytes (Str xs))
   (array/iter xs))
+(define (string/bytes-rev (Str xs))
+  (array/iter-rev xs))
 
 (define (string/collect-bytes it)
   (Str (array/collect it)))
+
+(define (string/length-bytes (Str bs))
+  (array/length bs))
 
 ;;? Show an integer in hexadecimal notation
 (define: (show-hex n) (Fun Int Str)
@@ -63,7 +71,12 @@
 (define: (lines s)
     (Fun Str (Iter Str))
   (define (lines' s)
-    (Iter (fun (Unit) (maybe/map (map-cadr lines') (string/split-first-line s)))))
+    (Iter (fun (Unit)
+            (if (string/empty? s)
+                None
+              (Some (match (string/split-first-line s)
+                      (case (Some [l s']) [l (lines' s')])
+                      (case None          [s iter/nil])))))))
   (lines' s))
 
 (define (string/split-first-line (Str s))
@@ -74,15 +87,81 @@
                               ys
                             xs))))
   (maybe/map (fun (i) (map-two (<o Str trim-carriage)
-                               (<o Str (array/skip 1))
+                               (<o Str (array/slice-from 1))
                                (unwrap! (array/split i s))))
              (array/find (cast ascii-newline) s)))
 
+(define (words s)
+  (filter string/nonempty?
+          (string/splits-by (fun (s) (if (maybe' False whitespace-byte? (iter/first (string/bytes s)))
+                                         (Some (cast 1))
+                                       None))
+                            s)))
+
+(define: (string/splits-on sep s)
+    (Fun Str Str (Iter Str))
+  (string/splits-by (fun (s') (if (string/prefix? sep s')
+                                  (Some (string/length-bytes sep))
+                                None))
+                    s))
+
+(define: (string/splits-by f (Str bs))
+    (Fun (Fun Str (Maybe Nat)) Str (Iter Str))
+  (unfoldr (fun (bs)
+             (if (array/nil? bs)
+                 None
+               (match (array/find-slice-by (<o f Str) bs)
+                 (case (Some [i n]) (Some [(Str (array/slice 0 (cast i) bs))
+                                           (array/slice-from (cast (+ i n)) bs)]))
+                 (case None (Some [(Str bs) array/nil])))))
+           bs))
+
+(define: (string/split-by f (Str bs))
+    (Fun (Fun Str Bool) Str (Maybe [Str Str]))
+  (maybe/map (fun (i) [(Str (array/slice 0 (cast i) bs))
+                       (Str (array/slice-from (cast i) bs))])
+             (array/find-slice-by' (<o f Str) bs)))
+
+(define (string/split-first-codepoint s)
+  (maybe/map (map-cadr (fun (n) (string/substr-from (to-int n) s))) (string/next-codepoint (string/bytes s))))
+
+(define (string/split-at-byte i (Str a))
+  (match (array/split i a)
+    (case (Some [a1 a2]) (Some [(Str a1) (Str a2)]))
+    (case None None)))
+
+;; May produce invalid UTF-8 strings
+(define (string/substr-from i (Str arr)) (Str (array/slice-from i arr)))
+(define (string/substr-to i (Str arr))   (Str (array/slice-to i arr)))
+(define (string/substr i j (Str arr))    (Str (array/slice i j arr)))
+
+(define (string/empty? (Str s))
+  (array/nil? s))
+
+(define (string/nonempty? (Str s))
+  (> (array/length s) (cast 0)))
+
+(define (whitespace-byte? b)
+  (any (= b) (string/bytes " \t\r\n")))
+
+(define (alphabetic-byte? b)
+  (or (and (>= b ascii-A) (<= b ascii-Z))
+      (and (>= b ascii-a) (<= b ascii-z))))
+
+(define (uppercase-byte? b) (and (>= b ascii-A) (<= b ascii-Z)))
+(define (lowercase-byte? b) (and (>= b ascii-a) (<= b ascii-z)))
+
 (define: ascii-carriage-return Nat8 (cast 0xD))
 (define: ascii-newline Nat8 (cast 0xA))
+(define: ascii-space Nat8 (cast 0x20))
 (define: ascii-minus Nat8 (cast 0x2D))
 (define: ascii-0 Nat8 (cast 0x30))
+(define: ascii-1 Nat8 (cast 0x31))
 (define: ascii-9 Nat8 (cast 0x39))
+(define: ascii-A Nat8 (cast 0x41))
+(define: ascii-Z Nat8 (cast 0x5A))
+(define: ascii-a Nat8 (cast 0x61))
+(define: ascii-z Nat8 (cast 0x7A))
 
 (define (parse-int s)
   (maybe/bindr (next (string/bytes s))
@@ -108,3 +187,44 @@
 (define (digit? c) (and (>= c ascii-0) (<= c ascii-9)))
 
 (define (parse-digit c) (if (digit? c) (Some (- c ascii-0)) None))
+
+(define: (parse-binary s)
+    (forall (a) (where (Cast Int a)
+                       (Cast Nat a)
+                       (Bitwise a))
+            (Fun Str a))
+  (foldl (fun (acc [i b]) (bit-or acc (cast (shift-l (cast (- b ascii-0)) i))))
+         (cast 0)
+         (enumerate (string/bytes-rev s))))
+
+(define (string/prefix? (Str as) (Str bs))
+  (array/= as (array/slice-to (cast (array/length as)) bs)))
+
+(define (string/find-byte-by p (Str bs))
+  (array/find-by p bs))
+
+(define (string/concat ss)
+  (Str (array/concat (map string/as-array ss))))
+(define (string/concat-list ss)
+  (string/concat (list/iter ss)))
+
+(define (string/as-array (Str a)) a)
+
+(define (trim s) (trim-end (trim-start s)))
+
+(define (trim-start s)
+  (match (array/find-by (<o not whitespace-byte?) (string/as-array s))
+    (case (Some i) (cadr (unwrap! (string/split-at-byte i s))))
+    (case None "")))
+
+(define (trim-end s)
+  (match (array/find-by-end (<o not whitespace-byte?) (string/as-array s))
+    (case (Some i) (car (unwrap! (string/split-at-byte i s))))
+    (case None "")))
+
+(define (string/singleton-byte b) (Str (array/singleton b)))
+
+(extern str-cmp (Fun Str Str Cmp))
+(extern str-show (Fun Str Str))
+
+(define (string/nth-byte! i (Str a)) (array/lookup! i a))

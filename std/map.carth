@@ -1,0 +1,211 @@
+(import std)
+
+;; Size balanced binary tree. Indirectly based on Qifeng Chen's (2007) algorithm via
+;; https://wcipeg.com/wiki/Size_Balanced_Tree
+(data (Map k v)
+  (MTree (Box [k v Nat (Map k v) (Map k v)]))
+  MLeaf)
+
+(define map/empty MLeaf)
+(define (map/singleton k v) (MTree (box [k v (to-nat 1) MLeaf MLeaf])))
+
+(define map/size
+  (fmatch (case MLeaf (to-nat 0))
+          (case (MTree (Box [_ _ n _ _])) n)))
+
+
+(define (map/insert cmp k v) (map/adjust-or-insert cmp (const v) k v))
+(define (map/insert-with cmp f k v2) (map/adjust-or-insert cmp (fun (v1) (f v1 v2)) k v2))
+
+(define: (map/adjust-or-insert cmp f k v m)
+    (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k v (Map k v) (Map k v)))
+  (define (go m)
+    (match m
+      (case MLeaf [(map/singleton k v) True])
+      (case (MTree (Box [k' v' n l r]))
+            (let1 res (match (cmp k k')
+                        (case Eq [(MTree (box [k' (f v') n l r])) False])
+                        (case Lt (let1 [l' grew?] (go l)
+                                   [(MTree (box [k' v' (if grew? (inc n) n) l' r])) grew?]))
+                        (case Gt (let1 [r' grew?] (go r)
+                                   [(MTree (box [k' v' (if grew? (inc n) n) l r'])) grew?])))
+              (if (cadr res) (map-car map/-maintain res) res)))))
+  (car (go m)))
+
+(define (map/-maintain t)
+  (let ((l (map/left-child! t))
+        (r (map/right-child! t))
+        ((size' child) (maybe' (to-nat 0) map/size child)))
+    (cond ((< (map/size l) (size' (map/left-child r)))
+           (apps |> t
+                 (map/map-right map/-right-rot)
+                 map/-left-rot
+                 (map/map-left map/-maintain)
+                 (map/map-right map/-maintain)
+                 map/-maintain))
+          ((< (map/size l) (size' (map/right-child r)))
+           (apps |> t
+                 map/-left-rot
+                 (map/map-left map/-maintain)
+                 map/-maintain))
+          ((< (map/size r) (size' (map/right-child l)))
+           (apps |> t
+                 (map/map-left map/-left-rot)
+                 map/-right-rot
+                 (map/map-left map/-maintain)
+                 (map/map-right map/-maintain)
+                 map/-maintain))
+          ((< (map/size r) (size' (map/left-child l)))
+           (apps |> t
+                 map/-right-rot
+                 (map/map-right map/-maintain)
+                 map/-maintain))
+          (else
+           t))))
+
+(define map/-left-rot (fmatch (case MLeaf MLeaf) (case (MTree (Box m)) (MTree (map/-left-rot' m)))))
+;; FIXME: Segfault if we accept the tuple wrapped in its box here.
+(define (map/-left-rot' [k v n l r])
+  (match r
+    (case (MTree (Box [rk rv rn rl rr]))
+          (box [rk rv n (MTree (box [k v (inc (+ (map/size l) (map/size rl))) l rl])) rr]))
+    (case MLeaf (panic "map/-left-rot': right child is leaf"))))
+
+(define map/-right-rot (fmatch (case MLeaf MLeaf) (case (MTree (Box m)) (MTree (map/-right-rot' m)))))
+(define (map/-right-rot' [k v n l r])
+  (match l
+    (case (MTree (Box [lk lv ln ll lr]))
+          (box [lk lv n ll (MTree (box [k v (inc (+ (map/size lr) (map/size r))) lr r]))]))
+    (case MLeaf (panic "map/-right-rot': left child is leaf"))))
+
+(define (map/map-left f)
+  (fmatch (case MLeaf MLeaf)
+          (case (MTree (Box [k v n l r]))
+                (MTree (box [k v n (f l) r])))))
+
+(define (map/map-right f)
+  (fmatch (case MLeaf MLeaf)
+          (case (MTree (Box [k v n l r]))
+                (MTree (box [k v n l (f r)])))))
+
+(define: (map/adjust cmp f k m)
+    (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k (Map k v) (Map k v)))
+  (define go
+    (fmatch (case MLeaf MLeaf)
+            (case (MTree (Box [k' v n l r]))
+                  (match (cmp k k')
+                    (case Eq (MTree (box [k' (f v) n l r])))
+                    (case Lt (MTree (box [k' v n (go l) r])))
+                    (case Gt (MTree (box [k' v n l (go r)])))))))
+  (go m))
+
+(define (map/lookup cmp k m)
+  (define go
+    (fmatch (case MLeaf None)
+            (case (MTree (Box [k' v _ l r]))
+                  (match (cmp k k')
+                    (case Eq (Some v))
+                    (case Lt (go l))
+                    (case Gt (go r))))))
+  (go m))
+
+(define (map/lookup! cmp k m) (unwrap! (map/lookup cmp k m)))
+
+(define map/iter
+  (fmatch (case MLeaf iter/nil)
+          (case (MTree (Box [k v _ l r]))
+                (apps iter/chain (map/iter l) (iter/once [k v]) (map/iter r)))))
+
+(define (map/collect cmp kvs) (map/extend cmp map/empty kvs))
+(define (map/collect-with cmp f kvs) (map/extend-with cmp f map/empty kvs))
+
+(define (map/extend cmp m kvs)
+  (deref (foldl (fun ((Box m) [k v]) (box (map/insert cmp k v m))) (box m) kvs)))
+(define (map/extend-with cmp f m kvs)
+  (deref (foldl (fun ((Box m) [k v]) (box (map/insert-with cmp f k v m))) (box m) kvs)))
+
+(define (map/collect-with-count cmp)
+  (map/extend-with-count cmp map/empty))
+
+(define (map/extend-with-count cmp m it)
+  (deref (foldl (fun ((Box m) x) (box (map/insert-with cmp + x (to-nat 1) m))) (box m) it)))
+
+(define map/left-child
+  (fmatch (case MLeaf None)
+          (case (MTree (Box [_ _ _ l _])) (Some l))))
+(define map/right-child
+  (fmatch (case MLeaf None)
+          (case (MTree (Box [_ _ _ _ r])) (Some r))))
+
+(define map/left-child!
+  (fmatch (case MLeaf (panic "map/left-child!: leaf has no left child"))
+          (case (MTree (Box [_ _ _ l _])) l)))
+(define map/right-child!
+  (fmatch (case MLeaf (panic "map/right-child!: leaf has no right child"))
+          (case (MTree (Box [_ _ _ _ r])) r)))
+
+(define (map/map f)
+  (fmatch (case MLeaf MLeaf)
+          (case (MTree (Box [k v n l r]))
+                (MTree (box [k (f v) n (map/map f l) (map/map f r)])))))
+
+(define (map/unions cmp) (foldl (map/union cmp) map/empty))
+
+;; TODO: Use more efficient algorithm
+(define (map/union cmp m1 m2)
+  (map/extend cmp m1 (map/iter m2)))
+
+;; TODO: Use more efficient algorithm
+;;
+;; Data of first map for keys of second map
+(define (map/isect cmp m1 m2)
+  (map/collect cmp (filter-map (fun (k) (maybe/map (cons' k) (map/lookup cmp k m1))) (map/keys m2))))
+
+(define (map/keys m) (map car (map/iter m)))
+(define (map/vals m) (map cadr (map/iter m)))
+
+(define (map/member? cmp k m) (some? (map/lookup cmp k m)))
+
+(define map/empty? (fmatch (case MLeaf True) (case _ False)))
+
+;; Wiki says maintenance after deleting is extraneous
+(define: map/remove-min
+    (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
+  (fmatch (case MLeaf None)
+          (case (MTree (Box [k v n l r]))
+                (match (map/remove-min l)
+                  (case (Some [x l]) (Some [x (MTree (box [k v (dec n) l r]))]))
+                  (case None (Some [[k v] r]))))))
+
+;; Wiki says maintenance after deleting is extraneous
+(define: map/remove-max
+    (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
+  (fmatch (case MLeaf None)
+          (case (MTree (Box [k v n l r]))
+                (match (map/remove-max r)
+                  (case (Some [x r]) (Some [x (MTree (box [k v (dec n) l r]))]))
+                  (case None (Some [[k v] l]))))))
+
+(define (map/remove cmp k m)
+  (define go
+    (fmatch (case MLeaf None)
+            (case (MTree (Box [k' v n l r]))
+                  (match (cmp k k')
+                    (case Eq (Some [v (if (map/empty? l)
+                                          r
+                                        (match (map/remove-min r)
+                                          (case None l)
+                                          (case (Some [[ksucc vsucc] r])
+                                                (MTree (box [ksucc vsucc (dec n) l r])))))]))
+                    (case Lt (maybe/map (map-cadr (fun (l) (MTree (box [k' v (dec n) l r]))))
+                                        (go l)))
+                    (case Gt (maybe/map (map-cadr (fun (r) (MTree (box [k' v (dec n) l r]))))
+                                        (go r)))))))
+  (go m))
+
+(define (map/delete cmp k m) (maybe' m cadr (map/remove cmp k m)))
+
+(define (map/show show-k show-v)
+  (fmatch (case MLeaf "MLeaf")
+          (case (MTree (Box [k v n l r]))
+                (apps str-append "(MTree " (show-k k) " " (show-v v) " " (show-nat n) " " (map/show show-k show-v l) " " (map/show show-k show-v r) ")"))))

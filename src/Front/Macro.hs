@@ -110,7 +110,10 @@ applyMacro appPos args lits = \case
         (Braces xs, Braces ys) -> par xs ys
         (_, _) | p == a -> Just mempty
                | otherwise -> Nothing
-        where par xs ys = fmap Map.unions $ zipWithM matchPat (map unpos xs) ys
+      where
+        par xs ys = if length xs == length ys
+            then fmap Map.unions $ zipWithM matchPat (map unpos xs) ys
+            else Nothing
 
     fvPat = \case
         Small x | not (Set.member x lits) -> Set.singleton x

@@ -40,14 +40,16 @@ sizeof datas = \case
     sizeofData = fmap (maximumOr 0) . mapM sizeofStruct . tagUnion
 
     sizeofStruct :: [Type] -> Maybe Word32
-    sizeofStruct = foldlM addMember 0
+    sizeofStruct ts = do
+        (s, a) <- foldlM addMember (0, 1) ts
+        pure $ s + (mod (a - s) a)
       where
-        addMember :: Word32 -> Type -> Maybe Word32
-        addMember accSize t = do
+        addMember :: (Word32, Word32) -> Type -> Maybe (Word32, Word32)
+        addMember (accSize, maxAlign) t = do
             a <- alignmentof t
             let padding = if a == 0 then 0 else mod (a - accSize) a
             size <- sizeof datas t
-            Just (accSize + padding + size)
+            Just (accSize + padding + size, max a maxAlign)
 
     alignmentof :: Type -> Maybe Word32
     alignmentof = \case

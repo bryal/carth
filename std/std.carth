@@ -11,6 +11,10 @@
 (import queue)
 (import io)
 (import net)
+(import parse)
+(import map)
+(import set)
+(import priority-queue)
 
 (define (cons x xs) [x . xs])
 (define (cons' x y) [x y])
@@ -44,6 +48,14 @@
 (define (map-two f g [a b]) [(f a) (g b)])
 (define (map-three f g h [a b c]) [(f a) (g b) (h c)])
 
+(define (map-both f [a1 a2]) [(f a1) (f a2)])
+
+(define (show-two show-a show-b [a b]) (apps str-append "[" (show-a a) " " (show-b b) "]"))
+(define (show-three show-a show-b show-c [a b c])
+  (apps str-append "[" (show-a a) " " (show-b b) " " (show-c c) "]"))
+
+(define (swap [a b]) [b a])
+
 (define: (undefined x)
     (forall (a) (Fun Unit a))
   (panic "undefined"))
@@ -55,10 +67,47 @@
 (data Cmp
   Lt Eq Gt)
 
-(define (int/cmp a b)
+(define (num/cmp a b)
   (if (< a b) Lt
     (if (= a b) Eq
       Gt)))
+
+(define (cmp/< cmp a b)
+  (match (cmp a b)
+    (case Lt True)
+    (case _  False)))
+
+(define (cmp/= cmp a b)
+  (match (cmp a b)
+    (case Eq True)
+    (case _  False)))
+
+(define (cmp/min cmp a b)
+  (match (cmp a b)
+    (case Gt b)
+    (case _ a)))
+
+(define (cmp/max cmp a b)
+  (match (cmp a b)
+    (case Lt b)
+    (case _ a)))
+
+(define (cmp-two cmp-a cmp-b [a1 b1] [a2 b2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-b b1 b2))
+    (case c c)))
+(define (cmp-three cmp-a cmp-b cmp-c [a1 . rest1] [a2 . rest2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-two cmp-b cmp-c rest1 rest2))
+    (case c c)))
+(define (cmp-four cmp-a cmp-b cmp-c cmp-d [a1 . rest1] [a2 . rest2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-three cmp-b cmp-c cmp-d rest1 rest2))
+    (case c c)))
+(define (cmp-five cmp-a cmp-b cmp-c cmp-d cmp-e [a1 . rest1] [a2 . rest2])
+  (match (cmp-a a1 a2)
+    (case Eq (cmp-four cmp-b cmp-c cmp-d cmp-e rest1 rest2))
+    (case c c)))
 
 ;;; Strings
 
@@ -88,6 +137,9 @@
 (define (oo> f g a b) (g (f a b)))
 (define (ooo> f g a b c) (g (f a b c)))
 
+(define (<| f a) (f a))
+(define (|> a f) (f a))
+
 (define (flip f a b) (f b a))
 
 (define (id x) x)
@@ -97,3 +149,8 @@
 (define: void-elim
     (forall (a) (Fun Void a))
   (fmatch))
+
+(define (to-nat x) (: (cast x) Nat))
+(define (to-int x) (: (cast x) Int))
+(define (to-n16 x) (: (cast x) Nat16))
+(define (to-n8 x) (: (cast x) Nat8))

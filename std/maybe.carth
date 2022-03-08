@@ -7,11 +7,24 @@
 (define (maybe b f)
   (fmatch
     (case (Some a) (f a))
+    (case None     (b Unit))))
+
+;; Version of `maybe` that is strict in `b`
+(define (maybe' b f)
+  (fmatch
+    (case (Some a) (f a))
     (case None     b)))
+
+(define (maybe/or ma f)
+  (if (some? ma) ma (f Unit)))
 
 (define unwrap!
   (fmatch (case (Some x) x)
           (case None (panic "unwrap! of None"))))
+
+(define (unwrap-or b)
+  (fmatch (case (Some a) a)
+          (case None b)))
 
 (define (unwrap-or-else f)
   (fmatch (case (Some x) x)
@@ -26,10 +39,29 @@
 (define (maybe/lift2 f ma mb)
   (maybe/bindr ma (fun (a) (maybe/bindr mb (f a)))))
 
-(define (maybe/bind f)
+(define: (maybe/bind f)
+    (forall (a b) (Fun (Fun a (Maybe b)) (Maybe a) (Maybe b)))
   (fmatch
     (case (Some a) (f a))
     (case None None)))
 
 (define maybe/bindl maybe/bind)
 (define maybe/bindr (flip maybe/bind))
+
+(define maybe/iter (maybe' iter/nil iter/once))
+
+(define some? (fmatch (case (Some _) True)
+                      (case None False)))
+(define none? (fmatch (case (Some _) False)
+                      (case None True)))
+
+(define (maybe/show show-a)
+  (fmatch (case (Some a) (apps str-append "(Some " (show-a a) ")"))
+          (case None     "None")))
+
+(define (maybe/= inner= ma mb)
+  (match [ma mb]
+    (case [(Some a) (Some b)] (inner= a b))
+    (case _                   False)))
+
+(define cat-maybes (filter-map id))

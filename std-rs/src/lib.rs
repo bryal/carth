@@ -137,6 +137,13 @@ impl<A> std::ops::Try for Maybe<A> {
     }
 }
 
+#[repr(u8)]
+pub enum Cmp {
+    Lt,
+    Eq,
+    Gt,
+}
+
 // TODO: Do it properly.
 //       https://en.cppreference.com/w/c/types/max_align_t
 const MAX_ALIGN: usize = 8;
@@ -145,10 +152,26 @@ fn heap_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
-#[no_mangle]
+#[export_name = "str-eq"]
 pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
     let (s1, s2) = (s1.as_str(), s2.as_str());
     s1 == s2
+}
+#[export_name = "str-cmp"]
+pub extern "C" fn str_cmp(s1: Str, s2: Str) -> Cmp {
+    use std::cmp::Ordering::*;
+    let (s1, s2) = (s1.as_str(), s2.as_str());
+    match s1.cmp(s2) {
+        Less => Cmp::Lt,
+        Equal => Cmp::Eq,
+        Greater => Cmp::Gt,
+    }
+}
+
+#[export_name = "str-show"]
+pub extern "C" fn str_show(s: Str) -> Str {
+    let s = s.as_str();
+    Str::new(&format!("{:?}", s))
 }
 
 #[export_name = "unsafe-display-inline"]

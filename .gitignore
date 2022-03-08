@@ -4,6 +4,7 @@
 *.svg
 *.prof
 *.o
+*.bin
 
 examples/*.bin
 examples/*.ll
