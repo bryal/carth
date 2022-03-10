@@ -105,10 +105,8 @@ prettyTPrim = \case
     Parsed.TNatSize -> "Nat"
     Parsed.TInt w -> "Int" ++ show w
     Parsed.TIntSize -> "Int"
-    Parsed.TF16 -> "F16"
     Parsed.TF32 -> "F32"
     Parsed.TF64 -> "F64"
-    Parsed.TF128 -> "F128"
 
 prettyTVar :: Parsed.TVar -> String
 prettyTVar = \case

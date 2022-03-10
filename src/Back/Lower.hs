@@ -1,5 +1,7 @@
-module Back.Lower (lower, builtinExterns) where
+module Back.Lower (lower) where
 
+import Control.Monad.State
+import Control.Monad.Writer
 import Data.Bifunctor
 import Data.Function
 import Data.List
@@ -8,35 +10,136 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
+import Data.Word
 
 import qualified Back.Low as Low
 import Front.Monomorphic
 import Misc
 import Sizeof
 
-data SizedType = ZeroSized | Sized Low.Type
+data Sized x = ZeroSized | Sized x
+
+-- data St = St
+--     { strLits :: Map String Low.GlobalId
+--     }
+
+type Out = ([Low.FunDef], [Low.GlobDef])
+
+type Lower = WriterT Out (State ())
 
 lower :: Program -> Low.Program
-lower (Program _Defs datas externs) =
-    let externNames = map (\(name, _, _) -> name) externs
-        globNames = _
-    in  Low.Program _FunDefs
-                    (lowerExterns externs)
-                    _GlobDefs
-                    tenv
-                    (resolveNameConflicts globNames externNames)
+lower (Program (Topo defs) datas externs) =
+    let _externNames = map (\(name, _) -> name) externs
+        (fs, gs) = run $ do
+            fs' <- mapM lowerFunDef funDefs
+            init <- defineInit
+            tell (fs' ++ [init], [])
+    in  Low.Program fs externs' (map lowerGVarDecl gvarDefs ++ gs) tenv undefined -- (resolveNameConflicts globNames externNames)
   where
-    resolveNameConflicts :: [String] -> [String] -> Vector String
-    resolveNameConflicts = _
+    builtinNames = ["carth_init"] :: [String]
+    initNameIx = fromIntegral (fromJust (elemIndex "carth_init" builtinNames))
+
+    -- resolveNameConflicts :: [String] -> [String] -> Vector String
+    -- resolveNameConflicts = _
+
+    externs' = flip map externs $ \case
+        (name, TFun pt rt) ->
+            Low.ExternDecl name (toParam () . lowerType =<< [pt]) (toRet (lowerType rt))
+        (name, t) -> nyi $ "lower: Non-function externs: " ++ name ++ ", " ++ show t
+
+    run :: Lower () -> ([Low.FunDef], [Low.GlobDef])
+    run = undefined
+
+    defineInit :: Lower Low.FunDef
+    defineInit = pure $ Low.FunDef initNameIx
+                                   []
+                                   Low.RetVoid
+                                   (Low.Block undefined undefined)
+                                   undefined
+                                   undefined
+    -- do
+        -- let name = mkName "carth_init"
+        -- let param = TypedVar "_" tUnit
+        -- let genDefs =
+        --         forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
+        -- fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
+
+    lowerFunDef :: (TypedVar, (Inst, Fun)) -> Lower Low.FunDef
+    lowerFunDef (lhs, (_inst, (p, (body, rt)))) = do
+        let Low.Global name _ = globFunEnv Map.! lhs
+        pid <- newLName (tvName p)
+        let pt = lowerType (tvType p)
+        let withParam = maybe id (withVar p . Low.OLocal . Low.Local pid) (sizedMaybe pt)
+        capturesName <- newLName "captures"
+        body <- withParam (lowerBody body)
+        localNames <- popLocalNames
+        allocs <- popAllocs
+        pure $ Low.FunDef name
+                          (Low.ByVal capturesName Low.VoidPtr : (toParam pid pt))
+                          (toRet (lowerType rt))
+                          body
+                          allocs
+                          localNames
+
+    popLocalNames :: Lower Low.VarNames
+    popLocalNames = undefined
+
+    popAllocs :: Lower Low.Allocs
+    popAllocs = undefined
+
+    lowerBody :: Expr -> Lower (Low.Block Low.Terminator)
+    lowerBody body = do
+        Low.Block stms e <- lowerExpr body
+        case e of
+            ZeroSized -> pure $ Low.Block stms Low.TRetVoid
+            Sized (e', t) -> do
+                if passByRef t
+                    then undefined
+                    else do
+                        ret <- fmap (flip Low.Local t) (newLName "ret")
+                        pure
+                            (Low.Block (stms ++ [Low.Let ret e'])
+                                       (Low.TRetVal (undefined ret))
+                            )
+
+    lowerExpr :: Expr -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))
+    lowerExpr = undefined
+
+    withVar :: TypedVar -> Low.Operand -> Lower a -> Lower a
+    withVar = undefined
+
+    newLName :: String -> Lower Low.LocalId
+    newLName = undefined
+
+    lowerGVarDecl :: (TypedVar, (Inst, Expr)) -> Low.GlobDef
+    lowerGVarDecl = undefined
+
+    globFunEnv :: Map TypedVar Low.Global
+    globFunEnv = undefined funDefs
+
+    _globVarEnv :: Map TypedVar Low.Global
+    _globVarEnv = undefined gvarDefs
+
+    (funDefs, gvarDefs) =
+        let defs' = defs >>= \case
+                VarDef d -> [d]
+                RecDefs ds -> map (second (second Fun)) ds
+        in  flip partitionWith defs' $ \(lhs, (ts, e)) -> case e of
+                Fun f -> Left (lhs, (ts, f))
+                _ -> Right (lhs, (ts, e))
 
     builtinTypeDefs =
         -- closure: pointer to captures struct & function pointer, genericized
-        [("closure", Low.DStruct (Low.Struct [Low.VoidPtr, Low.VoidPtr] (8 * 2) 8))]
+        [ ( "closure"
+          , Low.DStruct (Low.Struct [Low.VoidPtr, Low.VoidPtr] (wordsize * 2) wordsize)
+          )
+        ]
 
     closureType = builtinType "closure"
 
-    builtinType name =
-        Low.TConst $ fromIntegral $ fromJust $ findIndex ((== name) . fst) builtinTypeDefs
+    builtinType name = Low.TConst $ fromIntegral $ fromJust $ findIndex
+        ((== name) . fst)
+        builtinTypeDefs
 
     -- Iff a TConst is zero sized, it will have no entry in tids
     tenv :: Vector Low.TypeDef
@@ -49,7 +152,7 @@ lower (Program _Defs datas externs) =
                       [fromIntegral (length builtinTypeDefs) ..]
             $ flip mapMaybe (Map.toList datas)
             $ \(tc@(tname, _), vs) ->
-                  let vs' = map (second (mapMaybe (sizedMaybe . genType))) vs
+                  let vs' = map (second (mapMaybe (sizedMaybe . lowerType))) vs
                   in
                       fmap ((, tc) . (tname, )) $ case vs' of
                           [] -> ice "uninhabited type when creating Lower.tenv"
@@ -70,7 +173,7 @@ lower (Program _Defs datas externs) =
         ((reverse . fst) .) $ flip foldl ([], Map.empty) $ \(ds, seen) d ->
             let name = get d
                 uq n =
-                    let name' = if n == 0 then name else name ++ "_" ++ show n
+                    let name' = if n == 0 then name else name ++ "_" ++ show (n :: Int)
                     in  if Map.findWithDefault 0 name' seen == 0
                             then (name', Map.insert name (n + 1) seen)
                             else uq (n + 1)
@@ -80,17 +183,6 @@ lower (Program _Defs datas externs) =
     sizedMaybe = \case
         ZeroSized -> Nothing
         Sized t -> Just t
-
-    -- Since Carth has no concept of arity > 1 for functions, neither accepting a tuple
-    -- nor currying is a perfect translation of an n-ary function. If we for example
-    -- require an extern sig to be of the form (Fun (Cons ...) _) and translate that to an
-    -- n-ary function, how do we write a signature for a function that actually does
-    -- accept a single Carth tuple? No, instead, we should write the sigs in n-ary form,
-    -- and generate either a tuple or curry wrapper. I think currying would be better, to
-    -- better match how we handle saturated calls and stuff elsewhere.
-    lowerExterns = map $ \case
-        (name, pts, rt) ->
-            Low.ExternDecl name (toParam () . genType =<< pts) (toRet (genType rt))
 
     toParam name = \case
         ZeroSized -> []
@@ -104,8 +196,8 @@ lower (Program _Defs datas externs) =
     --       vs. 64-bit platform.
     --
     -- | The Low representation of a type in expression-context
-    genType :: Type -> SizedType
-    genType = \case
+    lowerType :: Type -> Sized Low.Type
+    lowerType = \case
         TPrim (TNat w) -> genIntT w
         TPrim TNatSize -> genIntT wordsizeBits
         TPrim (TInt w) -> genIntT w
@@ -113,20 +205,21 @@ lower (Program _Defs datas externs) =
         TPrim TF32 -> Sized Low.TF32
         TPrim TF64 -> Sized Low.TF64
         TFun _ _ -> Sized closureType
-        TBox t -> Sized $ case genType t of
+        TBox t -> Sized $ case lowerType t of
             ZeroSized -> Low.VoidPtr
             Sized t' -> Low.TPtr t'
         TConst tc -> Map.lookup tc tids & \case
             Nothing -> ZeroSized
             Just ix -> Sized $ Low.TConst ix
       where
+        genIntT :: Word32 -> Sized Low.Type
         genIntT w = if
             | w == 0 -> ZeroSized
             | w <= 8 -> Sized Low.TI8
             | w <= 16 -> Sized Low.TI16
             | w <= 32 -> Sized Low.TI32
             | w <= 64 -> Sized Low.TI64
-            | otherwise -> ice "Lower.genType: integral type larger than 64-bit"
+            | otherwise -> ice "Lower.lowerType: integral type larger than 64-bit"
 
     -- NOTE: This post is helpful:
     --       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
@@ -153,7 +246,7 @@ lower (Program _Defs datas externs) =
     passByRef t = sizeof t > 2 * 8
 
     sizeof = Low.sizeof tenv
-    alignmentof = Low.alignmentof tenv
+    _alignmentof = Low.alignmentof tenv
     sizeofStruct = Low.sizeofStruct tenv
     alignmentofStruct = Low.alignmentofStruct tenv
 
@@ -167,3 +260,35 @@ lower (Program _Defs datas externs) =
 
 -- builtinExterns :: Map String Type
 -- builtinExterns = _
+
+
+-- instance TypeAst Type where
+--     tprim = TPrim
+--     tconst = TConst
+--     tfun = TFun
+--     tbox = TBox
+
+-- instance FreeVars Expr TypedVar where
+--     freeVars e = fvExpr e
+
+-- fvExpr :: Expr -> Set TypedVar
+-- fvExpr = \case
+--     Lit _ -> Set.empty
+--     Var (_, x) -> Set.singleton x
+--     App f a -> Set.unions (map freeVars (f : a))
+--     If p c a -> fvIf p c a
+--     Fun (p, (b, _)) -> fvFun p b
+--     Let (VarDef (lhs, (_, rhs))) e ->
+--         Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
+--     Let (RecDefs ds) e -> fvLet (unzip (map (second (Fun . snd)) ds)) e
+--     Match e dt -> Set.union (freeVars e) (fvDecisionTree dt)
+--     Ction (_, _, _, as) -> Set.unions (map freeVars as)
+--     Sizeof _t -> Set.empty
+--     Absurd _ -> Set.empty
+
+-- fvDecisionTree :: DecisionTree -> Set TypedVar
+-- fvDecisionTree = \case
+--     DLeaf (bs, e) -> Set.difference (freeVars e) (Set.fromList (map fst bs))
+--     DSwitch _ _ cs def -> fvDSwitch (Map.elems cs) def
+--     DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
+--     where fvDSwitch es def = Set.unions $ fvDecisionTree def : map fvDecisionTree es

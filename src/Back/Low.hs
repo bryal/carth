@@ -67,7 +67,10 @@ data Statement
 data Terminator
     = TRetVal Operand
     | TRetVoid
-    | TOutParam Operand
+    | TOutParam Operand -- FIXME: This isn't right, right? If the last thing in the
+                        -- function is a call for example, we want to pass along the sret
+                        -- param, instead of allocating an extra stack variable to store
+                        -- the call output in, before writing it to our own output param.
     | TBranch (Branch Terminator)
 
 data LoopTerminator

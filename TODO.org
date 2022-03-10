@@ -1608,59 +1608,17 @@ Features and other stuff to do/implement in/around Carth.
   Must consider how this interacts with monomorphization vs. boxing
   vs. value witness tables for static dispatch.b
 * TODO Don't curry by default
-  I did currying by default mostly because it's the Haskell way of
-  doing things, but this has, among other things, performance
-  implications. And we're not Haskell, we're a Lisp.
+** <2022-03-10 tor>
+   I'm coming around to the idea of, at least to begin
+   with, just doing function arguments the "normal" way. I.e., no
+   automagic currying or wrapping in tuples or whatever. Leave that to
+   the users (hah) for now.
 
-  Maybe let's do function application a bit more like Clojure? We
-  reduce the complexity of our call stacks and make profiling more
-  clear and easy. We'd also improve performance by not having to heap
-  allocate as many closure captures for the wrapping
-  curry-closures. Also, variadic special forms and macros wouldn't
-  cause confusion about whether it's a curried application or an extra
-  argument. Maybe we could even have variadic functions in some
-  way. ~(+ 1 2 3)~, ~(|> x f g h)~.
-
-  In Clojure, one direct way of making a curried application is with
-  ~partial~. 
-
-  #+BEGIN_SRC carth
-  ((cons 1) [2]) ;; error
-  ((partial cons 1) [2]) ;; [1 2]
-  #+END_SRC
-
-  We probably couldn't implement it as a function, but we could have
-  it as a special form. Or, I guess we could implement it by doing
-  Rust-style
-  implement-a-class-for-every-arity-version-up-to-a-big-number-like-11. Another
-  possibility might be if function arguments were behind the scenes a
-  tuple. Then we might implement it like
-
-  #+BEGIN_SRC carth
-  (define: (partial f a)
-      (Fun [a . bs] c)
-    (fun bs (f (cons a bs))))
-  #+END_SRC
-  
-  This might have other negative implications, however.
-
-  I suppose it would be nice if we could treat the function
-  paramer-list as if it were a tuple, but under the scenes they
-  actually don't, and the tuple stuff is just wrapped around it, and
-  optimized away when calls are saturated. Then you could fmatch
-  directly on the whole argument list, e.g.
-
-  #+BEGIN_SRC carth
-  (foldl (fmatch (case [(Left n) x]
-                       (Left (inc n)))
-                 (case [(Right xs) x]
-                       (if (> 10 x)
-                           (Right (list/cons x xs))
-                         (Left 1))))
-         ...)
-  #+END_SRC
-
-  --------------------------------------
+   #+BEGIN_SRC carth
+   (defun polynomial-2 (a b c) : (Fun (F64 F64 F64) (Fun (F64) F64))
+          (fun (x) (+ (* a x x) (* b x) c)))
+   #+END_SRC
+** Old
 
   If we don't do currying, we could also better fit a nice
   arbitrary-position anonymous function syntax into Carth. Like
@@ -1688,6 +1646,59 @@ Features and other stuff to do/implement in/around Carth.
   (define (pair x y) [x y])
   (pair 5 (: _ Nat)) ;; Type Nat ascribed to placeholder, to lock it
   #+END_EXAMPLE
+
+** Older
+  I did currying by default mostly because it's the Haskell way of
+  doing things, but this has, among other things, performance
+  implications. And we're not Haskell, we're a Lisp.
+
+  Maybe let's do function application a bit more like Clojure? We
+  reduce the complexity of our call stacks and make profiling more
+  clear and easy. We'd also improve performance by not having to heap
+  allocate as many closure captures for the wrapping
+  curry-closures. Also, variadic special forms and macros wouldn't
+  cause confusion about whether it's a curried application or an extra
+  argument. Maybe we could even have variadic functions in some
+  way. ~(+ 1 2 3)~, ~(|> x f g h)~.
+
+  In Clojure, one direct way of making a curried application is with
+  ~partial~. But we'd call it ~curry~ I think.
+
+  #+BEGIN_SRC carth
+  ((cons 1) [2]) ;; error
+  ((curry cons 1) [2]) ;; [1 2]
+  #+END_SRC
+
+  We probably couldn't implement it as a function, but we could have
+  it as a special form. Or, I guess we could implement it by doing
+  Rust-style
+  implement-a-class-for-every-arity-version-up-to-a-big-number-like-11. Another
+  possibility might be if function arguments were behind the scenes a
+  tuple. Then we might implement it like
+
+  #+BEGIN_SRC carth
+  (define: (curry f a)
+      (Fun [a . bs] c)
+    (fun bs (f (cons a bs))))
+  #+END_SRC
+  
+  This might have other negative implications, however.
+
+  I suppose it would be nice if we could treat the function
+  paramer-list as if it were a tuple, but under the scenes they
+  actually don't, and the tuple stuff is just wrapped around it, and
+  optimized away when calls are saturated. Then you could fmatch
+  directly on the whole argument list, e.g.
+
+  #+BEGIN_SRC carth
+  (foldl (fmatch (case [(Left n) x]
+                       (Left (inc n)))
+                 (case [(Right xs) x]
+                       (if (> 10 x)
+                           (Right (list/cons x xs))
+                         (Left 1))))
+         ...)
+  #+END_SRC
 * INACTIVE Have error messages quote section numbers for the spec
   when there is a spec.
 
@@ -1697,3 +1708,28 @@ Features and other stuff to do/implement in/around Carth.
   but would probably fit really well as a graph. This could be useful
   both for debugging the compiler, as well as to debug compiled
   programs.
+* TODO Change syntax of definitions
+  #+BEGIN_EXAMPLE
+  ;; I don't like how it's only the parmeters in parens in fun
+  ;; and Fun, but in define the function name is included as well.
+  (Fun      (a b) c)
+  (fun      (a b) c)
+  (define (f a b) c)
+
+  ;; This would align up much more nicely. More symmetry == better.
+    (Fun   (a b) c)
+    (fun   (a b) c)
+  (defun f (a b) c)
+  #+END_EXAMPLE
+
+  No but really, more symmetry => easier for beginners to make correct
+  extrapolations => less friction.
+
+  Also, it's slightly annoying having to jump back to the ~define~
+  just to make it a ~define:~ when we want to add a type signature to
+  a definition. Maybe instead:
+
+  #+BEGIN_EXAMPLE
+  (defun f (a b) : (Fun (a b) c)
+    c)
+  #+END_EXAMPLE

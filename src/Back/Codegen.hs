@@ -331,6 +331,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                   }
                         )
             Call f as ->
+                -- FIXME: This doesn't handle sret, does it? Should it be handled here
+                --        then, or in Lower? For cleaner C codegen, we should probably
+                --        handle it here.
                 let f' = genOperand f
                     rt = getReturn (getPointee (LL.typeOf f'))
                 in  pure (rt, call f' (map genOperand as))

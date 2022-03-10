@@ -30,7 +30,10 @@ data Type
     | TConst TConst
     deriving (Show, Eq, Ord)
 
-data TypedVar = TypedVar String Type
+data TypedVar = TypedVar
+    { tvName :: String
+    , tvType :: Type
+    }
     deriving (Show, Eq, Ord)
 
 type VariantTypes = [Type]
@@ -77,7 +80,7 @@ type VarDef = (TypedVar, (Inst, Expr))
 type RecDefs = [FunDef]
 type FunDef = (TypedVar, (Inst, Fun))
 type Datas = Map TConst [(String, VariantTypes)]
-type Externs = [(String, [Type], Type)]
+type Externs = [(String, Type)]
 
 data Program = Program Defs Datas Externs
     deriving Show

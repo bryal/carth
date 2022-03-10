@@ -188,10 +188,8 @@ nonptype = choice
         Lexd.Big ('I' : 'n' : 't' : s) | isWord s -> Just (TInt (read s))
         Lexd.Big "Nat" -> Just TNatSize
         Lexd.Big "Int" -> Just TIntSize
-        Lexd.Big "F16" -> Just TF16
         Lexd.Big "F32" -> Just TF32
         Lexd.Big "F64" -> Just TF64
-        Lexd.Big "F128" -> Just TF128
         _ -> Nothing
     ttuple = tuple type_ (const (TConst ("Unit", []))) $ \l r -> TConst ("Cons", [l, r])
 
