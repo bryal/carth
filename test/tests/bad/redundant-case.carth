@@ -1,7 +1,7 @@
 ;; RedundantCase
 
 (define foo
-  (fmatch
-    (case True 0)
-    (case True 1)
-    (case False 2)))
+  (fun*
+    (case [True] 0)
+    (case [True] 1)
+    (case [False] 2)))

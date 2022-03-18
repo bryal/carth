@@ -26,8 +26,8 @@
 (define (and p q) (if p q    False))
 (define (or  p q) (if p True q))
 
-(define not (fmatch (case True False)
-                    (case False True)))
+(define not (fun* (case [True] False)
+                  (case [False] True)))
 
 (define (divisible? n m) (= (rem n m) (cast 0)))
 
@@ -40,8 +40,8 @@
         (go (* acc x) x (dec y)))))
   (go (cast 1) x y))
 
-(define sum (foldl + (cast 0)))
-(define product (foldl * (cast 1)))
+(define (sum xs) (foldl + (cast 0) xs))
+(define (product xs) (foldl * (cast 1) xs))
 
 (define: nat/maxval Nat (cast -1))
 

@@ -5,7 +5,7 @@
 
 (define: (array/iter (Array ptr len))
     (forall (a) (Fun (Array a) (Iter a)))
-  (map (<o deref (<o (ptr/+ ptr) cast))
+  (map (<o deref (<o (partial-2 ptr/+ ptr) cast))
        (xrange 0 (cast len))))
 
 (define: (array/iter-rev (Array ptr len))
@@ -116,10 +116,10 @@
 
 ;;? Returns index of the first occurence of the element in the array, if it *is* an element
 (define (array/find x xs)
-  (array/find-by (= x) xs))
+  (array/find-by (partial-2 = x) xs))
 
 (define (array/find-end x xs)
-  (array/find-by-end (= x) xs))
+  (array/find-by-end (partial-2 = x) xs))
 
 (define (array/find-by2 f xs)
   (if (array/nil? xs)
@@ -146,7 +146,7 @@
 
 (define: (array/find-slice-by f xs)
     (forall (a b) (Fun (Fun (Array a) (Maybe b)) (Array a) (Maybe [Nat b])))
-  (iter/first (filter-map (fun ([i ys]) (maybe/map (cons' i) (f ys)))
+  (iter/first (filter-map (fun ([i ys]) (maybe/map (partial-2 cons' i) (f ys)))
                           (enumerate (array/suffixes xs)))))
 
 (define: (array/find-slice-by' f xs)
@@ -294,19 +294,20 @@
   (cadr (array/build (fun (Unit i) [Unit (f (array/lookup! i xs))]) Unit (array/length xs))))
 
 ;;? Iterate over contiguous chunks of the underlying array
-(define (array/chunks width)
-  (unfoldr (array/split width)))
+(define (array/chunks width arr)
+  (unfoldr (partial-2 array/split width) arr))
 
 ;;? For a sorted array, this is the median
 (define (array/middle xs) (array/lookup (/ (array/length xs) (to-nat 2)) xs))
 
-(define: (array/windows n)
+(define: (array/windows n arr)
     (forall (a) (Fun Nat (Array a) (Iter (Array a))))
   (unfoldr (fun (xs)
              (let1 window (array/slice-to (to-int n) xs)
                (if (< (array/length window) n)  ; At the end
                    None
-                 (Some [window (array/slice-from 1 xs)]))))))
+                 (Some [window (array/slice-from 1 xs)]))))
+           arr))
 
 (define (array/first-two! a)
   [(array/lookup! (to-nat 0) a) (array/lookup! (to-nat 1) a)])

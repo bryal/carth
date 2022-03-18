@@ -2,14 +2,14 @@
 (import io)
 
 (define main
-  (flip io/for (<o display show-triple)
-        (list/iter (let1 ns (list 1 2 3 4 5 6 7 8 9)
-                     (do list/bind
-                         (<- x ns)
-                         (<- y ns)
-                         (<- z ns)
-                         (list/when (=s x y z)
-                                    (list [x y z])))))))
+  ((flip io/for) (<o display show-triple)
+   (list/iter (let1 ns (list 1 2 3 4 5 6 7 8 9)
+                (do list/bind
+                    (<- x ns)
+                    (<- y ns)
+                    (<- z ns)
+                    (list/when (=s x y z)
+                               (list [x y z])))))))
 
 (define (show-triple [a b c])
   (apps str-append "[" (show-int a) " " (show-int b) " " (show-int c) "]"))

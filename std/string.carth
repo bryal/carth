@@ -11,7 +11,7 @@
 (define: (string/codepoints s)
     (Fun Str (Iter Nat32))
   (define (go bs)
-    (Iter (fun (_) (maybe/map (map-cadr (fun (n) (go (skip (cast n) bs))))
+    (Iter (fun (_) (maybe/map (partial-2 map-cadr (fun (n) (go (skip (cast n) bs))))
                               (string/next-codepoint bs)))))
   (go (string/bytes s)))
 
@@ -29,7 +29,7 @@
              (cast 2)]
           [(bit-and b (cast 0b00000111))
            (cast 3)]))))
-  (define: cont-byte (Fun Nat8 Nat8) (bit-and (cast 0b00111111)))
+  (define: cont-byte (Fun Nat8 Nat8) (partial-2 bit-and (cast 0b00111111)))
   (define: (join a b) (Fun Nat32 Nat8 Nat32)
     (+ (shift-l (cast a) (cast 6))
        (cast (cont-byte b))))
@@ -87,7 +87,7 @@
                               ys
                             xs))))
   (maybe/map (fun (i) (map-two (<o Str trim-carriage)
-                               (<o Str (array/slice-from 1))
+                               (<o Str (partial-2 array/slice-from 1))
                                (unwrap! (array/split i s))))
              (array/find (cast ascii-newline) s)))
 
@@ -123,7 +123,7 @@
              (array/find-slice-by' (<o f Str) bs)))
 
 (define (string/split-first-codepoint s)
-  (maybe/map (map-cadr (fun (n) (string/substr-from (to-int n) s))) (string/next-codepoint (string/bytes s))))
+  (maybe/map (partial-2 map-cadr (fun (n) (string/substr-from (to-int n) s))) (string/next-codepoint (string/bytes s))))
 
 (define (string/split-at-byte i (Str a))
   (match (array/split i a)
@@ -142,7 +142,7 @@
   (> (array/length s) (cast 0)))
 
 (define (whitespace-byte? b)
-  (any (= b) (string/bytes " \t\r\n")))
+  (any (partial-2 = b) (string/bytes " \t\r\n")))
 
 (define (alphabetic-byte? b)
   (or (and (>= b ascii-A) (<= b ascii-Z))
@@ -169,7 +169,7 @@
                  (let1 [sign cs] (if (= c ascii-minus)
                                      [-1 cs]
                                    [1 (iter/cons c cs)])
-                   (maybe/map (<o (* sign) cast) (parse-nat' cs))))))
+                   (maybe/map (<o (partial-2 * sign) cast) (parse-nat' cs))))))
 
 (define (parse-nat s) (parse-nat' (string/bytes s)))
 (define (parse-nat' cs)
@@ -213,6 +213,7 @@
 (define (trim s) (trim-end (trim-start s)))
 
 (define (trim-start s)
+  ;; In this match somewhere
   (match (array/find-by (<o not whitespace-byte?) (string/as-array s))
     (case (Some i) (cadr (unwrap! (string/split-at-byte i s))))
     (case None "")))

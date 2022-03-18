@@ -3,7 +3,7 @@
 (define: (io/for xs f)
     (forall (a) (Fun (Iter a) (Fun a (IO Unit)) (IO Unit)))
   (IO (fun (real-world)
-        [Unit (foldl (fun (real-world a) (cadr (perform-io (f a) real-world)))
+        [Unit (foldl (fun (real-world a) (cadr ((perform-io (f a)) real-world)))
                      real-world
                      xs)])))
 
@@ -11,11 +11,13 @@
 
 (define: (io/map f (IO ma))
     (forall (a b) (Fun (Fun a b) (IO a) (IO b)))
-  (IO (o> ma (map-car f))))
+  (IO (o> ma (partial-2 map-car f))))
 
 (define: (io/bind f (IO ma))
     (forall (a b) (Fun (Fun a (IO b)) (IO a) (IO b)))
-  (IO (o> ma (uncurry (o> f perform-io)))))
+  (IO (fun (real-world)
+        (let1 [a real-world] (ma real-world)
+          ((perform-io (f a)) real-world)))))
 
 (define io/bindr (flip io/bind))
 
@@ -24,10 +26,10 @@
 
 (define: (unsafe-perform-io ma)
     (forall (a) (Fun (IO a) a))
-  (car (perform-io ma UnsafeRealWorld)))
+  (car ((perform-io ma) UnsafeRealWorld)))
 
 (define: (perform-io (IO ma))
-    (forall (a) (Fun (IO a) RealWorld [a RealWorld]))
+    (forall (a) (Fun (IO a) (Fun RealWorld [a RealWorld])))
   ma)
 
 (extern unsafe-display-inline (Fun Str Unit))
@@ -67,31 +69,31 @@
   (write-handle' h buf))
 
 (define (handle/read-byte h)
-  (io/map (maybe/bind (fun ([h xs]) (maybe/map (cons' h) (array/lookup (cast 0) xs)))) (handle/read-max (cast 1) h)))
+  (io/map (partial-2 maybe/bind (fun ([h xs]) (maybe/map (partial-2 cons' h) (array/lookup (cast 0) xs)))) (handle/read-max (cast 1) h)))
 
 (define: (handle/read-max n (Handle h buf))
     (Fun Nat Handle (IO (Maybe [Handle (Array Nat8)])))
   (if (not (array/nil? buf))
       (let1 [out buf] (array/take-split n buf)
         (io/pure (Some [(Handle h buf) out])))
-    (io/map (maybe/map (fun ([(Array p _) . m]) [(Handle h array/nil) (Array p m)]))
+    (io/map (partial-2 maybe/map (fun ([(Array p _) . m]) [(Handle h array/nil) (Array p m)]))
             (read-handle' h (array/unsafe-uninit n)))))
 
 (define (handle/read-to-end h)
   (define bufsize (: (cast (* 8 1024)) Nat))
   (define (go [xs h])
-    (io/bind (fmatch
-               (case None (io/pure None))
-               (case (Some [h ys]) (if (array/nil? ys)
-                                       (io/pure (Some [h xs]))
-                                     (go [(array/append xs ys) h]))))
+    (io/bind (fun*
+               (case [None] (io/pure None))
+               (case [(Some [h ys])] (if (array/nil? ys)
+                                         (io/pure (Some [h xs]))
+                                       (go [(array/append xs ys) h]))))
              (handle/read-max bufsize h)))
   (go [array/nil h]))
 
 (define (handle/read-to-str h)
-  (io/map (maybe/map (map-cadr Str)) (handle/read-to-end h)))
+  (io/map (partial-2 maybe/map (partial-2 map-cadr Str)) (handle/read-to-end h)))
 
-(define (handle/write-str (Str a)) (handle/write a))
+(define (handle/write-str (Str a) h) (handle/write a h))
 
 (extern stdrs_stdin_handle (Fun Unit Handle'))
 (define handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))

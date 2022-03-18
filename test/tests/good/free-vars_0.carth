@@ -8,8 +8,8 @@
   (define (go bar)
     (fun (b) (let1 bar (- bar b)
                (if (> bar 0)
-                   (go bar b)
+                   ((go bar) b)
                  1337))))
-  (go x 1))
+  ((go x) 1))
 
 (define main (display (show-int (foo 10))))

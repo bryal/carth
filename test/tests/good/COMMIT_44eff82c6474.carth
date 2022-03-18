@@ -26,17 +26,17 @@
 (define: (foo f)
     (Fun (Fun Unit Unit) Unit)
   (f Unit))
-(define: (<o f g a)
-    (Fun (Fun Unit Unit) (Fun Unit Unit) Unit Unit)
-  (f (g a)))
+(define: (<o f g)
+    (Fun (Fun Unit Unit) (Fun Unit Unit) (Fun Unit Unit))
+  (fun (a) (f (g a))))
 (define: (id x)
     (Fun Unit Unit)
   x)
 
-(define: (either/map-left f)
+(define: either/map-left
     (Fun (Fun (Fun Unit Unit) Unit) (Either (Fun Unit Unit)) (Either Unit))
-  (fmatch (case (Left a) (Left (f a)))
-          (case (Right b) (Right b))))
+  (fun* (case [f (Left a)] (Left (f a)))
+        (case [_ (Right b)] (Right b))))
 
 (define main
   (seq (either/map-left foo (Left (<o id id)))

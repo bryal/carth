@@ -5,9 +5,9 @@
 (define main
   (display (show-int (fib 92))))
 
-(define fib
+(define (fib n)
   (define (fib' a b n)
     (if (= n 0)
         a
       (fib' b (+ a b) (dec n))))
-  (fib' 0 1))
+  (fib' 0 1 n))
