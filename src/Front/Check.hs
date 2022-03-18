@@ -118,7 +118,7 @@ builtinDataTypes' =
     , ( "IO"
       , [TVImplicit "a"]
       , [ ( "IO"
-          , [ Inferred.TFun (tc ("RealWorld", [])) $ tc
+          , [ Inferred.TFun [tc ("RealWorld", [])] $ tc
                   ( "Cons"
                   , [ Inferred.TVar (TVImplicit "a")
                     , tc ("Cons", [tc ("RealWorld", []), tc unit'])
@@ -174,14 +174,18 @@ unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
         fmap (scm, ) $ local (Set.union (Inferred._scmParams scm)) (f x)
 
     goFunMatch :: Inferred.FunMatch -> Reader (Set TVar) Inferred.FunMatch
-    goFunMatch (cs, tp, tb) =
-        liftA3 (,,) (mapM (bimapM goPat goExpr) cs) (subst tp) (subst tb)
+    goFunMatch (cs, tps, tb) = liftA3
+        (,,)
+        (mapM (bimapM (mapPosdM (mapM goPat)) goExpr) cs)
+        (mapM subst tps)
+        (subst tb)
 
     goExpr :: Inferred.Expr -> Reader (Set TVar) Inferred.Expr
     goExpr = mapPosdM $ \case
         Inferred.Lit c -> pure (Inferred.Lit c)
         Inferred.Var v -> fmap Inferred.Var $ secondM goTypedVar v
-        Inferred.App f a tr -> liftA3 Inferred.App (goExpr f) (goExpr a) (subst tr)
+        Inferred.App f as tr ->
+            liftA3 Inferred.App (goExpr f) (mapM goExpr as) (subst tr)
         Inferred.If p c a -> liftA3 Inferred.If (goExpr p) (goExpr c) (goExpr a)
         Inferred.Let ld b -> liftA2 Inferred.Let (goDef ld) (goExpr b)
         Inferred.FunMatch fm -> fmap Inferred.FunMatch (goFunMatch fm)
@@ -190,7 +194,7 @@ unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
         Inferred.Sizeof t -> fmap Inferred.Sizeof (subst t)
 
     goPat :: Inferred.Pat -> Reader (Set TVar) Inferred.Pat
-    goPat = mapPosdM $ \case
+    goPat (Inferred.Pat pos t pat) = liftA2 (Inferred.Pat pos) (subst t) $ case pat of
         Inferred.PVar v -> fmap Inferred.PVar (goTypedVar v)
         Inferred.PWild -> pure Inferred.PWild
         Inferred.PCon con ps -> liftA2
@@ -218,23 +222,23 @@ compileDecisionTrees tdefs = compDefs
             fmap Checked.RecDefs $ flip mapM ds $ secondM (secondM compFunMatch)
 
     compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr Checked.Fun
-    compFunMatch (WithPos pos (cs, tp, tb)) = do
+    compFunMatch (WithPos pos (cs, tps, tb)) = do
         cs' <- mapM (secondM compExpr) cs
-        let p = "#x"
-        case runExceptT (toDecisionTree tdefs pos tp cs') of
-            Nothing -> pure ((p, tp), (Checked.Absurd tb, tb))
+        let ps = map (("#x" ++) . show) [0 .. length tps - 1]
+            vs = zipWith (\p tp -> Checked.Var (NonVirt, Checked.TypedVar p tp)) ps tps
+        case runExceptT (toDecisionTree tdefs pos tps cs') of
+            Nothing -> pure (zip ps tps, (Checked.Absurd tb, tb))
             Just e -> do
                 dt <- liftEither e
-                let v = (Checked.Var (NonVirt, Checked.TypedVar p tp))
-                    b = Checked.Match v dt
-                pure ((p, tp), (b, tb))
+                let b = Checked.Match vs dt
+                pure (zip ps tps, (b, tb))
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
         Inferred.Var (virt, Inferred.TypedVar (WithPos _ x) t) ->
             pure (Checked.Var (virt, Checked.TypedVar x t))
-        Inferred.App f a _ -> liftA2 Checked.App (compExpr f) (compExpr a)
+        Inferred.App f as _ -> liftA2 Checked.App (compExpr f) (mapM compExpr as)
         Inferred.If p c a -> liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
         Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
         Inferred.FunMatch fm -> fmap Checked.Fun (compFunMatch (WithPos pos fm))
@@ -242,10 +246,7 @@ compileDecisionTrees tdefs = compDefs
             let xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
                 params = zip xs ts
                 args = map (Checked.Var . (NonVirt, ) . uncurry Checked.TypedVar) params
-            in  pure $ snd $ foldr
-                    (\(p, pt) (bt, b) ->
-                        (Inferred.TFun pt bt, Checked.Fun ((p, pt), (b, bt)))
-                    )
-                    (Inferred.TConst inst, Checked.Ction v span' inst args)
-                    params
+                ret = Checked.Ction v span' inst args
+                tret = Inferred.TConst inst
+            in  pure $ if null params then ret else Checked.Fun (params, (ret, tret))
         Inferred.Sizeof t -> pure (Checked.Sizeof t)

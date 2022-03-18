@@ -19,8 +19,10 @@ type TConst t = (String, [t])
 class TypeAst t where
     tprim :: TPrim -> t
     tconst :: TConst t -> t
-    tfun :: t -> t -> t
+    tfun :: [t] -> t -> t
     tbox :: t -> t
+
+    unTconst :: t -> Maybe (TConst t)
 
 mainType :: TypeAst t => t
 mainType = tIO tUnit

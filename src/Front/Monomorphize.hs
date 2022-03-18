@@ -95,22 +95,23 @@ mono = \case
             Virt -> pure ()
             NonVirt -> tell (DefInsts (Map.singleton x (Set.singleton t')))
         pure (Var (virt, TypedVar x t'))
-    Checked.App f a -> liftA2 App (mono f) (mono a)
+    Checked.App f as -> liftA2 App (mono f) (mapM mono as)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     Checked.Fun f -> fmap (Fun) (monoFun f)
     Checked.Let d e -> monoLet d e
-    Checked.Match e cs -> monoMatch e cs
+    Checked.Match es cs -> monoMatch es cs
     Checked.Ction v span' inst as -> monoCtion v span' inst as
     Checked.Sizeof t -> fmap Sizeof (monotype t)
     Checked.Absurd t -> fmap Absurd (monotype t)
 
 monoFun :: Checked.Fun -> Mono Fun
-monoFun ((p, tp), (b, bt)) = do
-    censor (mapDefInsts (Map.delete p)) $ do
-        tp' <- monotype tp
-        b' <- mono b
-        bt' <- monotype bt
-        pure (TypedVar p tp', (b', bt'))
+monoFun (params, (b, bt)) =
+    let (ps, tps) = unzip params
+    in  censor (mapDefInsts (flip Map.withoutKeys (Set.fromList ps))) $ do
+            tps' <- mapM monotype tps
+            b' <- mono b
+            bt' <- monotype bt
+            pure (zipWith TypedVar ps tps', (b', bt'))
 
 monoLet :: Checked.Def -> Checked.Expr -> Mono Expr
 monoLet d e = do
@@ -164,8 +165,8 @@ genInst (Forall _ _ rhsT) monoRhs instT = do
     rhs' <- local (Map.union boundTvs) monoRhs
     pure (Map.elems boundTvs, rhs')
 
-monoMatch :: Checked.Expr -> Checked.DecisionTree -> Mono Expr
-monoMatch e dt = liftA2 Match (mono e) (monoDecisionTree dt)
+monoMatch :: [Checked.Expr] -> Checked.DecisionTree -> Mono Expr
+monoMatch es dt = liftA2 Match (mapM mono es) (monoDecisionTree dt)
 
 monoDecisionTree :: Checked.DecisionTree -> Mono DecisionTree
 monoDecisionTree = \case
@@ -194,7 +195,7 @@ monoDecisionTree = \case
 
 monoAccess :: Checked.Access -> Mono Access
 monoAccess = \case
-    Checked.Obj -> pure Obj
+    Checked.TopSel i -> pure (TopSel i)
     Checked.As a span' ts -> liftA3 As (monoAccess a) (pure span') (mapM monotype ts)
     Checked.Sel i span' a -> fmap (Sel i span') (monoAccess a)
     Checked.ADeref a -> fmap ADeref (monoAccess a)
@@ -210,7 +211,8 @@ monoCtion i span' (tdefName, tdefArgs) as = do
 bindTvs :: Checked.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of
     (Checked.TVar v, t) -> Map.singleton v t
-    (Checked.TFun p0 r0, TFun p1 r1) -> Map.union (bindTvs p0 p1) (bindTvs r0 r1)
+    (Checked.TFun ps0 r0, TFun ps1 r1) ->
+        Map.unions $ bindTvs r0 r1 : zipWith bindTvs ps0 ps1
     (Checked.TBox t, TBox u) -> bindTvs t u
     (Checked.TPrim _, TPrim _) -> Map.empty
     (Checked.TConst (_, ts0), TConst (_, ts1)) -> Map.unions (zipWith bindTvs ts0 ts1)
@@ -229,7 +231,7 @@ monotype' s t = let t' = subst s t in tell (findTypeInsts t') $> t'
 findTypeInsts :: Type -> [TConst]
 findTypeInsts = \case
     TPrim _ -> []
-    TFun a b -> findTypeInsts a ++ findTypeInsts b
+    TFun as b -> concatMap findTypeInsts as ++ findTypeInsts b
     TBox a -> findTypeInsts a
     TConst inst@(_, ts) -> inst : (findTypeInsts =<< ts)
 
@@ -237,7 +239,7 @@ subst :: Map TVar Type -> Checked.Type -> Type
 subst s = \case
     Checked.TVar v -> Map.findWithDefault (ice ("Monomorphize.subst: " ++ show v)) v s
     Checked.TPrim c -> TPrim c
-    Checked.TFun a b -> TFun (subst s a) (subst s b)
+    Checked.TFun as b -> TFun (map (subst s) as) (subst s b)
     Checked.TBox t -> TBox (subst s t)
     Checked.TConst (c, ts) -> TConst (c, map (subst s) ts)
 

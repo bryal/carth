@@ -1608,6 +1608,42 @@ Features and other stuff to do/implement in/around Carth.
   Must consider how this interacts with monomorphization vs. boxing
   vs. value witness tables for static dispatch.b
 * TODO Don't curry by default
+** <2022-03-16 ons>
+   So what I'm thinking is: argument lists should be their own
+   thing. Not tuples.
+
+   Pros: Matches the hardware better. Fewer surprises. No hidden
+         allocations etc.
+
+   Cons: Not as ergonomic.
+
+   Argument lists wouldn't be first-class types, so you can't pass
+   around objects of them. But what I'm thinking is that for the
+   relatively infrequent cases when you'd want that, we can supply
+   nice adapters to make functions accept tuples, sort of like how we
+   can supply adapters to make them curried.
+
+   - ~partial~ :: given a function and one argument, partially apply that one argument
+   - ~curry~ :: given a function, return a function that takes the
+     first argument and returns a function that takes the rest of the
+     arguments
+   - ~apply~ :: given a function and a tuple, destructure the tuple
+     and apply the elements as arguments.
+   - ~unapply~ :: (not sure about this name.) given a function that
+     accepts a tuple, returns a function that accepts the tuple
+     elements as an argument list.
+
+   #+BEGIN_EXAMPLE
+   ((partial + 1) 2)               ; = 3
+   (((curry +) 1) 2)               ; = 3
+   ((partial apply +) [1 2])       ; = 3
+
+   f                       ; : (Fun (a b) c)
+   (partial apply f)       ; : (Fun ([a b]) c)
+
+   g                       ; : (Fun ([a b]) c)
+   (unapply g)             ; : (Fun (a b) c)
+   #+END_EXAMPLE
 ** <2022-03-10 tor>
    I'm coming around to the idea of, at least to begin
    with, just doing function arguments the "normal" way. I.e., no
@@ -1617,6 +1653,20 @@ Features and other stuff to do/implement in/around Carth.
    #+BEGIN_SRC carth
    (defun polynomial-2 (a b c) : (Fun (F64 F64 F64) (Fun (F64) F64))
           (fun (x) (+ (* a x x) (* b x) c)))
+   #+END_SRC
+
+   These special forms would be nice
+
+   #+BEGIN_SRC carth
+   (defun f (a b c)
+          (+ a b c))
+
+   (((curry f) a) b c)
+   ((((curry* f) a) b) c)
+
+   (defun f
+          (case (0 0) None)
+          (case (a b) (Some (+ a b))))
    #+END_SRC
 ** Old
 
@@ -1708,7 +1758,7 @@ Features and other stuff to do/implement in/around Carth.
   but would probably fit really well as a graph. This could be useful
   both for debugging the compiler, as well as to debug compiled
   programs.
-* TODO Change syntax of definitions
+* TODO Change syntax of definitions & funs
   #+BEGIN_EXAMPLE
   ;; I don't like how it's only the parmeters in parens in fun
   ;; and Fun, but in define the function name is included as well.
@@ -1733,3 +1783,42 @@ Features and other stuff to do/implement in/around Carth.
   (defun f (a b) : (Fun (a b) c)
     c)
   #+END_EXAMPLE
+
+  Also, since fun:s are essentially treated as a special case of
+  fmatch:es in the frontend, we should support matching immediately in
+  the definition, I'm thinking. Just a bit of extra sugar.
+
+  #+BEGIN_EXAMPLE
+  (defun f (a b)
+    (* a b))  
+  (defvar f
+    (fun (a b)
+      (* a b)))
+
+  (defun* f
+    (case (a True)  (* a 10))
+    (case (a False) (+ a 1)))
+  (defvar f
+    (fun* (case [a True]  (* a 10))
+          (case [a False] (+ a 1))))
+  #+END_EXAMPLE
+
+  Something like this? Would help reduce rightward drift, and would be
+  a fairly common pattern, I believe.
+
+  If we have a defun and defun*, I think we should have a fun and fun*
+  as well. That would essentially entail renaming fmatch to fun*.
+
+  fun*/fmatch lives somewhere between both fun and match. I don't
+  think that leaning towards one or the other is more of a correct
+  choice, so I feel we can just pick something arbitrarily.
+
+  I used to like fmatch, because it matches \case in Haskell, but now
+  I'm leaning more towards fun*. fun* is particularly nice if we go
+  with defun* as well. Nice symmetry.
+
+  Another approach, which I've pretty much already rejected, is to
+  merge fun and fmatch into a single, overloaded fun. Might be nice in
+  some ways, but it might also get kinda confusing. More ambiguity
+  etc. Not as trivial to parse in carth-mode, for indentation etc. No,
+  better to have different special forms, I think.

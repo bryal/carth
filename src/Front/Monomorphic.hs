@@ -25,7 +25,7 @@ type TConst = TypeAst.TConst Type
 
 data Type
     = TPrim TPrim
-    | TFun Type Type
+    | TFun [Type] Type
     | TBox Type
     | TConst TConst
     deriving (Show, Eq, Ord)
@@ -39,7 +39,7 @@ data TypedVar = TypedVar
 type VariantTypes = [Type]
 
 data Access' t
-    = Obj
+    = TopSel Word32
     | As (Access' t) Span [t]
     | Sel Word32 Span (Access' t)
     | ADeref (Access' t)
@@ -56,18 +56,18 @@ data DecisionTree
     deriving Show
 
 type Ction = (VariantIx, Span, TConst, [Expr])
-type Fun = (TypedVar, (Expr, Type))
+type Fun = ([TypedVar], (Expr, Type))
 
 type Var = (Virt, TypedVar)
 
 data Expr
     = Lit Const
     | Var Var
-    | App Expr Expr
+    | App Expr [Expr]
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
-    | Match Expr DecisionTree
+    | Match [Expr] DecisionTree
     | Ction Ction
     | Sizeof Type
     | Absurd Type
@@ -91,9 +91,13 @@ instance TypeAst Type where
     tfun = TFun
     tbox = TBox
 
+    unTconst = \case
+        TConst tc -> Just tc
+        _ -> Nothing
+
 instance Functor Access' where
     fmap f = \case
-        Obj -> Obj
+        TopSel i -> TopSel i
         As a s ts -> As (fmap f a) s (map f ts)
         Sel i s a -> Sel i s (fmap f a)
         ADeref a -> ADeref (fmap f a)

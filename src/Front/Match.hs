@@ -12,7 +12,7 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
-import Data.List (delete)
+import Data.List (delete, intercalate)
 import Data.Functor
 import Control.Monad.Reader
 import Control.Monad.State.Strict
@@ -25,7 +25,7 @@ import Pretty
 import Front.SrcPos
 import Front.Err
 import qualified Front.Inferred as Inferred
-import Front.Inferred (Pat, Pat'(..), Variant(..))
+import Front.Inferred (Pat (..), Pat'(..), Variant(..))
 import Front.Checked
 
 
@@ -35,8 +35,6 @@ data Descr = Pos Con [Descr] | Neg (Set Con)
 data Answer = Yes | No | Maybe
 
 type Ctx = [(Con, [Descr])]
-
-type Work = [([Pat], [Access], [Descr])]
 
 data DecisionTree'
     = Success (VarBindings, Expr)
@@ -51,69 +49,84 @@ type RedundantCases = [SrcPos]
 
 data Env = Env
     { _tdefs :: MTypeDefs
-    , _tpat :: Type
+    , _tpats :: [Type]
     , _exprPos :: SrcPos
     }
 makeLenses ''Env
 
 type Match = ReaderT Env (StateT RedundantCases (ExceptT TypeErr Maybe))
 
+type Work = [([Pat], [Access], [Descr])]
+
+data FunPats = FunPats [Pat]
+    deriving Show
 
 toDecisionTree
-    :: MTypeDefs -> SrcPos -> Type -> [(Pat, Expr)] -> ExceptT TypeErr Maybe DecisionTree
+    :: MTypeDefs
+    -> SrcPos
+    -> [Type]
+    -> [(WithPos [Pat], Expr)]
+    -> ExceptT TypeErr Maybe DecisionTree
 toDecisionTree tds ePos tp cases =
-    let rules = map (\(WithPos pos p, e) -> (p, (pos, Map.empty, e))) cases
+    let rules = map (\(WithPos pos ps, e) -> (FunPats ps, (pos, Map.empty, e))) cases
         redundantCases = map (getPos . fst) cases
     in  do
-            let env = Env { _tdefs = tds, _tpat = tp, _exprPos = ePos }
+            let env = Env { _tdefs = tds, _tpats = tp, _exprPos = ePos }
             (d, redundantCases') <- runStateT (runReaderT (compile rules) env)
                                               redundantCases
             forM_ redundantCases' $ throwError . RedundantCase
             pure (switchify d)
+    where compile = disjunct (Neg Set.empty)
 
-compile :: [(Pat', Rhs)] -> Match DecisionTree'
-compile = disjunct (Neg Set.empty)
-
-disjunct :: Descr -> [(Pat', Rhs)] -> Match DecisionTree'
+disjunct :: Descr -> [(FunPats, Rhs)] -> Match DecisionTree'
 disjunct descr = \case
     [] -> do
-        patStr <- view tpat >>= flip missingPat descr
+        patStr <- view tpats >>= missingFunPats descr
         exprPos' <- view exprPos
         throwError $ InexhaustivePats exprPos' patStr
-    (pat1, rhs1) : rulerest -> match Obj descr [] [] rhs1 rulerest pat1
+    (pat1, rhs1) : rulerest -> matchFunPats descr [] [] rhs1 rulerest pat1
+  where
+    missingFunPats :: Descr -> [Type] -> Match String
+    -- This case should only occur when there are uninhabited types involved.
+    missingFunPats (Neg _) _ = lift $ lift $ lift Nothing
+    missingFunPats (Pos _ descrs) ts = do
+        ps <- zipWithM missingPat ts descrs
+        pure ("[" ++ intercalate " " ps ++ "]")
 
-missingPat :: Type -> Descr -> Match String
-missingPat t descr = case t of
-    TVar _ -> underscore
-    TPrim _ -> underscore
-    TConst ("Str", _) -> underscore
-    TConst (tx, _) -> do
-        vs <- view (tdefs . to (fromJust . Map.lookup tx))
-        missingPat' vs descr
-    TFun _ _ -> underscore
-    TBox _ -> underscore
-    where underscore = pure ("_:" ++ pretty t ++ "")
+    missingPat :: Type -> Descr -> Match String
+    missingPat t descr = case t of
+        TVar _ -> underscore
+        TPrim _ -> underscore
+        TConst ("Str", _) -> underscore
+        TConst (tx, _) -> do
+            vs <- view (tdefs . to (fromJust . Map.lookup tx))
+            missingPat' vs descr
+        TFun _ _ -> underscore
+        TBox _ -> underscore
+        where underscore = pure ("_:" ++ pretty t ++ "")
 
-missingPat' :: [String] -> Descr -> Match String
-missingPat' vs =
-    let allVariants = Map.fromList (zip [0 ..] vs)
-        variant' = \case
-            Con (VariantIx v) _ _ -> v
-            Con (VariantStr _) _ _ -> ice "variant' of Con VariantStr"
-    in  \case
-            Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
-                (Map.withoutKeys allVariants (Set.map variant' cs))
-            Pos (Con (VariantStr _) _ _) _ -> ice "missingPat' of Con VariantStr"
-            Pos (Con (VariantIx v) _ argTs') dargs ->
-                let i = fromIntegral v
-                    s = if i < length vs
-                        then vs !! i
-                        else ice "variant >= type number of variants in missingPat'"
-                in  if null dargs
-                        then pure s
-                        else do
-                            ps <- zipWithM missingPat argTs' dargs
-                            pure ("(" ++ s ++ precalate " " ps ++ ")")
+    missingPat' :: [String] -> Descr -> Match String
+    missingPat' vs =
+        let allVariants = Map.fromList (zip [0 ..] vs)
+            variant' = \case
+                Con (VariantIx v) _ _ -> v
+                Con (VariantStr _) _ _ -> ice "variant' of Con VariantStr"
+        in  \case
+                Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
+                    (Map.withoutKeys allVariants (Set.map variant' cs))
+                Pos (Con (VariantStr _) _ _) _ -> ice "missingPat' of Con VariantStr"
+                Pos (Con (VariantIx v) _ argTs') dargs ->
+                    let
+                        i = fromIntegral v
+                        s = if i < length vs
+                            then vs !! i
+                            else ice "variant >= type number of variants in missingPat'"
+                    in
+                        if null dargs
+                            then pure s
+                            else do
+                                ps <- zipWithM missingPat argTs' dargs
+                                pure ("(" ++ s ++ precalate " " ps ++ ")")
 
 match
     :: Access
@@ -121,7 +134,7 @@ match
     -> Ctx
     -> Work
     -> Rhs
-    -> [(Pat', Rhs)]
+    -> [(FunPats, Rhs)]
     -> Pat'
     -> Match DecisionTree'
 match obj descr ctx work rhs rules = \case
@@ -129,7 +142,7 @@ match obj descr ctx work rhs rules = \case
         let x' = TypedVar x tx
         in  conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
-    PBox (WithPos _ p) -> match (ADeref obj) descr ctx work rhs rules p
+    PBox (Pat _ _ p) -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->
         let
             disjunct' :: Descr -> Match DecisionTree'
@@ -140,15 +153,13 @@ match obj descr ctx work rhs rules = \case
                 conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs = args (\i -> Sel i (span pcon) (As obj (span pcon) (argTs pcon)))
+            getoargs =
+                args pcon $ \i -> Sel i (span pcon) (As obj (span pcon) (argTs pcon))
 
             getdargs :: [Descr]
             getdargs = case descr of
-                Neg _ -> args (const (Neg Set.empty))
+                Neg _ -> args pcon (const (Neg Set.empty))
                 Pos _ dargs -> dargs
-
-            args :: (Word32 -> a) -> [a]
-            args f = map f (take (arity pcon) [0 ..])
         in
             case staticMatch pcon descr of
                 Yes -> conjunct'
@@ -158,12 +169,29 @@ match obj descr ctx work rhs rules = \case
                     no <- disjunct' (addneg pcon descr)
                     pure (IfEq obj pcon yes no)
 
-conjunct :: Ctx -> Rhs -> [(Pat', Rhs)] -> Work -> Match DecisionTree'
+matchFunPats
+    :: Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> FunPats -> Match DecisionTree'
+matchFunPats descr ctx work rhs rules (FunPats pats) =
+    let ts = map (\(Pat _ t _) -> t) pats
+        con = Con { variant = VariantIx 0, span = 1, argTs = ts }
+        getoargs = args con $ \i -> TopSel i
+        getdargs = case descr of
+            -- TODO: Does this case ever happen? If the descr refers to the function
+            --       pattern list, then there's only one variant to speak of, and
+            --       therefore Pos by default, right?
+            Neg _ -> args con (const (Neg Set.empty))
+            Pos _ dargs -> dargs
+    in  conjunct ((con, []) : ctx) rhs rules ((pats, getoargs, getdargs) : work)
+
+args :: Con -> (Word32 -> a) -> [a]
+args con f = map (f . fromIntegral) [0 .. (arity con) - 1] where arity = length . argTs
+
+conjunct :: Ctx -> Rhs -> [(FunPats, Rhs)] -> Work -> Match DecisionTree'
 conjunct ctx rhs@(casePos, binds, e) rules = \case
     [] -> caseReached casePos $> Success (binds, e)
     (work1 : workr) -> case work1 of
         ([], [], []) -> conjunct (norm ctx) rhs rules workr
-        (WithPos _ pat1 : patr, obj1 : objr, descr1 : descrr) ->
+        (Pat _ _ pat1 : patr, obj1 : objr, descr1 : descrr) ->
             match obj1 descr1 ctx ((patr, objr, descrr) : workr) rhs rules pat1
         x -> ice $ "unexpected pattern in conjunct: " ++ show x
 
@@ -172,16 +200,6 @@ caseReached p = modify (delete p)
 
 addBind :: TypedVar -> Access -> Rhs -> Rhs
 addBind x obj (pos, binds, e) = (pos, Map.insert x obj binds, e)
-
-arity :: Con -> Int
-arity = length . argTs
-
-buildDescr :: Descr -> Ctx -> Work -> Descr
-buildDescr descr = curry $ \case
-    ([], []) -> descr
-    ((con, args) : rest, (_, _, dargs) : work) ->
-        buildDescr (Pos con (reverse args ++ (descr : dargs))) rest work
-    _ -> ice "unexpected pattern in buildDescr"
 
 norm :: Ctx -> Ctx
 norm = \case
@@ -224,3 +242,10 @@ switchify = \case
             VariantStr v -> switchifyStr obj ((v, switchify d0) : rules) d1
             VariantIx _ -> ice "VariantIx in switchifyIx"
         rule -> (Map.fromList rules, switchify rule)
+
+buildDescr :: Descr -> Ctx -> Work -> Descr
+buildDescr descr = curry $ \case
+    ([], []) -> descr
+    ((con, args) : rest, (_, _, dargs) : work) ->
+        buildDescr (Pos con (reverse args ++ (descr : dargs))) rest work
+    _ -> ice "unexpected pattern in buildDescr"

@@ -41,6 +41,8 @@ data TypeErr
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
     | NoClassInstance SrcPos ClassConstraint
+    | FunCaseArityMismatch SrcPos Int Int
+    | FunArityMismatch SrcPos Int Int
     deriving (Show)
 
 type TConst = TypeAst.TConst Type
@@ -49,7 +51,7 @@ data Type
     = TVar TVar
     | TPrim TPrim
     | TConst TConst
-    | TFun Type Type
+    | TFun [Type] Type
     | TBox Type
     deriving (Show, Eq, Ord)
 
@@ -88,10 +90,12 @@ data Pat'
     | PCon Con [Pat]
     | PBox Pat
     deriving Show
-type Pat = WithPos Pat'
 
-type Cases = [(Pat, Expr)]
-type FunMatch = (Cases, Type, Type)
+data Pat = Pat SrcPos Type Pat'
+    deriving Show
+
+type Cases = [(WithPos [Pat], Expr)]
+type FunMatch = (Cases, [Type], Type)
 
 -- | Whether a Var refers to a builtin virtual, or a global/local definition. So we don't
 --   have to keep as much state about environment definitions in later passes.
@@ -102,7 +106,7 @@ type Var = (Virt, TypedVar)
 data Expr'
     = Lit Const
     | Var Var
-    | App Expr Expr Type
+    | App Expr [Expr] Type
     | If Expr Expr Expr
     | Let Def Expr
     | FunMatch FunMatch
@@ -133,12 +137,16 @@ instance TypeAst Type where
     tfun = TFun
     tbox = TBox
 
+    unTconst = \case
+        TConst tc -> Just tc
+        _ -> Nothing
+
 
 ftv :: Type -> Set TVar
 ftv = \case
     TVar tv -> Set.singleton tv
     TPrim _ -> Set.empty
-    TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
+    TFun pts rt -> Set.unions (ftv rt : map ftv pts)
     TBox t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
 

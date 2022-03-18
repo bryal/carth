@@ -10,7 +10,6 @@ import Control.Monad.Combinators
 import Data.Bifunctor
 import Data.Maybe
 import qualified Data.Set as Set
-import Data.List
 import Text.Read (readMaybe)
 
 import Misc
@@ -48,6 +47,7 @@ typedef = do
 def :: SrcPos -> Parser Def
 def topPos = defUntyped topPos <|> defTyped topPos
 
+-- TODO: ~define (foo a b)~ -> ~defun foo [a b]~
 defUntyped :: SrcPos -> Parser Def
 defUntyped pos = reserved Kdefine *> def' (pure Nothing) pos
 
@@ -67,17 +67,18 @@ def' schemeParser topPos = varDef <|> funDef
         b <- body
         pure (VarDef topPos name scm b)
     funDef = do
+        pos <- getSrcPos -- FIXME: This should be a pos surrounding only the params
         (name, params) <- parens (liftM2 (,) small (some pat))
         scm <- schemeParser
         b <- body
-        pure (FunDef topPos name scm params b)
+        pure (FunDef topPos name scm (WithPos pos params) b)
 
 expr :: Parser Expr
 expr = withPos expr'
 
 data BindingLhs
     = VarLhs (Id 'Small)
-    | FunLhs (Id 'Small) [Pat]
+    | FunLhs (Id 'Small) FunPats
     | CaseVarLhs Pat
 
 expr' :: Parser Expr'
@@ -94,21 +95,24 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
             $ tuple expr (\p -> WithPos p (Ctor (Id (WithPos p "Unit"))))
             $ \l r ->
                   let p = getPos l
-                  in  WithPos p $ App
-                          (WithPos p (App (WithPos p (Ctor (Id (WithPos p "Cons")))) l))
-                          r
+                  in  WithPos p (App (WithPos p (Ctor (Id (WithPos p "Cons")))) [l, r])
     var = fmap Var small
     pexpr = parens' $ \p -> choice
         [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
-    funMatch = reserved Kfmatch *> fmap FunMatch cases
-    match = reserved Kmatch *> liftA2 Match expr cases
-    cases = many (parens (reserved Kcase *> (liftA2 (,) pat expr)))
+    funMatch = do
+        reserved KfunStar
+        fmap FunMatch $ some
+            (parens (reserved Kcase *> (liftA2 (,) (withPos (brackets (some pat))) expr)))
+    match = reserved Kmatch
+        *> liftA2 Match expr (many (parens (reserved Kcase *> (liftA2 (,) pat expr))))
     if' = reserved Kif *> liftM3 If expr expr expr
     fun = do
         reserved Kfun
-        params <- parens (some pat)
+        -- TODO: Make this brackets. Since it's tuple-like, and we could do with some
+        --       variation when reading...
+        params <- withPos $ parens (some pat)
         body <- expr
-        pure $ unpos $ foldr (\p b -> WithPos (getPos p) (FunMatch [(p, b)])) body params
+        pure $ FunMatch [(params, body)]
     let1 p = reserved Klet1 *> (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
         VarLhs lhs -> liftA2 (Let1 . Def) (varBinding p lhs) expr
         FunLhs name params -> liftA2 (Let1 . Def) (funBinding p name params) expr
@@ -132,7 +136,7 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
             FunLhs name params -> funBinding p name params
             CaseVarLhs _ -> ice "letrec binding: CaseVarLhs"
     varLhs = fmap VarLhs small
-    funLhs = parens (liftA2 FunLhs small (some pat))
+    funLhs = parens' (\pos -> liftA2 FunLhs small (fmap (WithPos pos) (some pat)))
     caseVarLhs = fmap CaseVarLhs pat
     varBinding pos lhs = do
         rhs <- expr
@@ -145,7 +149,7 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
     app = do
         rator <- expr
         rands <- some expr
-        pure (unpos (foldl' (WithPos (getPos rator) .* App) rator rands))
+        pure (App rator rands)
 
 pat :: Parser Pat
 pat = choice [patInt, patStr, patCtor, patVar, patTuple, ppat]
@@ -208,9 +212,9 @@ ptype = choice [tfun, tbox, fmap (TConst . second (map snd)) tapp]
   where
     tfun = do
         reserved KFun
-        t <- type_
         ts <- some type_
-        pure (foldr1 TFun (t : ts))
+        let (ps, r) = fromJust $ unsnoc ts
+        pure (TFun ps r)
     tbox = reserved KBox *> fmap TBox type_
 
 tapp :: Parser (String, [(SrcPos, Type)])

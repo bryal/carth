@@ -15,8 +15,8 @@ data Keyword
     | Kforall | Kwhere | KFun | KBox
     | Kdefine | KdefineColon
     | Kimport | Kextern | Kdata
-    | Kfmatch | Kmatch | Kcase
-    | Kif | Kfun
+    | Kmatch | Kcase
+    | Kif | Kfun | KfunStar
     | Klet1 | Klet | Kletrec
     | Ksizeof
     | KidAt | KIdAt

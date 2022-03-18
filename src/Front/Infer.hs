@@ -88,13 +88,13 @@ inferTopDefs tdefs ctors externs defs =
             tb = TVar tvb
             arithScm = Forall (Set.fromList [tva])
                               (Set.singleton ("Num", [ta]))
-                              (tfun ta (tfun ta ta))
+                              (tfun [ta, ta] ta)
             bitwiseScm = Forall (Set.fromList [tva])
                                 (Set.singleton ("Bitwise", [ta]))
-                                (tfun ta (tfun ta ta))
+                                (tfun [ta, ta] ta)
             relScm = Forall (Set.fromList [tva])
                             (Set.singleton ("Ord", [ta]))
-                            (tfun ta (tfun ta tBool))
+                            (tfun [ta, ta] tBool)
         in
             Map.fromList
                 $ [ ("+", arithScm)
@@ -117,18 +117,18 @@ inferTopDefs tdefs ctors externs defs =
                   , ( "transmute"
                     , Forall (Set.fromList [tva, tvb])
                              (Set.singleton ("SameSize", [ta, tb]))
-                             (TFun ta tb)
+                             (TFun [ta] tb)
                     )
-                  , ("deref", Forall (Set.fromList [tva]) Set.empty (TFun (TBox ta) ta))
+                  , ("deref", Forall (Set.fromList [tva]) Set.empty (TFun [TBox ta] ta))
                   , ( "store"
                     , Forall (Set.fromList [tva])
                              Set.empty
-                             (TFun ta (TFun (TBox ta) (TBox ta)))
+                             (TFun [ta, (TBox ta)] (TBox ta))
                     )
                   , ( "cast"
                     , Forall (Set.fromList [tva, tvb])
                              (Set.singleton ("Cast", [ta, tb]))
-                             (TFun ta tb)
+                             (TFun [ta] tb)
                     )
                   ]
 
@@ -146,7 +146,7 @@ checkType'' tdefsParams pos = go
         Parsed.TVar v -> pure (TVar v)
         Parsed.TPrim p -> pure (TPrim p)
         Parsed.TConst tc -> fmap TConst (checkTConst tc)
-        Parsed.TFun f a -> liftA2 TFun (go f) (go a)
+        Parsed.TFun ps r -> liftA2 TFun (mapM go ps) (go r)
         Parsed.TBox t -> fmap TBox (go t)
     checkTConst (x, inst) = case tdefsParams x of
         Just expectedN -> do
@@ -203,10 +203,8 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
         -- FIXME: Just wanted to get things working, but this isn't really better than
         --        doing the fold in the parser. Handle this such that we don't have to
         --        assign the definition position to the nested lambdas.
-        inferNonrecDef' $ Parsed.VarDef dpos lhs mayscm $ foldr
-            (\p b -> WithPos dpos (Parsed.FunMatch [(p, b)]))
-            body
-            params
+        inferNonrecDef' $ Parsed.VarDef dpos lhs mayscm $ WithPos dpos $ Parsed.FunMatch
+            [(params, body)]
     inferNonrecDef' (Parsed.VarDef _ lhs mayscm body) = do
         t <- fresh
         mayscm' <- checkScheme (idstr lhs) mayscm
@@ -247,11 +245,10 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
     inferRecDef :: Maybe Scheme -> Type -> Parsed.Def -> Infer (WithPos FunMatch)
     inferRecDef mayscm t = \case
         Parsed.FunDef fpos _ _ params body ->
-            let (initps, lastp) = fromJust $ unsnoc params
-            in  fmap (WithPos fpos) $ inferDef t mayscm fpos $ inferFunMatch $ foldr
-                    (\p cs -> [(p, WithPos fpos (Parsed.FunMatch cs))])
-                    [(lastp, body)]
-                    initps
+            fmap (WithPos fpos)
+                $ inferDef t mayscm fpos
+                $ inferFunMatch
+                $ [(params, body)]
         Parsed.VarDef fpos _ _ (WithPos _ (Parsed.FunMatch cs)) ->
             fmap (WithPos fpos) $ inferDef t mayscm fpos (inferFunMatch cs)
         Parsed.VarDef _ (Id lhs) _ _ -> throwError (RecursiveVarDef lhs)
@@ -288,14 +285,19 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Lit l -> pure (litType l, Lit l)
     Parsed.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
     Parsed.Var x -> fmap (\(t, tv) -> (t, Var tv)) (lookupVar x)
-    Parsed.App f a -> do
-        ta <- fresh
+    Parsed.App f as -> do
+        tas <- mapM (const fresh) as
         tr <- fresh
         (tf', f') <- infer f
-        (ta', a') <- infer a
-        unify (Expected (TFun ta tr)) (Found (getPos f) tf')
-        unify (Expected ta) (Found (getPos a) ta')
-        pure (tr, App f' a' tr)
+        case tf' of
+            TFun tps _ -> unless (length tps == length tas)
+                $ throwError (FunArityMismatch pos (length tps) (length tas))
+            _ -> pure () -- If it's not k
+        (tas', as') <- fmap unzip $ mapM infer as
+        unify (Expected (TFun tas tr)) (Found (getPos f) tf')
+        forM_ (zip3 as tas tas')
+            $ \(a, ta, ta') -> unify (Expected ta) (Found (getPos a) ta')
+        pure (tr, App f' as' tr)
     Parsed.If p c a -> do
         (tp, p') <- infer p
         (tc, c') <- infer c
@@ -324,7 +326,8 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Ctor c -> do
         (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
         (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
-        let t = foldr TFun (TConst tdefInst) cParams'
+        let tCtion = TConst tdefInst
+        let t = if null cParams' then tCtion else TFun cParams' tCtion
         pure (t, Ctor variantIx cSpan tdefInst cParams')
     Parsed.Sizeof t -> fmap ((TPrim TNatSize, ) . Sizeof) (checkType pos t)
 
@@ -339,42 +342,57 @@ inferLet1 pos defl body = case defl of
 inferMatch :: SrcPos -> Parsed.Expr -> [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
 inferMatch pos matchee cases = do
     (tmatchee, matchee') <- infer matchee
-    (tbody, cases') <- inferCases (Expected tmatchee) cases
-    let f = WithPos pos (FunMatch (cases', tmatchee, tbody))
-    pure (tbody, App f matchee' tbody)
+    (tbody, cases') <- inferCases
+        [tmatchee]
+        (map (first (\pat -> WithPos (getPos pat) [pat])) cases)
+    let f = WithPos pos (FunMatch (cases', [tmatchee], tbody))
+    pure (tbody, App f [matchee'] tbody)
 
-inferFunMatch :: [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, FunMatch)
+inferFunMatch :: [(Parsed.FunPats, Parsed.Expr)] -> Infer (Type, FunMatch)
 inferFunMatch cases = do
-    tpat <- fresh
-    (tbody, cases') <- inferCases (Expected tpat) cases
-    pure (TFun tpat tbody, (cases', tpat, tbody))
+    arity <- checkCasePatternsArity
+    tpats <- nFresh arity
+    (tbody, cases') <- inferCases tpats cases
+    pure (TFun tpats tbody, (cases', tpats, tbody))
+  where
+    checkCasePatternsArity = case cases of
+        [] -> ice "inferFunMatch: checkCasePatternsArity: fun* has no cases, arity 0"
+        (pats0, _) : rest -> do
+            let arity = length (unpos pats0)
+            forM_ rest $ \(WithPos pos pats, _) -> unless
+                (length pats == arity)
+                (throwError (FunCaseArityMismatch pos arity (length pats)))
+            pure arity
 
 -- | All the patterns must be of the same types, and all the bodies must be of
 --   the same type.
 inferCases
-    :: ExpectedType -- Type of matchee. Expected type of pattern.
-    -> [(Parsed.Pat, Parsed.Expr)]
+    :: [Type] -- Type of matchee(s). Expected type(s) of pattern(s).
+    -> [(WithPos [Parsed.Pat], Parsed.Expr)]
     -> Infer (Type, Cases)
-inferCases tmatchee cases = do
-    (tpats, tbodies, cases') <- fmap unzip3 (mapM inferCase cases)
-    forM_ tpats (unify tmatchee)
+inferCases tmatchees cases = do
+    (tpatss, tbodies, cases') <- fmap unzip3 (mapM inferCase cases)
+    forM_ tpatss $ zipWithM (unify . Expected) tmatchees
     tbody <- fresh
     forM_ tbodies (unify (Expected tbody))
     pure (tbody, cases')
   where
-    inferCase :: (Parsed.Pat, Parsed.Expr) -> Infer (FoundType, FoundType, (Pat, Expr))
-    inferCase (p, b) = do
-        (tp, p', pvs) <- inferPat p
+    inferCase
+        :: (WithPos [Parsed.Pat], Parsed.Expr)
+        -> Infer ([FoundType], FoundType, (WithPos [Pat], Expr))
+    inferCase (WithPos pos ps, b) = do
+        (tps, ps', pvss) <- fmap unzip3 (mapM inferPat ps)
         let pvs' = map (bimap (Parsed.idstr) (Forall Set.empty Set.empty . TVar))
-                       (Map.toList pvs)
+                       (Map.toList (Map.unions pvss))
         (tb, b') <- withLocals pvs' (infer b)
-        pure (Found (getPos p) tp, Found (getPos b) tb, (p', b'))
+        let tps' = zipWith Found (map getPos ps) tps
+        pure (tps', Found (getPos b) tb, (WithPos pos ps', b'))
 
 -- | Returns the type of the pattern; the pattern in the Pat format that the
 --   Match module wants, and a Map from the variables bound in the pattern to
 --   fresh schemes.
 inferPat :: Parsed.Pat -> Infer (Type, Pat, Map (Id 'Small) TVar)
-inferPat pat = fmap (\(t, p, ss) -> (t, WithPos (getPos pat) p, ss)) (inferPat' pat)
+inferPat pat = fmap (\(t, p, ss) -> (t, Pat (getPos pat) t p, ss)) (inferPat' pat)
   where
     inferPat' = \case
         Parsed.PConstruction pos c ps -> inferPatConstruction pos c ps
@@ -500,6 +518,9 @@ ftvClassConstraint = mconcat . map ftv . snd
 substClassConstraint :: Subst' -> ClassConstraint -> ClassConstraint
 substClassConstraint sub = second (map (subst sub))
 
+nFresh :: Int -> Infer [Type]
+nFresh n = sequence (replicate n fresh)
+
 fresh :: Infer Type
 fresh = fmap TVar fresh'
 
@@ -518,6 +539,12 @@ unifyClass p c = tell ([], [(p, c)])
 
 data UnifyErr = UInfType TVar Type | UFailed Type Type
 
+-- TODO: I actually don't really like this approach of keeping the unification solver
+--       separate from the inferrer. The approach of doing it "inline" is, at least in
+--       some ways, more flexible, and probably more performant. Consider this further --
+--       maybe there's a big con I haven't considered or have forgotten. Will updating the
+--       substitution map work well? How would it work for nested inferDefs, compared to
+--       now?
 solve :: Constraints -> Infer (Subst', (Map ClassConstraint SrcPos))
 solve (eqcs, ccs) = do
     sub <- lift $ lift $ lift $ solveUnis Map.empty eqcs
@@ -613,12 +640,14 @@ solve (eqcs, ccs) = do
         UInfType a t -> InfType pos t1 t2 a t
         UFailed t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
 
+-- FIXME: Keep track of whether we've flipped the arguments. Alternatively, keep right
+--        stuff to the right and vice versa. If we don't, we get confusing type errors.
 unifies :: Type -> Type -> Except UnifyErr Subst'
 unifies = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty
     (TConst (c0, ts0), TConst (c1, ts1)) | c0 == c1 -> if length ts0 /= length ts1
         then ice "lengths of TConst params differ in unify"
-        else unifiesMany ts0 ts1
+        else unifiesMany (zip ts0 ts1)
     (TVar a, TVar b) | a == b -> pure Map.empty
     (TVar a, t) | occursIn a t -> throwError (UInfType a t)
     -- Do not allow "override" of explicit (user given) type variables.
@@ -626,15 +655,16 @@ unifies = curry $ \case
     (a@(TVar (TVExplicit _)), b) -> throwError (UFailed a b)
     (TVar a, t) -> pure (Map.singleton a t)
     (t, TVar a) -> unifies (TVar a) t
-    (TFun t1 t2, TFun u1 u2) -> unifiesMany [t1, t2] [u1, u2]
+    (t@(TFun ts1 t2), u@(TFun us1 u2)) -> if length ts1 /= length us1
+        then throwError (UFailed t u)
+        else unifiesMany (zip (ts1 ++ [t2]) (us1 ++ [u2]))
     (TBox t, TBox u) -> unifies t u
     (t1, t2) -> throwError (UFailed t1 t2)
   where
-    unifiesMany :: [Type] -> [Type] -> Except UnifyErr Subst'
-    unifiesMany ts us = foldM
+    unifiesMany :: [(Type, Type)] -> Except UnifyErr Subst'
+    unifiesMany = foldM
         (\s (t, u) -> fmap (flip composeSubsts s) (unifies (subst s t) (subst s u)))
         Map.empty
-        (zip ts us)
 
     occursIn :: TVar -> Type -> Bool
     occursIn a t = Set.member a (ftv t)

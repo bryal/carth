@@ -140,7 +140,7 @@ keyword = andSkipSpaceAfter $ choice $ (++)
         , string "extern" $> Kextern
         , string "forall" $> Kforall
         , string "where" $> Kwhere
-        , string "fmatch" $> Kfmatch
+        , string "fun*" $> KfunStar
         , string "match" $> Kmatch
         , string "if" $> Kif
         , string "fun" $> Kfun

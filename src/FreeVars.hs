@@ -6,8 +6,8 @@ import Data.Set (Set)
 class Ord b => FreeVars a b where
     freeVars :: a -> Set b
 
-fvApp :: FreeVars e t => e -> e -> Set t
-fvApp f a = Set.unions (map freeVars [f, a])
+fvApp :: FreeVars e t => e -> [e] -> Set t
+fvApp f as = Set.unions (map freeVars (f : as))
 
 fvIf :: FreeVars e t => e -> e -> e -> Set t
 fvIf p c a = Set.unions (map freeVars [p, c, a])

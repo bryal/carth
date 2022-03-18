@@ -36,7 +36,7 @@ data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
 data Access
-    = Obj
+    = TopSel Word32
     | As Access Span [Type]
     | Sel Word32 Span Access
     | ADeref Access
@@ -50,18 +50,18 @@ data DecisionTree
     | DSwitchStr Access (Map String DecisionTree) DecisionTree
     deriving Show
 
-type Fun = ((String, Type), (Expr, Type))
+type Fun = ([(String, Type)], (Expr, Type))
 
 type Var = (Virt, TypedVar)
 
 data Expr
     = Lit Const
     | Var Var
-    | App Expr Expr
+    | App Expr [Expr]
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
-    | Match Expr DecisionTree
+    | Match [Expr] DecisionTree
     | Ction VariantIx Span TConst [Expr]
     | Sizeof Type
     | Absurd Type
@@ -70,9 +70,9 @@ data Expr
 builtinExterns :: Map String Type
 builtinExterns =
     Map.fromList
-        $ [ ("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))
-          , ("malloc", tfun (TPrim TNatSize) (TBox tByte))
-          , ("str-eq", tfun tStr (tfun tStr tBool))
+        $ [ ("GC_malloc", tfun [TPrim TNatSize] (TBox tByte))
+          , ("malloc", tfun [(TPrim TNatSize)] (TBox tByte))
+          , ("str-eq", tfun [tStr, tStr] tBool)
           ]
 
 type Defs = TopologicalOrder Def

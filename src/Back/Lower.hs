@@ -43,8 +43,8 @@ lower (Program (Topo defs) datas externs) =
     -- resolveNameConflicts = _
 
     externs' = flip map externs $ \case
-        (name, TFun pt rt) ->
-            Low.ExternDecl name (toParam () . lowerType =<< [pt]) (toRet (lowerType rt))
+        (name, TFun pts rt) ->
+            Low.ExternDecl name (toParam () . lowerType =<< pts) (toRet (lowerType rt))
         (name, t) -> nyi $ "lower: Non-function externs: " ++ name ++ ", " ++ show t
 
     run :: Lower () -> ([Low.FunDef], [Low.GlobDef])
@@ -65,21 +65,27 @@ lower (Program (Topo defs) datas externs) =
         -- fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
 
     lowerFunDef :: (TypedVar, (Inst, Fun)) -> Lower Low.FunDef
-    lowerFunDef (lhs, (_inst, (p, (body, rt)))) = do
+    lowerFunDef (lhs, (_inst, (ps, (body, rt)))) = do
         let Low.Global name _ = globFunEnv Map.! lhs
-        pid <- newLName (tvName p)
-        let pt = lowerType (tvType p)
-        let withParam = maybe id (withVar p . Low.OLocal . Low.Local pid) (sizedMaybe pt)
+        -- Zero-sized parameters don't actually get to exist in the Low IR and beyond
+        (binds, pIds, pts) <- fmap (unzip3 . catMaybes) $ forM ps $ \p -> do
+            case lowerType (tvType p) of
+                ZeroSized -> pure Nothing
+                Sized pt -> do
+                    pid <- newLName (tvName p)
+                    let bind = (p, Low.OLocal (Low.Local pid pt))
+                    pure (Just (bind, pid, pt))
         capturesName <- newLName "captures"
-        body <- withParam (lowerBody body)
+        body <- withVars binds (lowerBody body)
         localNames <- popLocalNames
         allocs <- popAllocs
-        pure $ Low.FunDef name
-                          (Low.ByVal capturesName Low.VoidPtr : (toParam pid pt))
-                          (toRet (lowerType rt))
-                          body
-                          allocs
-                          localNames
+        pure $ Low.FunDef
+            name
+            (Low.ByVal capturesName Low.VoidPtr : zipWith sizedToParam pIds pts)
+            (toRet (lowerType rt))
+            body
+            allocs
+            localNames
 
     popLocalNames :: Lower Low.VarNames
     popLocalNames = undefined
@@ -103,7 +109,16 @@ lower (Program (Topo defs) datas externs) =
                             )
 
     lowerExpr :: Expr -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))
-    lowerExpr = undefined
+    lowerExpr = \case
+        Match es dt -> lowerMatch es dt
+        _ -> undefined
+
+    lowerMatch
+        :: [Expr] -> DecisionTree -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))
+    lowerMatch = undefined
+
+    withVars :: [(TypedVar, Low.Operand)] -> Lower a -> Lower a
+    withVars = undefined withVar
 
     withVar :: TypedVar -> Low.Operand -> Lower a -> Lower a
     withVar = undefined
@@ -186,7 +201,9 @@ lower (Program (Topo defs) datas externs) =
 
     toParam name = \case
         ZeroSized -> []
-        Sized t -> [if passByRef t then Low.ByRef name t else Low.ByVal name t]
+        Sized t -> [sizedToParam name t]
+
+    sizedToParam name t = if passByRef t then Low.ByRef name t else Low.ByVal name t
 
     toRet = \case
         ZeroSized -> Low.RetVoid

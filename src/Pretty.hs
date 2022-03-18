@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+
 module Pretty (pretty, Pretty(..), prettyTConst) where
 
 import Prelude hiding (showChar)
@@ -6,8 +8,10 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import LLVM.AST (Module)
 import LLVM.Pretty ()
-import qualified Data.Text.Prettyprint.Doc as Prettyprint
+import qualified Prettyprinter as Prettyprint
 
+import Misc
+import Front.TypeAst
 import Front.SrcPos
 import qualified Front.Lexd as Lexd
 import qualified Front.Parsed as Parsed
@@ -28,7 +32,6 @@ spcPretty = unwords . map pretty
 instance Pretty a => Pretty (WithPos a) where
     pretty' d = pretty' d . unpos
 
-
 instance Pretty Lexd.Keyword where
     pretty' _ = \case
         Lexd.Kcolon -> ":"
@@ -42,7 +45,7 @@ instance Pretty Lexd.Keyword where
         Lexd.Kimport -> "import"
         Lexd.Kextern -> "extern"
         Lexd.Kdata -> "data"
-        Lexd.Kfmatch -> "fmatch"
+        Lexd.KfunStar -> "fun*"
         Lexd.Kmatch -> "match"
         Lexd.Kcase -> "case"
         Lexd.Kif -> "if"
@@ -68,36 +71,40 @@ instance Pretty Parsed.TVar where
 instance Pretty (Parsed.Id a) where
     pretty' _ = Parsed.idstr
 
-prettyScheme :: (Pretty p, Pretty t) => Set p -> [(String, [t])] -> t -> String
+prettyType :: Parsed.Type -> String
+prettyType = \case
+    Parsed.TVar tv -> pretty tv
+    Parsed.TPrim c -> pretty c
+    Parsed.TFun ps r -> prettyTFun ps r
+    Parsed.TBox t -> prettyTBox t
+    Parsed.TConst tc -> prettyTConst tc
+
+prettyScheme
+    :: (Pretty p, TypeAst t, Pretty t) => Set p -> [(String, [t])] -> t -> String
 prettyScheme ps cs t = concat
     [ "(forall (" ++ spcPretty (Set.toList ps) ++ ") "
     , "(where " ++ unwords (map prettyTConst cs) ++ ") "
     , pretty t ++ ")"
     ]
 
-prettyType :: Parsed.Type -> String
-prettyType = \case
-    Parsed.TVar tv -> pretty tv
-    Parsed.TPrim c -> pretty c
-    Parsed.TFun a b -> prettyTFun a b
-    Parsed.TBox t -> prettyTBox t
-    Parsed.TConst tc -> prettyTConst tc
+prettyTConst :: (TypeAst t, Pretty t) => (String, [t]) -> String
+prettyTConst = \case
+    ("Cons", [t1, t2]) -> "[" ++ pretty t1 ++ prettyConses t2
+    ("Cons", []) -> ice "prettyTConst: Cons hasn't two types"
+    (c, []) -> c
+    (c, ts) -> concat ["(", c, " ", spcPretty ts, ")"]
+  where
+    prettyConses t = case unTconst t of
+        Just ("Cons", [t1, t2]) -> " " ++ pretty t1 ++ prettyConses t2
+        Just ("Unit", _) -> "]"
+        _ -> " . " ++ pretty t ++ "]"
 
-prettyTConst :: Pretty t => (String, [t]) -> String
-prettyTConst (c, ts) = case ts of
-    [] -> c
-    _ -> concat ["(", c, " ", spcPretty ts, ")"]
 
 prettyTBox :: Pretty t => t -> String
 prettyTBox t = "(Box " ++ pretty t ++ ")"
 
-prettyTFun :: Parsed.Type -> Parsed.Type -> String
-prettyTFun a b =
-    let (bParams, bBody) = f b
-        f = \case
-            Parsed.TFun a' b' -> first (a' :) (f b')
-            t -> ([], t)
-    in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
+prettyTFun :: Pretty t => [t] -> t -> String
+prettyTFun as b = concat ["(Fun ", spcPretty as, " ", pretty b, ")"]
 
 prettyTPrim :: Parsed.TPrim -> String
 prettyTPrim = \case
@@ -122,22 +129,9 @@ prettyAnType :: Inferred.Type -> String
 prettyAnType = \case
     Inferred.TVar tv -> pretty tv
     Inferred.TPrim c -> pretty c
-    Inferred.TFun a b -> prettyAnTFun a b
+    Inferred.TFun as b -> prettyTFun as b
     Inferred.TBox t -> prettyTBox t
     Inferred.TConst tc -> prettyTConst tc
-
-prettyAnTFun :: Inferred.Type -> Inferred.Type -> String
-prettyAnTFun a b =
-    let (bParams, bBody) = f b
-        f = \case
-            Inferred.TFun a' b' -> first (a' :) (f b')
-            t -> ([], t)
-    in  concat ["(Fun ", pretty a, " ", spcPretty (bParams ++ [bBody]), ")"]
-
-
-
-
-
 
 instance Pretty Module where
     pretty' _ = show . Prettyprint.pretty

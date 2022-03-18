@@ -81,6 +81,21 @@ printTypeErr = \case
     ConflictingVarDef p x ->
         posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
     NoClassInstance p c -> posd p $ "No instance for " ++ prettyTConst c
+    FunCaseArityMismatch p expected found ->
+        posd p
+            $ "Arity mismatch for function-match case.\n"
+            ++ ("The first case had " ++ show expected ++ " patterns, \n")
+            ++ "and in this case we expected the same amount, "
+            ++ ("but found " ++ show found ++ " patterns instead.")
+    FunArityMismatch p expected found ->
+        posd p
+            $ "Arity mismatch in function application.\n"
+            ++ ("Function takes " ++ show expected)
+            ++ (if expected == 1 then " argument" else " arguments")
+            ++ (", but " ++ show found)
+            ++ (if found == 1 then " was" else " were")
+            ++ " given."
+
 
 posd :: SrcPos -> Message -> IO ()
 posd = posd' "Error"
@@ -102,13 +117,17 @@ posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
         lineNS = show lineN'
         pad = length lineNS + 1
         s = either (const rest) fst (parse' (match tokentree) "" rest)
-    putStrLn $ unlines
-        [ prettySrcPos pos ++ ": " ++ kind ++ ":"
-        , indent pad ++ "|"
-        , lineNS ++ " | " ++ line
-        -- Find the span (end-pos) of the item in the source by applying the same
-        -- parser that gave the item, starting at its SourcePos
-        , indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^'
-        , msg
-        ]
-    maybe (pure ()) (\pos2 -> posd' "Note" pos2 "In expansion of macro.") inExp
+        printMsg kind msg = putStrLn $ unlines
+            [ prettySrcPos pos ++ ": " ++ kind ++ ":"
+            , indent pad ++ "|"
+            , lineNS ++ " | " ++ line
+-- Find the span (end-pos) of the item in the source by applying the same
+-- parser that gave the item, starting at its SourcePos
+            , indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^'
+            , msg
+            ]
+    case inExp of
+        Nothing -> printMsg kind msg
+        Just inner -> do
+            posd' kind inner msg
+            printMsg "Note" "In expansion of macro."
