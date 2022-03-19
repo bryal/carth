@@ -36,10 +36,10 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     externs' <- checkExterns tdefs' externs
     inferred <- inferTopDefs tdefs' ctors externs' defs
     let bound = unboundTypeVarsToUnit inferred
-    let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
+    let mTypeDefs = fmap ((map (unpos . fst)) . snd) tdefs'
     compiled <- compileDecisionTrees mTypeDefs bound
     checkMainDefined compiled
-    let tdefs'' = fmap (second (map snd)) tdefs'
+    let tdefs'' = fmap (second (map (first unpos))) tdefs'
     pure (Checked.Program compiled tdefs'' externs')
   where
     checkMainDefined ds = when (not (elem "main" (map fst (Checked.flattenDefs ds))))

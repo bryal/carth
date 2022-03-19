@@ -69,11 +69,14 @@ monomorphize (Checked.Program (Topo defs) datas externs) =
 
     instData :: TConst -> ([(String, VariantTypes)], [DataInst])
     instData (x, ts) =
-        let (tvars, variants) =
+        let
+            (tvars, variants) =
                 Map.findWithDefault (ice "instData no such TConst in datas") x datas
             s = Map.fromList (zip tvars ts)
-            (variants', moreInsts) = runWriter (mapM (mapM (monotype' s)) variants)
-        in  (undefined variants', moreInsts)
+            (variants', moreInsts) =
+                runWriter (mapM (secondM (mapM (monotype' s))) variants)
+        in
+            (variants', moreInsts)
 
     -- We must manually add instantiations for types that occur in generated code and is
     -- not "detected" by the monomorphization pass, or the types won't be defined.

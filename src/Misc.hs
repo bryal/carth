@@ -41,6 +41,9 @@ precalate prefix = \case
 indent :: Int -> String
 indent = flip replicate ' '
 
+firstM :: (Bitraversable t, Applicative f) => (a -> f a') -> t a b -> f (t a' b)
+firstM = flip bimapM pure
+
 secondM :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
 

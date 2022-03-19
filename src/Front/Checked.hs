@@ -79,7 +79,7 @@ type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (String, (Scheme, Expr))
 type RecDefs = [(String, (Scheme, Fun))]
-type TypeDefs = Map String ([TVar], [[Type]])
+type TypeDefs = Map String ([TVar], [(String, [Type])])
 type Externs = Map String Type
 
 data Program = Program Defs TypeDefs Externs
