@@ -1,9 +1,12 @@
+{-# LANGUAGE TemplateHaskell, DataKinds #-}
+
 module Back.Lower (lower) where
 
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor
 import Data.Function
+import Data.Functor
 import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -11,7 +14,9 @@ import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Word
+import Lens.Micro.Platform (makeLenses, modifying, use)
 
+import Back.Low (typeof)
 import qualified Back.Low as Low
 import Front.Monomorphic
 import Misc
@@ -19,13 +24,14 @@ import Sizeof
 
 data Sized x = ZeroSized | Sized x
 
--- data St = St
---     { strLits :: Map String Low.GlobalId
---     }
+data St = St
+    { _strLits :: Map String Low.GlobalId
+    }
+makeLenses ''St
 
 type Out = ([Low.FunDef], [Low.GlobDef])
 
-type Lower = WriterT Out (State ())
+type Lower = WriterT Out (State St)
 
 lower :: Program -> Low.Program
 lower (Program (Topo defs) datas externs) =
@@ -110,8 +116,26 @@ lower (Program (Topo defs) datas externs) =
 
     lowerExpr :: Expr -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))
     lowerExpr = \case
+        Lit c ->
+            lowerConst c <&> \c' -> Low.Block [] (Sized (Low.EOperand c', typeof c'))
         Match es dt -> lowerMatch es dt
         _ -> undefined
+
+    lowerConst :: Const -> Lower Low.Operand
+    lowerConst = \case
+        Int n -> pure (Low.OConst (Low.CInt (Low.I64 n)))
+        F64 x -> pure (Low.OConst (Low.F64 x))
+        Str s -> internStr s <&> \s' -> (Low.OGlobal s')
+
+    internStr :: String -> Lower Low.Global
+    internStr s = use strLits >>= \m ->
+        fmap (flip Low.Global tStr) $ case Map.lookup s m of
+            Just n -> pure n
+            Nothing ->
+                let n = fromIntegral (Map.size m)
+                in  modifying strLits (Map.insert s n) $> n
+
+    tStr = Low.TConst (tids Map.! ("Str", []))
 
     lowerMatch
         :: [Expr] -> DecisionTree -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))

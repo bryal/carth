@@ -199,27 +199,27 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let t' = genType t
             in  emitNamed (getName lnames x) (LL.ptr t') (LL.Alloca t' Nothing 0 []) $> ()
 
-        genEBranch :: Branch Expr -> Gen (LL.Type, LL.Instruction)
+        genEBranch :: Branch Expr -> Gen (Either (LL.Type, LL.Instruction) LL.Operand)
         genEBranch = \case
             If p c a -> genIf p c a genExpr econverge
             Switch x cs d -> genSwitch x cs d genExpr econverge
 
         econverge
-            :: Gen (LL.Type, LL.Instruction)
-            -> [(Name, Gen (LL.Type, LL.Instruction))]
-            -> Gen (LL.Type, LL.Instruction)
+            :: Gen (Either (LL.Type, LL.Instruction) LL.Operand)
+            -> [(Name, Gen (Either (LL.Type, LL.Instruction) LL.Operand))]
+            -> Gen (Either (LL.Type, LL.Instruction) LL.Operand)
         econverge genDefault cases = do
             ln <- label "NEXT"
-            d <- uncurry emit =<< genDefault
+            d <- either (uncurry emit) pure =<< genDefault
             ld <- gets currentLabel
             cs <- forM cases $ \(l, genCase) -> do
                 commitThen (LL.Br ln []) l
-                c <- uncurry emit =<< genCase
+                c <- either (uncurry emit) pure =<< genCase
                 lc <- gets currentLabel
                 pure (c, lc)
             commitThen (LL.Br ln []) ln
             let t = LL.typeOf d
-            pure (t, LL.Phi t ((d, ld) : cs) [])
+            pure $ Left (t, LL.Phi t ((d, ld) : cs) [])
 
         genTBranch :: Branch Terminator -> Gen ()
         genTBranch = \case
@@ -280,12 +280,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
         genStm :: Statement -> Gen ()
         genStm = \case
-            Let (Local x _) rhs ->
-                genExpr rhs >>= \(t, i) -> emitNamed (getName lnames x) t i $> ()
+            Let (Local x _) rhs -> genExpr rhs >>= \case
+                Left (t, i) -> emitNamed (getName lnames x) t i $> ()
+                Right _operand -> pure ()
             Store v dst -> store (genOperand v) (genOperand dst)
             SBranch br -> genSBranch br
             VoidCall f as -> emitDo (call (genOperand f) (map genOperand as))
-            Do e -> emitDo . snd =<< genExpr e
+            Do e -> either (emitDo . snd) (const (pure ())) =<< genExpr e
 
         genTerminator :: Terminator -> Gen ()
         genTerminator = \case
@@ -308,20 +309,20 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
         -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
         --       instead of level-wise.
-        genExpr :: Expr -> Gen (LL.Type, LL.Instruction)
+        genExpr :: Expr -> Gen (Either (LL.Type, LL.Instruction) LL.Operand)
         genExpr = \case
             Add a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure (LL.typeOf a', LL.Add False False a' b' [])
+                in  pure $ Left (LL.typeOf a', LL.Add False False a' b' [])
             Sub a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure (LL.typeOf a', LL.Sub False False a' b' [])
+                in  pure $ Left (LL.typeOf a', LL.Sub False False a' b' [])
             Mul a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure (LL.typeOf a', LL.Mul False False a' b' [])
+                in  pure $ Left (LL.typeOf a', LL.Mul False False a' b' [])
             Load src ->
                 let src' = genOperand src
-                in  pure
+                in  pure $ Left
                         ( getPointee (LL.typeOf src')
                         , LL.Load { volatile = False
                                   , address = src'
@@ -336,8 +337,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 --        handle it here.
                 let f' = genOperand f
                     rt = getReturn (getPointee (LL.typeOf f'))
-                in  pure (rt, call f' (map genOperand as))
-            Loop params rt blk -> genLoop params rt blk
+                in  pure $ Left (rt, call f' (map genOperand as))
+            Loop params rt blk -> fmap Left $ genLoop params rt blk
+            EOperand o -> pure (Right (genOperand o))
             EBranch br -> genEBranch br
 
         genLoop
@@ -392,7 +394,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 in  emitLocal lhs (LL.Phi u ((init', lprev) : nexts) [])
             commitThen (LL.Br ll []) le
             -- In END
-            let t' = genType t in pure (t', LL.Phi t' breaks [])
+            let t' = genType t
+            pure (t', LL.Phi t' breaks [])
 
         getPointee = \case
             LL.PointerType t _ -> t
@@ -461,6 +464,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         TConst i -> case (tdefs Vec.! fromIntegral i) of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
             (name, _) -> LL.NamedTypeReference (mkName name)
+        TArray t n -> LL.ArrayType (fromIntegral n) (genType t)
       where
         genParam = \case
             ByVal () pt -> genType pt

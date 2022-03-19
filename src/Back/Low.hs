@@ -27,7 +27,8 @@ data Type
     | VoidPtr
     -- Really a function pointer, like `fn` in rust
     | TFun [Param ()] Ret
-    | TConst Word
+    | TConst TypeId
+    | TArray Type Word
 
 data LowInt
     = I8 Int8
@@ -49,7 +50,7 @@ type GlobalId = Word
 type TypeId = Word
 
 data Local = Local LocalId Type
-data Global = Global GlobalId Type
+data Global = Global GlobalId Type -- Type excluding the pointer
 
 data Operand = OLocal Local | OGlobal Global | OConst Const
 
@@ -87,6 +88,7 @@ data Expr
     | Loop [(Local, Operand)] -- loop params
            Type -- loop return
            (Block LoopTerminator)
+    | EOperand Operand
     | EBranch (Branch Expr)
 
 data Block term = Block [Statement] term
@@ -143,6 +145,7 @@ sizeof tenv = \case
         DStruct s -> structSize s
         DData (Data { dataVariants = vs, dataGreatestSize = s, dataGreatestAlignment = a })
             -> max (variantsTagBytes vs) a + a * div (s + a - 1) a
+    TArray t n -> sizeof tenv t * n
 
 sizeofStruct :: Vector TypeDef -> [Type] -> Word
 sizeofStruct tenv = foldl addMember 0
@@ -163,3 +166,35 @@ alignmentof tenv = \case
 
 alignmentofStruct :: Vector TypeDef -> [Type] -> Word
 alignmentofStruct tenv = maximum . map (alignmentof tenv)
+
+class TypeOf a where
+    typeof :: a -> Type
+
+instance TypeOf Operand where
+    typeof = \case
+        OLocal l -> typeof l
+        OGlobal g -> typeof g
+        OConst c -> typeof c
+
+instance TypeOf Local where
+    typeof (Local _ t) = t
+
+instance TypeOf Global where
+    typeof (Global _ t) = TPtr t
+
+instance TypeOf Const where
+    typeof = \case
+        Undef t -> t
+        CInt i -> typeof i
+        F32 _ -> TF32
+        F64 _ -> TF64
+        EnumVal tid _ -> TConst tid
+        Array t cs -> TArray t (fromIntegral (length cs))
+        Zero t -> t
+
+instance TypeOf LowInt where
+    typeof = \case
+        I8 _ -> TI8
+        I16 _ -> TI16
+        I32 _ -> TI32
+        I64 _ -> TI64
