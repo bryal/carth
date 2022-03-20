@@ -2,9 +2,10 @@
 
 module Back.Lower (lower) where
 
+import Control.Arrow
 import Control.Monad.State
 import Control.Monad.Writer
-import Data.Bifunctor
+import Data.Bifunctor (bimap)
 import Data.Function
 import Data.Functor
 import Data.List
@@ -24,7 +25,11 @@ import Sizeof
 
 data Sized x = ZeroSized | Sized x
 
-data St = St
+mapSized :: (a -> b) -> Sized a -> Sized b
+mapSized f (Sized a) = Sized (f a)
+mapSized _ ZeroSized = ZeroSized
+
+newtype St = St
     { _strLits :: Map String Low.GlobalId
     }
 makeLenses ''St
@@ -33,9 +38,11 @@ type Out = ([Low.FunDef], [Low.GlobDef])
 
 type Lower = WriterT Out (State St)
 
+type EBlock = Low.Block (Sized (Either Low.Expr Low.Operand, Low.Type))
+
 lower :: Program -> Low.Program
 lower (Program (Topo defs) datas externs) =
-    let _externNames = map (\(name, _) -> name) externs
+    let _externNames = map fst externs
         (fs, gs) = run $ do
             fs' <- mapM lowerFunDef funDefs
             init <- defineInit
@@ -109,23 +116,33 @@ lower (Program (Topo defs) datas externs) =
                     then undefined
                     else do
                         ret <- fmap (flip Low.Local t) (newLName "ret")
-                        pure
-                            (Low.Block (stms ++ [Low.Let ret e'])
-                                       (Low.TRetVal (undefined ret))
-                            )
+                        pure $ case e' of
+                            Left i -> Low.Block (stms ++ [Low.Let ret i])
+                                                (Low.TRetVal (Low.OLocal ret))
+                            Right o -> Low.Block stms (Low.TRetVal o)
 
-    lowerExpr :: Expr -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))
+    lowerExpr :: Expr -> Lower EBlock
     lowerExpr = \case
-        Lit c ->
-            lowerConst c <&> \c' -> Low.Block [] (Sized (Low.EOperand c', typeof c'))
+        Lit c -> lowerConst c <&> \c' -> Low.Block [] (Sized (Right c', typeof c'))
+        Var x -> Low.Block [] . mapSized (Right &&& typeof) <$> lookupVar x
+        -- App Expr [Expr]
+        -- If Expr Expr Expr
+        -- Fun Fun
+        -- Let Def Expr
         Match es dt -> lowerMatch es dt
+        -- Ction Ction
+        -- Sizeof Type
+        -- Absurd Type
         _ -> undefined
+
+    lookupVar :: TypedVar -> Lower (Sized Low.Operand)
+    lookupVar = undefined
 
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
         Int n -> pure (Low.OConst (Low.CInt (Low.I64 n)))
         F64 x -> pure (Low.OConst (Low.F64 x))
-        Str s -> internStr s <&> \s' -> (Low.OGlobal s')
+        Str s -> internStr s <&> \s' -> Low.OGlobal s'
 
     internStr :: String -> Lower Low.Global
     internStr s = use strLits >>= \m ->
@@ -137,9 +154,32 @@ lower (Program (Topo defs) datas externs) =
 
     tStr = Low.TConst (tids Map.! ("Str", []))
 
-    lowerMatch
-        :: [Expr] -> DecisionTree -> Lower (Low.Block (Sized (Low.Expr, Low.Type)))
-    lowerMatch = undefined
+    lowerMatch :: [Expr] -> DecisionTree -> Lower EBlock
+    lowerMatch ms dt = do
+        Low.Block msStms ms' <- eblocksToOperandsBlock =<< mapM lowerExpr ms
+        Low.Block dtStms result <- lowerDecisionTree dt (topSelections ms')
+        pure (Low.Block (msStms ++ dtStms) result)
+      where
+        topSelections :: [Sized Low.Operand] -> Map Access Low.Operand
+        topSelections xs = Map.fromList . catMaybes $ zipWith
+            (\i x -> (TopSel i, ) <$> sizedMaybe x)
+            [0 ..]
+            xs
+
+        lowerDecisionTree :: DecisionTree -> Map Access Low.Operand -> Lower EBlock
+        lowerDecisionTree = undefined
+
+    eblocksToOperandsBlock :: [EBlock] -> Lower (Low.Block [Sized Low.Operand])
+    eblocksToOperandsBlock bs = do
+        bs' <- forM bs $ \(Low.Block stms e) -> case e of
+            ZeroSized -> pure (stms, ZeroSized)
+            Sized (Right o, _) -> pure (stms, Sized o)
+            Sized (Left e', t) -> do
+                name <- newLName "tmp"
+                let l = Low.Local name t
+                pure (stms ++ [Low.Let l e'], Sized (Low.OLocal l))
+        let (stmss, os) = unzip bs'
+        pure (Low.Block (concat stmss) os)
 
     withVars :: [(TypedVar, Low.Operand)] -> Lower a -> Lower a
     withVars = undefined withVar

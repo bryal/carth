@@ -88,7 +88,6 @@ data Expr
     | Loop [(Local, Operand)] -- loop params
            Type -- loop return
            (Block LoopTerminator)
-    | EOperand Operand
     | EBranch (Branch Expr)
 
 data Block term = Block [Statement] term

@@ -98,7 +98,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             DStruct s -> pure $ TypeDefinition
                 (mkName name)
                 (Just (structType (map genType (structMembers s))))
-            DData (Data { dataVariants = vs, dataGreatestSize = sMax, dataGreatestAlignment = aMax })
+            DData Data { dataVariants = vs, dataGreatestSize = sMax, dataGreatestAlignment = aMax }
                 -> let tag = IntegerType (variantsTagBits vs)
                        fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
                                         (IntegerType (fromIntegral (toBits aMax)))
@@ -199,27 +199,27 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let t' = genType t
             in  emitNamed (getName lnames x) (LL.ptr t') (LL.Alloca t' Nothing 0 []) $> ()
 
-        genEBranch :: Branch Expr -> Gen (Either (LL.Type, LL.Instruction) LL.Operand)
+        genEBranch :: Branch Expr -> Gen (LL.Type, LL.Instruction)
         genEBranch = \case
             If p c a -> genIf p c a genExpr econverge
             Switch x cs d -> genSwitch x cs d genExpr econverge
 
         econverge
-            :: Gen (Either (LL.Type, LL.Instruction) LL.Operand)
-            -> [(Name, Gen (Either (LL.Type, LL.Instruction) LL.Operand))]
-            -> Gen (Either (LL.Type, LL.Instruction) LL.Operand)
+            :: Gen (LL.Type, LL.Instruction)
+            -> [(Name, Gen (LL.Type, LL.Instruction))]
+            -> Gen (LL.Type, LL.Instruction)
         econverge genDefault cases = do
             ln <- label "NEXT"
-            d <- either (uncurry emit) pure =<< genDefault
+            d <- uncurry emit =<< genDefault
             ld <- gets currentLabel
             cs <- forM cases $ \(l, genCase) -> do
                 commitThen (LL.Br ln []) l
-                c <- either (uncurry emit) pure =<< genCase
+                c <- uncurry emit =<< genCase
                 lc <- gets currentLabel
                 pure (c, lc)
             commitThen (LL.Br ln []) ln
             let t = LL.typeOf d
-            pure $ Left (t, LL.Phi t ((d, ld) : cs) [])
+            pure (t, LL.Phi t ((d, ld) : cs) [])
 
         genTBranch :: Branch Terminator -> Gen ()
         genTBranch = \case
@@ -280,13 +280,12 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
         genStm :: Statement -> Gen ()
         genStm = \case
-            Let (Local x _) rhs -> genExpr rhs >>= \case
-                Left (t, i) -> emitNamed (getName lnames x) t i $> ()
-                Right _operand -> pure ()
+            Let (Local x _) rhs ->
+                genExpr rhs >>= \(t, i) -> emitNamed (getName lnames x) t i $> ()
             Store v dst -> store (genOperand v) (genOperand dst)
             SBranch br -> genSBranch br
             VoidCall f as -> emitDo (call (genOperand f) (map genOperand as))
-            Do e -> either (emitDo . snd) (const (pure ())) =<< genExpr e
+            Do e -> emitDo . snd =<< genExpr e
 
         genTerminator :: Terminator -> Gen ()
         genTerminator = \case
@@ -309,20 +308,20 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
         -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
         --       instead of level-wise.
-        genExpr :: Expr -> Gen (Either (LL.Type, LL.Instruction) LL.Operand)
+        genExpr :: Expr -> Gen (LL.Type, LL.Instruction)
         genExpr = \case
             Add a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure $ Left (LL.typeOf a', LL.Add False False a' b' [])
+                in  pure (LL.typeOf a', LL.Add False False a' b' [])
             Sub a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure $ Left (LL.typeOf a', LL.Sub False False a' b' [])
+                in  pure (LL.typeOf a', LL.Sub False False a' b' [])
             Mul a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure $ Left (LL.typeOf a', LL.Mul False False a' b' [])
+                in  pure (LL.typeOf a', LL.Mul False False a' b' [])
             Load src ->
                 let src' = genOperand src
-                in  pure $ Left
+                in  pure
                         ( getPointee (LL.typeOf src')
                         , LL.Load { volatile = False
                                   , address = src'
@@ -337,9 +336,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 --        handle it here.
                 let f' = genOperand f
                     rt = getReturn (getPointee (LL.typeOf f'))
-                in  pure $ Left (rt, call f' (map genOperand as))
-            Loop params rt blk -> fmap Left $ genLoop params rt blk
-            EOperand o -> pure (Right (genOperand o))
+                in  pure (rt, call f' (map genOperand as))
+            Loop params rt blk -> genLoop params rt blk
             EBranch br -> genEBranch br
 
         genLoop
@@ -384,7 +382,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
             -- In LOOP
             forM_ stms genStm
-            (conts, breaks) <- fmap partitionEithers $ genLTerm term
+            (conts, breaks) <- partitionEithers <$> genLTerm term
             -- In ASSIGN
             let conts' = transpose
                     (map (\(nexts, lnext) -> zip nexts (repeat lnext)) conts)
@@ -461,7 +459,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     RetVoid -> (id, LL.void)
                     OutParam t -> ((LL.ptr (genType t) :), LL.void)
             in  LL.ptr $ LL.FunctionType rt (f (map genParam ps)) False
-        TConst i -> case (tdefs Vec.! fromIntegral i) of
+        TConst i -> case tdefs Vec.! fromIntegral i of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
             (name, _) -> LL.NamedTypeReference (mkName name)
         TArray t n -> LL.ArrayType (fromIntegral n) (genType t)

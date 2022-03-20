@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 -- | Monomorphization
 module Front.Monomorphize (monomorphize, builtinExterns) where
 
@@ -35,15 +33,14 @@ instance Semigroup DefInsts where
     DefInsts a <> DefInsts b = DefInsts $ Map.unionWith Set.union a b
 
 instance Monoid DefInsts where
-    mempty = DefInsts $ Map.empty
+    mempty = DefInsts Map.empty
 
 
 monomorphize :: Checked.Program -> Program
 monomorphize (Checked.Program (Topo defs) datas externs) =
     let
-        callMain = (Checked.Var (NonVirt, (Checked.TypedVar "main" Checked.mainType)))
-        monoExterns =
-            mapM (\(x, t) -> fmap (\t' -> (x, t')) (monotype t)) (Map.toList externs)
+        callMain = Checked.Var (NonVirt, Checked.TypedVar "main" Checked.mainType)
+        monoExterns = mapM (\(x, t) -> fmap (x, ) (monotype t)) (Map.toList externs)
         monoDefs = foldr (\d1 md2s -> fmap (uncurry (++)) (monoLet' d1 md2s))
                          (mono callMain $> [])
                          defs
@@ -97,10 +94,10 @@ mono = \case
         case virt of
             Virt -> pure ()
             NonVirt -> tell (DefInsts (Map.singleton x (Set.singleton t')))
-        pure (Var (virt, TypedVar x t'))
+        pure (Var (TypedVar x t'))
     Checked.App f as -> liftA2 App (mono f) (mapM mono as)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
-    Checked.Fun f -> fmap (Fun) (monoFun f)
+    Checked.Fun f -> fmap Fun (monoFun f)
     Checked.Let d e -> monoLet d e
     Checked.Match es cs -> monoMatch es cs
     Checked.Ction v span' inst as -> monoCtion v span' inst as
@@ -135,7 +132,7 @@ monoLetVar (lhs, (rhsScm, rhs)) monoBody = do
         Just instTs -> mapM
             (\instT -> fmap (instT, ) (genInst rhsScm (mono rhs) instT))
             (Set.toList instTs)
-    pure (map (\(t, rhs') -> (TypedVar lhs t, rhs')) rhss', body')
+    pure (map (first (TypedVar lhs)) rhss', body')
 
 monoLetRecs :: Checked.RecDefs -> Mono a -> Mono (RecDefs, a)
 monoLetRecs ds monoBody = do
@@ -177,7 +174,7 @@ monoDecisionTree = \case
     Checked.DSwitchStr obj cs def -> monoDecisionSwitch obj cs def DSwitchStr
     Checked.DLeaf (bs, e) -> do
         let bs' = Map.toList bs
-        let ks = map (\((Checked.TypedVar x _), _) -> x) bs'
+        let ks = map (\(Checked.TypedVar x _, _) -> x) bs'
         censor (mapDefInsts (deletes ks)) $ do
             bs'' <- mapM
                 (bimapM (\(Checked.TypedVar x t) -> fmap (TypedVar x) (monotype t))
@@ -247,4 +244,4 @@ subst s = \case
     Checked.TConst (c, ts) -> TConst (c, map (subst s) ts)
 
 mapDefInsts :: (Map String (Set Type) -> Map String (Set Type)) -> DefInsts -> DefInsts
-mapDefInsts f (DefInsts m) = (DefInsts (f m))
+mapDefInsts f (DefInsts m) = DefInsts (f m)

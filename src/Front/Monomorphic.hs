@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 -- | Monomorphic AST as a result of monomorphization
 module Front.Monomorphic
     ( module Front.Monomorphic
@@ -58,11 +56,9 @@ data DecisionTree
 type Ction = (VariantIx, Span, TConst, [Expr])
 type Fun = ([TypedVar], (Expr, Type))
 
-type Var = (Virt, TypedVar)
-
 data Expr
     = Lit Const
-    | Var Var
+    | Var TypedVar
     | App Expr [Expr]
     | If Expr Expr Expr
     | Fun Fun
