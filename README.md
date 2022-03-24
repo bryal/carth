@@ -91,20 +91,12 @@ License
 
 *Preface*
 
-- Copyright is a spook & capitalism is killing this planet.
-- The enforcability of the ACSL is questionable. Consider it more a
-  deterrent against capitalist organizations.
-- The (A)GPL is a cool hack that vaguely approximates my ideals, but I
-  have some problems with it, not least that it works "better" the
-  more expansive the reach of the copyright system is. I include it as
-  an alternative to be at least a little pragmatic ;)
 - What's important is the spirit of open source, not the letter of the
   license. [Licences are not
   sufficient](https://steveklabnik.com/writing/what-comes-after-open-source)
   anyways.
-- If you're a fellow hacker and use this software to do *good* but
-  fail to follow the licenses to the letter, I won't be mad so please
-  rest without guilt! :D
+- Copyright is a spook & capitalism is killing this planet.
+- The AGPL is me being pragmatic.
 
 ---
 
