@@ -196,7 +196,10 @@ monoDecisionTree = \case
 monoAccess :: Checked.Access -> Mono Access
 monoAccess = \case
     Checked.TopSel i -> pure (TopSel i)
-    Checked.As a span' ts -> liftA3 As (monoAccess a) (pure span') (mapM monotype ts)
+    Checked.As a span' i ts -> do
+        a' <- monoAccess a
+        ts' <- mapM monotype ts
+        pure (As a' span' i ts')
     Checked.Sel i span' a -> fmap (Sel i span') (monoAccess a)
     Checked.ADeref a -> fmap ADeref (monoAccess a)
 

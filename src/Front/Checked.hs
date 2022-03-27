@@ -37,7 +37,7 @@ data TypedVar = TypedVar String Type
 
 data Access
     = TopSel Word32
-    | As Access Span [Type]
+    | As Access Span VariantIx [Type]
     | Sel Word32 Span Access
     | ADeref Access
     deriving (Show, Eq, Ord)
@@ -68,12 +68,11 @@ data Expr
     deriving (Show)
 
 builtinExterns :: Map String Type
-builtinExterns =
-    Map.fromList
-        $ [ ("GC_malloc", tfun [TPrim TNatSize] (TBox tByte))
-          , ("malloc", tfun [(TPrim TNatSize)] (TBox tByte))
-          , ("str-eq", tfun [tStr, tStr] tBool)
-          ]
+builtinExterns = Map.fromList
+    [ ("GC_malloc", tfun [TPrim TNatSize] (TBox tByte))
+    , ("malloc", tfun [TPrim TNatSize] (TBox tByte))
+    , ("str-eq", tfun [tStr, tStr] tBool)
+    ]
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show

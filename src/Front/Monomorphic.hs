@@ -38,7 +38,7 @@ type VariantTypes = [Type]
 
 data Access' t
     = TopSel Word32
-    | As (Access' t) Span [t]
+    | As (Access' t) Span VariantIx [t]
     | Sel Word32 Span (Access' t)
     | ADeref (Access' t)
     deriving (Show, Eq, Ord)
@@ -94,6 +94,6 @@ instance TypeAst Type where
 instance Functor Access' where
     fmap f = \case
         TopSel i -> TopSel i
-        As a s ts -> As (fmap f a) s (map f ts)
+        As a s i ts -> As (fmap f a) s i (map f ts)
         Sel i s a -> Sel i s (fmap f a)
         ADeref a -> ADeref (fmap f a)

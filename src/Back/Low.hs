@@ -1,13 +1,14 @@
-module Back.Low (module Back.Low) where
+module Back.Low (module Back.Low, Access') where
 
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Int
 
 import Sizeof hiding (sizeof)
+import Front.Monomorphic (Access')
 
-data Param name = ByVal name Type | ByRef name Type
-data Ret = RetVal Type | RetVoid | OutParam Type
+data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord)
+data Ret = RetVal Type | RetVoid | OutParam Type deriving (Eq, Ord)
 
 -- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
 --   void-returns and void-calls are their own variants. This isn't very elegant from a
@@ -27,6 +28,9 @@ data Type
     | TFun [Param ()] Ret
     | TConst TypeId
     | TArray Type Word
+  deriving (Eq, Ord)
+
+type Access = Access' Type
 
 data LowInt
     = I8 Int8
@@ -77,7 +81,7 @@ data LoopTerminator
     | Break Operand
     | LBranch (Branch LoopTerminator)
 
-data Expr
+data Expr'
     = Add Operand Operand
     | Sub Operand Operand
     | Mul Operand Operand
@@ -87,8 +91,19 @@ data Expr
            Type -- loop return
            (Block LoopTerminator)
     | EBranch (Branch Expr)
+    | EGetMember Word Operand -- Get the Nth member of a struct
+    -- Given a tagged union, a Data, get the untagged union as a specific variant
+    | EAsVariant Word Operand
 
-data Block term = Block [Statement] term
+data Expr = Expr
+    { eInner :: Expr'
+    , eType :: Type
+    }
+
+data Block term = Block
+    { blockStms :: [Statement]
+    , blockTerm :: term
+    }
 
 type VarNames = Vector String
 
@@ -173,6 +188,9 @@ instance TypeOf Operand where
         OGlobal g -> typeof g
         OConst c -> typeof c
 
+instance TypeOf Expr where
+    typeof (Expr _ t) = t
+
 instance TypeOf Local where
     typeof (Local _ t) = t
 
@@ -195,3 +213,9 @@ instance TypeOf LowInt where
         I16 _ -> TI16
         I32 _ -> TI32
         I64 _ -> TI64
+
+instance (TypeOf a, TypeOf b) => TypeOf (Either a b) where
+    typeof = either typeof typeof
+
+instance Semigroup a => Semigroup (Block a) where
+    (<>) (Block stms1 a) (Block stms2 b) = Block (stms1 ++ stms2) (a <> b)

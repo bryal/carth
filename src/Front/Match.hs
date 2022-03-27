@@ -12,8 +12,9 @@ import Data.Set (Set)
 import qualified Data.Map as Map
 import Data.Map (Map)
 import Data.Maybe
-import Data.List (delete, intercalate)
+import Data.List (delete)
 import Data.Functor
+import Control.Arrow
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Except
@@ -58,7 +59,7 @@ type Match = ReaderT Env (StateT RedundantCases (ExceptT TypeErr Maybe))
 
 type Work = [([Pat], [Access], [Descr])]
 
-data FunPats = FunPats [Pat]
+newtype FunPats = FunPats [Pat]
     deriving Show
 
 toDecisionTree
@@ -91,7 +92,7 @@ disjunct descr = \case
     missingFunPats (Neg _) _ = lift $ lift $ lift Nothing
     missingFunPats (Pos _ descrs) ts = do
         ps <- zipWithM missingPat ts descrs
-        pure ("[" ++ intercalate " " ps ++ "]")
+        pure ("[" ++ unwords ps ++ "]")
 
     missingPat :: Type -> Descr -> Match String
     missingPat t descr = case t of
@@ -153,8 +154,12 @@ match obj descr ctx work rhs rules = \case
                 conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs =
-                args pcon $ \i -> Sel i (span pcon) (As obj (span pcon) (argTs pcon))
+            getoargs = args pcon $ \i ->
+                Sel i (span pcon) (As obj (span pcon) (variantIx pcon) (argTs pcon))
+
+            variantIx = variant >>> \case
+                VariantIx ix -> ix
+                VariantStr _ -> ice "match: variantIx: VariantStr"
 
             getdargs :: [Descr]
             getdargs = case descr of
@@ -184,7 +189,7 @@ matchFunPats descr ctx work rhs rules (FunPats pats) =
     in  conjunct ((con, []) : ctx) rhs rules ((pats, getoargs, getdargs) : work)
 
 args :: Con -> (Word32 -> a) -> [a]
-args con f = map (f . fromIntegral) [0 .. (arity con) - 1] where arity = length . argTs
+args con f = map (f . fromIntegral) [0 .. arity con - 1] where arity = length . argTs
 
 conjunct :: Ctx -> Rhs -> [(FunPats, Rhs)] -> Work -> Match DecisionTree'
 conjunct ctx rhs@(casePos, binds, e) rules = \case

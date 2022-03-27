@@ -3,9 +3,11 @@
 module Back.Lower (lower) where
 
 import Control.Arrow
+import Control.Monad
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor (bimap)
+import Data.Foldable
 import Data.Function
 import Data.Functor
 import Data.List
@@ -38,7 +40,9 @@ type Out = ([Low.FunDef], [Low.GlobDef])
 
 type Lower = WriterT Out (State St)
 
-type EBlock = Low.Block (Sized (Either Low.Expr Low.Operand, Low.Type))
+-- | A potentially not yet emitted&named operand
+type PartialOperand = Either Low.Expr Low.Operand
+type EBlock = Low.Block (Sized PartialOperand)
 
 lower :: Program -> Low.Program
 lower (Program (Topo defs) datas externs) =
@@ -111,11 +115,11 @@ lower (Program (Topo defs) datas externs) =
         Low.Block stms e <- lowerExpr body
         case e of
             ZeroSized -> pure $ Low.Block stms Low.TRetVoid
-            Sized (e', t) -> do
-                if passByRef t
+            Sized e' -> do
+                if passByRef (typeof e')
                     then undefined
                     else do
-                        ret <- fmap (flip Low.Local t) (newLName "ret")
+                        ret <- fmap (flip Low.Local (typeof e')) (newLName "ret")
                         pure $ case e' of
                             Left i -> Low.Block (stms ++ [Low.Let ret i])
                                                 (Low.TRetVal (Low.OLocal ret))
@@ -123,17 +127,20 @@ lower (Program (Topo defs) datas externs) =
 
     lowerExpr :: Expr -> Lower EBlock
     lowerExpr = \case
-        Lit c -> lowerConst c <&> \c' -> Low.Block [] (Sized (Right c', typeof c'))
-        Var x -> Low.Block [] . mapSized (Right &&& typeof) <$> lookupVar x
+        Lit c -> lowerConst c <&> \c' -> operandBlock c'
+        Var x -> Low.Block [] . mapSized Right <$> lookupVar x
         -- App Expr [Expr]
         -- If Expr Expr Expr
         -- Fun Fun
         -- Let Def Expr
         Match es dt -> lowerMatch es dt
         -- Ction Ction
-        -- Sizeof Type
+        Sizeof t ->
+            pure (Low.Block [] (mapSized (Right . litI64 . sizeof) (lowerType t)))
         -- Absurd Type
         _ -> undefined
+
+    litI64 = Low.OConst . Low.CInt . Low.I64 . fromIntegral
 
     lookupVar :: TypedVar -> Lower (Sized Low.Operand)
     lookupVar = undefined
@@ -157,26 +164,104 @@ lower (Program (Topo defs) datas externs) =
     lowerMatch :: [Expr] -> DecisionTree -> Lower EBlock
     lowerMatch ms dt = do
         Low.Block msStms ms' <- eblocksToOperandsBlock =<< mapM lowerExpr ms
-        Low.Block dtStms result <- lowerDecisionTree dt (topSelections ms')
+        Low.Block dtStms result <- lowerDecisionTree (topSelections ms') dt
         pure (Low.Block (msStms ++ dtStms) result)
       where
-        topSelections :: [Sized Low.Operand] -> Map Access Low.Operand
+        topSelections :: [Sized Low.Operand] -> Map Low.Access Low.Operand
         topSelections xs = Map.fromList . catMaybes $ zipWith
             (\i x -> (TopSel i, ) <$> sizedMaybe x)
             [0 ..]
             xs
 
-        lowerDecisionTree :: DecisionTree -> Map Access Low.Operand -> Lower EBlock
-        lowerDecisionTree = undefined
+        lowerDecisionTree :: Map Low.Access Low.Operand -> DecisionTree -> Lower EBlock
+        lowerDecisionTree selections = \case
+            DLeaf (bs, e) -> do
+                let bs' =
+                        mapMaybe (\(x, a) -> fmap (x, ) (sizedMaybe (lowerAccess a))) bs
+                vars <- selectVarBindings selections bs'
+                bindBlock vars $ \vars' -> withVars vars' (lowerExpr e)
+            DSwitch _span _selector _cs _def -> undefined
+            DSwitchStr _selector _cs _def -> undefined
+
+        select
+            :: Low.Access
+            -> Map Low.Access Low.Operand
+            -> Lower (Low.Block Low.Operand, Map Low.Access Low.Operand)
+        select selector selections = case Map.lookup selector selections of
+            Just a -> pure (Low.Block [] a, selections)
+            Nothing -> do
+                (ba, selections') <- case selector of
+                    TopSel _ -> ice "select: TopSel not in selections"
+                    As x span' i _ts -> do
+                        (ba', s') <- select x selections
+                        ba'' <- bindBlock ba' $ \a' -> asVariant a' span' (fromIntegral i)
+                        pure (ba'', s')
+                    Sel i _span x -> do
+                        (a', s') <- select x selections
+                        a'' <- bindBlock a' $ indexStruct (fromIntegral i)
+                        pure (a'', s')
+                    ADeref x -> do
+                        (a', s') <- select x selections
+                        a'' <- bindBlock a' deref
+                        pure (a'', s')
+                pure (ba, Map.insert selector (Low.blockTerm ba) selections')
+
+        asVariant matchee span variantIx = if span == 1
+            then pure $ Low.Block [] matchee
+            else
+                let t = Low.TConst (typeIdOfDataVariant variantIx (typeof matchee))
+                in  emit (Low.Expr (Low.EAsVariant variantIx matchee) t)
+
+        typeIdOfDataVariant variantIx = \case
+            -- For a sum type / tagged union, the TConst ID maps to the outer struct, the
+            -- succeding ID maps to the inner union type, and following that is a struct
+            -- for each variant.
+            Low.TConst tid -> tid + 2 + variantIx
+            _ -> ice "Lower.typeIdOfDataVariant: type is not TConst"
+
+        selectVarBindings
+            :: Map Low.Access Low.Operand
+            -> [(TypedVar, Low.Access)]
+            -> Lower (Low.Block [(TypedVar, Low.Operand)])
+        selectVarBindings selections = fmap fst . foldlM
+            (\(block1, selections) (x, access) -> do
+                (block2, ss') <- select access selections
+                pure (mapTerm (pure . (x, )) block2 <> block1, ss')
+            )
+            (Low.Block [] [], selections)
+
+    lowerAccess :: Access -> Sized Low.Access
+    lowerAccess = undefined
+
+    mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
+
+    bindBlock :: Low.Block a -> (a -> Lower (Low.Block b)) -> Lower (Low.Block b)
+    bindBlock (Low.Block stms1 operand) f = do
+        Low.Block stms2 a <- f operand
+        pure $ Low.Block (stms1 ++ stms2) a
+
+    emit :: Low.Expr -> Lower (Low.Block Low.Operand)
+    emit e = do
+        name <- newLName "tmp"
+        let l = Low.Local name (typeof e)
+        pure (Low.Block [Low.Let l e] (Low.OLocal l))
+
+    operandBlock o = Low.Block [] (Sized (Right o))
+
+    indexStruct :: Word -> Low.Operand -> Lower (Low.Block Low.Operand)
+    indexStruct = undefined
+
+    deref :: Low.Operand -> Lower (Low.Block Low.Operand)
+    deref = undefined
 
     eblocksToOperandsBlock :: [EBlock] -> Lower (Low.Block [Sized Low.Operand])
     eblocksToOperandsBlock bs = do
         bs' <- forM bs $ \(Low.Block stms e) -> case e of
             ZeroSized -> pure (stms, ZeroSized)
-            Sized (Right o, _) -> pure (stms, Sized o)
-            Sized (Left e', t) -> do
+            Sized (Right o) -> pure (stms, Sized o)
+            Sized (Left e') -> do
                 name <- newLName "tmp"
-                let l = Low.Local name t
+                let l = Low.Local name (typeof e')
                 pure (stms ++ [Low.Let l e'], Sized (Low.OLocal l))
         let (stmss, os) = unzip bs'
         pure (Low.Block (concat stmss) os)
@@ -229,7 +314,7 @@ lower (Program (Topo defs) datas externs) =
             . snd
             $ foldl
                   (\(i, (env, ids)) (inst@(name, _), variants) ->
-                      (i, (env, ids)) <> case defineData i name variants of
+                      bimap (i +) ((env, ids) <>) $ case defineData i name variants of
                           Nothing -> (0, ([], []))
                           Just (outer, inners) ->
                               ( 1 + fromIntegral (length inners)
@@ -256,7 +341,7 @@ lower (Program (Topo defs) datas externs) =
                             aMax = maximum $ map alignmentofStruct variantTypess
                             sMax = maximum $ map sizeofStruct variantTypess
                             variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
-                            sTag = variantsTagBits variants'
+                            sTag = variantsTagBits variants' :: Word
                             tag = if
                                 | sTag <= 8 -> Low.TI8
                                 | sTag <= 16 -> Low.TI16
