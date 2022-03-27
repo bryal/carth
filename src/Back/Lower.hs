@@ -226,26 +226,55 @@ lower (Program (Topo defs) datas externs) =
     (tenv, tids) =
         bimap (Vec.fromList . nameUniquely fst (first . const) . (builtinTypeDefs ++))
               Map.fromList
-            $ unzip
-            $ zipWith (\i (a, b) -> (a, (b, i)))
-                      [fromIntegral (length builtinTypeDefs) ..]
-            $ flip mapMaybe (Map.toList datas)
-            $ \(tc@(tname, _), vs) ->
-                  let vs' = map (second (mapMaybe (sizedMaybe . lowerType))) vs
-                  in
-                      fmap ((, tc) . (tname, )) $ case vs' of
-                          [] -> ice "uninhabited type when creating Lower.tenv"
-                          [(_, [])] -> Nothing
-                          [(_, ts)] -> Just $ Low.DStruct $ Low.Struct
-                              ts
-                              (alignmentofStruct ts)
-                              (sizeofStruct ts)
-                          _ | all (null . snd) vs' ->
-                              Just $ Low.DEnum (Vec.fromList (map fst vs'))
-                          _ ->
-                              let aMax = maximum $ map (alignmentofStruct . snd) vs'
-                                  sMax = maximum $ map (sizeofStruct . snd) vs'
-                              in  Just $ Low.DData (Low.Data (Vec.fromList vs') sMax aMax)
+            . snd
+            $ foldl
+                  (\(i, (env, ids)) (inst@(name, _), variants) ->
+                      (i, (env, ids)) <> case defineData i name variants of
+                          Nothing -> (0, ([], []))
+                          Just (outer, inners) ->
+                              ( 1 + fromIntegral (length inners)
+                              , ((name, outer) : inners, [(inst, i)])
+                              )
+                  )
+                  (fromIntegral (length builtinTypeDefs), ([], []))
+                  (Map.toList datas)
+
+      where
+        defineData typeId0 name variants =
+            let
+                variantNames = map fst variants
+                variantTypess = map (lowerSizedTypes . snd) variants
+            in
+                case variantTypess of
+                    [] -> ice "Lower.defineData: uninhabited type"
+                    [[]] -> Nothing
+                    [ts] -> Just (structDef ts, [])
+                    _ | all null variantTypess ->
+                        Just (Low.DEnum (Vec.fromList variantNames), [])
+                    _ ->
+                        let
+                            aMax = maximum $ map alignmentofStruct variantTypess
+                            sMax = maximum $ map sizeofStruct variantTypess
+                            variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
+                            sTag = variantsTagBits variants'
+                            tag = if
+                                | sTag <= 8 -> Low.TI8
+                                | sTag <= 16 -> Low.TI16
+                                | sTag <= 32 -> Low.TI32
+                                | sTag <= 64 -> Low.TI64
+                                | otherwise -> ice "Lower.defineData: tag > 64 bits"
+                            unionId = typeId0 + 1
+                            outerStruct = structDef [tag, Low.TConst unionId]
+                            innerUnion =
+                                ( name ++ "_union"
+                                , Low.DUnion $ Low.Union variants' sMax aMax
+                                )
+                            variantStructs =
+                                zip variantNames (map structDef variantTypess)
+                        in
+                            Just (outerStruct, innerUnion : variantStructs)
+        structDef ts =
+            Low.DStruct $ Low.Struct ts (alignmentofStruct ts) (sizeofStruct ts)
 
     nameUniquely :: (a -> String) -> (String -> a -> a) -> [a] -> [a]
     nameUniquely get set =
@@ -272,6 +301,9 @@ lower (Program (Topo defs) datas externs) =
     toRet = \case
         ZeroSized -> Low.RetVoid
         Sized t -> if passByRef t then Low.OutParam t else Low.RetVal t
+
+    lowerSizedTypes :: [Type] -> [Low.Type]
+    lowerSizedTypes = mapMaybe (sizedMaybe . lowerType)
 
     -- TODO: Should respect platform ABI. For example wrt size of TNatSize on 32-bit
     --       vs. 64-bit platform.

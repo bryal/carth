@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 module Back.Low (module Back.Low) where
 
 import Data.Vector (Vector)
@@ -108,16 +106,16 @@ data Struct = Struct
     , structSize :: Word
     }
 
-data Data = Data
-    { dataVariants :: Vector (String, [Type])
-    , dataGreatestSize :: Word
-    , dataGreatestAlignment :: Word
+data Union = Union
+    { unionVariants :: Vector (String, TypeId)
+    , unionGreatestSize :: Word
+    , unionGreatestAlignment :: Word
     }
 
 data TypeDef'
     = DEnum (Vector String)
     | DStruct Struct
-    | DData Data
+    | DUnion Union
 
 type TypeDef = (String, TypeDef')
 
@@ -142,8 +140,8 @@ sizeof tenv = \case
     TConst ix -> case snd (tenv Vec.! fromIntegral ix) of
         DEnum vs -> variantsTagBytes vs
         DStruct s -> structSize s
-        DData (Data { dataVariants = vs, dataGreatestSize = s, dataGreatestAlignment = a })
-            -> max (variantsTagBytes vs) a + a * div (s + a - 1) a
+        DUnion Union { unionGreatestSize = s, unionGreatestAlignment = a } ->
+            a * div (s + a - 1) a
     TArray t n -> sizeof tenv t * n
 
 sizeofStruct :: Vector TypeDef -> [Type] -> Word
@@ -160,7 +158,7 @@ alignmentof tenv = \case
     TConst ix -> case snd (tenv Vec.! fromIntegral ix) of
         DEnum vs -> variantsTagBytes vs
         DStruct s -> structAlignment s
-        DData d -> max (variantsTagBytes (dataVariants d)) (dataGreatestAlignment d)
+        DUnion u -> unionGreatestAlignment u
     t -> sizeof tenv t
 
 alignmentofStruct :: Vector TypeDef -> [Type] -> Word
