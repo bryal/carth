@@ -12,7 +12,33 @@
                      llvm
                      crates-io
                      libsigsegv
-                     tls)
+                     tls
+                     bdw-gc)
+
+(define ghc-llvm-hs-pretty
+  (package
+    (name "ghc-llvm-hs-pretty")
+    (version "0.9.0.0")
+    (source
+     (origin
+       (method url-fetch)
+       (uri (hackage-uri "llvm-hs-pretty" version))
+       (sha256
+        (base32 "17kj713j38lg6743dwv1gd0wcls888zazzhlw3xvxzw2n8bjahyj"))))
+    (build-system haskell-build-system)
+    (inputs (list ghc-llvm-hs-pure ghc-prettyprinter))
+    (native-inputs
+     (list ghc-tasty
+           ghc-tasty-hspec
+           ghc-tasty-hunit
+           ghc-tasty-golden
+           ghc-llvm-hs))
+    (home-page "https://github.com/llvm-hs/llvm-hs-pretty")
+    (synopsis "A pretty printer for LLVM IR.")
+    (description
+     "This package provides a pretty printer for the LLVM AST types provided by
+llvm-hs.")
+    (license license:expat)))
 
 (define carth-std-rs
   (package
@@ -24,7 +50,8 @@
                    ("src" ,(local-file "std-rs/src" #:recursive? #t)))))
     (build-system cargo-build-system)
     (inputs `(("libsigsegv" ,libsigsegv)
-              ("openssl" ,openssl)))
+              ("openssl" ,openssl)
+              ("libgc" ,libgc)))
     (arguments
      `(#:cargo-inputs
        (("rust-libc" ,rust-libc-0.2)
@@ -91,6 +118,7 @@ programming language with Scheme-like syntax. Work in progress.")
   (inputs
    `(("ghc-megaparsec" ,ghc-megaparsec)
      ("ghc-microlens-platform" ,ghc-microlens-platform)
+     ("ghc-llvm-hs-pretty" ,ghc-llvm-hs-pretty)
      ("ghc-llvm-hs-pure" ,ghc-llvm-hs-pure)
      ("ghc-llvm-hs" ,ghc-llvm-hs)
      ("ghc-utf8-string" ,ghc-utf8-string)))
