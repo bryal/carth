@@ -1,5 +1,5 @@
-#![feature(try_trait_v2)]
-#![feature(control_flow_enum)]
+// #![feature(try_trait_v2)]
+// #![feature(control_flow_enum)]
 #![allow(non_camel_case_types)]
 
 mod ffi;
@@ -112,31 +112,6 @@ impl<A> Maybe<A> {
     }
 }
 
-impl<A> std::ops::FromResidual for Maybe<A> {
-    #[inline]
-    fn from_residual(_: <Self as std::ops::Try>::Residual) -> Self {
-        Maybe::None
-    }
-}
-
-impl<A> std::ops::Try for Maybe<A> {
-    type Output = A;
-    type Residual = Option<std::convert::Infallible>;
-
-    #[inline]
-    fn from_output(v: A) -> Self {
-        Maybe::Some(v)
-    }
-
-    #[inline]
-    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
-        match self {
-            Maybe::None => std::ops::ControlFlow::Break(None),
-            Maybe::Some(x) => std::ops::ControlFlow::Continue(x),
-        }
-    }
-}
-
 #[repr(u8)]
 pub enum Cmp {
     Lt,
@@ -225,10 +200,16 @@ pub extern "C" fn get_contents() -> Str {
 #[export_name = "unsafe-read-file"]
 pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
     let fp = fp.as_str();
-    let mut f = File::open(fp).ok()?;
-    let mut s = String::new();
-    f.read_to_string(&mut s).ok()?;
-    Maybe::Some(Str::new(&s))
+    File::open(fp)
+        .ok()
+        .map(|mut f| {
+            let mut s = String::new();
+            f.read_to_string(&mut s)
+                .ok()
+                .map(|_| Maybe::Some(Str::new(&s)))
+                .unwrap_or(Maybe::None)
+        })
+        .unwrap_or(Maybe::None)
 }
 
 // NOTE: This is a hack to ensure that Rust links in libm.
