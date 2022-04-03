@@ -19,7 +19,7 @@ import qualified LLVM.AST.Linkage as LL
 import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
-import qualified LLVM.AST.Constant as LL hiding (Add, Sub, Mul)
+import qualified LLVM.AST.Constant as LL hiding (Add, Sub, Mul, GetElementPtr, BitCast)
 import Data.Either
 import Data.List
 import Data.String
@@ -28,7 +28,7 @@ import qualified Data.Vector as Vec
 
 import Misc
 import Sizeof (variantsTagBits, toBits)
-import Back.Low
+import Back.Low as Low
 
 data St = St
     { currentLabel :: Name
@@ -98,11 +98,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             DStruct s -> pure $ TypeDefinition
                 (mkName name)
                 (Just (structType (map genType (structMembers s))))
-            DData Data { dataVariants = vs, dataGreatestSize = sMax, dataGreatestAlignment = aMax }
-                -> let tag = IntegerType (variantsTagBits vs)
-                       fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
-                                        (IntegerType (fromIntegral (toBits aMax)))
-                   in  [TypeDefinition (mkName name) (Just (structType [tag, fill]))]
+            DUnion Union { unionGreatestSize = sMax, unionGreatestAlignment = aMax } ->
+                let fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
+                                     (IntegerType (fromIntegral (toBits aMax)))
+                -- In LLVM, only structs can be identified type definitions, so wrap
+                -- the array in a singleton struct, since we want to see the type name
+                -- in generated code.
+                in  [TypeDefinition (mkName name) (Just (structType [fill]))]
 
     declareExterns :: [Definition]
     declareExterns = map declare exts
@@ -309,40 +311,42 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
         --       instead of level-wise.
         genExpr :: Expr -> Gen (LL.Type, LL.Instruction)
-        genExpr = \case
+        genExpr (Expr e t) = (genType t, ) <$> case e of
             Add a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure (LL.typeOf a', LL.Add False False a' b' [])
+                in  pure (LL.Add False False a' b' [])
             Sub a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure (LL.typeOf a', LL.Sub False False a' b' [])
+                in  pure (LL.Sub False False a' b' [])
             Mul a b ->
                 let (a', b') = (genOperand a, genOperand b)
-                in  pure (LL.typeOf a', LL.Mul False False a' b' [])
+                in  pure (LL.Mul False False a' b' [])
             Load src ->
                 let src' = genOperand src
-                in  pure
-                        ( getPointee (LL.typeOf src')
-                        , LL.Load { volatile = False
-                                  , address = src'
-                                  , maybeAtomicity = Nothing
-                                  , alignment = 0
-                                  , metadata = []
-                                  }
-                        )
+                in  pure LL.Load { volatile = False
+                                 , address = src'
+                                 , maybeAtomicity = Nothing
+                                 , alignment = 0
+                                 , metadata = []
+                                 }
             Call f as ->
                 -- FIXME: This doesn't handle sret, does it? Should it be handled here
                 --        then, or in Lower? For cleaner C codegen, we should probably
                 --        handle it here.
-                let f' = genOperand f
-                    rt = getReturn (getPointee (LL.typeOf f'))
-                in  pure (rt, call f' (map genOperand as))
-            Loop params rt blk -> genLoop params rt blk
-            EBranch br -> genEBranch br
+                let f' = genOperand f in pure (call f' (map genOperand as))
+            Loop params rt blk -> snd <$> genLoop params rt blk
+            EBranch br -> snd <$> genEBranch br
+            EGetMember i x -> pure LL.GetElementPtr
+                { inBounds = False
+                , address = genOperand x
+                , indices = [litI64 (0 :: Integer), litI32 i]
+                , metadata = []
+                }
+            EAsVariant x _ -> pure (LL.BitCast (genOperand x) (genType t) [])
 
         genLoop
-            :: [(Local, Operand)]
-            -> Type
+            :: [(Local, Low.Operand)]
+            -> Low.Type
             -> Block LoopTerminator
             -> Gen (LL.Type, LL.Instruction)
         genLoop params t (Block stms term) = do
@@ -395,15 +399,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let t' = genType t
             pure (t', LL.Phi t' breaks [])
 
-        getPointee = \case
-            LL.PointerType t _ -> t
-            t -> ice $ "Tried to get pointee of non-pointer type " ++ show t
 
-        getReturn = \case
-            LL.FunctionType rt _ _ -> rt
-            t -> ice $ "Tried to get return of non-function type " ++ show t
 
-        genOperand :: Operand -> LL.Operand
+        genOperand :: Low.Operand -> LL.Operand
         genOperand = \case
             OLocal x -> genLocal x
             OGlobal x -> LL.ConstantOperand (genGlobal x)
@@ -413,7 +411,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         genLocal (Local ident t) =
             LocalReference (genType t) (mkName (getName lnames ident))
 
-        genGlobal :: Global -> LL.Constant
+        genGlobal :: Low.Global -> LL.Constant
         genGlobal (Global ident t) =
             LL.GlobalReference (genType t) (mkName (getGName ident))
 
@@ -443,7 +441,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             modify (\st -> st { labelCount = n + 1 })
             pure $ mkName ("L" ++ show n ++ s)
 
-    genType :: Type -> LL.Type
+    genType :: Low.Type -> LL.Type
     genType = \case
         TI8 -> LL.IntegerType 8
         TI16 -> LL.IntegerType 16
@@ -474,6 +472,11 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             s -> s
         else gnames
 
+    litI64 :: Integral a => a -> LL.Operand
+    litI64 = LL.ConstantOperand . LL.Int 64 . toInteger
+
+    litI32 :: Integral a => a -> LL.Operand
+    litI32 = LL.ConstantOperand . LL.Int 32 . toInteger
 
 commitThen :: LL.Terminator -> Name -> Gen ()
 commitThen term next = do

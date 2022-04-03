@@ -7,8 +7,8 @@ import Data.Int
 import Sizeof hiding (sizeof)
 import Front.Monomorphic (Access')
 
-data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord)
-data Ret = RetVal Type | RetVoid | OutParam Type deriving (Eq, Ord)
+data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
+data Ret = RetVal Type | RetVoid | OutParam Type deriving (Eq, Ord, Show)
 
 -- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
 --   void-returns and void-calls are their own variants. This isn't very elegant from a
@@ -28,7 +28,7 @@ data Type
     | TFun [Param ()] Ret
     | TConst TypeId
     | TArray Type Word
-  deriving (Eq, Ord)
+  deriving (Eq, Ord, Show)
 
 type Access = Access' Type
 
@@ -37,6 +37,7 @@ data LowInt
     | I16 Int16
     | I32 Int32
     | I64 Prelude.Int
+    deriving Show
 
 data Const
     = Undef Type
@@ -46,19 +47,23 @@ data Const
     | EnumVal TypeId LowInt
     | Array Type [Const]
     | Zero Type
+    deriving Show
 
 type LocalId = Word
 type GlobalId = Word
 type TypeId = Word
 
 data Local = Local LocalId Type
+    deriving Show
 data Global = Global GlobalId Type -- Type excluding the pointer
+    deriving Show
 
-data Operand = OLocal Local | OGlobal Global | OConst Const
+data Operand = OLocal Local | OGlobal Global | OConst Const deriving Show
 
 data Branch term
     = If Local (Block term) (Block term)
     | Switch Local [(Const, Block term)] (Block term)
+    deriving Show
 
 data Statement
     = Let Local Expr
@@ -66,6 +71,7 @@ data Statement
     | SBranch (Branch ())
     | VoidCall Operand [Operand]
     | Do Expr
+    deriving Show
 
 data Terminator
     = TRetVal Operand
@@ -75,11 +81,13 @@ data Terminator
                         -- param, instead of allocating an extra stack variable to store
                         -- the call output in, before writing it to our own output param.
     | TBranch (Branch Terminator)
+    deriving Show
 
 data LoopTerminator
     = Continue [Operand]
     | Break Operand
     | LBranch (Branch LoopTerminator)
+    deriving Show
 
 data Expr'
     = Add Operand Operand
@@ -91,52 +99,63 @@ data Expr'
            Type -- loop return
            (Block LoopTerminator)
     | EBranch (Branch Expr)
-    | EGetMember Word Operand -- Get the Nth member of a struct
-    -- Given a tagged union, a Data, get the untagged union as a specific variant
-    | EAsVariant Word Operand
+    -- Given a pointer to a struct, get a pointer to the Nth member of that struct
+    | EGetMember Word Operand
+    -- Given a pointer to an untagged union, get it as a specific variant
+    | EAsVariant Operand Word
+    deriving Show
 
 data Expr = Expr
     { eInner :: Expr'
     , eType :: Type
     }
+    deriving Show
 
 data Block term = Block
     { blockStms :: [Statement]
     , blockTerm :: term
     }
+    deriving Show
 
 type VarNames = Vector String
 
 type Allocs = [(LocalId, Type)]
 
 data FunDef = FunDef GlobalId [Param LocalId] Ret (Block Terminator) Allocs VarNames
+    deriving Show
 data ExternDecl = ExternDecl String [Param ()] Ret
+    deriving Show
 data GlobDef
     = GVarDef Global (Block Expr) VarNames
     | GConstDef Global Const
+    deriving Show
 
 data Struct = Struct
     { structMembers :: [Type]
     , structAlignment :: Word
     , structSize :: Word
     }
+    deriving Show
 
 data Union = Union
     { unionVariants :: Vector (String, TypeId)
     , unionGreatestSize :: Word
     , unionGreatestAlignment :: Word
     }
+    deriving Show
 
 data TypeDef'
     = DEnum (Vector String)
     | DStruct Struct
     | DUnion Union
+    deriving Show
 
 type TypeDef = (String, TypeDef')
 
 type TypeDefs = Vector TypeDef
 
 data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames
+    deriving Show
 
 typeName :: TypeDefs -> Word -> String
 typeName ds i = fst (ds Vec.! fromIntegral i)

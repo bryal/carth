@@ -4,6 +4,7 @@ module Back.Lower (lower) where
 
 import Control.Arrow
 import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor (bimap)
@@ -17,12 +18,12 @@ import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Word
-import Lens.Micro.Platform (makeLenses, modifying, use)
+import Lens.Micro.Platform (makeLenses, modifying, use, assign, view)
 
 import Back.Low (typeof)
 import qualified Back.Low as Low
 import Front.Monomorphic
-import Misc
+import Misc ( ice, nyi, partitionWith, TopologicalOrder(Topo), locally )
 import Sizeof
 
 data Sized x = ZeroSized | Sized x
@@ -31,18 +32,34 @@ mapSized :: (a -> b) -> Sized a -> Sized b
 mapSized f (Sized a) = Sized (f a)
 mapSized _ ZeroSized = ZeroSized
 
-newtype St = St
+data St = St
     { _strLits :: Map String Low.GlobalId
+    , _localNames :: Vector String
     }
 makeLenses ''St
 
+newtype Env = Env
+    { _localEnv :: Map String Low.Operand }
+makeLenses ''Env
+
 type Out = ([Low.FunDef], [Low.GlobDef])
 
-type Lower = WriterT Out (State St)
+type Lower = WriterT Out (StateT St (Reader Env))
 
 -- | A potentially not yet emitted&named operand
 type PartialOperand = Either Low.Expr Low.Operand
 type EBlock = Low.Block (Sized PartialOperand)
+
+-- Regarding the stack and registers.
+--
+-- I'm thinking we could generate Low IR such that all structs & unions are on the stack,
+-- which means they would require an Alloc and the type would be behind a TPtr. All
+-- primitive types would be in registers. This would simplify Lower. We would for example
+-- not need both an ExtractElement and GetElementPointer, like in LLVM. Only a GEP would
+-- do, since we keep all structs on the stack.
+--
+-- We assume then that the next codegen step in the pipe will do register allocation, and
+-- optimize such that small structs are kept in register instead of on the stack etc.
 
 lower :: Program -> Low.Program
 lower (Program (Topo defs) datas externs) =
@@ -90,7 +107,7 @@ lower (Program (Topo defs) datas externs) =
                 ZeroSized -> pure Nothing
                 Sized pt -> do
                     pid <- newLName (tvName p)
-                    let bind = (p, Low.OLocal (Low.Local pid pt))
+                    let bind = (tvName p, Low.OLocal (Low.Local pid pt))
                     pure (Just (bind, pid, pt))
         capturesName <- newLName "captures"
         body <- withVars binds (lowerBody body)
@@ -105,7 +122,10 @@ lower (Program (Topo defs) datas externs) =
             localNames
 
     popLocalNames :: Lower Low.VarNames
-    popLocalNames = undefined
+    popLocalNames = do
+        xs <- use localNames
+        assign localNames Vec.empty
+        pure xs
 
     popAllocs :: Lower Low.Allocs
     popAllocs = undefined
@@ -128,7 +148,7 @@ lower (Program (Topo defs) datas externs) =
     lowerExpr :: Expr -> Lower EBlock
     lowerExpr = \case
         Lit c -> lowerConst c <&> \c' -> operandBlock c'
-        Var x -> Low.Block [] . mapSized Right <$> lookupVar x
+        Var (TypedVar x _) -> Low.Block [] . mapSized Right <$> lookupVar x
         -- App Expr [Expr]
         -- If Expr Expr Expr
         -- Fun Fun
@@ -142,8 +162,8 @@ lower (Program (Topo defs) datas externs) =
 
     litI64 = Low.OConst . Low.CInt . Low.I64 . fromIntegral
 
-    lookupVar :: TypedVar -> Lower (Sized Low.Operand)
-    lookupVar = undefined
+    lookupVar :: String -> Lower (Sized Low.Operand)
+    lookupVar x = maybe ZeroSized Sized . Map.lookup x <$> view localEnv
 
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
@@ -202,31 +222,32 @@ lower (Program (Topo defs) datas externs) =
                         pure (a'', s')
                     ADeref x -> do
                         (a', s') <- select x selections
-                        a'' <- bindBlock a' deref
+                        a'' <- bindBlock a' load
                         pure (a'', s')
                 pure (ba, Map.insert selector (Low.blockTerm ba) selections')
 
+        -- Assumes matchee is of type pointer to tagged union
         asVariant matchee span variantIx = if span == 1
             then pure $ Low.Block [] matchee
-            else
-                let t = Low.TConst (typeIdOfDataVariant variantIx (typeof matchee))
-                in  emit (Low.Expr (Low.EAsVariant variantIx matchee) t)
-
-        typeIdOfDataVariant variantIx = \case
-            -- For a sum type / tagged union, the TConst ID maps to the outer struct, the
-            -- succeding ID maps to the inner union type, and following that is a struct
-            -- for each variant.
-            Low.TConst tid -> tid + 2 + variantIx
-            _ -> ice "Lower.typeIdOfDataVariant: type is not TConst"
+            else do
+                let
+                    tidData = case typeof matchee of
+                        Low.TPtr (Low.TConst tid) -> tid
+                        _ -> ice "Lower.asVariant: type of mathee is not TPtr to TConst"
+                    -- t = Low.TPtr $ typeOfDataVariant variantIx (pointee (typeof matchee))
+                let tvariant = Low.TPtr (Low.TConst (tidData + 2 + variantIx))
+                union <- indexStruct 1 matchee -- Skip tag to get inner union
+                bindBlock union $ \union' ->
+                    emit $ Low.Expr (Low.EAsVariant union' variantIx) tvariant
 
         selectVarBindings
             :: Map Low.Access Low.Operand
             -> [(TypedVar, Low.Access)]
-            -> Lower (Low.Block [(TypedVar, Low.Operand)])
+            -> Lower (Low.Block [(String, Low.Operand)])
         selectVarBindings selections = fmap fst . foldlM
             (\(block1, selections) (x, access) -> do
                 (block2, ss') <- select access selections
-                pure (mapTerm (pure . (x, )) block2 <> block1, ss')
+                pure (mapTerm (pure . (tvName x, )) block2 <> block1, ss')
             )
             (Low.Block [] [], selections)
 
@@ -248,11 +269,15 @@ lower (Program (Topo defs) datas externs) =
 
     operandBlock o = Low.Block [] (Sized (Right o))
 
+    -- Assumes that struct is kept on stack. Returns pointer to member.
     indexStruct :: Word -> Low.Operand -> Lower (Low.Block Low.Operand)
-    indexStruct = undefined
+    indexStruct i x =
+        let t = Low.TPtr
+                (Low.structMembers (getTypeStruct (pointee (typeof x))) !! fromIntegral i)
+        in  emit (Low.Expr (Low.EGetMember i x) t)
 
-    deref :: Low.Operand -> Lower (Low.Block Low.Operand)
-    deref = undefined
+    load :: Low.Operand -> Lower (Low.Block Low.Operand)
+    load addr = emit $ Low.Expr (Low.Load addr) (pointee (typeof addr))
 
     eblocksToOperandsBlock :: [EBlock] -> Lower (Low.Block [Sized Low.Operand])
     eblocksToOperandsBlock bs = do
@@ -266,14 +291,17 @@ lower (Program (Topo defs) datas externs) =
         let (stmss, os) = unzip bs'
         pure (Low.Block (concat stmss) os)
 
-    withVars :: [(TypedVar, Low.Operand)] -> Lower a -> Lower a
-    withVars = undefined withVar
+    withVars :: [(String, Low.Operand)] -> Lower a -> Lower a
+    withVars vs ma = foldl (flip (uncurry withVar)) ma vs
 
-    withVar :: TypedVar -> Low.Operand -> Lower a -> Lower a
-    withVar = undefined
+    withVar :: String -> Low.Operand -> Lower a -> Lower a
+    withVar lhs rhs = locally localEnv (Map.insert lhs rhs)
 
     newLName :: String -> Lower Low.LocalId
-    newLName = undefined
+    newLName x = do
+        localId <- Vec.length <$> use localNames
+        modifying localNames (`Vec.snoc` x)
+        pure (fromIntegral localId)
 
     lowerGVarDecl :: (TypedVar, (Inst, Expr)) -> Low.GlobDef
     lowerGVarDecl = undefined
@@ -418,6 +446,16 @@ lower (Program (Topo defs) datas externs) =
             | w <= 32 -> Sized Low.TI32
             | w <= 64 -> Sized Low.TI64
             | otherwise -> ice "Lower.lowerType: integral type larger than 64-bit"
+
+    pointee = \case
+        Low.TPtr t -> t
+        _ -> ice "Low.pointee of non pointer type"
+
+    getTypeStruct = \case
+        Low.TConst i -> case tenv Vec.! fromIntegral i of
+            (_, Low.DStruct struct) -> struct
+            _ -> ice "Low.getTypeStruct: TypeDef in tenv is not DStruct"
+        _ -> ice "Low.getTypeStruct: type is not a TConst"
 
     -- NOTE: This post is helpful:
     --       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers

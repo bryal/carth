@@ -22,7 +22,7 @@ printPgm = Program [empty_carth_init, carth_main]
         mainIx
         []
         RetVoid
-        (Block [Do (Call printIntOperand [OConst (CInt (I64 1337))])] TRetVoid)
+        (Block [VoidCall printIntOperand [OConst (CInt (I64 1337))]] TRetVoid)
         []
         (Vec.fromList [])
 
@@ -39,8 +39,8 @@ factPgm = Program [empty_carth_init, carth_main, factDef]
         []
         RetVoid
         (Block
-            [ Let result (Call fact [OConst (CInt (I64 5))])
-            , Do (Call printIntOperand [OLocal result])
+            [ Let result (Expr (Call fact [OConst (CInt (I64 5))]) TI64)
+            , VoidCall printIntOperand [OLocal result]
             ]
             TRetVoid
         )
@@ -57,10 +57,20 @@ factPgm = Program [empty_carth_init, carth_main, factDef]
                     (Local 1 TI64)
                     [(CInt (I64 0), Block [] (TRetVal (OConst (CInt (I64 1)))))]
                     (Block
-                        [ Let (Local 2 TI64)
-                              (Sub (OLocal (Local 1 TI64)) (OConst (CInt (I64 1))))
-                        , Let (Local 3 TI64) (Call fact [OLocal (Local 2 TI64)])
-                        , Let result (Mul (OLocal (Local 1 TI64)) (OLocal (Local 3 TI64)))
+                        [ Let
+                            (Local 2 TI64)
+                            (Expr
+                                (Sub (OLocal (Local 1 TI64)) (OConst (CInt (I64 1))))
+                                TI64
+                            )
+                        , Let (Local 3 TI64)
+                              (Expr (Call fact [OLocal (Local 2 TI64)]) TI64)
+                        , Let
+                            result
+                            (Expr
+                                (Mul (OLocal (Local 1 TI64)) (OLocal (Local 3 TI64)))
+                                TI64
+                            )
                         ]
                         (TRetVal (OLocal result))
                     )
@@ -84,21 +94,24 @@ factLoopPgm = Program [empty_carth_init, carth_main]
         []
         RetVoid
         (Block
-            [ Let result $ Loop [(n, ci64 5), (prod, ci64 1)] TI64 $ Block
-                []
-                (LBranch
-                    (Switch
-                        n
-                        [(CInt (I64 0), Block [] (Break (OLocal prod)))]
-                        (Block
-                            [ Let prod' (Mul (OLocal n) (OLocal prod))
-                            , Let n' (Sub (OLocal n) (ci64 1))
-                            ]
-                            (Continue [OLocal n', OLocal prod'])
-                        )
-                    )
-                )
-            , Do (Call printIntOperand [OLocal result])
+            [ Let result
+            $ flip Expr TI64
+            $ Loop [(n, ci64 5), (prod, ci64 1)] TI64
+            $ Block
+                  []
+                  (LBranch
+                      (Switch
+                          n
+                          [(CInt (I64 0), Block [] (Break (OLocal prod)))]
+                          (Block
+                              [ Let prod' (Expr (Mul (OLocal n) (OLocal prod)) TI64)
+                              , Let n' (Expr (Sub (OLocal n) (ci64 1)) TI64)
+                              ]
+                              (Continue [OLocal n', OLocal prod'])
+                          )
+                      )
+                  )
+            , VoidCall printIntOperand [OLocal result]
             ]
             TRetVoid
         )
