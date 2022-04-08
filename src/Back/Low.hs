@@ -68,7 +68,7 @@ data Branch term
 
 data Statement'
     = Let Local Expr
-    | Store Operand Operand
+    | Store Operand Operand -- value -> destination
     | VoidCall Operand [Operand]
     -- | Do Expr
     | SLoop (Loop ())
@@ -242,3 +242,6 @@ instance (TypeOf a, TypeOf b) => TypeOf (Either a b) where
 
 instance Semigroup a => Semigroup (Block a) where
     (<>) (Block stms1 a) (Block stms2 b) = Block (stms1 ++ stms2) (a <> b)
+
+instance Monoid a => Monoid (Block a) where
+    mempty = Block [] mempty
