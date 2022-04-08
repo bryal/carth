@@ -77,7 +77,7 @@ data Statement'
 type Statement = Branch Statement'
 
 data Terminator'
-    = TRetVal Operand
+    = TRetVal Expr
     | TRetVoid
     deriving Show
 
