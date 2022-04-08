@@ -8,7 +8,7 @@ import Sizeof hiding (sizeof)
 import Front.Monomorphic (Access')
 
 data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
-data Ret = RetVal Type | RetVoid | OutParam Type deriving (Eq, Ord, Show)
+data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
 -- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
 --   void-returns and void-calls are their own variants. This isn't very elegant from a
@@ -56,49 +56,53 @@ type TypeId = Word
 data Local = Local LocalId Type
     deriving Show
 data Global = Global GlobalId Type -- Type excluding the pointer
-    deriving Show
+    deriving (Show, Eq)
 
 data Operand = OLocal Local | OGlobal Global | OConst Const deriving Show
 
 data Branch term
-    = If Local (Block term) (Block term)
-    | Switch Local [(Const, Block term)] (Block term)
+    = BIf Local (Block (Branch term)) (Block (Branch term))
+    | BSwitch Local [(Const, Block (Branch term))] (Block (Branch term))
+    | BLeaf term
     deriving Show
 
-data Statement
+data Statement'
     = Let Local Expr
     | Store Operand Operand
-    | SBranch (Branch ())
     | VoidCall Operand [Operand]
-    | Do Expr
+    -- | Do Expr
+    | SLoop (Loop ())
     deriving Show
 
-data Terminator
+type Statement = Branch Statement'
+
+data Terminator'
     = TRetVal Operand
     | TRetVoid
-    | TOutParam Operand -- FIXME: This isn't right, right? If the last thing in the
-                        -- function is a call for example, we want to pass along the sret
-                        -- param, instead of allocating an extra stack variable to store
-                        -- the call output in, before writing it to our own output param.
-    | TBranch (Branch Terminator)
     deriving Show
 
-data LoopTerminator
+type Terminator = Branch Terminator'
+
+data LoopTerminator' a
     = Continue [Operand]
-    | Break Operand
-    | LBranch (Branch LoopTerminator)
+    | Break a
+    deriving Show
+
+type LoopTerminator a = Branch (LoopTerminator' a)
+
+data Loop a = Loop [(Local, Operand)] (Block (LoopTerminator a))
     deriving Show
 
 data Expr'
-    = Add Operand Operand
+    -- I know this doesn't map well to LLVM, but it makes codegen simpler, and it works
+    -- with C anyhow. Will just have to work around it a little in LLVM.
+    = EOperand Operand
+    | Add Operand Operand
     | Sub Operand Operand
     | Mul Operand Operand
     | Load Operand
     | Call Operand [Operand]
-    | Loop [(Local, Operand)] -- loop params
-           Type -- loop return
-           (Block LoopTerminator)
-    | EBranch (Branch Expr)
+    | ELoop (Loop Expr)
     -- Given a pointer to a struct, get a pointer to the Nth member of that struct
     | EGetMember Word Operand
     -- Given a pointer to an untagged union, get it as a specific variant
@@ -106,7 +110,7 @@ data Expr'
     deriving Show
 
 data Expr = Expr
-    { eInner :: Expr'
+    { eInner :: Branch Expr'
     , eType :: Type
     }
     deriving Show

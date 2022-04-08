@@ -110,18 +110,16 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     declareExterns = map declare exts
       where
         declare (ExternDecl name ps r) =
-            let
-                anon = mkName ""
+            let anon = mkName ""
                 (f, rt) = case r of
                     RetVal t -> (id, genType t)
                     RetVoid -> (id, LL.void)
-                    OutParam t ->
-                        ((Parameter (LL.ptr (genType t)) anon [LL.SRet] :), LL.void)
+                    -- OutParam t ->
+                    --     ((Parameter (LL.ptr (genType t)) anon [LL.SRet] :), LL.void)
                 ps' = f $ flip map ps $ \case
                     ByVal () t -> Parameter (genType t) anon []
                     ByRef () t -> Parameter (LL.ptr (genType t)) anon [LL.ByVal]
-            in
-                simpleFun LL.External name ps' rt []
+            in  simpleFun LL.External name ps' rt []
 
     declareGlobals :: [Definition]
     declareGlobals = map declare gvars
@@ -173,8 +171,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             (f, rt) = case r of
                 RetVal t -> (id, genType t)
                 RetVoid -> (id, LL.void)
-                OutParam t ->
-                    ((Parameter (LL.ptr (genType t)) (mkName "out") [LL.SRet] :), LL.void)
+                -- OutParam t ->
+                --     ((Parameter (LL.ptr (genType t)) (mkName "out") [LL.SRet] :), LL.void)
             ps' = f $ flip map ps $ \case
                 ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
                 ByRef x t ->
@@ -293,10 +291,10 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         genTerminator = \case
             TRetVal x -> commitFinal (LL.Ret (Just (genOperand x)) [])
             TRetVoid -> commitFinal (LL.Ret Nothing [])
-            TOutParam x ->
-                let x' = genOperand x
-                in  store x' (LocalReference (LL.ptr (LL.typeOf x')) (mkName "out"))
-                        *> commitFinal (LL.Ret Nothing [])
+            -- TOutParam x ->
+            --     let x' = genOperand x
+            --     in  store x' (LocalReference (LL.ptr (LL.typeOf x')) (mkName "out"))
+            --             *> commitFinal (LL.Ret Nothing [])
             TBranch br -> genTBranch br
 
         store :: LL.Operand -> LL.Operand -> Gen ()
@@ -312,6 +310,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         --       instead of level-wise.
         genExpr :: Expr -> Gen (LL.Type, LL.Instruction)
         genExpr (Expr e t) = (genType t, ) <$> case e of
+            Const _ -> undefined
             Add a b ->
                 let (a', b') = (genOperand a, genOperand b)
                 in  pure (LL.Add False False a' b' [])
@@ -399,7 +398,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let t' = genType t
             pure (t', LL.Phi t' breaks [])
 
+        -- getPointee = \case
+        --     LL.PointerType t _ -> t
+        --     t -> ice $ "Tried to get pointee of non-pointer type " ++ show t
 
+        -- getReturn = \case
+        --     LL.FunctionType rt _ _ -> rt
+        --     t -> ice $ "Tried to get return of non-function type " ++ show t
 
         genOperand :: Low.Operand -> LL.Operand
         genOperand = \case
@@ -455,7 +460,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let (f, rt) = case r of
                     RetVal t -> (id, genType t)
                     RetVoid -> (id, LL.void)
-                    OutParam t -> ((LL.ptr (genType t) :), LL.void)
+                    -- OutParam t -> ((LL.ptr (genType t) :), LL.void)
             in  LL.ptr $ LL.FunctionType rt (f (map genParam ps)) False
         TConst i -> case tdefs Vec.! fromIntegral i of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
