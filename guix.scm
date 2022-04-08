@@ -122,6 +122,7 @@ programming language with Scheme-like syntax. Work in progress.")
      ("ghc-llvm-hs-pure" ,ghc-llvm-hs-pure)
      ("ghc-llvm-hs" ,ghc-llvm-hs)
      ("ghc-utf8-string" ,ghc-utf8-string)))
+  (native-inputs (list llvm-9))
   (propagated-inputs
    `(("carth-std-rs" ,carth-std-rs)
      ("libsigsegv" ,libsigsegv)))
