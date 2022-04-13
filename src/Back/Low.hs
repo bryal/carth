@@ -1,5 +1,6 @@
 module Back.Low (module Back.Low, Access') where
 
+import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Int
@@ -60,35 +61,31 @@ data Global = Global GlobalId Type -- Type excluding the pointer
 
 data Operand = OLocal Local | OGlobal Global | OConst Const deriving Show
 
-data Branch term
-    = BIf Local (Block (Branch term)) (Block (Branch term))
-    | BSwitch Local [(Const, Block (Branch term))] (Block (Branch term))
-    | BLeaf term
+data Branch a
+    = BIf Operand (Block a) (Block a)
+    | BSwitch Operand [(Const, Block a)] (Block a)
     deriving Show
 
-data Statement'
+data Statement
     = Let Local Expr
     | Store Operand Operand -- value -> destination
     | VoidCall Operand [Operand]
     -- | Do Expr
     | SLoop (Loop ())
+    | SBranch (Branch ())
     deriving Show
 
-type Statement = Branch Statement'
-
-data Terminator'
+data Terminator
     = TRetVal Expr
     | TRetVoid
+    | TBranch (Branch Terminator)
     deriving Show
 
-type Terminator = Branch Terminator'
-
-data LoopTerminator' a
+data LoopTerminator a
     = Continue [Operand]
     | Break a
+    | LBranch (Branch (LoopTerminator a))
     deriving Show
-
-type LoopTerminator a = Branch (LoopTerminator' a)
 
 data Loop a = Loop [(Local, Operand)] (Block (LoopTerminator a))
     deriving Show
@@ -107,10 +104,11 @@ data Expr'
     | EGetMember Word Operand
     -- Given a pointer to an untagged union, get it as a specific variant
     | EAsVariant Operand Word
+    | EBranch (Branch Expr)
     deriving Show
 
 data Expr = Expr
-    { eInner :: Branch Expr'
+    { eInner :: Expr'
     , eType :: Type
     }
     deriving Show
@@ -135,6 +133,7 @@ data GlobDef
     deriving Show
 
 data Struct = Struct
+    -- TODO: Members should include names. Needed in C, and possibly other backends.
     { structMembers :: [Type]
     , structAlignment :: Word
     , structSize :: Word
@@ -152,7 +151,7 @@ data TypeDef'
     = DEnum (Vector String)
     | DStruct Struct
     | DUnion Union
-    deriving Show
+    deriving (Show, Ord)
 
 type TypeDef = (String, TypeDef')
 
@@ -164,7 +163,7 @@ data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames
 typeName :: TypeDefs -> Word -> String
 typeName ds i = fst (ds Vec.! fromIntegral i)
 
-sizeof :: Vector TypeDef -> Type -> Word
+sizeof :: (TypeId -> Maybe TypeDef) -> Type -> Word
 sizeof tenv = \case
     TI8 -> 1
     TI16 -> 2
@@ -175,14 +174,15 @@ sizeof tenv = \case
     TPtr _ -> wordsize
     VoidPtr -> wordsize
     TFun _ _ -> wordsize
-    TConst ix -> case snd (tenv Vec.! fromIntegral ix) of
-        DEnum vs -> variantsTagBytes vs
-        DStruct s -> structSize s
-        DUnion Union { unionGreatestSize = s, unionGreatestAlignment = a } ->
+    TConst ix -> case fmap snd (tenv ix) of
+        Nothing -> 0
+        Just (DEnum vs) -> variantsTagBytes vs
+        Just (DStruct s) -> structSize s
+        Just (DUnion Union { unionGreatestSize = s, unionGreatestAlignment = a }) ->
             a * div (s + a - 1) a
     TArray t n -> sizeof tenv t * n
 
-sizeofStruct :: Vector TypeDef -> [Type] -> Word
+sizeofStruct :: (TypeId -> Maybe TypeDef) -> [Type] -> Word
 sizeofStruct tenv = foldl addMember 0
   where
     addMember accSize u =
@@ -191,15 +191,15 @@ sizeofStruct tenv = foldl addMember 0
             size = sizeof tenv u
         in  accSize + padding + size
 
-alignmentof :: Vector TypeDef -> Type -> Word
+alignmentof :: (TypeId -> Maybe TypeDef) -> Type -> Word
 alignmentof tenv = \case
-    TConst ix -> case snd (tenv Vec.! fromIntegral ix) of
+    TConst ix -> case snd (fromJust (tenv ix)) of
         DEnum vs -> variantsTagBytes vs
         DStruct s -> structAlignment s
         DUnion u -> unionGreatestAlignment u
     t -> sizeof tenv t
 
-alignmentofStruct :: Vector TypeDef -> [Type] -> Word
+alignmentofStruct :: (TypeId -> Maybe TypeDef) -> [Type] -> Word
 alignmentofStruct tenv = maximum . map (alignmentof tenv)
 
 class TypeOf a where

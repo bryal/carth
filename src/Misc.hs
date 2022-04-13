@@ -47,6 +47,9 @@ firstM = flip bimapM pure
 secondM :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
 
+mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
+mapMaybeM f xs = catMaybes <$> mapM f xs
+
 locallySet :: MonadReader s m => Lens' s a -> a -> m r -> m r
 locallySet l = locally l . const
 

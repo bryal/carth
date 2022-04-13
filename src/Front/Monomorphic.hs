@@ -10,9 +10,14 @@ module Front.Monomorphic
     )
 where
 
+import Data.Bifunctor
 import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Word
 
+import FreeVars
 import Misc
 import Front.Checked (VariantIx, Span, Virt (..))
 import Front.Parsed (Const(..))
@@ -97,3 +102,28 @@ instance Functor Access' where
         As a s i ts -> As (fmap f a) s i (map f ts)
         Sel i s a -> Sel i s (fmap f a)
         ADeref a -> ADeref (fmap f a)
+
+instance FreeVars Expr TypedVar where
+    freeVars e = fvExpr e
+
+fvExpr :: Expr -> Set TypedVar
+fvExpr = \case
+    Lit _ -> Set.empty
+    Var x -> Set.singleton x
+    App f a -> Set.unions (map freeVars (f : a))
+    If p c a -> fvIf p c a
+    Fun (ps, (b, _)) -> Set.difference (freeVars b) (Set.fromList ps)
+    Let (VarDef (lhs, (_, rhs))) e ->
+        Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
+    Let (RecDefs ds) e -> fvLet (unzip (map (second (Fun . snd)) ds)) e
+    Match es dt -> Set.unions (fvDecisionTree dt : map freeVars es)
+    Ction (_, _, _, as) -> Set.unions (map freeVars as)
+    Sizeof _t -> Set.empty
+    Absurd _ -> Set.empty
+
+fvDecisionTree :: DecisionTree -> Set TypedVar
+fvDecisionTree = \case
+    DLeaf (bs, e) -> Set.difference (freeVars e) (Set.fromList (map fst bs))
+    DSwitch _ _ cs def -> fvDSwitch (Map.elems cs) def
+    DSwitchStr _ cs def -> fvDSwitch (Map.elems cs) def
+    where fvDSwitch es def = Set.unions $ fvDecisionTree def : map fvDecisionTree es
