@@ -26,7 +26,8 @@ import Lens.Micro.Platform (makeLenses, modifying, use, assign, view, assign)
 
 import Back.Low (typeof)
 import qualified Back.Low as Low
-import Front.Monomorphic
+import Front.Monomorphize as Ast
+import Front.Monomorphic as Ast
 import Misc
 import Sizeof
 import FreeVars
@@ -68,7 +69,6 @@ makeLenses ''St
 
 newtype Env = Env
     { _localEnv :: Map TypedVar Low.Operand
-    -- , _tailPos :: TailPos
     }
 makeLenses ''Env
 
@@ -129,8 +129,8 @@ instance Destination Nowhere where
         ZeroSized -> pure $ Low.Block [] ()
         Sized _ -> ice "Lower.toDest: Sized to Nowhere"
 
-lower :: Program -> Low.Program
-lower (Program (Topo defs) datas externs) =
+lower :: Bool -> Program -> Low.Program
+lower noGC (Program (Topo defs) datas externs) =
     let _externNames = map fst externs
         (externs'', fs, gs, tenv) = run $ do
             defineDatas
@@ -147,7 +147,7 @@ lower (Program (Topo defs) datas externs) =
     -- resolveNameConflicts :: [String] -> [String] -> Vector String
     -- resolveNameConflicts = _
 
-    lowerExterns = forM externs $ \case
+    lowerExterns = forM (Map.toList Ast.builtinExterns ++ externs) $ \case
         (name, TFun pts rt) -> liftM2
             (Low.ExternDecl name)
             (catMaybes <$> mapM (toParam () <=< lowerType) pts)
@@ -370,19 +370,17 @@ lower (Program (Topo defs) datas externs) =
                                   (Map.keysSet locals)
                 )
             tbody' <- lowerType tbody
-            -- _ genLambda fvXs p (genTailExpr b, bt')
             captures <- if null freeLocalVars
-                then pure (Low.Zero Low.VoidPtr)
+                then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
                 else do
                     tcaptures <-
                         defineStruct "captures"
                         . mapMaybe sizedMaybe
                         =<< mapM (\(TypedVar x t) -> mapSized (x, ) <$> lowerType t)
                                  freeLocalVars
-                    -- captures' <- genHeapAllocGeneric tcaptures
-                    -- populateCaptures captures' fvXs
-                    -- pure captures'
-                    undefined
+                    capturesSize <- sizeof tcaptures
+                    captures' <- emitNamed "captures" =<< gcAlloc (litI64 capturesSize)
+                    bindBlockM (populateCaptures freeLocalVars) captures'
             -- genLambda' p body (VLocal captures) fvXs
             fname <- newLName "fun"
             -- ft <- lowerType pt <&> \pt' -> closureFunType pt' bt
@@ -402,14 +400,14 @@ lower (Program (Topo defs) datas externs) =
         Absurd _ -> toDest dest ZeroSized
         _ -> undefined
 
-    -- TODO: Regarding the name, I'm thinking we should probably dedup pseudo-anonymous
-    --       structs of the same name, if they're structurally identical. Like with the
-    --       "captures" struct for closures. It would just be polluting to generate tons
-    --       of different "captures1", "captures7", ..., if the all share the same
-    --       body. Like, `{ i64 }` or `{ %closure }` will probably be a very common
-    --       captures type.
-    defineStruct :: String -> [(String, Low.Type)] -> Lower Low.TypeId
-    defineStruct _name _members = undefined
+    gcAlloc :: Low.Operand -> Lower Low.Expr
+    gcAlloc size = do
+        let fname = if noGC then "malloc" else "GC_malloc"
+        f <- view localEnv <&> (Map.! TypedVar fname (Ast.builtinExterns Map.! fname))
+        pure $ Low.Expr (Low.Call f [size]) Low.VoidPtr
+
+    populateCaptures :: [TypedVar] -> Low.Operand -> Lower (Low.Block Low.Operand)
+    populateCaptures = undefined
 
     operandToExpr x = Low.Expr (Low.EOperand x) (typeof x)
 
@@ -610,7 +608,9 @@ lower (Program (Topo defs) datas externs) =
 
     defineDatas :: Lower ()
     defineDatas = do
-        (tids', tconsts') <-
+        (tids', _) <- mfix $ \(tids', tconsts') -> do
+            assign tids tids'
+            assign tconsts tconsts'
             bimap (Seq.fromList . (builtinTypeDefs ++)) Map.fromList . snd <$> foldlM
                 (\(i, (env, ids)) (inst@(name, _), variants) ->
                     fmap (bimap (i +) ((env, ids) <>))
@@ -625,8 +625,6 @@ lower (Program (Topo defs) datas externs) =
                 (fromIntegral (length builtinTypeDefs), ([], []))
                 (Map.toList datas)
         let tdefs' = Map.fromList $ zip (toList tids') [0 ..]
-        assign tconsts tconsts'
-        assign tids tids'
         assign tdefs tdefs'
       where
         defineData
@@ -660,9 +658,21 @@ lower (Program (Topo defs) datas externs) =
                             (name ++ "_union", Low.DUnion $ Low.Union variants' sMax aMax)
                     variantStructs <- zip variantNames <$> mapM structDef variantTypess
                     pure $ Just (outerStruct, innerUnion : variantStructs)
-        structDef ts = liftM2 (Low.DStruct .* Low.Struct ts)
-                              (alignmentofStruct ts)
-                              (sizeofStruct ts)
+
+    defineStruct :: String -> [(String, Low.Type)] -> Lower Low.Type
+    defineStruct name members = do
+        struct <- fmap (name, ) (structDef (map snd members))
+        tdefs' <- use tdefs
+        case Map.lookup struct tdefs' of
+            Just tid -> pure (Low.TConst tid)
+            Nothing -> do
+                tid <- fromIntegral . Seq.length <$> use tids
+                modifying tids (Seq.|> struct)
+                modifying tdefs (Map.insert struct tid)
+                pure (Low.TConst tid)
+
+    structDef ts =
+        liftM2 (Low.DStruct .* Low.Struct ts) (alignmentofStruct ts) (sizeofStruct ts)
 
     -- nameUniquely :: (a -> String) -> (String -> a -> a) -> [a] -> [a]
     -- nameUniquely get set =
@@ -684,9 +694,6 @@ lower (Program (Topo defs) datas externs) =
         ZeroSized -> Nothing
         Sized t -> Just t
 
-    -- fromSized = \case
-    --     ZeroSized -> ice "Lower.unSized: was ZeroSized"
-    --     Sized x -> x
 
     toParam :: name -> Sized Low.Type -> Lower (Maybe (Low.Param name))
     toParam name = \case
@@ -782,7 +789,6 @@ lower (Program (Topo defs) datas externs) =
     passByRef t = sizeof t <&> (> 2 * 8)
 
     sizeof = tidsHelper Low.sizeof
-    -- _alignmentof = Low.alignmentof tenv
     sizeofStruct = tidsHelper Low.sizeofStruct
     alignmentofStruct = tidsHelper Low.alignmentofStruct
 
@@ -795,10 +801,6 @@ lower (Program (Topo defs) datas externs) =
 --   members, it is represented as an Enum.
 -- lowerDatas :: ()
 -- lowerDatas = ()
-
--- builtinExterns :: Map String Type
--- builtinExterns = _
-
 
 -- instance TypeAst Type where
 --     tprim = TPrim
