@@ -105,6 +105,7 @@ data Expr'
     -- Given a pointer to an untagged union, get it as a specific variant
     | EAsVariant Operand Word
     | EBranch (Branch Expr)
+    | Bitcast Operand Type
     deriving Show
 
 data Expr = Expr
@@ -123,7 +124,14 @@ type VarNames = Vector String
 
 type Allocs = [(LocalId, Type)]
 
-data FunDef = FunDef GlobalId [Param LocalId] Ret (Block Terminator) Allocs VarNames
+data FunDef = FunDef
+    { funDefName :: GlobalId
+    , funDefParams :: [Param LocalId]
+    , funDefRet :: Ret
+    , funDefBody :: Block Terminator
+    , funDefAllocs :: Allocs
+    , funDefLocalNames :: VarNames
+    }
     deriving Show
 data ExternDecl = ExternDecl String [Param ()] Ret
     deriving Show

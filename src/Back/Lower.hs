@@ -18,6 +18,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
@@ -46,6 +47,7 @@ mapSizedM f = \case
 data St = St
     { _strLits :: Map String Low.GlobalId
     , _localNames :: Vector String
+    , _globalNames :: Vector String
     -- Iff a TConst is zero sized, it will have no entry
     , _tconsts :: Map TConst Low.TypeId
     , _tids :: Seq Low.TypeDef -- ^ Maps type IDs as indices to type defs
@@ -135,7 +137,7 @@ lower noGC (Program (Topo defs) datas externs) =
         (externs'', fs, gs, tenv) = run $ do
             defineDatas
             externs' <- lowerExterns
-            fs' <- mapM lowerFunDef funDefs
+            fs' <- mapM (uncurry (lowerFunDef []) . bimap tvName snd) funDefs
             init <- defineInit
             tell (fs' ++ [init], [])
             pure externs'
@@ -171,9 +173,11 @@ lower noGC (Program (Topo defs) datas externs) =
         --         forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
         -- fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
 
-    lowerFunDef :: (TypedVar, (Inst, Fun)) -> Lower Low.FunDef
-    lowerFunDef (lhs, (_inst, (ps, (body, rt)))) = do
-        let self@(Low.Global name _) = globFunEnv Map.! lhs
+    lowerFunDef :: [TypedVar] -> String -> Fun -> Lower Low.FunDef
+    lowerFunDef freeLocalVars sname (ps, (body, rt)) = locallySet localEnv Map.empty $ do
+        -- Gotta remember these for when we return to whichever scope we came from
+        oldLocalNames <- use localNames
+        name <- newGName sname
         -- Zero-sized parameters don't actually get to exist in the Low IR and beyond
         (binds, innerParamIds, directParamTs) <-
             fmap (unzip3 . catMaybes) $ forM ps $ \p -> lowerType (tvType p) >>= \case
@@ -191,6 +195,7 @@ lower noGC (Program (Topo defs) datas externs) =
             )
             directParamTs
         let innerParams = zipWith Low.Local innerParamIds paramTs
+        Low.Block capturesStms capturesBinds <- unpackCaptures capturesName freeLocalVars
         -- Lower the body, generate an out-parameter if the return value is to be passed
         -- on the stack, and optimize to loop if the function is tail recursive.
         (outParam, outerParamIds, body'') <- do
@@ -198,14 +203,14 @@ lower noGC (Program (Topo defs) datas externs) =
             -- case, the inner params and the outer params are the same.
             outerParamIds <- mapM spinoffLocalId innerParamIds
             let outerParams = zipWith Low.Local outerParamIds paramTs
-            withVars binds $ case rt' of
+            withVars (capturesBinds ++ binds) $ case rt' of
                 ZeroSized -> do
                     body' <- lowerExpr Nowhere body
-                    pure $ if isTailRec_RetVoid self body'
+                    pure $ if isTailRec_RetVoid name body'
                         then
                             ( Nothing
                             , outerParamIds
-                            , tailCallOpt_RetVoid self outerParams innerParams body'
+                            , tailCallOpt_RetVoid name outerParams innerParams body'
                             )
                         else (Nothing, innerParamIds, mapTerm (\() -> Low.TRetVoid) body')
                 Sized t -> passByRef t >>= \case
@@ -214,11 +219,11 @@ lower noGC (Program (Topo defs) datas externs) =
                         let outParamOp = Low.OLocal $ Low.Local outParamId (Low.TPtr t)
                         let outParam = Just $ Low.ByRef outParamId t
                         body' <- lowerExpr (There outParamOp) body
-                        pure $ if isTailRec_RetVoid self body'
+                        pure $ if isTailRec_RetVoid name body'
                             then
                                 ( outParam
                                 , outerParamIds
-                                , tailCallOpt_RetVoid self outerParams innerParams body'
+                                , tailCallOpt_RetVoid name outerParams innerParams body'
                                 )
                             else
                                 ( outParam
@@ -227,25 +232,43 @@ lower noGC (Program (Topo defs) datas externs) =
                                 )
                     False -> do
                         body' <- lowerExpr Here body
-                        pure $ if isTailRec_RetVal self body'
+                        pure $ if isTailRec_RetVal name body'
                             then
                                 ( Nothing
                                 , outerParamIds
-                                , tailCallOpt_RetVal self outerParams innerParams body'
+                                , tailCallOpt_RetVal name outerParams innerParams body'
                                 )
                             else (Nothing, innerParamIds, mapTerm Low.TRetVal body')
-        localNames <- popLocalNames
+        let body''' = Low.Block capturesStms () `thenBlock` body''
+        localNames' <- popLocalNames
+        assign localNames oldLocalNames
         allocs <- popAllocs
         outerParams <- zipWithM sizedToParam outerParamIds directParamTs
         let params =
                 maybe id (:) outParam $ Low.ByVal capturesName Low.VoidPtr : outerParams
         ret <- toRet rt'
-        pure $ Low.FunDef name params ret body'' allocs localNames
+        pure $ Low.FunDef name params ret body''' allocs localNames'
+
+    unpackCaptures
+        :: Low.LocalId -> [TypedVar] -> Lower (Low.Block [(TypedVar, Low.Operand)])
+    unpackCaptures capturesName freeVars = typedVarsSizedTypes freeVars >>= \case
+        [] -> pure (Low.Block [] [])
+        vars -> do
+            let capturesGeneric = Low.OLocal $ Low.Local capturesName Low.VoidPtr
+            tcaptures <- defineStruct "captures" $ map (first tvName) vars
+            captures <-
+                let t = Low.TPtr tcaptures
+                in  emitNamed "captures" (Low.Expr (Low.Bitcast capturesGeneric t) t)
+            captures `bindrBlockM` \captures' -> catBlocks <$> mapM
+                (\(i, (v@(TypedVar x _), t)) -> mapTerm (v, )
+                    <$> emitNamed x (Low.Expr (Low.EGetMember i captures') (Low.TPtr t))
+                )
+                (zip [0 ..] vars)
 
     isTailRec_RetVoid self = go
       where
         go (Low.Block stms ()) = case last stms of
-            Low.VoidCall (Low.OGlobal other) _ | other == self -> True
+            Low.VoidCall (Low.OGlobal (Low.Global other _)) _ | other == self -> True
             Low.SBranch br -> goBranch br
             _ -> False
         goBranch = \case
@@ -255,7 +278,7 @@ lower noGC (Program (Topo defs) datas externs) =
     isTailRec_RetVal self = go
       where
         go (Low.Block _ (Low.Expr e _)) = case e of
-            Low.Call (Low.OGlobal other) _ | other == self -> True
+            Low.Call (Low.OGlobal (Low.Global other _)) _ | other == self -> True
             Low.EBranch br -> goBranch br
             _ -> False
         goBranch = \case
@@ -269,7 +292,7 @@ lower noGC (Program (Topo defs) datas externs) =
         in  Low.Block [Low.SLoop loop] Low.TRetVoid
       where
         goStm = \case
-            Low.VoidCall (Low.OGlobal other) args | other == self ->
+            Low.VoidCall (Low.OGlobal (Low.Global other _)) args | other == self ->
                 Low.Block [] (Low.Continue args)
             Low.SBranch br -> goBranch br
             stm -> Low.Block [stm] (Low.Break ())
@@ -295,7 +318,7 @@ lower noGC (Program (Topo defs) datas externs) =
         go (Low.Block stms (Low.Expr lastExpr _)) =
             let termBlock = goExpr lastExpr in Low.Block stms () `thenBlock` termBlock
         goExpr = \case
-            Low.Call (Low.OGlobal other) args | other == self ->
+            Low.Call (Low.OGlobal (Low.Global other _)) args | other == self ->
                 Low.Block [] (Low.Continue args)
             Low.EBranch br -> goBranch br
             e -> Low.Block [] (Low.Break (Low.Expr e t))
@@ -363,29 +386,14 @@ lower noGC (Program (Topo defs) datas externs) =
                                       ()
                         _ -> ice "Lower.lowerExpr If: conseq and alt not same Sized"
                 )
-        Fun (params, (body, tbody)) -> do
-            let params' = Set.fromList params
-            freeLocalVars <- view localEnv <&> \locals -> Set.toList
-                (Set.intersection (Set.difference (freeVars body) params')
-                                  (Map.keysSet locals)
-                )
-            tbody' <- lowerType tbody
-            captures <- if null freeLocalVars
-                then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
-                else do
-                    tcaptures <-
-                        defineStruct "captures"
-                        . mapMaybe sizedMaybe
-                        =<< mapM (\(TypedVar x t) -> mapSized (x, ) <$> lowerType t)
-                                 freeLocalVars
-                    capturesSize <- sizeof tcaptures
-                    captures' <- emitNamed "captures" =<< gcAlloc (litI64 capturesSize)
-                    bindBlockM (populateCaptures freeLocalVars) captures'
+        Fun f -> do
+            (freeLocalVars, captures) <- captureFreeLocalVars f
             -- genLambda' p body (VLocal captures) fvXs
-            fname <- newLName "fun"
-            -- ft <- lowerType pt <&> \pt' -> closureFunType pt' bt
+            -- fname <- newLName "fun"
+            -- ft <- typedVarsToParams params >>= \ps -> closureFunType ps tbody'
             -- let f = Low.OGlobal $ Low.Global fname (Low.TPtr ft)
-            -- scribe outFuncs [(fname, fvXs, p, genBody $> bt)]
+            fdef <- lowerFunDef freeLocalVars "fun" f
+            tell ([fdef], [])
             -- genStruct [captures, f]
             undefined
         -- Let Def Expr
@@ -399,6 +407,34 @@ lower noGC (Program (Topo defs) datas externs) =
                 =<< lowerType t
         Absurd _ -> toDest dest ZeroSized
         _ -> undefined
+
+    captureFreeLocalVars (params, (body, _)) = do
+        let params' = Set.fromList params
+        freeLocalVars <- view localEnv <&> \locals -> Set.toList
+            (Set.intersection (Set.difference (freeVars body) params')
+                              (Map.keysSet locals)
+            )
+        (freeLocalVars, ) <$> if null freeLocalVars
+            then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
+            else do
+                tcaptures <-
+                    defineStruct "captures"
+                    . map (first tvName)
+                    =<< typedVarsSizedTypes freeLocalVars
+                capturesSize <- sizeof tcaptures
+                captures' <- emitNamed "captures" =<< gcAlloc (litI64 capturesSize)
+                bindBlockM (populateCaptures freeLocalVars) captures'
+
+    typedVarsToParams :: [TypedVar] -> Lower [Low.Param String]
+    typedVarsToParams = undefined
+
+    typedVarsSizedTypes :: [TypedVar] -> Lower [(TypedVar, Low.Type)]
+    typedVarsSizedTypes = mapMaybeM $ \v@(TypedVar _ t) -> lowerType t <&> \case
+        Sized t' -> Just (v, t')
+        ZeroSized -> Nothing
+
+    closureFunType :: [Low.Param _a] -> Sized Low.Type -> Lower Low.Type
+    closureFunType = undefined
 
     gcAlloc :: Low.Operand -> Lower Low.Expr
     gcAlloc size = do
@@ -579,12 +615,6 @@ lower noGC (Program (Topo defs) datas externs) =
     lowerGVarDecl :: (TypedVar, (Inst, Expr)) -> Low.GlobDef
     lowerGVarDecl = undefined
 
-    globFunEnv :: Map TypedVar Low.Global
-    globFunEnv = undefined funDefs
-
-    _globVarEnv :: Map TypedVar Low.Global
-    _globVarEnv = undefined gvarDefs
-
     (funDefs, gvarDefs) =
         let defs' = defs >>= \case
                 VarDef d -> [d]
@@ -694,6 +724,9 @@ lower noGC (Program (Topo defs) datas externs) =
         ZeroSized -> Nothing
         Sized t -> Just t
 
+    fromSized = \case
+        ZeroSized -> ice "Lower.fromSized: was ZeroSized"
+        Sized x -> x
 
     toParam :: name -> Sized Low.Type -> Lower (Maybe (Low.Param name))
     toParam name = \case
@@ -813,3 +846,9 @@ newLName x = do
     localId <- Vec.length <$> use localNames
     modifying localNames (`Vec.snoc` x)
     pure (fromIntegral localId)
+
+newGName :: String -> Lower Low.GlobalId
+newGName x = do
+    globalId <- Vec.length <$> use globalNames
+    modifying globalNames (`Vec.snoc` x)
+    pure (fromIntegral globalId)
