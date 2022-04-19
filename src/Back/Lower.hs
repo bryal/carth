@@ -74,7 +74,17 @@ newtype Env = Env
     }
 makeLenses ''Env
 
-type Out = ([Low.FunDef], [Low.GlobDef])
+data Out = Out
+    { _outFunDefs :: [Low.FunDef]
+    , _outGlobDefs :: [Low.GlobDef]
+    , _outAllocs :: [(Low.LocalId, Low.Type)]
+    }
+makeLenses ''Out
+
+instance Semigroup Out where
+    (<>) (Out a1 b1 c1) (Out a2 b2 c2) = Out (a1 ++ a2) (b1 ++ b2) (c1 ++ c2)
+instance Monoid Out where
+    mempty = Out [] [] []
 
 type Lower = WriterT Out (StateT St (Reader Env))
 
@@ -96,6 +106,7 @@ type Lower = WriterT Out (StateT St (Reader Env))
 class Destination d where
     type DestTerm d
     toDest :: d -> Sized Low.Expr -> Lower (Low.Block (DestTerm d))
+    allocationAtDest :: d -> Maybe String -> Low.Type -> Lower (Low.Operand, DestTerm d)
 
 newtype There = There Low.Operand
 instance Destination There where
@@ -109,6 +120,16 @@ instance Destination There where
             let x'' = Low.OLocal x'
             pure $ Low.Block [Low.Let x' e, Low.Store x'' a] ()
 
+    allocationAtDest (There addr) _name t = if typeof addr /= Low.TPtr t
+        then
+            ice
+            $ "Lower.allocationAtDest There: Type of destination, `"
+            ++ show (typeof addr)
+            ++ "`, differs from type of desired allocation, `"
+            ++ show (Low.TPtr t)
+            ++ "`"
+        else pure (addr, ())
+
 data Here = Here
 instance Destination Here where
     type DestTerm Here = Low.Expr
@@ -117,11 +138,17 @@ instance Destination Here where
         ZeroSized -> ice "Lower.toDest: ZeroSized to Here"
         Sized e -> pure $ Low.Block [] e
 
+    allocationAtDest Here =
+        fmap (\x -> (x, Low.Expr (Low.EOperand x) (typeof x))) .* stackAlloc
+
 data HereSized = HereSized
 instance Destination HereSized where
     type DestTerm HereSized = Sized Low.Expr
 
     toDest HereSized = pure . Low.Block []
+
+    allocationAtDest HereSized =
+        fmap (\x -> (x, Sized $ Low.Expr (Low.EOperand x) (typeof x))) .* stackAlloc
 
 data Nowhere = Nowhere
 instance Destination Nowhere where
@@ -131,6 +158,8 @@ instance Destination Nowhere where
         ZeroSized -> pure $ Low.Block [] ()
         Sized _ -> ice "Lower.toDest: Sized to Nowhere"
 
+    allocationAtDest Nowhere _ _ = ice "Lower.allocationAtDest: allocation at Nowhere"
+
 lower :: Bool -> Program -> Low.Program
 lower noGC (Program (Topo defs) datas externs) =
     let _externNames = map fst externs
@@ -139,7 +168,7 @@ lower noGC (Program (Topo defs) datas externs) =
             externs' <- lowerExterns
             fs' <- mapM (uncurry (lowerFunDef []) . bimap tvName snd) funDefs
             init <- defineInit
-            tell (fs' ++ [init], [])
+            scribe outFunDefs (fs' ++ [init])
             pure externs'
     in  Low.Program fs externs'' (map lowerGVarDecl gvarDefs ++ gs) tenv undefined -- (resolveNameConflicts globNames externNames)
   where
@@ -388,14 +417,12 @@ lower noGC (Program (Topo defs) datas externs) =
                 )
         Fun f -> do
             (freeLocalVars, captures) <- captureFreeLocalVars f
-            -- genLambda' p body (VLocal captures) fvXs
-            -- fname <- newLName "fun"
-            -- ft <- typedVarsToParams params >>= \ps -> closureFunType ps tbody'
-            -- let f = Low.OGlobal $ Low.Global fname (Low.TPtr ft)
-            fdef <- lowerFunDef freeLocalVars "fun" f
-            tell ([fdef], [])
-            -- genStruct [captures, f]
-            undefined
+            bindrBlockM captures $ \captures' -> do
+                fdef <- lowerFunDef freeLocalVars "fun" f
+                scribe outFunDefs [fdef]
+                let f' = Low.OGlobal $ funDefGlobal fdef
+                (ptr, x) <- allocationAtDest dest (Just "closure") closureType
+                populateStruct [captures', f'] ptr <&> mapTerm (const x)
         -- Let Def Expr
         Match es dt -> lowerMatch dest es dt
         -- Ction Ction
@@ -407,6 +434,16 @@ lower noGC (Program (Topo defs) datas externs) =
                 =<< lowerType t
         Absurd _ -> toDest dest ZeroSized
         _ -> undefined
+
+    populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block Low.Operand)
+    populateStruct vs dst = foldrM
+        (\(i, v) rest ->
+            indexStruct i dst
+                <&> bindBlock (\member -> Low.Block [Low.Store v member] ())
+                <&> (`thenBlock` rest)
+        )
+        (Low.Block [] dst)
+        (zip [0 ..] vs)
 
     captureFreeLocalVars (params, (body, _)) = do
         let params' = Set.fromList params
@@ -574,9 +611,9 @@ lower noGC (Program (Topo defs) datas externs) =
     thenBlock :: Low.Block () -> Low.Block a -> Low.Block a
     thenBlock (Low.Block stms1 ()) (Low.Block stms2 a) = Low.Block (stms1 ++ stms2) a
 
-    -- bindBlock :: (a -> Low.Block b) -> Low.Block a -> Low.Block b
-    -- bindBlock f (Low.Block stms1 a) =
-    --     let Low.Block stms2 b = f a in Low.Block (stms1 ++ stms2) b
+    bindBlock :: (a -> Low.Block b) -> Low.Block a -> Low.Block b
+    bindBlock f (Low.Block stms1 a) =
+        let Low.Block stms2 b = f a in Low.Block (stms1 ++ stms2) b
 
     bindBlockM :: Monad m => (a -> m (Low.Block b)) -> Low.Block a -> m (Low.Block b)
     bindBlockM f (Low.Block stms1 a) =
@@ -826,6 +863,16 @@ lower noGC (Program (Topo defs) datas externs) =
     alignmentofStruct = tidsHelper Low.alignmentofStruct
 
     tidsHelper f x = use tids <&> \tids' -> f (\tid -> tids' Seq.!? fromIntegral tid) x
+
+funDefGlobal :: Low.FunDef -> Low.Global
+funDefGlobal Low.FunDef { Low.funDefName = x, Low.funDefParams = ps, Low.funDefRet = r }
+    = Low.Global x (Low.TFun (map Low.dropParamName ps) r)
+
+stackAlloc :: Maybe String -> Low.Type -> Lower Low.Operand
+stackAlloc name t = do
+    x <- newLName (fromMaybe "tmp" name)
+    scribe outAllocs [(x, t)]
+    pure (Low.OLocal (Low.Local x (Low.TPtr t)))
 
 -- | To generate cleaner code, a data-type is only represented as a tagged union (Data) if
 --   it has to be. If there is only a single variant, we skip the tag and represent it as

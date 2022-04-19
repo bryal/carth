@@ -9,6 +9,12 @@ import Sizeof hiding (sizeof)
 import Front.Monomorphic (Access')
 
 data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
+
+dropParamName :: Param name -> Param ()
+dropParamName = \case
+    ByVal _ t -> ByVal () t
+    ByRef _ t -> ByRef () t
+
 data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
 -- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
@@ -146,20 +152,20 @@ data Struct = Struct
     , structAlignment :: Word
     , structSize :: Word
     }
-    deriving Show
+    deriving (Show, Eq, Ord)
 
 data Union = Union
     { unionVariants :: Vector (String, TypeId)
     , unionGreatestSize :: Word
     , unionGreatestAlignment :: Word
     }
-    deriving Show
+    deriving (Show, Eq, Ord)
 
 data TypeDef'
     = DEnum (Vector String)
     | DStruct Struct
     | DUnion Union
-    deriving (Show, Ord)
+    deriving (Show, Eq, Ord)
 
 type TypeDef = (String, TypeDef')
 
