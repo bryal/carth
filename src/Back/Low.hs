@@ -6,7 +6,7 @@ import qualified Data.Vector as Vec
 import Data.Int
 
 import Sizeof hiding (sizeof)
-import Front.Monomorphic (Access')
+import Front.Monomorphic (Access', VariantIx)
 
 data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
 
@@ -109,7 +109,7 @@ data Expr'
     -- Given a pointer to a struct, get a pointer to the Nth member of that struct
     | EGetMember Word Operand
     -- Given a pointer to an untagged union, get it as a specific variant
-    | EAsVariant Operand Word
+    | EAsVariant Operand VariantIx
     | EBranch (Branch Expr)
     | Bitcast Operand Type
     deriving Show

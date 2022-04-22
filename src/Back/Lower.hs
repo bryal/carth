@@ -25,7 +25,7 @@ import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform (makeLenses, modifying, use, assign, view, assign)
 
-import Back.Low (typeof)
+import Back.Low (typeof, LowInt(..))
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
@@ -129,6 +129,17 @@ instance Destination There where
             ++ show (Low.TPtr t)
             ++ "`"
         else pure (addr, ())
+
+newtype ThereSized = ThereSized Low.Operand
+instance Destination ThereSized where
+    type DestTerm ThereSized = Sized ()
+
+    toDest (ThereSized a) = \case
+        ZeroSized -> pure (Low.Block [] ZeroSized)
+        e -> mapTerm Sized <$> toDest (There a) e
+
+    allocationAtDest (ThereSized addr) name t =
+        second Sized <$> allocationAtDest (There addr) name t
 
 data Here = Here
 instance Destination Here where
@@ -425,7 +436,39 @@ lower noGC (Program (Topo defs) datas externs) =
                 populateStruct [captures', f'] ptr <&> mapTerm (const x)
         -- Let Def Expr
         Match es dt -> lowerMatch dest es dt
-        -- Ction Ction
+        Ction (variantIx, span, tconst, xs) -> do
+            tconsts' <- use tconsts
+            case Map.lookup tconst tconsts' of
+                Nothing -> toDest dest ZeroSized
+                Just tidOuter -> do
+                    tids' <- use tids
+                    let (_, tdef) = Seq.index tids' (fromIntegral tidOuter)
+                    case tdef of
+                        Low.DUnion _ ->
+                            ice "lowerExpr Ction: outermost TypeDef was a union"
+                        Low.DEnum _ ->
+                            let operand = lowerTag span variantIx
+                            in  toDest dest . Sized $ Low.Expr (Low.EOperand operand)
+                                                               (typeof operand)
+                        Low.DStruct _ | span == 1 -> do
+                            (ptr, retVal) <- allocationAtDest dest
+                                                              Nothing
+                                                              (Low.TConst tidOuter)
+                            lowerExprsInStruct xs ptr <&> mapTerm (const retVal)
+                        Low.DStruct _ | otherwise -> do
+                            (ptr, retVal) <- allocationAtDest dest
+                                                              Nothing
+                                                              (Low.TConst tidOuter)
+                            Low.Block stms1 tagPtr <- indexStruct 0 ptr
+                            let stm2 = Low.Store (lowerTag span variantIx) tagPtr
+                            let tidVariant = tidOuter + 2 + fromIntegral variantIx
+                            Low.Block stms3 unionPtr <- indexStruct 1 ptr
+                            Low.Block stms4 variantPtr <- emit $ Low.Expr
+                                (Low.EAsVariant unionPtr variantIx)
+                                (Low.TConst tidVariant)
+                            Low.Block stms5 _ <- lowerExprsInStruct xs variantPtr
+                            pure $ Low.Block (stms1 ++ stm2 : stms3 ++ stms4 ++ stms5)
+                                             retVal
         Sizeof t ->
             toDest dest
                 . Sized
@@ -434,6 +477,14 @@ lower noGC (Program (Topo defs) datas externs) =
                 =<< lowerType t
         Absurd _ -> toDest dest ZeroSized
         _ -> undefined
+
+    lowerTag :: Span -> VariantIx -> Low.Operand
+    lowerTag span variantIx = Low.OConst . Low.CInt $ case tagBits span :: Int of
+        8 -> I8 (fromIntegral variantIx)
+        16 -> I16 (fromIntegral variantIx)
+        32 -> I32 (fromIntegral variantIx)
+        64 -> I64 (fromIntegral variantIx)
+        n -> ice $ "lowerTag: tagBits = " ++ show n
 
     populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block Low.Operand)
     populateStruct vs dst = foldrM
@@ -444,6 +495,18 @@ lower noGC (Program (Topo defs) datas externs) =
         )
         (Low.Block [] dst)
         (zip [0 ..] vs)
+
+    lowerExprsInStruct :: [Expr] -> Low.Operand -> Lower (Low.Block ())
+    lowerExprsInStruct es ptr = go 0 es
+      where
+        go _ [] = pure $ Low.Block [] ()
+        go i (e : es) = do
+            Low.Block stmsIndex subPtr <- indexStruct i ptr
+            Low.Block stmsExpr result <- lowerExpr (ThereSized subPtr) e
+            case result of
+                Sized () ->
+                    thenBlock (Low.Block (stmsIndex ++ stmsExpr) ()) <$> go (i + 1) es
+                ZeroSized -> thenBlock (Low.Block stmsExpr ()) <$> go i es
 
     captureFreeLocalVars (params, (body, _)) = do
         let params' = Set.fromList params
@@ -577,8 +640,9 @@ lower noGC (Program (Topo defs) datas externs) =
                     -- t = Low.TPtr $ typeOfDataVariant variantIx (pointee (typeof matchee))
                 let tvariant = Low.TPtr (Low.TConst (tidData + 2 + variantIx))
                 union <- indexStruct 1 matchee -- Skip tag to get inner union
-                bindrBlockM union $ \union' ->
-                    emit $ Low.Expr (Low.EAsVariant union' variantIx) tvariant
+                bindrBlockM union $ \union' -> emit $ Low.Expr
+                    (Low.EAsVariant union' (fromIntegral variantIx))
+                    tvariant
 
         -- typeOfDataVariant variantIx = \case
         --     -- For a sum type / tagged union, the TConst ID maps to the outer struct, the
@@ -605,8 +669,6 @@ lower noGC (Program (Topo defs) datas externs) =
             mapSizedM (\a' -> As a' span vi <$> lowerSizedTypes vts) =<< lowerAccess a
         Sel i span a -> mapSized (Sel i span) <$> lowerAccess a
         ADeref a -> mapSized ADeref <$> lowerAccess a
-
-    mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
 
     thenBlock :: Low.Block () -> Low.Block a -> Low.Block a
     thenBlock (Low.Block stms1 ()) (Low.Block stms2 a) = Low.Block (stms1 ++ stms2) a
@@ -899,3 +961,6 @@ newGName x = do
     globalId <- Vec.length <$> use globalNames
     modifying globalNames (`Vec.snoc` x)
     pure (fromIntegral globalId)
+
+mapTerm :: (a -> b) -> Low.Block a -> Low.Block b
+mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
