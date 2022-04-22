@@ -8,9 +8,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor (bimap)
-import Data.Bitraversable
 import Data.Foldable
-import Data.Function
 import Data.Functor
 import Data.List
 import Data.Map (Map)
@@ -18,7 +16,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
@@ -426,15 +423,16 @@ lower noGC (Program (Topo defs) datas externs) =
                                       ()
                         _ -> ice "Lower.lowerExpr If: conseq and alt not same Sized"
                 )
-        Fun f -> do
-            (freeLocalVars, captures) <- captureFreeLocalVars f
-            bindrBlockM captures $ \captures' -> do
-                fdef <- lowerFunDef freeLocalVars "fun" f
-                scribe outFunDefs [fdef]
-                let f' = Low.OGlobal $ funDefGlobal fdef
-                (ptr, x) <- allocationAtDest dest (Just "closure") closureType
-                populateStruct [captures', f'] ptr <&> mapTerm (const x)
-        -- Let Def Expr
+        Fun f -> genLambda dest f
+        Let (VarDef (lhs, (_, rhs))) body -> lowerExpr HereSized rhs `bindrBlockM'` \case
+            ZeroSized -> lowerExpr dest body
+            Sized rhs' -> bindrBlockM' (emit rhs')
+                $ \rhs'' -> withVar lhs rhs'' (lowerExpr dest body)
+        Let (RecDefs defs) body -> (snd <$>) . mfix $ \(binds, _) -> withVars binds $ do
+            binds' <- fmap catBlocks . forM defs $ \(lhs, (_, f)) ->
+                mapTerm (lhs, ) <$> bindBlockM' emit (genLambda Here f)
+            body' <- lowerExpr dest body
+            pure (Low.blockTerm binds', dropTerm binds' `thenBlock` body')
         Match es dt -> lowerMatch dest es dt
         Ction (variantIx, span, tconst, xs) -> do
             tconsts' <- use tconsts
@@ -476,7 +474,16 @@ lower noGC (Program (Topo defs) datas externs) =
                 =<< sized (fmap litI64 . sizeof) (pure (litI64 0))
                 =<< lowerType t
         Absurd _ -> toDest dest ZeroSized
-        _ -> undefined
+
+    genLambda :: Destination d => d -> Fun -> Lower (Low.Block (DestTerm d))
+    genLambda dest f = do
+        (freeLocalVars, captures) <- captureFreeLocalVars f
+        bindrBlockM captures $ \captures' -> do
+            fdef <- lowerFunDef freeLocalVars "fun" f
+            scribe outFunDefs [fdef]
+            let f' = Low.OGlobal $ funDefGlobal fdef
+            (ptr, x) <- allocationAtDest dest (Just "closure") closureType
+            populateStruct [captures', f'] ptr <&> mapTerm (const x)
 
     lowerTag :: Span -> VariantIx -> Low.Operand
     lowerTag span variantIx = Low.OConst . Low.CInt $ case tagBits span :: Int of
@@ -525,16 +532,12 @@ lower noGC (Program (Topo defs) datas externs) =
                 captures' <- emitNamed "captures" =<< gcAlloc (litI64 capturesSize)
                 bindBlockM (populateCaptures freeLocalVars) captures'
 
-    typedVarsToParams :: [TypedVar] -> Lower [Low.Param String]
-    typedVarsToParams = undefined
 
     typedVarsSizedTypes :: [TypedVar] -> Lower [(TypedVar, Low.Type)]
     typedVarsSizedTypes = mapMaybeM $ \v@(TypedVar _ t) -> lowerType t <&> \case
         Sized t' -> Just (v, t')
         ZeroSized -> Nothing
 
-    closureFunType :: [Low.Param _a] -> Sized Low.Type -> Lower Low.Type
-    closureFunType = undefined
 
     gcAlloc :: Low.Operand -> Lower Low.Expr
     gcAlloc size = do
@@ -581,11 +584,9 @@ lower noGC (Program (Topo defs) datas externs) =
         Low.Block stms2 result <- lowerDecisionTree (topSelections ms) decisionTree
         pure (Low.Block (stms1 ++ stms2) result)
       where
-        lowerMatchee m = lowerExpr HereSized m >>= bindBlockM
-            (\case
-                ZeroSized -> pure $ Low.Block [] ZeroSized
-                Sized e -> mapTerm Sized <$> emitNamed "matchee" e
-            )
+        lowerMatchee m = lowerExpr HereSized m `bindrBlockM'` \case
+            ZeroSized -> pure $ Low.Block [] ZeroSized
+            Sized e -> mapTerm Sized <$> emitNamed "matchee" e
 
         topSelections :: [Sized Low.Operand] -> Map Low.Access Low.Operand
         topSelections xs = Map.fromList . catMaybes $ zipWith
@@ -600,8 +601,8 @@ lower noGC (Program (Topo defs) datas externs) =
         lowerDecisionTree selections = \case
             DLeaf (bs, e) -> do
                 bs' <- mapMaybeM (\(x, a) -> fmap (x, ) . sizedMaybe <$> lowerAccess a) bs
-                vars <- selectVarBindings selections bs'
-                vars `bindrBlockM` \vars' -> withVars vars' (lowerExpr dest e)
+                selectVarBindings selections bs'
+                    `bindrBlockM'` \vars' -> withVars vars' (lowerExpr dest e)
             DSwitch _span _selector _cs _def -> undefined
             DSwitchStr _selector _cs _def -> undefined
 
@@ -639,9 +640,9 @@ lower noGC (Program (Topo defs) datas externs) =
                         _ -> ice "Lower.asVariant: type of mathee is not TPtr to TConst"
                     -- t = Low.TPtr $ typeOfDataVariant variantIx (pointee (typeof matchee))
                 let tvariant = Low.TPtr (Low.TConst (tidData + 2 + variantIx))
-                union <- indexStruct 1 matchee -- Skip tag to get inner union
-                bindrBlockM union $ \union' -> emit $ Low.Expr
-                    (Low.EAsVariant union' (fromIntegral variantIx))
+                -- Skip tag to get inner union
+                indexStruct 1 matchee `bindrBlockM'` \union -> emit $ Low.Expr
+                    (Low.EAsVariant union (fromIntegral variantIx))
                     tvariant
 
         -- typeOfDataVariant variantIx = \case
@@ -682,6 +683,12 @@ lower noGC (Program (Topo defs) datas externs) =
         f a <&> \(Low.Block stms2 b) -> Low.Block (stms1 ++ stms2) b
 
     bindrBlockM = flip bindBlockM
+
+    bindBlockM'
+        :: Monad m => (a -> m (Low.Block b)) -> m (Low.Block a) -> m (Low.Block b)
+    bindBlockM' f ma = bindBlockM f =<< ma
+
+    bindrBlockM' = flip bindBlockM'
 
     emit :: Low.Expr -> Lower (Low.Block Low.Operand)
     emit = emitNamed "tmp"
@@ -823,9 +830,6 @@ lower noGC (Program (Topo defs) datas externs) =
         ZeroSized -> Nothing
         Sized t -> Just t
 
-    fromSized = \case
-        ZeroSized -> ice "Lower.fromSized: was ZeroSized"
-        Sized x -> x
 
     toParam :: name -> Sized Low.Type -> Lower (Maybe (Low.Param name))
     toParam name = \case
@@ -964,3 +968,6 @@ newGName x = do
 
 mapTerm :: (a -> b) -> Low.Block a -> Low.Block b
 mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
+
+dropTerm :: Low.Block a -> Low.Block ()
+dropTerm = mapTerm (const ())
