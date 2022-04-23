@@ -9,6 +9,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor (bimap)
 import Data.Bitraversable
+import Data.Either
 import Data.Foldable
 import Data.Functor
 import Data.List
@@ -67,8 +68,9 @@ makeLenses ''St
 
 -- data TailPos = TailRet | TailOutParam Low.LocalId | NoTail
 
-newtype Env = Env
+data Env = Env
     { _localEnv :: Map TypedVar Low.Operand
+    , _globalEnv :: Map TypedVar Low.Global
     }
 makeLenses ''Env
 
@@ -540,10 +542,10 @@ lower noGC (Program (Topo defs) datas externs) =
 
 
     gcAlloc :: Low.Operand -> Lower Low.Expr
-    gcAlloc size = do
+    gcAlloc size =
         let fname = if noGC then "malloc" else "GC_malloc"
-        f <- view localEnv <&> (Map.! TypedVar fname (Ast.builtinExterns Map.! fname))
-        pure $ Low.Expr (Low.Call f [size]) Low.VoidPtr
+        in  fromLeft (ice "gcAlloc: (GC_)malloc was a void call")
+                <$> callBuiltin fname [size]
 
     populateCaptures :: [TypedVar] -> Low.Operand -> Lower (Low.Block Low.Operand)
     populateCaptures freeLocals captures = do
@@ -572,6 +574,18 @@ lower noGC (Program (Topo defs) datas externs) =
             Nothing ->
                 let n = fromIntegral (Map.size m)
                 in  modifying strLits (Map.insert s n) $> n
+
+    lowerStrEq :: Low.Operand -> Low.Operand -> Lower Low.Expr
+    lowerStrEq s1 s2 =
+        fromLeft (ice "lowerStrEq: str-eq was a void call")
+            <$> callBuiltin "str-eq" [s1, s2]
+
+    callBuiltin fname args = do
+        gs <- view globalEnv
+        let f = Low.OGlobal $ gs Map.! TypedVar fname (Ast.builtinExterns Map.! fname)
+        pure $ case returnee (typeof f) of
+            Low.RetVal t -> Left (Low.Expr (Low.Call f args) t)
+            Low.RetVoid -> Right (Low.VoidCall f args)
 
     lowerMatch
         :: forall d
@@ -605,8 +619,7 @@ lower noGC (Program (Topo defs) datas externs) =
                 selectVarBindings selections bs'
                     `bindrBlockM'` \vars' -> withVars vars' (lowerExpr dest e)
             DSwitch _span selector cases default_ -> do
-                -- Type checker wouldn't let us switch on something zero-sized
-                selector' <- fromSized <$> lowerAccess selector
+                selector' <- lowerSelector selector
                 (m, selections') <- select selector' selections
                 Low.Block stms tag <- bindrBlockM m $ \m' -> case typeof m' of
                     -- Either a pointer to a struct, representing a tagged union
@@ -629,7 +642,28 @@ lower noGC (Program (Topo defs) datas externs) =
                 default_' <- lowerDecisionTree selections' default_
                 let result = branchToDest dest (Low.BSwitch tag cases' default_')
                 pure $ Low.Block stms () `thenBlock` result
-            DSwitchStr _selector _cs _def -> undefined
+            DSwitchStr selector cases default_ -> do
+                selector' <- lowerSelector selector
+                ((block, matchee), selections') <-
+                    first separateTerm <$> select selector' selections
+                let
+                    lowerCases = \case
+                        [] -> lowerDecisionTree selections' default_
+                        (s, dt) : cs -> do
+                            s' <- internStr s
+                            (block, isMatch) <- fmap separateTerm . emit =<< lowerStrEq
+                                matchee
+                                (Low.OGlobal s')
+                            conseq <- lowerDecisionTree selections' dt
+                            alt <- lowerCases cs
+                            pure $ block `thenBlock` branchToDest
+                                dest
+                                (Low.BIf isMatch conseq alt)
+                thenBlock block <$> lowerCases (Map.toAscList cases)
+
+        -- Type checker wouldn't let us switch on something zero-sized, so we can
+        -- safely unwrap the Sized
+        lowerSelector selector = fromSized <$> lowerAccess selector
 
         select
             :: Low.Access
@@ -987,6 +1021,9 @@ mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
 
 dropTerm :: Low.Block a -> Low.Block ()
 dropTerm = mapTerm (const ())
+
+separateTerm :: Low.Block a -> (Low.Block (), a)
+separateTerm (Low.Block stms term) = (Low.Block stms (), term)
 
 mapBranchTerm :: (a -> b) -> Low.Branch a -> Low.Branch b
 mapBranchTerm f = \case
