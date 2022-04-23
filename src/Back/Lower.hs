@@ -103,6 +103,7 @@ type Lower = WriterT Out (StateT St (Reader Env))
 class Destination d where
     type DestTerm d
     toDest :: d -> Sized Low.Expr -> Lower (Low.Block (DestTerm d))
+    branchToDest :: d -> Low.Branch (DestTerm d) -> Low.Block (DestTerm d)
     allocationAtDest :: d -> Maybe String -> Low.Type -> Lower (Low.Operand, DestTerm d)
 
 newtype There = There Low.Operand
@@ -116,6 +117,8 @@ instance Destination There where
             let x' = Low.Local x (typeof e)
             let x'' = Low.OLocal x'
             pure $ Low.Block [Low.Let x' e, Low.Store x'' a] ()
+
+    branchToDest (There _) br = Low.Block [Low.SBranch br] ()
 
     allocationAtDest (There addr) _name t = if typeof addr /= Low.TPtr t
         then
@@ -135,6 +138,9 @@ instance Destination ThereSized where
         ZeroSized -> pure (Low.Block [] ZeroSized)
         e -> mapTerm Sized <$> toDest (There a) e
 
+    branchToDest (ThereSized _) br =
+        Low.Block [Low.SBranch (mapBranchTerm (const ()) br)] (branchGetSomeTerm br)
+
     allocationAtDest (ThereSized addr) name t =
         second Sized <$> allocationAtDest (There addr) name t
 
@@ -146,6 +152,9 @@ instance Destination Here where
         ZeroSized -> ice "Lower.toDest: ZeroSized to Here"
         Sized e -> pure $ Low.Block [] e
 
+    branchToDest Here br =
+        Low.Block [] (Low.Expr (Low.EBranch br) (typeof (branchGetSomeTerm br)))
+
     allocationAtDest Here =
         fmap (\x -> (x, Low.Expr (Low.EOperand x) (typeof x))) .* stackAlloc
 
@@ -154,6 +163,10 @@ instance Destination HereSized where
     type DestTerm HereSized = Sized Low.Expr
 
     toDest HereSized = pure . Low.Block []
+
+    branchToDest HereSized br = case branchGetSomeTerm br of
+        Sized _ -> mapTerm Sized $ branchToDest Here (mapBranchTerm fromSized br)
+        ZeroSized -> Low.Block [Low.SBranch (mapBranchTerm (const ()) br)] ZeroSized
 
     allocationAtDest HereSized =
         fmap (\x -> (x, Sized $ Low.Expr (Low.EOperand x) (typeof x))) .* stackAlloc
@@ -165,6 +178,8 @@ instance Destination Nowhere where
     toDest Nowhere = \case
         ZeroSized -> pure $ Low.Block [] ()
         Sized _ -> ice "Lower.toDest: Sized to Nowhere"
+
+    branchToDest Nowhere br = Low.Block [Low.SBranch br] ()
 
     allocationAtDest Nowhere _ _ = ice "Lower.allocationAtDest: allocation at Nowhere"
 
@@ -401,28 +416,12 @@ lower noGC (Program (Topo defs) datas externs) =
                 . mapSized (Low.Expr (Low.Call f' (captures : as')))
                 $ returneeType (typeof f')
         If pred conseq alt ->
-            lowerExpr Here pred >>= bindBlockM (emitNamed "predicate") >>= bindBlockM
-                (\p -> do
-                    Low.Block cstms c <- lowerExpr HereSized conseq
-                    Low.Block astms a <- lowerExpr HereSized alt
-                    case (c, a) of
-                        (Sized c'@(Low.Expr _ t), Sized a') ->
-                            toDest dest . Sized $ Low.Expr
-                                (Low.EBranch
-                                    (Low.BIf p (Low.Block cstms c') (Low.Block astms a'))
-                                )
-                                t
-                        (ZeroSized, ZeroSized) ->
-                            bindBlockM (\() -> toDest dest ZeroSized)
-                                $ Low.Block
-                                      [ Low.SBranch $ Low.BIf
-                                            p
-                                            (Low.Block cstms ())
-                                            (Low.Block astms ())
-                                      ]
-                                      ()
-                        _ -> ice "Lower.lowerExpr If: conseq and alt not same Sized"
-                )
+            lowerExpr Here pred
+                `bindrBlockM'` emitNamed "predicate"
+                `bindrBlockM'` \pred' -> do
+                                   conseq' <- lowerExpr dest conseq
+                                   alt' <- lowerExpr dest alt
+                                   pure . branchToDest dest $ Low.BIf pred' conseq' alt'
         Fun f -> genLambda dest f
         Let (VarDef (lhs, (_, rhs))) body -> lowerExpr HereSized rhs `bindrBlockM'` \case
             ZeroSized -> lowerExpr dest body
@@ -546,7 +545,9 @@ lower noGC (Program (Topo defs) datas externs) =
         pure $ Low.Expr (Low.Call f [size]) Low.VoidPtr
 
     populateCaptures :: [TypedVar] -> Low.Operand -> Lower (Low.Block Low.Operand)
-    populateCaptures = undefined
+    populateCaptures freeLocals captures = do
+        xs <- mapM (\var -> (Map.! var) <$> view localEnv) freeLocals
+        populateStruct xs captures
 
     operandToExpr x = Low.Expr (Low.EOperand x) (typeof x)
 
@@ -562,15 +563,14 @@ lower noGC (Program (Topo defs) datas externs) =
         Str s -> internStr s <&> \s' -> Low.OGlobal s'
 
     internStr :: String -> Lower Low.Global
-    internStr s = use strLits >>= \m ->
-        fmap (flip Low.Global tStr) $ case Map.lookup s m of
+    internStr s = do
+        tStr <- Low.TConst . (Map.! ("Str", [])) <$> use tconsts
+        m <- use strLits
+        flip Low.Global tStr <$> case Map.lookup s m of
             Just n -> pure n
             Nothing ->
                 let n = fromIntegral (Map.size m)
                 in  modifying strLits (Map.insert s n) $> n
-
-    -- tStr = Low.TConst (tids Map.! ("Str", []))
-    tStr = undefined
 
     lowerMatch
         :: forall d
@@ -822,15 +822,6 @@ lower noGC (Program (Topo defs) datas externs) =
     --             (name', seen') = uq (Map.findWithDefault 0 name seen)
     --         in  (set name' d : ds, seen')
 
-    sized f b = \case
-        ZeroSized -> b
-        Sized a -> f a
-
-    sizedMaybe = \case
-        ZeroSized -> Nothing
-        Sized t -> Just t
-
-
     toParam :: name -> Sized Low.Type -> Lower (Maybe (Low.Param name))
     toParam name = \case
         ZeroSized -> pure Nothing
@@ -971,3 +962,27 @@ mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
 
 dropTerm :: Low.Block a -> Low.Block ()
 dropTerm = mapTerm (const ())
+
+mapBranchTerm :: (a -> b) -> Low.Branch a -> Low.Branch b
+mapBranchTerm f = \case
+    Low.BIf p c a -> Low.BIf p (mapTerm f c) (mapTerm f c)
+    Low.BSwitch m cs d -> Low.BSwitch m (map (second (mapTerm f)) cs) (mapTerm f d)
+
+branchGetSomeTerm :: Low.Branch a -> a
+branchGetSomeTerm (Low.BIf _ c _) = Low.blockTerm c
+branchGetSomeTerm (Low.BSwitch _ _ d) = Low.blockTerm d
+
+sized :: (a -> b) -> b -> Sized a -> b
+sized f b = \case
+    ZeroSized -> b
+    Sized a -> f a
+
+sizedMaybe :: Sized a -> Maybe a
+sizedMaybe = \case
+    ZeroSized -> Nothing
+    Sized t -> Just t
+
+fromSized :: Sized a -> a
+fromSized = \case
+    ZeroSized -> ice "Lower.fromSized: was ZeroSized"
+    Sized x -> x
