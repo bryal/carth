@@ -8,6 +8,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Bifunctor (bimap)
+import Data.Bitraversable
 import Data.Foldable
 import Data.Functor
 import Data.List
@@ -603,7 +604,31 @@ lower noGC (Program (Topo defs) datas externs) =
                 bs' <- mapMaybeM (\(x, a) -> fmap (x, ) . sizedMaybe <$> lowerAccess a) bs
                 selectVarBindings selections bs'
                     `bindrBlockM'` \vars' -> withVars vars' (lowerExpr dest e)
-            DSwitch _span _selector _cs _def -> undefined
+            DSwitch _span selector cases default_ -> do
+                -- Type checker wouldn't let us switch on something zero-sized
+                selector' <- fromSized <$> lowerAccess selector
+                (m, selections') <- select selector' selections
+                Low.Block stms tag <- bindrBlockM m $ \m' -> case typeof m' of
+                    -- Either a pointer to a struct, representing a tagged union
+                    Low.TPtr (Low.TConst _) -> indexStruct 0 m'
+                    -- or an enum, which, as an integer, is its own "tag"
+                    _ -> pure (Low.Block [] m')
+                let litTagInt :: VariantIx -> Low.Const
+                    litTagInt = Low.CInt . case typeof tag of
+                        Low.TI8 -> Low.I8 . fromIntegral
+                        Low.TI16 -> Low.I16 . fromIntegral
+                        Low.TI32 -> Low.I32 . fromIntegral
+                        Low.TI64 -> Low.I64 . fromIntegral
+                        t ->
+                            ice
+                                $ "lowerDecisionTree: litTagInt: unexpected type "
+                                ++ show t
+                cases' <- mapM
+                    (bimapM (pure . litTagInt) (lowerDecisionTree selections'))
+                    (Map.toAscList cases)
+                default_' <- lowerDecisionTree selections' default_
+                let result = branchToDest dest (Low.BSwitch tag cases' default_')
+                pure $ Low.Block stms () `thenBlock` result
             DSwitchStr _selector _cs _def -> undefined
 
         select
@@ -965,7 +990,7 @@ dropTerm = mapTerm (const ())
 
 mapBranchTerm :: (a -> b) -> Low.Branch a -> Low.Branch b
 mapBranchTerm f = \case
-    Low.BIf p c a -> Low.BIf p (mapTerm f c) (mapTerm f c)
+    Low.BIf p c a -> Low.BIf p (mapTerm f c) (mapTerm f a)
     Low.BSwitch m cs d -> Low.BSwitch m (map (second (mapTerm f)) cs) (mapTerm f d)
 
 branchGetSomeTerm :: Low.Branch a -> a
