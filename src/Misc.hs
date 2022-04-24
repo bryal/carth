@@ -31,6 +31,9 @@ ice = error . ("Internal Compiler Error: " ++)
 nyi :: String -> a
 nyi = error . ("Not yet implemented: " ++)
 
+unreachable :: a
+unreachable = ice "unreachable"
+
 -- | Like `intercalate`, but concatenate a list with a prefix before each
 --   element, instead of an separator between each pair of elements.
 precalate :: [a] -> [[a]] -> [a]

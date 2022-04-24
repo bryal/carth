@@ -35,6 +35,10 @@ data Type
     | TFun [Param ()] Ret
     | TConst TypeId
     | TArray Type Word
+    -- Closures are represented as a builtin struct named "closure", with a generic
+    -- pointer to captures and a void-pointer representing the function. During lowering,
+    -- we still need to remember the "real" type of the function.
+    | TClosure [Param ()] Ret
   deriving (Eq, Ord, Show)
 
 type Access = Access' Type
@@ -188,6 +192,7 @@ sizeof tenv = \case
     TPtr _ -> wordsize
     VoidPtr -> wordsize
     TFun _ _ -> wordsize
+    TClosure _ _ -> 2 * wordsize
     TConst ix -> case fmap snd (tenv ix) of
         Nothing -> 0
         Just (DEnum vs) -> variantsTagBytes vs
