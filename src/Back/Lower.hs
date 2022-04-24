@@ -22,7 +22,7 @@ import qualified Data.Set as Set
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Word
-import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), (.=))
+import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), (.=), to)
 
 import Back.Low (typeof, LowInt(..))
 import qualified Back.Low as Low
@@ -72,6 +72,7 @@ makeLenses ''St
 data Env = Env
     { _localEnv :: Map TypedVar Low.Operand
     , _globalEnv :: Map TypedVar Low.Global
+    , _externEnv :: Map TypedVar Low.Extern
     }
 makeLenses ''Env
 
@@ -188,28 +189,93 @@ instance Destination Nowhere where
 
 lower :: Bool -> Program -> Low.Program
 lower noGC (Program (Topo defs) datas externs) =
-    let _externNames = map fst externs
-        (externs'', fs, gs, tenv) = run $ do
+    let externNames = map fst externs
+        (gfunDefs, gvarDefs) = partitionGlobDefs
+        (funLhss, funRhss) = unzip gfunDefs
+        (varLhss, varRhss) = unzip gvarDefs
+        ((externs', varDecls', names), fs, gs, tenv) = run $ do
             defineDatas
-            externs' <- lowerExterns
-            fs' <- mapM (uncurry (lowerFunDef []) . bimap tvName snd) funDefs
-            init <- defineInit
-            scribe outFunDefs (fs' ++ [init])
-            pure externs'
-    in  Low.Program fs externs'' (map lowerGVarDecl gvarDefs ++ gs) tenv undefined -- (resolveNameConflicts globNames externNames)
+            (externLhss, externDecls) <- unzip <$> lowerExterns
+            funIds <- mapM (newGName . tvName) funLhss
+            varIds <- mapM (newGName . tvName . fst) gvarDefs
+            varDecls <- zipWithM declareGlobVar varLhss varIds
+            withExterns (zip externLhss externDecls)
+                . withGlobFuns (zip funLhss funIds)
+                . withGlobVars (zip varLhss varDecls)
+                $ do
+                      fs' <- zipWithM (lowerFunDef []) funIds funRhss
+                      init <- defineInit (zip varDecls varRhss)
+                      scribe outFunDefs (fs' ++ [init])
+                      globalNames' <- Vec.fromList . toList <$> use globalNames
+                      pure
+                          ( externDecls
+                          , mapMaybe (fmap Low.GlobVarDecl . sizedMaybe) varDecls
+                          , resolveNameConflicts externNames globalNames'
+                          )
+    in  Low.Program fs externs' (varDecls' ++ gs) tenv names
   where
-    builtinNames = ["carth_init"] :: [String]
-    initNameIx = fromIntegral (fromJust (elemIndex "carth_init" builtinNames))
+    builtinNames :: Seq String
+    builtinNames = Seq.fromList ["carth_init"]
 
-    -- resolveNameConflicts :: [String] -> [String] -> Vector String
-    -- resolveNameConflicts = _
+    initName = fromIntegral (fromJust (Seq.elemIndexL "carth_init" builtinNames))
 
+    partitionGlobDefs :: ([(TypedVar, Fun)], [(TypedVar, Expr)])
+    partitionGlobDefs =
+        let defs' = defs >>= \case
+                VarDef d -> [d]
+                RecDefs ds -> map (second (second Fun)) ds
+        in  flip partitionWith defs' $ \(lhs, (_inst, e)) -> case e of
+                Fun f -> Left (lhs, f)
+                _ -> Right (lhs, e)
+
+    resolveNameConflicts :: [String] -> Low.VarNames -> Low.VarNames
+    resolveNameConflicts externNames globNames =
+        Vec.reverse . Vec.fromList . snd $ foldl'
+            (\(seen, acc) name ->
+                let n = fromMaybe (0 :: Word) (Map.lookup name seen)
+                    (n', name') = incrementUntilUnseen seen n name
+                in  (Map.insert name (n' + 1) seen, name' : acc)
+            )
+            (Map.fromList (zip externNames (repeat 1)), [])
+            (toList globNames)
+      where
+        incrementUntilUnseen seen n name =
+            let name' = if n == 0 then name else name ++ "_" ++ show n
+            in  if Map.member name' seen
+                    then incrementUntilUnseen seen (n + 1) name
+                    else (n, name')
+
+    -- FIXME: Generate wrappers that accept & ignore a captures parameter
     lowerExterns = forM (Map.toList Ast.builtinExterns ++ externs) $ \case
-        (name, TFun pts rt) -> do
+        (name, t@(TFun pts rt)) -> do
             (outParam, ret) <- toRet (pure ()) =<< lowerType rt
             ps <- lowerParamTypes pts
-            pure $ Low.ExternDecl name (maybe id (:) outParam ps) ret
+            pure (TypedVar name t, Low.ExternDecl name (maybe id (:) outParam ps) ret)
         (name, t) -> nyi $ "lower: Non-function externs: " ++ name ++ ", " ++ show t
+
+    declareGlobVar :: TypedVar -> Low.GlobalId -> Lower (Sized Low.GlobVarDecl)
+    declareGlobVar tv gid = mapSized (Low.Global gid) <$> lowerType (tvType tv)
+
+    withExterns :: [(TypedVar, Low.ExternDecl)] -> Lower a -> Lower a
+    withExterns es = locallySet
+        externEnv
+        (Map.fromList (map (second (\(Low.ExternDecl x ps r) -> Low.Extern x ps r)) es))
+
+    withGlobFuns :: [(TypedVar, Low.GlobalId)] -> Lower a -> Lower a
+    withGlobFuns fs ma = do
+        fs' <- forM fs $ \(tv, gid) ->
+            (tv, )
+                . Low.Global gid
+                . uncurry Low.TFun
+                . asTClosure
+                . fromSized
+                <$> lowerType (tvType tv)
+        augment globalEnv (Map.fromList fs') ma
+
+    withGlobVars :: [(TypedVar, Sized Low.GlobVarDecl)] -> Lower a -> Lower a
+    withGlobVars vs = augment
+        globalEnv
+        (Map.fromList (mapMaybe (\(tv, g) -> fmap (tv, ) (sizedMaybe g)) vs))
 
     run :: Lower a -> (a, [Low.FunDef], [Low.GlobDef], Vector Low.TypeDef)
     run la =
@@ -223,32 +289,32 @@ lower noGC (Program (Topo defs) datas externs) =
         initSt = St { _strLits = Map.empty
                     , _allocs = []
                     , _localNames = Seq.empty
-                    , _globalNames = Seq.empty
+                    , _globalNames = builtinNames
                     , _tconsts = Map.empty
                     , _tids = Seq.empty
                     , _tdefs = Map.empty
                     }
-        initEnv = Env { _localEnv = Map.empty, _globalEnv = Map.empty }
+        initEnv = Env { _localEnv = Map.empty
+                      , _globalEnv = Map.empty
+                      , _externEnv = Map.empty
+                      }
 
-    defineInit :: Lower Low.FunDef
-    defineInit = pure $ Low.FunDef initNameIx
-                                   []
-                                   Low.RetVoid
-                                   (Low.Block undefined undefined)
-                                   undefined
-                                   undefined
-    -- do
-        -- let name = mkName "carth_init"
-        -- let param = TypedVar "_" tUnit
-        -- let genDefs =
-        --         forM_ ds genDefineGlobVar *> commitFinalFuncBlock retVoid $> LLType.void
-        -- fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
+    defineInit :: [(Sized Low.Global, Expr)] -> Lower Low.FunDef
+    defineInit varDefs = do
+        block <- mapTerm (const Low.TRetVoid) . catBlocks <$> mapM defineGlobVar varDefs
+        localNames' <- replaceLocalNames Seq.empty
+        allocs' <- popAllocs
+        pure $ Low.FunDef initName [] Low.RetVoid block allocs' localNames'
 
-    lowerFunDef :: [TypedVar] -> String -> Fun -> Lower Low.FunDef
-    lowerFunDef freeLocalVars sname (ps, (body, rt)) = locallySet localEnv Map.empty $ do
+    defineGlobVar :: (Sized Low.Global, Expr) -> Lower (Low.Block ())
+    defineGlobVar (g, e) = case g of
+        Sized g' -> lowerExpr (There (Low.OGlobal g')) e
+        ZeroSized -> lowerExpr Nowhere e
+
+    lowerFunDef :: [TypedVar] -> Low.GlobalId -> Fun -> Lower Low.FunDef
+    lowerFunDef freeLocalVars name (ps, (body, rt)) = locallySet localEnv Map.empty $ do
         -- Gotta remember these for when we return to whichever scope we came from
         oldLocalNames <- use localNames
-        name <- newGName sname
         -- Zero-sized parameters don't actually get to exist in the Low IR and beyond
         (binds, innerParamIds, directParamTs) <-
             fmap (unzip3 . catMaybes) $ forM ps $ \p -> lowerType (tvType p) >>= \case
@@ -303,12 +369,15 @@ lower noGC (Program (Topo defs) datas externs) =
                         else (innerParamIds, mapTerm (\() -> Low.TRetVoid) body')
                 (Just _, Low.RetVal _) -> unreachable
         let body''' = Low.Block capturesStms () `thenBlock` body''
-        localNames' <- fmap (Vec.fromList . toList) $ localNames <<.= oldLocalNames
-        allocs' <- allocs <<.= []
+        localNames' <- replaceLocalNames oldLocalNames
+        allocs' <- popAllocs
         outerParams <- zipWithM sizedToParam outerParamIds directParamTs
         let params =
                 maybe id (:) outParam $ Low.ByVal capturesName Low.VoidPtr : outerParams
         pure $ Low.FunDef name params ret body''' allocs' localNames'
+
+    replaceLocalNames ns = fmap (Vec.fromList . toList) $ localNames <<.= ns
+    popAllocs = allocs <<.= []
 
     unpackCaptures
         :: Low.LocalId -> [TypedVar] -> Lower (Low.Block [(TypedVar, Low.Operand)])
@@ -494,7 +563,8 @@ lower noGC (Program (Topo defs) datas externs) =
     genLambda dest f = do
         (freeLocalVars, captures) <- captureFreeLocalVars f
         bindrBlockM captures $ \captures' -> do
-            fdef <- lowerFunDef freeLocalVars "fun" f
+            name <- newGName "fun"
+            fdef <- lowerFunDef freeLocalVars name f
             scribe outFunDefs [fdef]
             let fConcrete = Low.OGlobal $ funDefGlobal fdef
             fGeneric <- emit (Low.Expr (Low.Bitcast fConcrete Low.VoidPtr) Low.VoidPtr)
@@ -552,12 +622,10 @@ lower noGC (Program (Topo defs) datas externs) =
                 captures' <- emitNamed "captures" =<< gcAlloc (litI64 capturesSize)
                 bindBlockM (populateCaptures freeLocalVars) captures'
 
-
     typedVarsSizedTypes :: [TypedVar] -> Lower [(TypedVar, Low.Type)]
     typedVarsSizedTypes = mapMaybeM $ \v@(TypedVar _ t) -> lowerType t <&> \case
         Sized t' -> Just (v, t')
         ZeroSized -> Nothing
-
 
     gcAlloc :: Low.Operand -> Lower Low.Expr
     gcAlloc size =
@@ -575,7 +643,13 @@ lower noGC (Program (Topo defs) datas externs) =
     litI64 = Low.OConst . Low.CInt . Low.I64 . fromIntegral
 
     lookupVar :: TypedVar -> Lower (Sized Low.Operand)
-    lookupVar x = maybe ZeroSized Sized . Map.lookup x <$> view localEnv
+    lookupVar x = view (localEnv . to (Map.lookup x)) >>= \case
+        Just l -> pure (Sized l)
+        Nothing -> view (globalEnv . to (Map.lookup x)) >>= \case
+            Just g -> pure (Sized (Low.OGlobal g))
+            Nothing -> view (externEnv . to (Map.lookup x)) >>= \case
+                Just e -> pure (Sized (Low.OExtern e))
+                Nothing -> pure ZeroSized
 
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
@@ -599,8 +673,8 @@ lower noGC (Program (Topo defs) datas externs) =
             <$> callBuiltin "str-eq" [s1, s2]
 
     callBuiltin fname args = do
-        gs <- view globalEnv
-        let f = Low.OGlobal $ gs Map.! TypedVar fname (Ast.builtinExterns Map.! fname)
+        es <- view externEnv
+        let f = Low.OExtern $ es Map.! TypedVar fname (Ast.builtinExterns Map.! fname)
         pure $ case returnee (typeof f) of
             Low.RetVal t -> Left (Low.Expr (Low.Call f args) t)
             Low.RetVoid -> Right (Low.VoidCall f args)
@@ -797,17 +871,6 @@ lower noGC (Program (Topo defs) datas externs) =
 
     withVar :: TypedVar -> Low.Operand -> Lower a -> Lower a
     withVar lhs rhs = locally localEnv (Map.insert lhs rhs)
-
-    lowerGVarDecl :: (TypedVar, (Inst, Expr)) -> Low.GlobDef
-    lowerGVarDecl = undefined
-
-    (funDefs, gvarDefs) =
-        let defs' = defs >>= \case
-                VarDef d -> [d]
-                RecDefs ds -> map (second (second Fun)) ds
-        in  flip partitionWith defs' $ \(lhs, (ts, e)) -> case e of
-                Fun f -> Left (lhs, (ts, f))
-                _ -> Right (lhs, (ts, e))
 
     builtinTypeDefs =
         -- closure: pointer to captures struct & function pointer, genericized

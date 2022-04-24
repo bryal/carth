@@ -68,8 +68,10 @@ data Local = Local LocalId Type
     deriving Show
 data Global = Global GlobalId Type -- Type excluding the pointer
     deriving (Show, Eq)
+data Extern = Extern String [Param ()] Ret
+    deriving (Show, Eq)
 
-data Operand = OLocal Local | OGlobal Global | OConst Const deriving Show
+data Operand = OLocal Local | OGlobal Global | OConst Const | OExtern Extern deriving Show
 
 data Branch a
     = BIf Operand (Block a) (Block a)
@@ -145,9 +147,9 @@ data FunDef = FunDef
     deriving Show
 data ExternDecl = ExternDecl String [Param ()] Ret
     deriving Show
-data GlobDef
-    = GVarDef Global (Block Expr) VarNames
-    | GConstDef Global Const
+
+type GlobVarDecl = Global
+newtype GlobDef = GlobVarDecl GlobVarDecl
     deriving Show
 
 data Struct = Struct
@@ -229,6 +231,7 @@ instance TypeOf Operand where
         OLocal l -> typeof l
         OGlobal g -> typeof g
         OConst c -> typeof c
+        OExtern e -> typeof e
 
 instance TypeOf Expr where
     typeof (Expr _ t) = t
@@ -238,6 +241,9 @@ instance TypeOf Local where
 
 instance TypeOf Global where
     typeof (Global _ t) = TPtr t
+
+instance TypeOf Extern where
+    typeof (Extern _ ps r) = TFun ps r
 
 instance TypeOf Const where
     typeof = \case
