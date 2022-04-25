@@ -111,6 +111,11 @@ unsnoc = \case
         Just (ys, y) -> Just (x : ys, y)
         Nothing -> Just ([], x)
 
+deleteAt :: Int -> [a] -> [a]
+deleteAt 0 (_ : xs) = xs
+deleteAt i (x : xs) = x : deleteAt (i - 1) xs
+deleteAt _ _ = error "deleteAt at invalid index"
+
 takeWhileJust :: (a -> Maybe b) -> [a] -> [b]
 takeWhileJust f = \case
     [] -> []

@@ -10,10 +10,21 @@ import Front.Monomorphic (Access', VariantIx)
 
 data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
 
+mapParamName :: (nameA -> nameB) -> Param nameA -> Param nameB
+mapParamName f = \case
+    ByVal x t -> ByVal (f x) t
+    ByRef x t -> ByRef (f x) t
+
 dropParamName :: Param name -> Param ()
-dropParamName = \case
-    ByVal _ t -> ByVal () t
-    ByRef _ t -> ByRef () t
+dropParamName = mapParamName (const ())
+
+addParamName :: name -> Param () -> Param name
+addParamName x = mapParamName (const x)
+
+paramName :: Param name -> name
+paramName = \case
+    ByVal x _ -> x
+    ByRef x _ -> x
 
 data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
