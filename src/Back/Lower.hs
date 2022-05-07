@@ -544,11 +544,13 @@ lower noGC (Program (Topo defs) datas externs) =
             ZeroSized -> lowerExpr dest body
             Sized rhs' -> bindrBlockM' (emit rhs')
                 $ \rhs'' -> withVar lhs rhs'' (lowerExpr dest body)
-        Let (RecDefs defs) body -> (snd <$>) . mfix $ \(binds, _) -> withVars binds $ do
-            binds' <- fmap catBlocks . forM defs $ \(lhs, (_, f)) ->
-                mapTerm (lhs, ) <$> bindBlockM' emit (genLambda Here f)
-            body' <- lowerExpr dest body
-            pure (Low.blockTerm binds', dropTerm binds' `thenBlock` body')
+        Let (RecDefs defs) body -> (snd <$>) . mfix $ \result ->
+            let binds = fst result
+            in  withVars binds $ do
+                    binds' <- fmap catBlocks . forM defs $ \(lhs, (_, f)) ->
+                        mapTerm (lhs, ) <$> bindBlockM' emit (genLambda Here f)
+                    body' <- lowerExpr dest body
+                    pure (Low.blockTerm binds', dropTerm binds' `thenBlock` body')
         Match es dt -> lowerMatch dest es dt
         Ction (variantIx, span, tconst, xs) -> do
             tconsts' <- use tconsts
@@ -921,9 +923,8 @@ lower noGC (Program (Topo defs) datas externs) =
 
     defineDatas :: Lower ()
     defineDatas = do
-        (tids', _) <- mfix $ \(tids', tconsts') -> do
-            tids .= tids'
-            tconsts .= tconsts'
+        (tids'', tconsts'') <- mfix $ \result -> do
+            tids .= fst result
             bimap (Seq.fromList . (builtinTypeDefs ++)) Map.fromList . snd <$> foldlM
                 (\(i, (env, ids)) (inst@(name, _), variants) ->
                     fmap (bimap (i +) ((env, ids) <>))
@@ -937,7 +938,8 @@ lower noGC (Program (Topo defs) datas externs) =
                 )
                 (fromIntegral (length builtinTypeDefs), ([], []))
                 (Map.toList datas)
-        let tdefs' = Map.fromList $ zip (toList tids') [0 ..]
+        tconsts .= tconsts''
+        let tdefs' = Map.fromList $ zip (toList tids'') [0 ..]
         tdefs .= tdefs'
       where
         defineData
