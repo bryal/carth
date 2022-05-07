@@ -83,7 +83,7 @@ compile' f =
 frontend :: FilePath -> IO (Maybe Low.Program)
 frontend f = lexAndParse f <&> \case
     Nothing -> Nothing
-    Just ast -> fmap (lower . monomorphize) (rightToMaybe (typecheck ast))
+    Just ast -> fmap (lower True . monomorphize) (rightToMaybe (typecheck ast))
 
 lexAndParse :: FilePath -> IO (Maybe Parsed.Program)
 lexAndParse f = fmap rightToMaybe (runExceptT (lex' f >>= expandMacros' >>= parse''))

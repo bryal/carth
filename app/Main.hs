@@ -33,7 +33,7 @@ compileFile :: CompileConfig -> IO ()
 compileFile cfg = do
     let f = cInfile cfg
     putStrLn ("   Compiling " ++ f ++ "")
-    verbose cfg ("     Environment variables:")
+    verbose cfg "     Environment variables:"
     lp <- lookupEnv "LIBRARY_PATH"
     mp <- modulePaths
     verbose cfg ("       library path = " ++ show lp)
@@ -46,7 +46,7 @@ runFile :: RunConfig -> IO ()
 runFile cfg = do
     let f = rInfile cfg
     putStrLn ("   Running " ++ f ++ "")
-    verbose cfg ("     Environment variables:")
+    verbose cfg "     Environment variables:"
     mp <- modulePaths
     verbose cfg ("       module paths = " ++ show mp)
     mon <- frontend cfg f
@@ -56,28 +56,28 @@ runFile cfg = do
 frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
     let d = getDebug cfg
-    verbose cfg ("   Lexing")
+    verbose cfg "   Lexing"
     tts <- lex f
     when d $ writeFile ".dbg.lexd" (show tts)
-    verbose cfg ("   Expanding macros")
+    verbose cfg "   Expanding macros"
     tts' <- expandMacros f tts
     when d $ writeFile ".dbg.expanded" (show tts')
-    verbose cfg ("   Parsing")
+    verbose cfg "   Parsing"
     ast <- parse f tts'
-    verbose cfg ("   Typechecking")
+    verbose cfg "   Typechecking"
     ann <- typecheck' f ast
     when d $ writeFile ".dbg.checked" (show ann)
-    verbose cfg ("   Monomorphizing")
+    verbose cfg "   Monomorphizing"
     let mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
-    pure (lower mon)
+    pure (lower (getNoGC cfg) mon)
 
 lex :: FilePath -> IO [Lexd.TokenTree]
 lex f = runExceptT (Lex.lex f) >>= \case
     Left e -> putStrLn (formatLexErr e) >> abort f
     Right p -> pure p
   where
-    formatLexErr e = let ss = lines e in (unlines ((head ss ++ " Error:") : tail ss))
+    formatLexErr e = let ss = lines e in unlines ((head ss ++ " Error:") : tail ss)
 
 expandMacros :: FilePath -> [Lexd.TokenTree] -> IO [Lexd.TokenTree]
 expandMacros f tts = case runExcept (Macro.expandMacros tts) of

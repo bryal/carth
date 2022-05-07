@@ -53,6 +53,12 @@ secondM = bimapM pure
 mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
 mapMaybeM f xs = catMaybes <$> mapM f xs
 
+bindM2 :: Monad m => (a -> b -> m c) -> m a -> m b -> m c
+bindM2 f ma mb = do
+    a' <- ma
+    b' <- mb
+    f a' b'
+
 locallySet :: MonadReader s m => Lens' s a -> a -> m r -> m r
 locallySet l = locally l . const
 

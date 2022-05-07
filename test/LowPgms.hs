@@ -4,16 +4,16 @@ import Back.Low
 import qualified Data.Vector as Vec
 
 emptyPgm :: Program
-emptyPgm = Program [empty_carth_init, carth_main]
-                   [install_stackoverflow_handler]
+emptyPgm = Program [emptyCarthInit, carth_main]
+                   [installStackoverflowHandler]
                    []
                    (Vec.fromList [])
                    (Vec.fromList initNames)
     where carth_main = FunDef mainIx [] RetVoid (Block [] TRetVoid) [] (Vec.fromList [])
 
 printPgm :: Program
-printPgm = Program [empty_carth_init, carth_main]
-                   [install_stackoverflow_handler, printIntDecl]
+printPgm = Program [emptyCarthInit, carth_main]
+                   [installStackoverflowHandler, printIntDecl]
                    []
                    (Vec.fromList [])
                    (Vec.fromList initNames)
@@ -27,8 +27,8 @@ printPgm = Program [empty_carth_init, carth_main]
         (Vec.fromList [])
 
 factPgm :: Program
-factPgm = Program [empty_carth_init, carth_main, factDef]
-                  [install_stackoverflow_handler, printIntDecl]
+factPgm = Program [emptyCarthInit, carth_main, factDef]
+                  [installStackoverflowHandler, printIntDecl]
                   []
                   (Vec.fromList [])
                   (Vec.fromList (initNames ++ ["fact"]))
@@ -53,9 +53,12 @@ factPgm = Program [empty_carth_init, carth_main, factDef]
         (Block
             []
             (TBranch
-                (Switch
-                    (Local 1 TI64)
-                    [(CInt (I64 0), Block [] (TRetVal (OConst (CInt (I64 1)))))]
+                (BSwitch
+                    (OLocal (Local 1 TI64))
+                    [ ( CInt (I64 0)
+                      , Block [] (TRetVal (mkEOperand (OConst (CInt (I64 1)))))
+                      )
+                    ]
                     (Block
                         [ Let
                             (Local 2 TI64)
@@ -72,7 +75,7 @@ factPgm = Program [empty_carth_init, carth_main, factDef]
                                 TI64
                             )
                         ]
-                        (TRetVal (OLocal result))
+                        (TRetVal (mkEOperand (OLocal result)))
                     )
                 )
             )
@@ -83,8 +86,8 @@ factPgm = Program [empty_carth_init, carth_main, factDef]
     fact = OGlobal (Global factIx (TFun [ByVal () TI64] (RetVal TI64)))
 
 factLoopPgm :: Program
-factLoopPgm = Program [empty_carth_init, carth_main]
-                      [install_stackoverflow_handler, printIntDecl]
+factLoopPgm = Program [emptyCarthInit, carth_main]
+                      [installStackoverflowHandler, printIntDecl]
                       []
                       (Vec.fromList [])
                       (Vec.fromList initNames)
@@ -95,14 +98,15 @@ factLoopPgm = Program [empty_carth_init, carth_main]
         RetVoid
         (Block
             [ Let result
-            $ flip Expr TI64
-            $ Loop [(n, ci64 5), (prod, ci64 1)] TI64
+            . flip Expr TI64
+            . ELoop
+            . Loop [(n, ci64 5), (prod, ci64 1)]
             $ Block
                   []
                   (LBranch
-                      (Switch
-                          n
-                          [(CInt (I64 0), Block [] (Break (OLocal prod)))]
+                      (BSwitch
+                          (OLocal n)
+                          [(CInt (I64 0), Block [] (Break (mkEOperand (OLocal prod))))]
                           (Block
                               [ Let prod' (Expr (Mul (OLocal n) (OLocal prod)) TI64)
                               , Let n' (Expr (Sub (OLocal n) (ci64 1)) TI64)
@@ -126,8 +130,8 @@ factLoopPgm = Program [empty_carth_init, carth_main]
 ci64 :: Int -> Operand
 ci64 = OConst . CInt . I64
 
-install_stackoverflow_handler :: ExternDecl
-install_stackoverflow_handler = ExternDecl "install_stackoverflow_handler" [] RetVoid
+installStackoverflowHandler :: ExternDecl
+installStackoverflowHandler = ExternDecl "install_stackoverflow_handler" [] RetVoid
 
 printIntOperand :: Operand
 printIntOperand = OGlobal (Global printIntIx (TFun [ByVal () TI64] RetVoid))
@@ -143,8 +147,8 @@ printIntIx = 2
 initNames :: [String]
 initNames = ["carth_main", "carth_init", "-print-int"]
 
-empty_carth_init :: FunDef
-empty_carth_init = FunDef initIx [] RetVoid (Block [] TRetVoid) [] (Vec.fromList [])
+emptyCarthInit :: FunDef
+emptyCarthInit = FunDef initIx [] RetVoid (Block [] TRetVoid) [] (Vec.fromList [])
         -- [ LL.Do (callNamed "install_stackoverflow_handler" [] LL.void)
         -- , LL.Do (callNamed "carth_init" [] LL.void)
         -- , LL.Do (callNamed "carth_main" [] LL.void)

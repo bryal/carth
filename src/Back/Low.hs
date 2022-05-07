@@ -234,6 +234,9 @@ alignmentof tenv = \case
 alignmentofStruct :: (TypeId -> Maybe TypeDef) -> [Type] -> Word
 alignmentofStruct tenv = maximum . map (alignmentof tenv)
 
+mkEOperand :: Operand -> Expr
+mkEOperand op = Expr (EOperand op) (typeof op)
+
 class TypeOf a where
     typeof :: a -> Type
 
