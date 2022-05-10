@@ -7,6 +7,7 @@ module Front.Monomorphic
     , Span
     , tUnit
     , Virt (..)
+    , Access' (..)
     )
 where
 
@@ -15,11 +16,10 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Word
 
 import FreeVars
 import Misc
-import Front.Checked (VariantIx, Span, Virt (..))
+import Front.Checked (VariantIx, Span, Virt (..), Access' (..))
 import Front.Parsed (Const(..))
 import Front.TypeAst hiding (TConst)
 import qualified Front.TypeAst as TypeAst
@@ -40,13 +40,6 @@ data TypedVar = TypedVar
     deriving (Show, Eq, Ord)
 
 type VariantTypes = [Type]
-
-data Access' t
-    = TopSel Word32
-    | As (Access' t) Span VariantIx [t]
-    | Sel Word32 Span (Access' t)
-    | ADeref (Access' t)
-    deriving (Show, Eq, Ord)
 
 type Access = Access' Type
 
@@ -98,7 +91,7 @@ instance TypeAst Type where
 
 instance Functor Access' where
     fmap f = \case
-        TopSel i -> TopSel i
+        TopSel i t -> TopSel i (f t)
         As a s i ts -> As (fmap f a) s i (map f ts)
         Sel i s a -> Sel i s (fmap f a)
         ADeref a -> ADeref (fmap f a)

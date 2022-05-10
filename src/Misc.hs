@@ -117,6 +117,9 @@ unsnoc = \case
         Just (ys, y) -> Just (x : ys, y)
         Nothing -> Just ([], x)
 
+lastMay :: [a] -> Maybe a
+lastMay = fmap snd . unsnoc
+
 deleteAt :: Int -> [a] -> [a]
 deleteAt 0 (_ : xs) = xs
 deleteAt i (x : xs) = x : deleteAt (i - 1) xs

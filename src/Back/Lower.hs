@@ -4,9 +4,7 @@ module Back.Lower (lower) where
 
 import Control.Arrow
 import Control.Monad
-import Control.Monad.Reader
-import Control.Monad.State
-import Control.Monad.Writer
+import Control.Monad.RWS
 import Data.Bifunctor (bimap)
 import Data.Bitraversable
 import Data.Either
@@ -88,7 +86,7 @@ instance Semigroup Out where
 instance Monoid Out where
     mempty = Out []
 
-type Lower = WriterT Out (StateT St (Reader Env))
+type Lower = RWS Env Out St
 
 -- | A potentially not yet emitted&named operand
 -- type PartialOperand = Either Low.Expr Low.Operand
@@ -249,7 +247,7 @@ lower noGC (Program (Topo defs) datas externs) =
     -- In addition to lowering the extern declaration directly, also generates a wrapping
     -- function that accepts & discards a closure captures parameter.
     lowerExterns :: Lower [(TypedVar, (Low.ExternDecl, Low.FunDef))]
-    lowerExterns = forM (Map.toList Ast.builtinExterns ++ externs) $ \case
+    lowerExterns = forM externs $ \case
         (name, t@(TFun pts rt)) -> do
             (outParam, ret) <- toRet (pure ()) =<< lowerType rt
             ps <- lowerParamTypes pts
@@ -314,7 +312,7 @@ lower noGC (Program (Topo defs) datas externs) =
 
     run :: Lower a -> (a, [Low.FunDef], Vector Low.TypeDef)
     run la =
-        let ((a, out), st) = runReader (runStateT (runWriterT la) initSt) initEnv
+        let (a, st, out) = runRWS la initEnv initSt
         in  (a, view outFunDefs out, Vec.fromList (toList (view tids st)))
       where
         initSt = St { _strLits = Map.empty
@@ -428,9 +426,10 @@ lower noGC (Program (Topo defs) datas externs) =
 
     isTailRec_RetVoid self = go
       where
-        go (Low.Block stms ()) = case last stms of
-            Low.VoidCall (Low.OGlobal (Low.Global other _)) _ | other == self -> True
-            Low.SBranch br -> goBranch br
+        go (Low.Block stms ()) = case lastMay stms of
+            Just (Low.VoidCall (Low.OGlobal (Low.Global other _)) _) | other == self ->
+                True
+            Just (Low.SBranch br) -> goBranch br
             _ -> False
         goBranch = \case
             Low.BIf _ b1 b2 -> go b1 || go b2
@@ -733,7 +732,7 @@ lower noGC (Program (Topo defs) datas externs) =
 
         topSelections :: [Sized Low.Operand] -> Map Low.Access Low.Operand
         topSelections xs = Map.fromList . catMaybes $ zipWith
-            (\i x -> (TopSel i, ) <$> sizedMaybe x)
+            (\i x -> fmap (\x' -> (TopSel i (typeof x'), x')) (sizedMaybe x))
             [0 ..]
             xs
 
@@ -801,7 +800,12 @@ lower noGC (Program (Topo defs) datas externs) =
             Just a -> pure (Low.Block [] a, selections)
             Nothing -> do
                 (ba, selections') <- case selector of
-                    TopSel _ -> ice "select: TopSel not in selections"
+                    TopSel _ _ ->
+                        ice
+                            $ "select: TopSel not in selections\nselector: "
+                            ++ show selector
+                            ++ "\nselections: "
+                            ++ show selections
                     As x span' i _ts -> do
                         (ba', s') <- select x selections
                         ba'' <- bindrBlockM ba'
@@ -852,7 +856,7 @@ lower noGC (Program (Topo defs) datas externs) =
 
     lowerAccess :: Access -> Lower (Sized Low.Access)
     lowerAccess = \case
-        TopSel i -> pure . Sized $ TopSel i
+        TopSel i t -> mapSized (TopSel i) <$> lowerType t
         As a span vi vts ->
             mapSizedM (\a' -> As a' span vi <$> lowerSizedTypes vts) =<< lowerAccess a
         Sel i span a -> mapSized (Sel i span) <$> lowerAccess a
@@ -911,7 +915,10 @@ lower noGC (Program (Topo defs) datas externs) =
     builtinTypeDefs =
         -- closure: pointer to captures struct & function pointer, genericized
         [ ( "closure"
-          , Low.DStruct (Low.Struct [Low.VoidPtr, Low.VoidPtr] (wordsize * 2) wordsize)
+          , Low.DStruct Low.Struct { Low.structMembers = [Low.VoidPtr, Low.VoidPtr]
+                                   , Low.structAlignment = wordsize
+                                   , Low.structSize = wordsize * 2
+                                   }
           )
         ]
 

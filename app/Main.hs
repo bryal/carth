@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, BangPatterns #-}
 
 module Main (main) where
 
@@ -38,7 +38,7 @@ compileFile cfg = do
     mp <- modulePaths
     verbose cfg ("       library path = " ++ show lp)
     verbose cfg ("       module paths = " ++ show mp)
-    mon <- frontend cfg f
+    !mon <- frontend cfg f
     compile f cfg mon
     putStrLn ""
 
@@ -49,7 +49,7 @@ runFile cfg = do
     verbose cfg "     Environment variables:"
     mp <- modulePaths
     verbose cfg ("       module paths = " ++ show mp)
-    mon <- frontend cfg f
+    !mon <- frontend cfg f
     run f cfg mon
     putStrLn ""
 
@@ -57,20 +57,22 @@ frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
     let d = getDebug cfg
     verbose cfg "   Lexing"
-    tts <- lex f
+    !tts <- lex f
     when d $ writeFile ".dbg.lexd" (show tts)
     verbose cfg "   Expanding macros"
-    tts' <- expandMacros f tts
+    !tts' <- expandMacros f tts
     when d $ writeFile ".dbg.expanded" (show tts')
     verbose cfg "   Parsing"
-    ast <- parse f tts'
+    !ast <- parse f tts'
     verbose cfg "   Typechecking"
-    ann <- typecheck' f ast
+    !ann <- typecheck' f ast
     when d $ writeFile ".dbg.checked" (show ann)
     verbose cfg "   Monomorphizing"
-    let mon = monomorphize ann
+    let !mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
-    pure (lower (getNoGC cfg) mon)
+    verbose cfg "   Lowering"
+    let !low = lower (getNoGC cfg) mon
+    pure low
 
 lex :: FilePath -> IO [Lexd.TokenTree]
 lex f = runExceptT (Lex.lex f) >>= \case

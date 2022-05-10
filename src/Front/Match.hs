@@ -4,7 +4,7 @@
 --   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
 --   additional checks for exhaustiveness and redundancy described in section
 --   7.4.
-module Front.Match (toDecisionTree, Span, Con(..), Access(..), MTypeDefs) where
+module Front.Match (toDecisionTree, Span, Con(..), Access'(..), MTypeDefs) where
 
 import Prelude hiding (span)
 import qualified Data.Set as Set
@@ -154,7 +154,7 @@ match obj descr ctx work rhs rules = \case
                 conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs = args pcon $ \i ->
+            getoargs = args pcon $ \i _ ->
                 Sel i (span pcon) (As obj (span pcon) (variantIx pcon) (argTs pcon))
 
             variantIx = variant >>> \case
@@ -163,7 +163,7 @@ match obj descr ctx work rhs rules = \case
 
             getdargs :: [Descr]
             getdargs = case descr of
-                Neg _ -> args pcon (const (Neg Set.empty))
+                Neg _ -> args pcon (const (const (Neg Set.empty)))
                 Pos _ dargs -> dargs
         in
             case staticMatch pcon descr of
@@ -179,17 +179,17 @@ matchFunPats
 matchFunPats descr ctx work rhs rules (FunPats pats) =
     let ts = map (\(Pat _ t _) -> t) pats
         con = Con { variant = VariantIx 0, span = 1, argTs = ts }
-        getoargs = args con $ \i -> TopSel i
+        getoargs = args con TopSel
         getdargs = case descr of
             -- TODO: Does this case ever happen? If the descr refers to the function
             --       pattern list, then there's only one variant to speak of, and
             --       therefore Pos by default, right?
-            Neg _ -> args con (const (Neg Set.empty))
+            Neg _ -> args con (const (const (Neg Set.empty)))
             Pos _ dargs -> dargs
     in  conjunct ((con, []) : ctx) rhs rules ((pats, getoargs, getdargs) : work)
 
-args :: Con -> (Word32 -> a) -> [a]
-args con f = map (f . fromIntegral) [0 .. arity con - 1] where arity = length . argTs
+args :: Con -> (Word32 -> Type -> a) -> [a]
+args con f = zipWith f [0 ..] (argTs con)
 
 conjunct :: Ctx -> Rhs -> [(FunPats, Rhs)] -> Work -> Match DecisionTree'
 conjunct ctx rhs@(casePos, binds, e) rules = \case

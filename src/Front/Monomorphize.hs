@@ -195,7 +195,7 @@ monoDecisionTree = \case
 
 monoAccess :: Checked.Access -> Mono Access
 monoAccess = \case
-    Checked.TopSel i -> pure (TopSel i)
+    Checked.TopSel i t -> TopSel i <$> monotype t
     Checked.As a span' i ts -> do
         a' <- monoAccess a
         ts' <- mapM monotype ts
