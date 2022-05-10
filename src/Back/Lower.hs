@@ -930,23 +930,23 @@ lower noGC (Program (Topo defs) datas externs) =
 
     defineDatas :: Lower ()
     defineDatas = do
-        (tids'', tconsts'') <- mfix $ \result -> do
+        (tids', _) <- mfix $ \result -> do
             tids .= fst result
+            tconsts .= snd result
             bimap (Seq.fromList . (builtinTypeDefs ++)) Map.fromList . snd <$> foldlM
-                (\(i, (env, ids)) (inst@(name, _), variants) ->
-                    fmap (bimap (i +) ((env, ids) <>))
-                        $ defineData i name variants
-                        <&> \case
-                                Nothing -> (0, ([], []))
-                                Just (outer, inners) ->
-                                    ( 1 + fromIntegral (length inners)
-                                    , ((name, outer) : inners, [(inst, i)])
-                                    )
+                (\(i, (env, ids)) (inst@(name, _), variants) -> do
+                    def <- defineData i name variants
+                    let (n, (env2, ids2)) = case def of
+                            Nothing -> (0, ([], []))
+                            Just (outer, inners) ->
+                                ( 1 + fromIntegral (length inners)
+                                , ((name, outer) : inners, [(inst, i)])
+                                )
+                    pure (i + n, (env ++ env2, ids ++ ids2))
                 )
                 (fromIntegral (length builtinTypeDefs), ([], []))
                 (Map.toList datas)
-        tconsts .= tconsts''
-        let tdefs' = Map.fromList $ zip (toList tids'') [0 ..]
+        let tdefs' = Map.fromList $ zip (toList tids') [0 ..]
         tdefs .= tdefs'
       where
         defineData
@@ -955,17 +955,22 @@ lower noGC (Program (Topo defs) datas externs) =
             -> [(String, VariantTypes)]
             -> Lower (Maybe (Low.TypeDef', [Low.TypeDef]))
         defineData typeId0 name variants = do
-            let variantNames = map fst variants
-            variantTypess <- mapM (lowerSizedTypes . snd) variants
+            let (variantNames, variantTypess) = unzip variants
+            -- Don't do lowerSizedTypes already here and match on its result. That would
+            -- cause infinite recursion.
             case variantTypess of
                 [] -> pure Nothing -- Uninhabited type
-                [[]] -> pure Nothing
-                [ts] -> Just . (, []) <$> structDef ts
-                _ | all null variantTypess ->
+                [ts]
+                    | any isSized ts
+                    -> fmap (Just . (, [])) $ structDef =<< lowerSizedTypes ts
+                    | otherwise
+                    -> pure Nothing
+                _ | not (any (any isSized) variantTypess) ->
                     pure $ Just (Low.DEnum (Vec.fromList variantNames), [])
                 _ -> do
-                    aMax <- maximum <$> mapM alignmentofStruct variantTypess
-                    sMax <- maximum <$> mapM sizeofStruct variantTypess
+                    tss <- mapM lowerSizedTypes variantTypess
+                    aMax <- maximum <$> mapM alignmentofStruct tss
+                    sMax <- maximum <$> mapM sizeofStruct tss
                     let variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
                         sTag = variantsTagBits variants' :: Word
                         tag = if
@@ -978,8 +983,15 @@ lower noGC (Program (Topo defs) datas externs) =
                     outerStruct <- structDef [tag, Low.TConst unionId]
                     let innerUnion =
                             (name ++ "_union", Low.DUnion $ Low.Union variants' sMax aMax)
-                    variantStructs <- zip variantNames <$> mapM structDef variantTypess
+                    variantStructs <- zip variantNames <$> mapM structDef tss
                     pure $ Just (outerStruct, innerUnion : variantStructs)
+
+        isSized :: Type -> Bool
+        isSized = \case
+            TPrim _ -> True
+            TFun _ _ -> True
+            TBox _ -> True
+            TConst x -> any (any isSized . snd) (datas Map.! x)
 
     defineStruct :: String -> [(String, Low.Type)] -> Lower Low.Type
     defineStruct name members = do
