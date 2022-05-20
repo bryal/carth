@@ -3,7 +3,6 @@ module Back.Low (module Back.Low, Access') where
 import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as Vec
-import Data.Int
 
 import Sizeof hiding (sizeof)
 import Front.Monomorphic (Access', VariantIx)
@@ -34,10 +33,7 @@ data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 --   particular, LLVM is kind of bad at handling {} as a ZST, and fails to optimize tail
 --   calls returning {} in my experience.
 data Type
-    = TI8
-    | TI16
-    | TI32
-    | TI64
+    = TInt { tintBits :: Word }
     | TF32
     | TF64
     | TPtr Type
@@ -54,11 +50,10 @@ data Type
 
 type Access = Access' Type
 
-data LowInt
-    = I8 Int8
-    | I16 Int16
-    | I32 Int32
-    | I64 Prelude.Int
+data LowInt = LowInt
+    { intBits :: Word
+    , intVal :: Integer
+    }
     deriving Show
 
 data Const
@@ -196,10 +191,7 @@ typeName ds i = fst (ds Vec.! fromIntegral i)
 
 sizeof :: (TypeId -> Maybe TypeDef) -> Type -> Word
 sizeof tenv = \case
-    TI8 -> 1
-    TI16 -> 2
-    TI32 -> 4
-    TI64 -> 8
+    TInt { tintBits = n } -> div n 8
     TF32 -> 4
     TF64 -> 8
     TPtr _ -> wordsize
@@ -270,11 +262,7 @@ instance TypeOf Const where
         Zero t -> t
 
 instance TypeOf LowInt where
-    typeof = \case
-        I8 _ -> TI8
-        I16 _ -> TI16
-        I32 _ -> TI32
-        I64 _ -> TI64
+    typeof LowInt { intBits = n } = TInt { tintBits = n }
 
 instance (TypeOf a, TypeOf b) => TypeOf (Either a b) where
     typeof = either typeof typeof

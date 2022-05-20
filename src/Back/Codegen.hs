@@ -164,11 +164,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             t' -> LL.AggregateZero t'
 
     genInt :: LowInt -> LL.Constant
-    genInt = \case
-        I8 n -> LL.Int 8 (fromIntegral n)
-        I16 n -> LL.Int 16 (fromIntegral n)
-        I32 n -> LL.Int 32 (fromIntegral n)
-        I64 n -> LL.Int 64 (fromIntegral n)
+    genInt LowInt { intBits = b, intVal = v } = LL.Int (fromIntegral b) v
 
     defineFun :: FunDef -> Definition
     defineFun (FunDef ident ps r block allocs lnames) =
@@ -477,10 +473,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
     genType :: Low.Type -> LL.Type
     genType = \case
-        TI8 -> LL.IntegerType 8
-        TI16 -> LL.IntegerType 16
-        TI32 -> LL.IntegerType 32
-        TI64 -> LL.IntegerType 64
+        TInt { tintBits = n } -> LL.IntegerType (fromIntegral n)
         TF32 -> LL.FloatingPointType LL.FloatFP
         TF64 -> LL.FloatingPointType LL.DoubleFP
         TPtr u -> LL.ptr (genType u)

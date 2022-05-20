@@ -609,13 +609,8 @@ lower noGC (Program (Topo defs) datas externs) =
                 populateStruct [captures', fGeneric'] ptr <&> mapTerm (const x)
 
     lowerTag :: Span -> VariantIx -> Low.Operand
-    lowerTag span variantIx = Low.OConst . Low.CInt $ case tagBits span :: Int of
-        8 -> I8 (fromIntegral variantIx)
-        16 -> I16 (fromIntegral variantIx)
-        32 -> I32 (fromIntegral variantIx)
-        64 -> I64 (fromIntegral variantIx)
-        n -> ice $ "lowerTag: tagBits = " ++ show n
-
+    lowerTag span variantIx =
+        Low.OConst . Low.CInt $ LowInt { intBits = tagBits span, intVal = variantIx }
     populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block Low.Operand)
     populateStruct vs dst = foldrM
         (\(i, v) rest ->
@@ -673,7 +668,7 @@ lower noGC (Program (Topo defs) datas externs) =
 
     operandToExpr x = Low.Expr (Low.EOperand x) (typeof x)
 
-    litI64 = Low.OConst . Low.CInt . Low.I64 . fromIntegral
+    litI64 = Low.OConst . Low.CInt . LowInt 64 . fromIntegral
 
     lookupVar :: TypedVar -> Lower (Sized Low.Operand)
     lookupVar x = view (localEnv . to (Map.lookup x)) >>= \case
@@ -686,7 +681,8 @@ lower noGC (Program (Topo defs) datas externs) =
 
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
-        Int n -> pure (Low.OConst (Low.CInt (Low.I64 n)))
+        Int n -> pure
+            (Low.OConst (Low.CInt (LowInt { intBits = 64, intVal = fromIntegral n })))
         F64 x -> pure (Low.OConst (Low.F64 x))
         Str s -> internStr s <&> \s' -> Low.OGlobal s'
 
@@ -755,10 +751,7 @@ lower noGC (Program (Topo defs) datas externs) =
                     _ -> pure (Low.Block [] m')
                 let litTagInt :: VariantIx -> Low.Const
                     litTagInt = Low.CInt . case typeof tag of
-                        Low.TI8 -> Low.I8 . fromIntegral
-                        Low.TI16 -> Low.I16 . fromIntegral
-                        Low.TI32 -> Low.I32 . fromIntegral
-                        Low.TI64 -> Low.I64 . fromIntegral
+                        Low.TInt { Low.tintBits = n } -> LowInt n
                         t ->
                             ice
                                 $ "lowerDecisionTree: litTagInt: unexpected type "
@@ -974,10 +967,10 @@ lower noGC (Program (Topo defs) datas externs) =
                     let variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
                         sTag = variantsTagBits variants' :: Word
                         tag = if
-                            | sTag <= 8 -> Low.TI8
-                            | sTag <= 16 -> Low.TI16
-                            | sTag <= 32 -> Low.TI32
-                            | sTag <= 64 -> Low.TI64
+                            | sTag <= 8 -> Low.TInt 8
+                            | sTag <= 16 -> Low.TInt 16
+                            | sTag <= 32 -> Low.TInt 32
+                            | sTag <= 64 -> Low.TInt 64
                             | otherwise -> ice "Lower.defineData: tag > 64 bits"
                         unionId = typeId0 + 1
                     outerStruct <- structDef [tag, Low.TConst unionId]
@@ -1066,10 +1059,10 @@ lower noGC (Program (Topo defs) datas externs) =
         genIntT :: Word32 -> Sized Low.Type
         genIntT w = if
             | w == 0 -> ZeroSized
-            | w <= 8 -> Sized Low.TI8
-            | w <= 16 -> Sized Low.TI16
-            | w <= 32 -> Sized Low.TI32
-            | w <= 64 -> Sized Low.TI64
+            | w <= 8 -> Sized (Low.TInt 8)
+            | w <= 16 -> Sized (Low.TInt 16)
+            | w <= 32 -> Sized (Low.TInt 32)
+            | w <= 64 -> Sized (Low.TInt 64)
             | otherwise -> ice "Lower.lowerType: integral type larger than 64-bit"
 
     pointee = \case
