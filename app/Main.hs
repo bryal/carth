@@ -8,6 +8,7 @@ import Control.Monad.Except
 import Prelude hiding (lex)
 
 import Misc
+import Pretty
 import qualified Front.Err as Err
 import qualified Front.Lexd as Lexd
 import qualified Front.Parsed as Parsed
@@ -72,6 +73,7 @@ frontend cfg f = do
     when d $ writeFile ".dbg.mono" (show mon)
     verbose cfg "   Lowering"
     let !low = lower (getNoGC cfg) mon
+    when d $ writeFile ".dbg.low" (pretty low)
     pure low
 
 lex :: FilePath -> IO [Lexd.TokenTree]

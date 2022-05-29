@@ -1,11 +1,14 @@
 module Back.Low (module Back.Low, Access') where
 
+import Data.List (intercalate)
 import Data.Maybe
 import Data.Vector (Vector)
 import Numeric.Natural
 import qualified Data.Vector as Vec
 
+import Misc
 import Sizeof hiding (sizeof)
+import Pretty
 import Front.Monomorphic (Access', VariantIx)
 
 data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
@@ -312,3 +315,166 @@ instance Semigroup a => Semigroup (Block a) where
 
 instance Monoid a => Monoid (Block a) where
     mempty = Block [] mempty
+
+instance Pretty Program where
+    pretty' _ = prettyProgram
+
+prettyProgram :: Program -> String
+prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
+    intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs))
+        ++ "\n\n"
+        ++ intercalate "\n" (map pEdecl edecls)
+        ++ "\n\n"
+        ++ intercalate "\n" (map pGdef gdefs)
+        ++ "\n\n"
+        ++ intercalate "\n\n" (map pFdef fdefs)
+  where
+    pTdef name = \case
+        DEnum vs ->
+            ("enum " ++ name ++ " {")
+                ++ concatMap ((++ ",") . ("\n    " ++)) (Vec.toList vs)
+                ++ "\n}"
+        DStruct (Struct ts a s) ->
+            ("struct " ++ name ++ " {")
+                ++ concat
+                       (zipWith
+                           (\i t -> "\n    m" ++ show i ++ ": " ++ pType t ++ ",")
+                           [0 :: Word ..]
+                           ts
+                       )
+                ++ ("\n} // alignment: " ++ show a ++ ", size: " ++ show s)
+        DUnion (Union vs gs ga) ->
+            ("union " ++ name ++ " {")
+                ++ concatMap (\(x, ti) -> "\n    " ++ x ++ ": " ++ typeName ti ++ ",")
+                             (Vec.toList vs)
+                ++ ("\n} // greatest size: " ++ show gs)
+                ++ (", greatest alignment: " ++ show ga)
+    pType = \case
+        TInt width -> "i" ++ show width
+        TNat width -> "n" ++ show width
+        TF32 -> "f32"
+        TF64 -> "f64"
+        TPtr t -> "*" ++ pType t
+        VoidPtr -> "*void"
+        TFun params ret ->
+            "fun(" ++ intercalate ", " (map pAnonParam params) ++ ") -> " ++ pRet ret
+        TConst ti -> typeName ti
+        TArray t n -> "[" ++ pType t ++ "; " ++ show n ++ "]"
+        TClosure params ret ->
+            "clo(" ++ intercalate ", " (map pAnonParam params) ++ ") -> " ++ pRet ret
+    typeName ti = fst $ tdefs Vec.! fromIntegral ti
+    pEdecl (ExternDecl name params ret) =
+        ("extern " ++ name ++ "(")
+            ++ intercalate ", " (map pAnonParam params)
+            ++ (") -> " ++ pRet ret ++ ";")
+    pAnonParam = pType . paramType
+    pRet = \case
+        RetVal t -> pType t
+        RetVoid -> "void"
+    pFdef f =
+        ("fun @" ++ gname (funDefName f) ++ "(")
+            ++ intercalate ", " (map pParam (funDefParams f))
+            ++ (") -> " ++ pRet (funDefRet f) ++ " {")
+            ++ precalate "\n    " (map pAlloc (funDefAllocs f))
+            ++ (if null (funDefAllocs f) then "" else "\n    ")
+            ++ pBlock' 4 pTerm (funDefBody f)
+            ++ "\n}"
+      where
+        pParam p = lname (paramName p) ++ ": " ++ pType (paramType p)
+        pAlloc (lid, t) = "var %" ++ lname lid ++ ": " ++ pType t ++ ";"
+        pBlock :: Int -> (Int -> term -> String) -> Block term -> String
+        pBlock d pTerm' blk =
+            "{" ++ pBlock' (d + 4) pTerm' blk ++ ("\n" ++ indent d ++ "}")
+        pBlock' :: Int -> (Int -> term -> String) -> Block term -> String
+        pBlock' d pTerm' (Block stms term) =
+            precalate ("\n" ++ indent d) (map (pStm d) stms)
+                ++ ("\n" ++ indent d)
+                ++ pTerm' d term
+        pTerm d = \case
+            TRetVal e -> "return " ++ pExpr d e ++ ";"
+            TRetVoid -> "return void;"
+            TBranch br -> pBranch d pTerm br
+        pStm d = \case
+            Let lhs e ->
+                ("let " ++ pLocal lhs)
+                    ++ (": " ++ pType (eType e))
+                    ++ (" = " ++ pExpr (d + 4) e ++ ";")
+            Store x dst -> "store " ++ pOp x ++ " -> " ++ pOp dst ++ ";"
+            VoidCall f as ->
+                "call " ++ pOp f ++ "(" ++ intercalate ", " (map pOp as) ++ ");"
+            SLoop lp -> pLoop d (\_ () -> "") lp
+            SBranch br -> pBranch d (\_ () -> "") br
+        pBranch :: Int -> (Int -> term -> String) -> Branch term -> String
+        pBranch d pTerm' = \case
+            BIf p c a ->
+                ("if " ++ pOp p)
+                    ++ (" " ++ pBlock d pTerm' c)
+                    ++ (" else " ++ pBlock d pTerm' a)
+            BSwitch m cs def ->
+                "switch "
+                    ++ pOp m
+                    ++ " {"
+                    ++ precalate ("\n" ++ indent d) (map (pCase d pTerm') cs)
+                    ++ "default "
+                    ++ pBlock (d + 4) pTerm' def
+        pCase :: Int -> (Int -> term -> String) -> (Const, Block term) -> String
+        pCase d pTerm' (c, blk) = "case " ++ pConst c ++ " " ++ pBlock d pTerm' blk
+        -- [(Local, Operand)] (Block (LoopTerminator a))
+        pLoop :: Int -> (Int -> a -> String) -> Loop a -> String
+        pLoop d pTerm' (Loop args body) =
+            ("loop (" ++ intercalate ", " (map pLoopArg args) ++ ") ")
+                ++ pBlock d (pLoopTerm pTerm') body
+        pLoopArg (lhs, rhs) = pLocal lhs ++ " = " ++ pOp rhs
+        pLoopTerm :: (Int -> term -> String) -> Int -> LoopTerminator term -> String
+        pLoopTerm pTerm' d = \case
+            Continue vs -> "continue (" ++ intercalate ", " (map pOp vs) ++ ");"
+            Break a -> pTerm' d a
+            LBranch br -> pBranch d (pLoopTerm pTerm') br
+        pExpr d (Expr e t) = case e of
+            EOperand op -> pOp op
+            Add a b -> pOp a ++ " + " ++ pOp b
+            Sub a b -> pOp a ++ " - " ++ pOp b
+            Mul a b -> pOp a ++ " * " ++ pOp b
+            Div a b -> pOp a ++ " / " ++ pOp b
+            Rem a b -> pOp a ++ " % " ++ pOp b
+            Shl a b -> pOp a ++ " << " ++ pOp b
+            LShr a b -> pOp a ++ " l>> " ++ pOp b
+            AShr a b -> pOp a ++ " a>> " ++ pOp b
+            BAnd a b -> pOp a ++ " & " ++ pOp b
+            BOr a b -> pOp a ++ " | " ++ pOp b
+            BXor a b -> pOp a ++ " x| " ++ pOp b
+            Eq a b -> pOp a ++ " == " ++ pOp b
+            Ne a b -> pOp a ++ " != " ++ pOp b
+            Gt a b -> pOp a ++ " > " ++ pOp b
+            GtEq a b -> pOp a ++ " >= " ++ pOp b
+            Lt a b -> pOp a ++ " < " ++ pOp b
+            LtEq a b -> pOp a ++ " <= " ++ pOp b
+            Load addr -> "load " ++ pOp addr
+            Call f as -> pOp f ++ "(" ++ intercalate ", " (map pOp as) ++ ")"
+            ELoop loop -> pLoop d pExpr loop
+            EGetMember i struct -> pOp struct ++ "->" ++ show i
+            EAsVariant x _vi -> pOp x ++ " as " ++ pType t
+            EBranch br -> pBranch d pExpr br
+            Cast x t -> "cast " ++ pOp x ++ " to " ++ pType t
+            Bitcast x t -> "bitcast " ++ pOp x ++ " to " ++ pType t
+        pOp = \case
+            OLocal l -> pLocal l
+            OGlobal g -> pGlobal g
+            OConst c -> pConst c
+            OExtern (Extern x _ _) -> "@" ++ x
+        pConst = \case
+            Undef _ -> "undefined"
+            CInt { intVal = n } -> show n
+            CNat { natVal = n } -> show n
+            F32 x -> show x
+            F64 x -> show x
+            EnumVal { enumVariant = v } -> v
+            Array _ xs -> "[" ++ intercalate ", " (map pConst xs) ++ "]"
+            Zero _ -> "zeroinitializer"
+        -- pInt = \case
+        --     LowInt _nbits v -> show v
+        pGlobal (Global x _) = "@" ++ gname x
+        pLocal (Local x _) = "%" ++ lname x
+        lname lid = funDefLocalNames f Vec.! fromIntegral lid
+    pGdef (GlobVarDecl (Global x t)) = "var @" ++ gname x ++ ": " ++ pType t ++ ";"
+    gname gid = gnames Vec.! fromIntegral gid

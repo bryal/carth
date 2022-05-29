@@ -10,6 +10,7 @@ import Data.Bifunctor
 import Data.Bitraversable
 import Data.Foldable
 import Data.Functor
+import Data.Maybe
 import Control.Applicative
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -212,7 +213,7 @@ unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
 compileDecisionTrees :: MTypeDefs -> Inferred.Defs -> Except TypeErr Checked.Defs
 compileDecisionTrees tdefs = compDefs
   where
-    compDefs (Topo defs) = fmap Topo $ mapM compDef defs
+    compDefs (Topo defs) = Topo <$> mapM compDef defs
 
     compDef :: Inferred.Def -> Except TypeErr Checked.Def
     compDef = \case
@@ -224,14 +225,24 @@ compileDecisionTrees tdefs = compDefs
     compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr Checked.Fun
     compFunMatch (WithPos pos (cs, tps, tb)) = do
         cs' <- mapM (secondM compExpr) cs
-        let ps = map (("#x" ++) . show) [0 .. length tps - 1]
-            vs = zipWith (\p tp -> Checked.Var (NonVirt, Checked.TypedVar p tp)) ps tps
+        let vs = zipWith (\p tp -> Checked.Var (NonVirt, Checked.TypedVar p tp))
+                         paramNames
+                         tps
         case runExceptT (toDecisionTree tdefs pos tps cs') of
-            Nothing -> pure (zip ps tps, (Checked.Absurd tb, tb))
+            Nothing -> pure (zip paramNames tps, (Checked.Absurd tb, tb))
             Just e -> do
                 dt <- liftEither e
                 let b = Checked.Match vs dt
-                pure (zip ps tps, (b, tb))
+                pure (zip paramNames tps, (b, tb))
+      where
+        paramNames = zipWith fromMaybe (map (("#x" ++) . show) [0 .. length tps - 1]) $case cs of
+            [(WithPos _ ps, _)] -> map
+                (\(Inferred.Pat _ _ p) -> case p of
+                    Inferred.PVar (Inferred.TypedVar (WithPos _ x) _) -> Just x
+                    _ -> Nothing
+                )
+                ps
+            _ -> repeat Nothing
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
     compExpr (WithPos pos ex) = case ex of
