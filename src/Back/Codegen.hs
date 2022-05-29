@@ -316,16 +316,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         genExpr :: Expr -> Gen GExpr
         genExpr (Expr e t) = do
             let t' = genType t
+            let bin op a b = do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    pure (GInstr t' (op a' b' []))
             case e of
-                Add a b -> do
-                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
-                    pure (GInstr t' (LL.Add False False a' b' []))
-                Sub a b -> do
-                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
-                    pure (GInstr t' (LL.Sub False False a' b' []))
-                Mul a b -> do
-                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
-                    pure (GInstr t' (LL.Mul False False a' b' []))
+                Add a b -> bin (LL.Add False False) a b
+                Sub a b -> bin (LL.Sub False False) a b
+                Mul a b -> bin (LL.Mul False False) a b
                 Load src -> do
                     src' <- genOperand src
                     pure $ GInstr
@@ -336,8 +333,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                 , alignment = 0
                                 , metadata = []
                                 }
-
-
                 Call f as ->
                     liftM2 (GInstr t' .* call) (genOperand f) (mapM genOperand as)
                 EBranch br -> genEBranch br

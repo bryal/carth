@@ -94,7 +94,7 @@ mono = \case
         case virt of
             Virt -> pure ()
             NonVirt -> tell (DefInsts (Map.singleton x (Set.singleton t')))
-        pure (Var (TypedVar x t'))
+        pure (Var virt (TypedVar x t'))
     Checked.App f as -> liftA2 App (mono f) (mapM mono as)
     Checked.If p c a -> liftA3 If (mono p) (mono c) (mono a)
     Checked.Fun f -> fmap Fun (monoFun f)

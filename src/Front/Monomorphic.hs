@@ -4,9 +4,9 @@ module Front.Monomorphic
     , TPrim(..)
     , Const(..)
     , VariantIx
+    , Virt (..)
     , Span
     , tUnit
-    , Virt (..)
     , Access' (..)
     )
 where
@@ -19,7 +19,7 @@ import qualified Data.Set as Set
 
 import FreeVars
 import Misc
-import Front.Checked (VariantIx, Span, Virt (..), Access' (..))
+import Front.Checked (VariantIx, Span, Access' (..), Virt (..))
 import Front.Parsed (Const(..))
 import Front.TypeAst hiding (TConst)
 import qualified Front.TypeAst as TypeAst
@@ -56,7 +56,7 @@ type Fun = ([TypedVar], (Expr, Type))
 
 data Expr
     = Lit Const
-    | Var TypedVar
+    | Var Virt TypedVar
     | App Expr [Expr]
     | If Expr Expr Expr
     | Fun Fun
@@ -102,7 +102,8 @@ instance FreeVars Expr TypedVar where
 fvExpr :: Expr -> Set TypedVar
 fvExpr = \case
     Lit _ -> Set.empty
-    Var x -> Set.singleton x
+    Var Virt _ -> Set.empty
+    Var NonVirt x -> Set.singleton x
     App f a -> Set.unions (map freeVars (f : a))
     If p c a -> fvIf p c a
     Fun (ps, (b, _)) -> Set.difference (freeVars b) (Set.fromList ps)
