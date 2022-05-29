@@ -444,7 +444,193 @@ Features and other stuff to do/implement in/around Carth.
      }
    #+END_SRC
 
-* INACTIVE Custom GC
+* NEXT RC / ARC / Refcount / reference counting
+GC is inelegant, needing to stop the world or use a bunch of complex
+methods. Also, latency is bad.
+
+Do good refcounting instead.
+
+There were other reasons, but I can't remember them of the top of my
+head.
+
+https://atp.fm/205-chris-lattner-interview-transcript#gc /
+https://news.ycombinator.com/item?id=31139610
+
+#+BEGIN_QUOTE
+Chris Lattner: Here’s the way I look at it, and as you said, the ship
+has somewhat sailed: I am totally convinced that ARC is the right way
+to go upfront. It is better in a whole bunch of different ways. It
+gives you deterministic behavior, so it doesn’t have the
+unpredictable-stutter problem that people like to bash on GCs.
+
+The stutter problem, to me, isn’t really the issue, even though
+[1:59:30] that’s what GC-haters will bring up all the time. It’s more
+about being able to reason about when the memory goes away. The most
+important aspect of that is that ARC gets rid of finalizers.
+
+If you use a garbage-collected language, you use
+finalizers. Finalizers are the thing that gets run when you’re not
+object gets destroyed. Finalizers have so many problems that there are
+entire bodies of work talking about how to work around problems with
+finalizers.
+
+For example: the finalizer gets run on the wrong thread, it has to get
+run multiple [2:00:00] times, the object can get resurrected while the
+finalizer’s running. It happens non-deterministically later. You can’t
+count on it, and so you can’t use it for resource management for
+database handles and things like that, for example. There are so many
+problems with finalizers that ARC just defines away by having
+deterministic destruction.
+
+There are two arguments that people make [2:00:30] against ARC in
+favor of a tracing garbage collector, one of which is that ARC adds
+overhead because you have retain and release operations that run. That
+is true. The other is that you have to think about cycles in ARC
+because it doesn’t automatically collect cycles, and that is also
+true.
+
+The rebuttal I’d give to people is that those problems are also true
+in garbage collection, just in different ways. In a garbage collector,
+for example, [2:01:00] people don’t think about it, but garbage
+collection injects additional code into your application just like ARC
+does.
+
+There are many different garbage collection algorithms, and not all of
+them are the same. But most modern garbage collectors, that use a
+nursery for short-lifetime objects then promote them out — that are
+generational — use something called a write barrier. Every time you
+store to a property [2:01:30] of an object, say, you have to run
+additional code.
+
+Garbage collectors also need the ability to stop all the threads, or
+at least to be able to stop threads at some point in time, and they
+need to be able to do so within a specific time bound because they
+don’t want the garbage collector to take forever. The artifact of that
+is that typical garbage collectors, in Java for example, will
+introduce what’s called a safepoint into loops. So now, in your loops,
+extra code is being run because of the garbage collector.
+
+On more [2:02:00] aggressive garbage collection algorithms — for
+example, I was reading a blog post recently about Go’s tricolor
+algorithm — they’re touting the advantage of really low latency and
+the ability to guarantee response times in a more fine-grained level
+than most garbage collectors. But to do that, they use this tricolor
+algorithm which dramatically lowers throughput, because they’re doing
+almost exactly the same kinds of operations that ARC is doing.
+
+The problem [2:02:30] that it then introduces, though, is that these
+operations that the garbage collector is introducing are sometimes but
+not nearly as well optimizable as the ARC overhead that the ARC
+optimizer applies to.
+
+Furthermore, there’s no out on it. With ARC, I think and hope that the
+ownership model will give people the ability to take control of those
+overheads. And if it becomes a problem in practice, or if they’re just
+that kind of person, they can take full control over the lifetime of
+their objects, and then know that ARC will never happen. In a garbage
+collector, you don’t have that.
+
+[2:03:00] The performance side of things I think is still up in the
+air because ARC certainly does introduce overhead. Some of that’s
+unavoidable, at least without lots of annotations in your code, but
+also I think that ARC is not done yet. A ton of energy’s been poured
+into research for garbage collection, particularly since Java has come
+up. There’s been hundreds of papers written in the academic circles,
+tons of work in HotSpot and other Java [2:03:30] implementations to do
+different tweaks and different tunings and different new kinds of
+algorithms in garbage collecting. That work really hasn’t been done
+for ARC yet, so really, I think there’s still a a big future ahead.
+
+On the programming side of things, the cycle side of things, I think
+it’s also a really interesting question of how much should people
+think about memory?
+
+When I was baiting you a little bit, you said that the great thing
+about garbage collection is that you don’t have to think about
+memory. Of course we know that’s not true, right? Because if [2:04:00]
+you have a reference to some big object graph that you didn’t mean to
+keep around (maybe it’s in your undo stack), then you will “leak” that
+memory. That’s true of a garbage collector, and that’s true of ARC as
+well. Any automatic memory-management approach has that problem.
+
+There’s this question of if you’re building a large scale system, do
+you want people to [2:04:30] “never think about memory?” Do you want
+them to think about memory all the time, like they did in
+Objective-C’s classic manual retain-and-release? Or do you want
+something in the middle?
+
+I think that ARC strikes a really interesting balance, whether it’s in
+Objective-C or Swift. I look at manual retain-and-release as being a
+very imperative style of memory management, or malloc and free, where
+you’re telling the code, line by line: this is where you should do a
+reference-count operation, [2:05:00] this is where you should release
+the memory, this is what you should do at this point in time.
+
+ARC then takes that model and bubbles it up a big step, and it makes
+it be a very declarative model. So instead of telling the compiler
+that this is the place that you should do a retain, you instead say,
+“This is an owning relationship.” The cool thing about that to me is
+that not only does it get rid of the mechanics of maintaining
+reference counting and define away tons of bugs by doing that, it also
+means that [2:05:30] it is now explicit in your code what your
+intention was. That’s something that people who maintain your code
+benefit from.
+
+By saying that I have a weak point or two, the parent object of my
+thing, that’s a really important relationship to know about and as
+you’re looking at the code, you’re maintaining the code. Having that
+be explicit is very valuable, because that talks about the
+relationship between values. To me, again with the goal of being able
+to write large scale applications in Swift, I think that’s really
+useful. [2:06:00] I also don’t think it’s hugely burdensome, though
+it’s definitely part of the learning curve of learning how Swift works
+that it has to be balanced in there as well.
+
+So I don’t know. ARC has clear advantages in terms of allowing Swift
+to scale down to systems that can’t tolerate having a garbage
+collector, for example, if you want to write firmware in Swift. I
+think that it does provide a better programming model where
+programmers think just [2:06:30] a little bit about memory. And I
+think that going forward, it provides a really high performance model
+that you can get better than garbage collection in almost every way. I
+think that in terms of trade-offs, it’s the right one to push forward.
+
+The third piece that garbage collection is really bad about, which is
+kind of a showstopper for Swift, is interoperability with C code. If
+you’ve ever worked with Java or other [2:07:00] similar
+garbage-collected languages, one of the major advantages the garbage
+collectors give you is that they move objects, and they need to do
+that so they can compact those objects so they can then efficiently do
+allocations. The problem is that once you start moving objects around,
+if you’re interfacing with C code, you can’t have some random C code
+having a pointer to your object and have it move because then you get
+a dangling pointer.
+
+Once you get down that line, you end up with things like JNI, the Java
+Native Interface, where you have to [2:07:30] explicitly pin things,
+you have to maintain them, it’s very complicated, it’s really
+buggy. ARC completely defines this away by just saying that
+something’s in memory, It has predictable lifetime, you can reason
+about it. Swift provides tools for dealing with unsafe pointers and
+things like that, and that makes the interoperability with existing C
+code — but also with Objective-C, and maybe someday C++ code — really
+simple, really natural and really efficient. I think that’s a huge
+advantage that ARC [2:08:00] provides that really would be impossible
+to do with a garbage collector.
+
+That’s my opinion. I think reasonable people disagree, obviously, but
+it’s something that does come up now and then.
+#+END_QUOTE
+
+https://gankra.github.io/blah/deinitialize-me-maybe/
+
+* CANCELLED Custom GC
+  Update <2022-05-24 tis>: I've actually changed my mind about
+  refcounting. With some ownership analysys, which we'd need anyways
+  for linear types, one could easily ommit most RC increments /
+  decrements in the generated code. And predictable deinitialization +
+  no GC latency is actually really valuable.
+
   Until we get linear types, and even then, we'll need some form of
   GC. Boehm's seems to be working well enough, but a conservative
   collector is not ideal, and I think it would be a fun project to
