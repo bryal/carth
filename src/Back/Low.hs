@@ -2,6 +2,7 @@ module Back.Low (module Back.Low, Access') where
 
 import Data.Maybe
 import Data.Vector (Vector)
+import Numeric.Natural
 import qualified Data.Vector as Vec
 
 import Sizeof hiding (sizeof)
@@ -33,7 +34,8 @@ data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 --   particular, LLVM is kind of bad at handling {} as a ZST, and fails to optimize tail
 --   calls returning {} in my experience.
 data Type
-    = TInt { tintBits :: Word }
+    = TInt { tintWidth :: Word } -- Signed integer
+    | TNat { tnatWidth :: Word }
     | TF32
     | TF64
     | TPtr Type
@@ -50,18 +52,13 @@ data Type
 
 type Access = Access' Type
 
-data LowInt = LowInt
-    { intBits :: Word
-    , intVal :: Integer
-    }
-    deriving Show
-
 data Const
     = Undef Type
-    | CInt LowInt
+    | CInt { intWidth :: Word, intVal :: Integer }
+    | CNat { natWidth :: Word, natVal :: Natural }
     | F32 Float
     | F64 Double
-    | EnumVal TypeId LowInt
+    | EnumVal { enumType :: TypeId, enumVariant :: String, enumWidth :: Word, enumVal :: Natural}
     | Array Type [Const]
     | Zero Type
     deriving Show
@@ -88,7 +85,6 @@ data Statement
     = Let Local Expr
     | Store Operand Operand -- value -> destination
     | VoidCall Operand [Operand]
-    -- | Do Expr
     | SLoop (Loop ())
     | SBranch (Branch ())
     deriving Show
@@ -189,9 +185,35 @@ data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames
 typeName :: TypeDefs -> Word -> String
 typeName ds i = fst (ds Vec.! fromIntegral i)
 
+integralWidth :: Type -> Maybe Word
+integralWidth = \case
+    TInt w -> Just w
+    TNat w -> Just w
+    _ -> Nothing
+
+isIntegral :: Type -> Bool
+isIntegral t = isInt t || isNat t
+
+isInt :: Type -> Bool
+isInt = \case
+    TInt _ -> True
+    _ -> False
+
+isNat :: Type -> Bool
+isNat = \case
+    TNat _ -> True
+    _ -> False
+
+isFloat :: Type -> Bool
+isFloat = \case
+    TF32 -> True
+    TF64 -> True
+    _ -> False
+
 sizeof :: (TypeId -> Maybe TypeDef) -> Type -> Word
 sizeof tenv = \case
-    TInt { tintBits = n } -> div n 8
+    TInt { tintWidth = w } -> div w 8
+    TNat { tnatWidth = w } -> div w 8
     TF32 -> 4
     TF64 -> 8
     TPtr _ -> wordsize
@@ -254,15 +276,13 @@ instance TypeOf Extern where
 instance TypeOf Const where
     typeof = \case
         Undef t -> t
-        CInt i -> typeof i
+        CInt { intWidth = w } -> TInt { tintWidth = w }
+        CNat { natWidth = w } -> TNat { tnatWidth = w }
         F32 _ -> TF32
         F64 _ -> TF64
-        EnumVal tid _ -> TConst tid
+        EnumVal { enumType = tid } -> TConst tid
         Array t cs -> TArray t (fromIntegral (length cs))
         Zero t -> t
-
-instance TypeOf LowInt where
-    typeof LowInt { intBits = n } = TInt { tintBits = n }
 
 instance (TypeOf a, TypeOf b) => TypeOf (Either a b) where
     typeof = either typeof typeof

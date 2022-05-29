@@ -7,7 +7,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import LLVM.Prelude hiding (Const)
-import LLVM.AST hiding (args, Type, Ret, Operand, Terminator, Switch, Add, Sub, Mul, Do, Store, Load, Call, Global)
+import LLVM.AST (Name (..), Named, BasicBlock (..), Module (..), Definition (..), Global (..), Type (..), Instruction, Parameter (..), mkName, Operand (ConstantOperand))
 import qualified LLVM.AST as LL
 import qualified LLVM.AST.AddrSpace as LLAddr
 import qualified LLVM.AST.Typed as LL
@@ -19,7 +19,7 @@ import qualified LLVM.AST.Linkage as LL
 import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
-import qualified LLVM.AST.Constant as LL hiding (Add, Sub, Mul, GetElementPtr, BitCast)
+import qualified LLVM.AST.Constant as LL (Constant (Undef, Float, Array, Null, AggregateZero, Int, GlobalReference))
 import Data.Either
 import Data.List
 import Data.Map (Map)
@@ -152,19 +152,18 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     genConst :: Const -> LL.Constant
     genConst = \case
         Undef t -> LL.Undef (genType t)
-        CInt n -> genInt n
+        CInt { intWidth = w, intVal = v } -> LL.Int (fromIntegral w) v
+        CNat { natWidth = w, natVal = v } -> LL.Int (fromIntegral w) (fromIntegral v)
         F32 x -> LL.Float (LL.Single x)
         F64 x -> LL.Float (LL.Double x)
         -- In the LLVM backend, we elide all enum name information, leaving just the
         -- integer value
-        EnumVal _ n -> genInt n
+        EnumVal { enumWidth = w, enumVal = v } ->
+            LL.Int (fromIntegral w) (fromIntegral v)
         Array t xs -> LL.Array (genType t) (map genConst xs)
         Zero t -> case genType t of
             t'@(LL.PointerType _ _) -> LL.Null t'
             t' -> LL.AggregateZero t'
-
-    genInt :: LowInt -> LL.Constant
-    genInt LowInt { intBits = b, intVal = v } = LL.Int (fromIntegral b) v
 
     defineFun :: FunDef -> Definition
     defineFun (FunDef ident ps r block allocs lnames) =
@@ -258,7 +257,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         genBlock genTerm (Block stms term) = forM_ stms genStm *> genTerm term
 
         genIf
-            :: Operand
+            :: Low.Operand
             -> Block t
             -> Block t
             -> (t -> Gen a)
@@ -272,7 +271,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             converge (genBlock genTerm c) [(la, genBlock genTerm a)]
 
         genSwitch
-            :: Operand
+            :: Low.Operand
             -> [(Const, Block t)]
             -> Block t
             -> (t -> Gen a)
@@ -432,7 +431,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let name = getName lnames ident
             in  gets aliases <&> Map.lookup name <&> \case
                     Just x -> x
-                    Nothing -> LocalReference (genType t) (mkName name)
+                    Nothing -> LL.LocalReference (genType t) (mkName name)
 
         genGlobal :: Low.Global -> LL.Constant
         genGlobal (Global ident t) =
@@ -473,7 +472,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
     genType :: Low.Type -> LL.Type
     genType = \case
-        TInt { tintBits = n } -> LL.IntegerType (fromIntegral n)
+        TInt { tintWidth = w } -> LL.IntegerType (fromIntegral w)
+        TNat { tnatWidth = w } -> LL.IntegerType (fromIntegral w)
         TF32 -> LL.FloatingPointType LL.FloatFP
         TF64 -> LL.FloatingPointType LL.DoubleFP
         TPtr u -> LL.ptr (genType u)
@@ -531,7 +531,7 @@ callNamed f as rt =
     in  call f' as
 
 call :: LL.Operand -> [LL.Operand] -> Instruction
-call f as = LL.Call { tailCallKind = Just NoTail
+call f as = LL.Call { tailCallKind = Just LL.NoTail
                     , callingConvention = LL.C
                     , returnAttributes = []
                     , function = Right f

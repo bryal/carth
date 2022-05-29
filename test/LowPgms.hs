@@ -22,7 +22,10 @@ printPgm = Program [emptyCarthInit, carth_main]
         mainIx
         []
         RetVoid
-        (Block [VoidCall printIntOperand [OConst (CInt (LowInt 64 1337))]] TRetVoid)
+        (Block
+            [VoidCall printIntOperand [OConst (CInt { intWidth = 64, intVal = 1337 })]]
+            TRetVoid
+        )
         []
         (Vec.fromList [])
 
@@ -39,7 +42,9 @@ factPgm = Program [emptyCarthInit, carth_main, factDef]
         []
         RetVoid
         (Block
-            [ Let result (Expr (Call fact [OConst (CInt (LowInt 64 5))]) (TInt 64))
+            [ Let
+                result
+                (Expr (Call fact [OConst (CInt { intWidth = 64, intVal = 5 })]) (TInt 64))
             , VoidCall printIntOperand [OLocal result]
             ]
             TRetVoid
@@ -55,8 +60,12 @@ factPgm = Program [emptyCarthInit, carth_main, factDef]
             (TBranch
                 (BSwitch
                     (OLocal (Local 1 (TInt 64)))
-                    [ ( CInt (LowInt 64 0)
-                      , Block [] (TRetVal (mkEOperand (OConst (CInt (LowInt 64 1)))))
+                    [ ( CInt { intWidth = 64, intVal = 0 }
+                      , Block
+                          []
+                          (TRetVal
+                              (mkEOperand (OConst (CInt { intWidth = 64, intVal = 1 })))
+                          )
                       )
                     ]
                     (Block
@@ -64,7 +73,7 @@ factPgm = Program [emptyCarthInit, carth_main, factDef]
                             (Local 2 (TInt 64))
                             (Expr
                                 (Sub (OLocal (Local 1 (TInt 64)))
-                                     (OConst (CInt (LowInt 64 1)))
+                                     (OConst (CInt { intWidth = 64, intVal = 1 }))
                                 )
                                 (TInt 64)
                             )
@@ -111,7 +120,7 @@ factLoopPgm = Program [emptyCarthInit, carth_main]
                   (LBranch
                       (BSwitch
                           (OLocal n)
-                          [ ( CInt (LowInt 64 0)
+                          [ ( CInt { intWidth = 64, intVal = 0 }
                             , Block [] (Break (mkEOperand (OLocal prod)))
                             )
                           ]
@@ -136,7 +145,7 @@ factLoopPgm = Program [emptyCarthInit, carth_main]
     n' = Local 4 (TInt 64)
 
 ci64 :: Integer -> Operand
-ci64 = OConst . CInt . LowInt 64
+ci64 v = OConst (CInt { intWidth = 64, intVal = v })
 
 installStackoverflowHandler :: ExternDecl
 installStackoverflowHandler = ExternDecl "install_stackoverflow_handler" [] RetVoid

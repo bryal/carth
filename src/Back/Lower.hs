@@ -22,7 +22,7 @@ import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), (.=), to)
 
-import Back.Low (typeof, LowInt(..))
+import Back.Low (typeof)
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
@@ -561,8 +561,14 @@ lower noGC (Program (Topo defs) datas externs) =
                     case tdef of
                         Low.DUnion _ ->
                             ice "lowerExpr Ction: outermost TypeDef was a union"
-                        Low.DEnum _ ->
-                            let operand = lowerTag span variantIx
+                        Low.DEnum variants ->
+                            let operand = Low.OConst $ Low.EnumVal
+                                    { Low.enumType = tidOuter
+                                    , Low.enumVariant = variants
+                                                            Vec.! fromIntegral variantIx
+                                    , Low.enumWidth = tagBits span
+                                    , Low.enumVal = fromIntegral variantIx
+                                    }
                             in  toDest dest . Sized $ Low.Expr (Low.EOperand operand)
                                                                (typeof operand)
                         Low.DStruct _ | span == 1 -> do
@@ -588,7 +594,7 @@ lower noGC (Program (Topo defs) datas externs) =
             toDest dest
                 . Sized
                 . operandToExpr
-                =<< sized (fmap litI64 . sizeof) (pure (litI64 0))
+                =<< sized (fmap (litI64 . fromIntegral) . sizeof) (pure (litI64 0))
                 =<< lowerType t
         Absurd _ -> toDest dest ZeroSized
 
@@ -609,8 +615,9 @@ lower noGC (Program (Topo defs) datas externs) =
                 populateStruct [captures', fGeneric'] ptr <&> mapTerm (const x)
 
     lowerTag :: Span -> VariantIx -> Low.Operand
-    lowerTag span variantIx =
-        Low.OConst . Low.CInt $ LowInt { intBits = tagBits span, intVal = variantIx }
+    lowerTag span variantIx = Low.OConst $ Low.CNat { Low.natWidth = tagBits span
+                                                    , Low.natVal = fromIntegral variantIx
+                                                    }
     populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block Low.Operand)
     populateStruct vs dst = foldrM
         (\(i, v) rest ->
@@ -647,7 +654,8 @@ lower noGC (Program (Topo defs) datas externs) =
                     . map (first tvName)
                     =<< typedVarsSizedTypes freeLocalVars
                 capturesSize <- sizeof tcaptures
-                captures' <- emitNamed "captures" =<< gcAlloc (litI64 capturesSize)
+                captures' <- emitNamed "captures"
+                    =<< gcAlloc (litI64 (fromIntegral capturesSize))
                 bindBlockM (populateCaptures freeLocalVars) captures'
 
     typedVarsSizedTypes :: [TypedVar] -> Lower [(TypedVar, Low.Type)]
@@ -668,7 +676,7 @@ lower noGC (Program (Topo defs) datas externs) =
 
     operandToExpr x = Low.Expr (Low.EOperand x) (typeof x)
 
-    litI64 = Low.OConst . Low.CInt . LowInt 64 . fromIntegral
+    litI64 n = Low.OConst $ Low.CInt { Low.intWidth = 64, Low.intVal = n }
 
     lookupVar :: TypedVar -> Lower (Sized Low.Operand)
     lookupVar x = view (localEnv . to (Map.lookup x)) >>= \case
@@ -682,7 +690,7 @@ lower noGC (Program (Topo defs) datas externs) =
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
         Int n -> pure
-            (Low.OConst (Low.CInt (LowInt { intBits = 64, intVal = fromIntegral n })))
+            (Low.OConst (Low.CInt { Low.intWidth = 64, Low.intVal = fromIntegral n }))
         F64 x -> pure (Low.OConst (Low.F64 x))
         Str s -> internStr s <&> \s' -> Low.OGlobal s'
 
@@ -750,8 +758,8 @@ lower noGC (Program (Topo defs) datas externs) =
                     -- or an enum, which, as an integer, is its own "tag"
                     _ -> pure (Low.Block [] m')
                 let litTagInt :: VariantIx -> Low.Const
-                    litTagInt = Low.CInt . case typeof tag of
-                        Low.TInt { Low.tintBits = n } -> LowInt n
+                    litTagInt = case typeof tag of
+                        Low.TInt { Low.tintWidth = w } -> Low.CInt w
                         t ->
                             ice
                                 $ "lowerDecisionTree: litTagInt: unexpected type "
@@ -821,7 +829,7 @@ lower noGC (Program (Topo defs) datas externs) =
                 let
                     tidData = case typeof matchee of
                         Low.TPtr (Low.TConst tid) -> tid
-                        _ -> ice "Lower.asVariant: type of mathee is not TPtr to TConst"
+                        _ -> ice "Lower.asVariant: type of matchee is not TPtr to TConst"
                     -- t = Low.TPtr $ typeOfDataVariant variantIx (pointee (typeof matchee))
                 let tvariant = Low.TPtr (Low.TConst (tidData + 2 + variantIx))
                 -- Skip tag to get inner union
@@ -1071,11 +1079,11 @@ lower noGC (Program (Topo defs) datas externs) =
 
     asTFun = \case
         Low.TFun params ret -> (params, ret)
-        _ -> ice "Lower.asTFun of non function type"
+        t -> ice $ "Lower.asTFun of non function type " ++ show t
 
     asTClosure = \case
         Low.TClosure params ret -> (params, ret)
-        _ -> ice "Lower.asTClosure of non function type"
+        t -> ice $ "Lower.asTClosure of non closure type " ++ show t
 
     returnee = snd . asTFun
 
@@ -1084,12 +1092,8 @@ lower noGC (Program (Topo defs) datas externs) =
             Just (_, Low.DStruct struct) -> struct
             _ -> ice "Low.getTypeStruct: TypeDef in tenv is not DStruct"
         Low.TClosure _ _ -> getTypeStruct closureStruct
-        _ -> ice "Low.getTypeStruct: type is not a TConst"
+        t -> ice $ "Low.getTypeStruct: type is not a TConst: " ++ show t
 
-    -- TODO: Maybe we could get rid of all ad-hoc logic using this function, by wrapping
-    --       the type returned from lowerType in not just a Sized vs. ZeroSized, but also a
-    --       Stack vs. Register.
-    --
     -- NOTE: This post is helpful:
     --       https://stackoverflow.com/questions/42411819/c-on-x86-64-when-are-structs-classes-passed-and-returned-in-registers
     --       Also, official docs:
