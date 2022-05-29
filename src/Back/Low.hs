@@ -26,6 +26,11 @@ paramName = \case
     ByVal x _ -> x
     ByRef x _ -> x
 
+paramType :: Param _name -> Type
+paramType = \case
+    ByVal _ t -> t
+    ByRef _ t -> t
+
 data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
 -- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
