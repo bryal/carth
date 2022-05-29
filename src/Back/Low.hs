@@ -268,7 +268,7 @@ instance TypeOf Local where
     typeof (Local _ t) = t
 
 instance TypeOf Global where
-    typeof (Global _ t) = TPtr t
+    typeof (Global _ t) = t
 
 instance TypeOf Extern where
     typeof (Extern _ ps r) = TFun ps r

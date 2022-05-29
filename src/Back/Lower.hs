@@ -499,7 +499,7 @@ lower noGC (Program (Topo defs) datas externs) =
     lowerExpr :: Destination d => d -> Expr -> Lower (Low.Block (DestTerm d))
     lowerExpr dest = \case
         Lit c -> toDest dest . Sized . operandToExpr =<< lowerConst c
-        Var x -> toDest dest . mapSized operandToExpr =<< lookupVar x
+        Var x -> lookupVar dest x
         App f as -> do
             -- TODO: If `f` is a var pointing to Global or Extern, call it directly
             Low.Block stms1 closure <-
@@ -543,13 +543,32 @@ lower noGC (Program (Topo defs) datas externs) =
             ZeroSized -> lowerExpr dest body
             Sized rhs' -> bindrBlockM' (emit rhs')
                 $ \rhs'' -> withVar lhs rhs'' (lowerExpr dest body)
-        Let (RecDefs defs) body -> (snd <$>) . mfix $ \result ->
-            let binds = fst result
-            in  withVars binds $ do
-                    binds' <- fmap catBlocks . forM defs $ \(lhs, (_, f)) ->
-                        mapTerm (lhs, ) <$> bindBlockM' emit (genLambda Here f)
-                    body' <- lowerExpr dest body
-                    pure (Low.blockTerm binds', dropTerm binds' `thenBlock` body')
+        Let (RecDefs defs) body -> do
+            let lhss = map fst defs
+            Low.Block stms1 (binds, cs) <-
+                fmap (mapTerm unzip . catBlocks) . forM defs $ \(lhs, (_, f)) -> do
+                    (freeLocalVars, captures) <-
+                        augment
+                                localEnv
+                                (Map.fromList $ zip
+                                    lhss
+                                    (ice "lowerExpr.Let.RecDefs: read rhs of tmp local")
+                                )
+                            $ precaptureFreeLocalVars f
+                    bindrBlockM captures $ \captures' -> do
+                        name <- newGName "fun"
+                        fdef <- lowerFunDef freeLocalVars name f
+                        scribe outFunDefs [fdef]
+                        closure <-
+                            bindBlockM (emitNamed "closure")
+                                =<< wrapInClosure Here (funDefGlobal fdef) captures'
+                        pure $ mapTerm
+                            (\closure' -> ((lhs, closure'), (freeLocalVars, captures')))
+                            closure
+            withVars binds $ do
+                forM_ cs (uncurry populateCaptures)
+                body' <- lowerExpr dest body
+                pure (Low.Block stms1 () `thenBlock` body')
         Match es dt -> lowerMatch dest es dt
         Ction (variantIx, span, tconst, xs) -> do
             tconsts' <- use tconsts
@@ -600,19 +619,26 @@ lower noGC (Program (Topo defs) datas externs) =
 
     genLambda :: Destination d => d -> Fun -> Lower (Low.Block (DestTerm d))
     genLambda dest f = do
-        (freeLocalVars, captures) <- captureFreeLocalVars f
-        bindrBlockM captures $ \captures' -> do
+        (freeLocalVars, captures) <- precaptureFreeLocalVars f
+        captures' <- populateCaptures freeLocalVars `bindBlockM` captures
+        bindrBlockM captures' $ \captures'' -> do
             name <- newGName "fun"
             fdef <- lowerFunDef freeLocalVars name f
             scribe outFunDefs [fdef]
-            let fConcrete = Low.OGlobal $ funDefGlobal fdef
-            fGeneric <- emit (Low.Expr (Low.Bitcast fConcrete Low.VoidPtr) Low.VoidPtr)
-            (ptr, x) <- allocationAtDest dest (Just "closure")
-                $ Low.TClosure
-                      (map Low.dropParamName (Low.funDefParams fdef))
-                      (Low.funDefRet fdef)
-            bindrBlockM fGeneric $ \fGeneric' ->
-                populateStruct [captures', fGeneric'] ptr <&> mapTerm (const x)
+            wrapInClosure dest (funDefGlobal fdef) captures''
+
+    wrapInClosure
+        :: Destination d
+        => d
+        -> Low.Global
+        -> Low.Operand
+        -> Lower (Low.Block (DestTerm d))
+    wrapInClosure dest f@(Low.Global _ t) captures = do
+        fGeneric <- emit (Low.Expr (Low.Bitcast (Low.OGlobal f) Low.VoidPtr) Low.VoidPtr)
+        (ptr, x) <- allocationAtDest dest (Just "closure")
+            $ uncurry Low.TClosure (asTFun t)
+        bindrBlockM fGeneric $ \fGeneric' ->
+            populateStruct [captures, fGeneric'] ptr <&> mapTerm (const x)
 
     lowerTag :: Span -> VariantIx -> Low.Operand
     lowerTag span variantIx = Low.OConst $ Low.CNat { Low.natWidth = tagBits span
@@ -640,7 +666,7 @@ lower noGC (Program (Topo defs) datas externs) =
                     Low.Block (stmsIndex ++ stmsExpr) () `thenBlockM` go (i + 1) es
                 ZeroSized -> Low.Block stmsExpr () `thenBlockM` go i es
 
-    captureFreeLocalVars (params, (body, _)) = do
+    precaptureFreeLocalVars (params, (body, _)) = do
         let params' = Set.fromList params
         freeLocalVars <- view localEnv <&> \locals -> Set.toList
             (Set.intersection (Set.difference (freeVars body) params')
@@ -649,14 +675,19 @@ lower noGC (Program (Topo defs) datas externs) =
         (freeLocalVars, ) <$> if null freeLocalVars
             then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
             else do
-                tcaptures <-
+                t <-
                     defineStruct "captures"
                     . map (first tvName)
                     =<< typedVarsSizedTypes freeLocalVars
-                capturesSize <- sizeof tcaptures
-                captures' <- emitNamed "captures"
+                capturesSize <- sizeof t
+                capturesGeneric <- emitNamed "captures"
                     =<< gcAlloc (litI64 (fromIntegral capturesSize))
-                bindBlockM (populateCaptures freeLocalVars) captures'
+                bindBlockM
+                    (\c -> emitNamed
+                        "captures"
+                        (Low.Expr (Low.Bitcast c (Low.TPtr t)) (Low.TPtr t))
+                    )
+                    capturesGeneric
 
     typedVarsSizedTypes :: [TypedVar] -> Lower [(TypedVar, Low.Type)]
     typedVarsSizedTypes = mapMaybeM $ \v@(TypedVar _ t) -> lowerType t <&> \case
@@ -678,14 +709,16 @@ lower noGC (Program (Topo defs) datas externs) =
 
     litI64 n = Low.OConst $ Low.CInt { Low.intWidth = 64, Low.intVal = n }
 
-    lookupVar :: TypedVar -> Lower (Sized Low.Operand)
-    lookupVar x = view (localEnv . to (Map.lookup x)) >>= \case
-        Just l -> pure (Sized l)
+    lookupVar dest x = view (localEnv . to (Map.lookup x)) >>= \case
+        Just l -> toDest dest (Sized (Low.mkEOperand l))
         Nothing -> view (globalEnv . to (Map.lookup x)) >>= \case
-            Just g -> pure (Sized (Low.OGlobal g))
+            Just f@(Low.Global _ (Low.TFun _ _)) ->
+                wrapInClosure dest f (Low.OConst (Low.Zero Low.VoidPtr))
+            Just g -> toDest dest (Sized (Low.mkEOperand (Low.OGlobal g)))
             Nothing -> view (externEnv . to (Map.lookup x)) >>= \case
-                Just (_e, eWrapped) -> pure (Sized (Low.OGlobal eWrapped))
-                Nothing -> pure ZeroSized
+                Just (_e, eWrapped) ->
+                    wrapInClosure dest eWrapped (Low.OConst (Low.Zero Low.VoidPtr))
+                Nothing -> toDest dest ZeroSized
 
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
@@ -889,6 +922,7 @@ lower noGC (Program (Topo defs) datas externs) =
     emit = emitNamed "tmp"
 
     emitNamed :: String -> Low.Expr -> Lower (Low.Block Low.Operand)
+    emitNamed _ (Low.Expr (Low.EOperand x) _) = pure (Low.Block [] x)
     emitNamed name e = do
         name' <- newLName name
         let l = Low.Local name' (typeof e)
@@ -1148,9 +1182,6 @@ newGName x = do
 
 mapTerm :: (a -> b) -> Low.Block a -> Low.Block b
 mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }
-
-dropTerm :: Low.Block a -> Low.Block ()
-dropTerm = mapTerm (const ())
 
 separateTerm :: Low.Block a -> (Low.Block (), a)
 separateTerm (Low.Block stms term) = (Low.Block stms (), term)
