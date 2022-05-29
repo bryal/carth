@@ -103,7 +103,7 @@ inferTopDefs tdefs ctors externs defs =
                   , ("/", arithScm)
                   , ("rem", arithScm)
                   , ("shift-l", bitwiseScm)
-                  , ("shift-r", bitwiseScm)
+                  , ("lshift-r", bitwiseScm)
                   , ("ashift-r", bitwiseScm)
                   , ("bit-and", bitwiseScm)
                   , ("bit-or", bitwiseScm)

@@ -20,6 +20,8 @@ import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LL (Constant (Undef, Float, Array, Null, AggregateZero, Int, GlobalReference))
+import qualified LLVM.AST.IntegerPredicate as LLIPred
+import qualified LLVM.AST.FloatingPointPredicate as LLFPred
 import Data.Either
 import Data.List
 import Data.Map (Map)
@@ -319,10 +321,43 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             let bin op a b = do
                     (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
                     pure (GInstr t' (op a' b' []))
+                rel uop sop fop a b = do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    let op = if
+                            | isFloat (typeof a) -> LL.FCmp fop
+                            | isInt (typeof a) -> LL.ICmp sop
+                            | otherwise -> LL.ICmp uop
+                    pure (GInstr t' (op a' b' []))
             case e of
                 Add a b -> bin (LL.Add False False) a b
                 Sub a b -> bin (LL.Sub False False) a b
                 Mul a b -> bin (LL.Mul False False) a b
+                Div a b -> do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    let op = if
+                            | isFloat t -> LL.FDiv LL.noFastMathFlags
+                            | isInt t -> LL.SDiv False
+                            | otherwise -> LL.UDiv False
+                    pure (GInstr t' (op a' b' []))
+                Rem a b -> do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    let op = if
+                            | isFloat t -> LL.FRem LL.noFastMathFlags
+                            | isInt t -> LL.SRem
+                            | otherwise -> LL.URem
+                    pure (GInstr t' (op a' b' []))
+                Shl a b -> bin (LL.Shl False False) a b
+                LShr a b -> bin (LL.LShr False) a b
+                AShr a b -> bin (LL.AShr False) a b
+                BAnd a b -> bin LL.And a b
+                BOr a b -> bin LL.Or a b
+                BXor a b -> bin LL.Xor a b
+                Eq a b -> rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ a b
+                Ne a b -> rel LLIPred.NE LLIPred.NE LLFPred.ONE a b
+                Gt a b -> rel LLIPred.UGT LLIPred.SGT LLFPred.OGT a b
+                GtEq a b -> rel LLIPred.UGE LLIPred.SGE LLFPred.OGE a b
+                Lt a b -> rel LLIPred.ULT LLIPred.SLT LLFPred.OLT a b
+                LtEq a b -> rel LLIPred.ULE LLIPred.SLE LLFPred.OLE a b
                 Load src -> do
                     src' <- genOperand src
                     pure $ GInstr
@@ -350,6 +385,27 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     breaks' <- mapM (firstM emit) breaks
                     let t = LL.typeOf . fst . head $ breaks'
                     pure $ GInstr t (LL.Phi t breaks' [])
+                Cast x t -> do
+                    let tx = typeof x
+                    x' <- genOperand x
+                    let t' = genType t
+                    pure $ case (tx, t) of
+                        _ | tx == t -> GOperand x'
+                        (_, TInt w2) | Just w1 <- integralWidth tx ->
+                            GInstr t' $ if w2 < w1
+                                then LL.Trunc x' t' []
+                                else LL.SExt x' t' []
+                        (_, TNat w2) | Just w1 <- integralWidth tx ->
+                            GInstr t' $ if w2 < w1
+                                then LL.Trunc x' t' []
+                                else LL.ZExt x' t' []
+                        (TF32, TF64) -> GInstr t' (LL.FPExt x' t' [])
+                        (TF64, TF32) -> GInstr t' (LL.FPTrunc x' t' [])
+                        (TInt _, _) | isFloat t -> GInstr t' (LL.SIToFP x' t' [])
+                        (TNat _, _) | isFloat t -> GInstr t' (LL.UIToFP x' t' [])
+                        (_, TInt _) | isFloat tx -> GInstr t' (LL.FPToSI x' t' [])
+                        (_, TNat _) | isFloat tx -> GInstr t' (LL.FPToUI x' t' [])
+                        _ -> ice $ "genExpr.Cast: " ++ show tx ++ " to " ++ show t
                 Bitcast x t -> do
                     x' <- genOperand x
                     let t' = genType t

@@ -111,6 +111,20 @@ data Expr'
     | Add Operand Operand
     | Sub Operand Operand
     | Mul Operand Operand
+    | Div Operand Operand
+    | Rem Operand Operand
+    | Shl Operand Operand
+    | LShr Operand Operand
+    | AShr Operand Operand
+    | BAnd Operand Operand
+    | BOr Operand Operand
+    | BXor Operand Operand
+    | Eq Operand Operand
+    | Ne Operand Operand
+    | Gt Operand Operand
+    | GtEq Operand Operand
+    | Lt Operand Operand
+    | LtEq Operand Operand
     | Load Operand
     | Call Operand [Operand]
     | ELoop (Loop Expr)
@@ -119,6 +133,7 @@ data Expr'
     -- Given a pointer to an untagged union, get it as a specific variant
     | EAsVariant Operand VariantIx
     | EBranch (Branch Expr)
+    | Cast Operand Type -- C-style cast
     | Bitcast Operand Type
     deriving Show
 

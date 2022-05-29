@@ -654,6 +654,20 @@ lower noGC (Program (Topo defs) datas externs) =
         "+" -> arith Low.Add
         "-" -> arith Low.Sub
         "*" -> arith Low.Mul
+        "/" -> arith Low.Div
+        "rem" -> arith Low.Rem
+        "shift-l" -> arith Low.Shl
+        "lshift-r" -> arith Low.LShr
+        "ashift-r" -> arith Low.AShr
+        "bit-and" -> arith Low.BAnd
+        "bit-or" -> arith Low.BOr
+        "bit-xor" -> arith Low.BXor
+        "=" -> rel Low.Eq
+        "/=" -> rel Low.Ne
+        ">" -> rel Low.Gt
+        ">=" -> rel Low.GtEq
+        "<" -> rel Low.Lt
+        "<=" -> rel Low.LtEq
         "transmute" -> case (tf, as) of
             (TFun [ta] tr, [a]) -> lowerType tr >>= \case
                 ZeroSized -> toDest dest ZeroSized
@@ -684,6 +698,14 @@ lower noGC (Program (Topo defs) datas externs) =
                                 dest
                                 (Sized (Low.Expr (Low.Bitcast a'' tr') tr'))
             _ -> err
+        "cast" -> case (tf, as) of
+            (TFun [ta] tr, [a]) | (isInt ta || isFloat ta) && (isInt tr || isFloat tr) ->
+                do
+                    tr' <- fromSized <$> lowerType tr
+                    (blk1, a') <- separateTerm <$> (bindBlockM emit =<< lowerExpr Here a)
+                    blk2 <- toDest dest (Sized (Low.Expr (Low.Cast a' tr') tr'))
+                    pure (blk1 `thenBlock` blk2)
+            _ -> err
         "deref" -> lowerArgsHere >>= bindBlockM
             (\case
                 [a] -> toDest dest (Sized (Low.Expr (Low.Load a) (pointee (typeof a))))
@@ -702,9 +724,27 @@ lower noGC (Program (Topo defs) datas externs) =
                 [a, b] -> toDest dest (Sized (Low.Expr (op a b) (typeof a)))
                 _ -> err
             )
+        rel op = lowerArgsHere >>= bindBlockM
+            (\case
+                [a, b] -> toDest dest . Sized . Low.Expr (op a b) =<< typeBool
+                _ -> err
+            )
         lowerArgsHere = mapTerm catSized . catBlocks <$> mapM lowerExprToOperand as
+        isInt = \case
+            Ast.TPrim (TInt _) -> True
+            Ast.TPrim TIntSize -> True
+            Ast.TPrim (TNat _) -> True
+            Ast.TPrim TNatSize -> True
+            _ -> False
+        isFloat = \case
+            Ast.TPrim TF32 -> True
+            Ast.TPrim TF64 -> True
+            _ -> False
         err :: e
         err = ice $ "lowerAppVirtual: " ++ show (TypedVar f tf) ++ " of " ++ show as
+
+    typeBool :: Lower Low.Type
+    typeBool = Low.TConst . (Map.! ("Bool", [])) <$> use tconsts
 
     genLambda :: Destination d => d -> Fun -> Lower (Low.Block (DestTerm d))
     genLambda dest f = do
