@@ -1133,8 +1133,9 @@ lower noGC (Program (Topo defs) datas externs) =
                     pure $ Just (Low.DEnum (Vec.fromList variantNames), [])
                 _ -> do
                     tss <- mapM lowerSizedTypes variantTypess
-                    aMax <- maximum <$> mapM alignmentofStruct tss
-                    sMax <- maximum <$> mapM sizeofStruct tss
+                    let tss' = filter (not . null) tss
+                    aMax <- maximum <$> mapM alignmentofStruct tss'
+                    sMax <- maximum <$> mapM sizeofStruct tss'
                     let variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
                         sTag = variantsTagBits variants' :: Word
                         tag = if
@@ -1147,7 +1148,9 @@ lower noGC (Program (Topo defs) datas externs) =
                     outerStruct <- structDef [tag, Low.TConst unionId]
                     let innerUnion =
                             (name ++ "_union", Low.DUnion $ Low.Union variants' sMax aMax)
-                    variantStructs <- zip variantNames <$> mapM structDef tss
+                    variantStructs <- mapM
+                        (secondM structDef)
+                        (filter (not . null . snd) (zip variantNames tss))
                     pure $ Just (outerStruct, innerUnion : variantStructs)
 
         isSized :: Type -> Bool
