@@ -628,9 +628,13 @@ lower noGC (Program (Topo defs) datas externs) =
             maybeSelf <- view selfFun
             (blk1, (captures, fConcrete)) <-
                 separateTerm <$> case (maybeLocal, maybeGlobal, maybeExtern, maybeSelf) of
-                    (Just (Low.OGlobal f), _, _, _) -> lowerApplicandGlobal f
+                    (Just (Low.OGlobal f@(Low.Global _ (Low.TFun _ _))), _, _, _) ->
+                        lowerApplicandGlobal f
                     (Just closure, _, _, _) -> lowerApplicandOperand closure
-                    (_, Just f, _, _) -> lowerApplicandGlobal f
+                    (_, Just f@(Low.Global _ (Low.TFun _ _)), _, _) ->
+                        lowerApplicandGlobal f
+                    (_, Just closure, _, _) ->
+                        lowerApplicandOperand (Low.OGlobal closure)
                     (_, _, Just (e, _), _) ->
                         pure (Low.Block [] (Nothing, Low.OExtern e))
                     (_, _, _, Just (selfLhs, selfCapts, selfRef)) | x == selfLhs ->
@@ -710,10 +714,9 @@ lower noGC (Program (Topo defs) datas externs) =
                         | ta' == tr' -> lowerExpr dest a
                         | isStackCast ta' || isStackCast tr' -> do
                             (ptrTo, retVal) <- allocationAtDest dest Nothing tr'
-                            Low.Block stms1 ptrFrom <- emit
-                                (Low.Expr (Low.Bitcast ptrTo (Low.TPtr tr'))
-                                          (Low.TPtr tr')
-                                )
+                            Low.Block stms1 ptrFrom <- emit $ Low.Expr
+                                (Low.Bitcast ptrTo (Low.TPtr tr'))
+                                (Low.TPtr tr')
                             Low.Block stms2 () <- lowerExpr (There ptrFrom) a
                             pure (Low.Block (stms1 ++ stms2) retVal)
                         | otherwise -> do
