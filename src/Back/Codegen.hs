@@ -322,7 +322,14 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         genExpr :: Expr -> Gen GExpr
         genExpr (Expr e t) = do
             let t' = genType t
-            let bin op a b = do
+            let arith uop sop fop a b = do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    let op = if
+                            | isFloat t -> fop
+                            | isInt t -> sop
+                            | otherwise -> uop
+                    pure (GInstr t' (op a' b' []))
+                logic op a b = do
                     (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
                     pure (GInstr t' (op a' b' []))
                 rel uop sop fop a b = do
@@ -333,29 +340,33 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                             | otherwise -> LL.ICmp uop
                     pure (GInstr t' (op a' b' []))
             case e of
-                Add a b -> bin (LL.Add False False) a b
-                Sub a b -> bin (LL.Sub False False) a b
-                Mul a b -> bin (LL.Mul False False) a b
-                Div a b -> do
-                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
-                    let op = if
-                            | isFloat t -> LL.FDiv LL.noFastMathFlags
-                            | isInt t -> LL.SDiv False
-                            | otherwise -> LL.UDiv False
-                    pure (GInstr t' (op a' b' []))
-                Rem a b -> do
-                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
-                    let op = if
-                            | isFloat t -> LL.FRem LL.noFastMathFlags
-                            | isInt t -> LL.SRem
-                            | otherwise -> LL.URem
-                    pure (GInstr t' (op a' b' []))
-                Shl a b -> bin (LL.Shl False False) a b
-                LShr a b -> bin (LL.LShr False) a b
-                AShr a b -> bin (LL.AShr False) a b
-                BAnd a b -> bin LL.And a b
-                BOr a b -> bin LL.Or a b
-                BXor a b -> bin LL.Xor a b
+                Add a b -> arith (LL.Add False False)
+                                 (LL.Add False False)
+                                 (LL.FAdd LL.noFastMathFlags)
+                                 a
+                                 b
+                Sub a b -> arith (LL.Sub False False)
+                                 (LL.Sub False False)
+                                 (LL.FSub LL.noFastMathFlags)
+                                 a
+                                 b
+                Mul a b -> arith (LL.Mul False False)
+                                 (LL.Mul False False)
+                                 (LL.FMul LL.noFastMathFlags)
+                                 a
+                                 b
+                Div a b -> arith (LL.UDiv False)
+                                 (LL.SDiv False)
+                                 (LL.FDiv LL.noFastMathFlags)
+                                 a
+                                 b
+                Rem a b -> arith LL.URem LL.SRem (LL.FRem LL.noFastMathFlags) a b
+                Shl a b -> logic (LL.Shl False False) a b
+                LShr a b -> logic (LL.LShr False) a b
+                AShr a b -> logic (LL.AShr False) a b
+                BAnd a b -> logic LL.And a b
+                BOr a b -> logic LL.Or a b
+                BXor a b -> logic LL.Xor a b
                 Eq a b -> rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ a b
                 Ne a b -> rel LLIPred.NE LLIPred.NE LLFPred.ONE a b
                 Gt a b -> rel LLIPred.UGT LLIPred.SGT LLFPred.OGT a b
