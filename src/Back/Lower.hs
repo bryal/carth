@@ -8,6 +8,7 @@ import Control.Monad
 import Control.Monad.RWS
 import Data.Bifunctor (bimap)
 import Data.Bitraversable
+import Data.Char
 import Data.Either
 import Data.Foldable
 import Data.Functor
@@ -554,7 +555,14 @@ lower noGC (Program (Topo defs) datas externs) =
     lowerExpr :: (Show d, Destination d) => d -> Expr -> Lower (Low.Block (DestTerm d))
     lowerExpr dest = \case
         Lit c -> toDest dest . Sized . operandToExpr =<< lowerConst c
-        Var _ x -> lookupVar dest x
+        -- TODO: Keep a cache of wrapped virtuals, so as to not generate the same
+        --       instantiation twice
+        Var Virt f@(TypedVar _ (TFun pts rt)) ->
+            let ps = zipWith TypedVar (map ((: []) . chr) [ord 'a' ..]) pts
+                as = map (Var NonVirt) ps
+            in  lowerLambda dest (ps, (App (Var Virt f) as, rt))
+        Var Virt x -> ice $ "lowerExpr of non-function virtual " ++ show x
+        Var NonVirt x -> lookupVar dest x
         App f as -> lowerApp dest f as
         If pred conseq alt ->
             lowerExpr Here pred
