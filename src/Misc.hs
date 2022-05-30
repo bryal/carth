@@ -81,6 +81,10 @@ scribe l b = tell (set l b mempty)
 (.*) = (.) . (.)
 infixr 8 .*
 
+(.**) :: (d -> e) -> (a -> b -> c -> d) -> a -> b -> c -> e
+(.**) = (.) . (.*)
+infixr 8 .**
+
 abort :: FilePath -> IO a
 abort f = do
     putStrLn "Error: Aborting due to previous error."
@@ -94,7 +98,7 @@ splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
     splitOn' = do
         as <- Mega.many (try (manyTill anySingle (try (string sep))))
         a <- Mega.many anySingle
-        pure $ (as ++) $ if not (null a) then [a] else []
+        pure $ (as ++) $ [ a | not (null a) ]
 
 parse' :: Parsec Void String a -> FilePath -> Source -> Either String a
 parse' p name src = first errorBundlePretty (Mega.parse p name src)
@@ -140,3 +144,6 @@ whenJust = flip (maybe (pure ()))
 
 uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
 uncurry3 f (a, b, c) = f a b c
+
+zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]
+zipWith3M f = mapM (uncurry3 f) .** zip3

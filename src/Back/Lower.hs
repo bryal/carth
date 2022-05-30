@@ -74,6 +74,7 @@ data Env = Env
     -- | Each extern function comes coupled with a wrapper function that accepts &
     --   discards a closure captures parameter.
     , _externEnv :: Map TypedVar (Low.Extern, Low.Global)
+    , _selfFun :: Maybe (TypedVar, Low.Operand, Low.Global)
     }
 makeLenses ''Env
 
@@ -209,7 +210,7 @@ lower noGC (Program (Topo defs) datas externs) =
                 . withGlobFuns (zip funLhss funIds)
                 . withGlobVars (zip varLhss varDecls)
                 $ do
-                      fs' <- zipWithM (lowerFunDef []) funIds funRhss
+                      fs' <- zipWith3M (lowerFunDef [] . Just) funLhss funIds funRhss
                       init <- defineInit (zip varDecls varRhss)
                       scribe outFunDefs (fs' ++ [init])
                       mainId' <- view
@@ -239,8 +240,11 @@ lower noGC (Program (Topo defs) datas externs) =
                 , _tids = Seq.empty
                 , _tdefs = Map.empty
                 }
-    initEnv =
-        Env { _localEnv = Map.empty, _globalEnv = Map.empty, _externEnv = Map.empty }
+    initEnv = Env { _localEnv = Map.empty
+                  , _globalEnv = Map.empty
+                  , _externEnv = Map.empty
+                  , _selfFun = Nothing
+                  }
 
     builtinNames :: Seq String
     builtinNames = Seq.fromList ["carth_init"]
@@ -371,8 +375,9 @@ lower noGC (Program (Topo defs) datas externs) =
                     <$> callBuiltin "GC_add_roots" [Low.OConst p0, Low.OConst p1]
                 pure (Low.Block [stm] ())
 
-    lowerFunDef :: [TypedVar] -> Low.GlobalId -> Fun -> Lower Low.FunDef
-    lowerFunDef freeLocalVars name (ps, (body, rt)) = locallySet localEnv Map.empty $ do
+    lowerFunDef
+        :: [TypedVar] -> Maybe TypedVar -> Low.GlobalId -> Fun -> Lower Low.FunDef
+    lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty $ do
         -- Gotta remember these for when we return to whichever scope we came from
         oldLocalNames <- replaceLocalNames Seq.empty
         oldAllocs <- replaceAllocs []
@@ -394,10 +399,18 @@ lower noGC (Program (Topo defs) datas externs) =
             )
             directParamTs
         let innerParams = zipWith Low.Local innerParamIds paramTs
-        Low.Block capturesStms capturesBinds <- unpackCaptures capturesName freeLocalVars
+        Low.Block capturesStms capturesBinds <- unpackCaptures capturesName freeLocals
+        anonParams <-
+            maybe id ((:) . Low.dropParamName) outParam
+            . (Low.ByVal () Low.VoidPtr :)
+            <$> mapM (sizedToParam ()) directParamTs
+        let tselfFun = Low.TFun anonParams ret
+            selfCaptures = Low.OLocal $ Low.Local capturesName Low.VoidPtr
+            selfRef = Low.Global name tselfFun
+            selfFun' = fmap (, selfCaptures, selfRef) lhs
         -- Lower the body, generate an out-parameter if the return value is to be passed
         -- on the stack, and optimize to loop if the function is tail recursive.
-        (outerParamIds, body'') <- do
+        (outerParamIds, body'') <- locallySet selfFun selfFun' $ do
             -- These will be discarded if the function is not tail recursive. In that
             -- case, the inner params and the outer params are the same.
             outerParamIds <- mapM spinoffLocalId innerParamIds
@@ -556,20 +569,15 @@ lower noGC (Program (Topo defs) datas externs) =
             Sized rhs' -> bindrBlockM' (emit rhs')
                 $ \rhs'' -> withVar lhs rhs'' (lowerExpr dest body)
         Let (RecDefs defs) body -> do
-            let lhss = map fst defs
+            let lhss = Set.fromList $ map fst defs
             Low.Block stms1 (binds, cs) <-
                 fmap (mapTerm unzip . catBlocks) . forM defs $ \(lhs, (_, f)) -> do
-                    (freeLocalVars, captures) <-
-                        augment
-                                localEnv
-                                (Map.fromList $ zip
-                                    lhss
-                                    (ice "lowerExpr.Let.RecDefs: read rhs of tmp local")
-                                )
-                            $ precaptureFreeLocalVars f
+                    (freeLocalVars, captures) <- precaptureFreeLocalVars
+                        (Set.delete lhs lhss)
+                        f
                     bindrBlockM captures $ \captures' -> do
-                        name <- newGName "fun"
-                        fdef <- lowerFunDef freeLocalVars name f
+                        name <- newGName (tvName lhs)
+                        fdef <- lowerFunDef freeLocalVars (Just lhs) name f
                         scribe outFunDefs [fdef]
                         closure <-
                             bindBlockM (emitNamed "closure")
@@ -617,12 +625,16 @@ lower noGC (Program (Topo defs) datas externs) =
             maybeLocal <- view (localEnv . to (Map.lookup x))
             maybeGlobal <- view (globalEnv . to (Map.lookup x))
             maybeExtern <- view (externEnv . to (Map.lookup x))
+            maybeSelf <- view selfFun
             (blk1, (captures, fConcrete)) <-
-                separateTerm <$> case (maybeLocal, maybeGlobal, maybeExtern) of
-                    (Just (Low.OGlobal f), _, _) -> lowerApplicandGlobal f
-                    (Just closure, _, _) -> lowerApplicandOperand closure
-                    (_, Just f, _) -> lowerApplicandGlobal f
-                    (_, _, Just (e, _)) -> pure (Low.Block [] (Nothing, Low.OExtern e))
+                separateTerm <$> case (maybeLocal, maybeGlobal, maybeExtern, maybeSelf) of
+                    (Just (Low.OGlobal f), _, _, _) -> lowerApplicandGlobal f
+                    (Just closure, _, _, _) -> lowerApplicandOperand closure
+                    (_, Just f, _, _) -> lowerApplicandGlobal f
+                    (_, _, Just (e, _), _) ->
+                        pure (Low.Block [] (Nothing, Low.OExtern e))
+                    (_, _, _, Just (selfLhs, selfCapts, selfRef)) | x == selfLhs ->
+                        pure $ Low.Block [] (Just selfCapts, Low.OGlobal selfRef)
                     _ -> ice $ "lowerApplicand: variable not in any env: " ++ show x
             blk1 `thenBlockM` lowerApp' captures fConcrete
         _ -> do
@@ -760,12 +772,12 @@ lower noGC (Program (Topo defs) datas externs) =
 
     lowerLambda :: Destination d => d -> Fun -> Lower (Low.Block (DestTerm d))
     lowerLambda dest f = do
-        (freeLocalVars, captures) <- precaptureFreeLocalVars f
+        (freeLocalVars, captures) <- precaptureFreeLocalVars Set.empty f
         Low.Block stms1 captures' <- populateCaptures freeLocalVars `bindBlockM` captures
         Low.Block stms2 captures'' <- emit
             (Low.Expr (Low.Bitcast captures' Low.VoidPtr) Low.VoidPtr)
         name <- newGName "fun"
-        fdef <- lowerFunDef freeLocalVars name f
+        fdef <- lowerFunDef freeLocalVars Nothing name f
         scribe outFunDefs [fdef]
         Low.Block (stms1 ++ stms2) ()
             `thenBlockM` wrapInClosure dest (funDefGlobal fdef) captures''
@@ -814,11 +826,11 @@ lower noGC (Program (Topo defs) datas externs) =
                     Low.Block (stmsIndex ++ stmsExpr) () `thenBlockM` go (i + 1) es
                 ZeroSized -> Low.Block stmsExpr () `thenBlockM` go i es
 
-    precaptureFreeLocalVars (params, (body, _)) = do
+    precaptureFreeLocalVars extraLocals (params, (body, _)) = do
         let params' = Set.fromList params
         freeLocalVars <- view localEnv <&> \locals -> Set.toList
             (Set.intersection (Set.difference (freeVars body) params')
-                              (Map.keysSet locals)
+                              (Set.union extraLocals (Map.keysSet locals))
             )
         (freeLocalVars, ) <$> if null freeLocalVars
             then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
@@ -866,7 +878,10 @@ lower noGC (Program (Topo defs) datas externs) =
             Nothing -> view (externEnv . to (Map.lookup x)) >>= \case
                 Just (_e, eWrapped) ->
                     wrapInClosure dest eWrapped (Low.OConst (Low.Zero Low.VoidPtr))
-                Nothing -> toDest dest ZeroSized
+                Nothing -> view selfFun >>= \case
+                    Just (selfLhs, selfCapts, f) | x == selfLhs ->
+                        wrapInClosure dest f selfCapts
+                    _ -> toDest dest ZeroSized
 
     lowerConst :: Const -> Lower Low.Operand
     lowerConst = \case
