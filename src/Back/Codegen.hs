@@ -394,7 +394,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     x' <- genOperand x
                     let t' = genType t
                     pure $ case (tx, t) of
-                        _ | tx == t -> GOperand x'
+                        _
+                            | tx == t
+                            -> GOperand x'
+                            | Just w1 <- integralWidth tx
+                            , Just w2 <- integralWidth t
+                            , w1 == w2
+                            -> GOperand x'
                         (_, TInt w2) | Just w1 <- integralWidth tx ->
                             GInstr t' $ if w2 < w1
                                 then LL.Trunc x' t' []

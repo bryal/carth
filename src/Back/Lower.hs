@@ -952,7 +952,7 @@ lower noGC (Program (Topo defs) datas externs) =
                     _ -> pure (Low.Block [] m')
                 let litTagInt :: VariantIx -> Low.Const
                     litTagInt = case typeof tag of
-                        Low.TInt { Low.tintWidth = w } -> Low.CInt w
+                        Low.TNat { Low.tnatWidth = w } -> Low.CNat w . fromIntegral
                         t ->
                             ice
                                 $ "lowerDecisionTree: litTagInt: unexpected type "
@@ -1212,10 +1212,10 @@ lower noGC (Program (Topo defs) datas externs) =
                     let variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
                         sTag = variantsTagBits variants' :: Word
                         tag = if
-                            | sTag <= 8 -> Low.TInt 8
-                            | sTag <= 16 -> Low.TInt 16
-                            | sTag <= 32 -> Low.TInt 32
-                            | sTag <= 64 -> Low.TInt 64
+                            | sTag <= 8 -> Low.TNat 8
+                            | sTag <= 16 -> Low.TNat 16
+                            | sTag <= 32 -> Low.TNat 32
+                            | sTag <= 64 -> Low.TNat 64
                             | otherwise -> ice "Lower.defineData: tag > 64 bits"
                         unionId = typeId0 + 1
                     outerStruct <- structDef [tag, Low.TConst unionId]
@@ -1281,10 +1281,10 @@ lower noGC (Program (Topo defs) datas externs) =
     -- | The Low representation of a type in expression-context
     lowerType :: Type -> Lower (Sized Low.Type)
     lowerType = \case
-        TPrim (TNat w) -> pure $ genIntT w
-        TPrim TNatSize -> pure $ genIntT wordsizeBits
-        TPrim (TInt w) -> pure $ genIntT w
-        TPrim TIntSize -> pure $ genIntT wordsizeBits
+        TPrim (TNat w) -> pure $ mapSized Low.TNat (intWidthCeil w)
+        TPrim TNatSize -> pure $ mapSized Low.TNat (intWidthCeil wordsizeBits)
+        TPrim (TInt w) -> pure $ mapSized Low.TInt (intWidthCeil w)
+        TPrim TIntSize -> pure $ mapSized Low.TInt (intWidthCeil wordsizeBits)
         TPrim TF32 -> pure $ Sized Low.TF32
         TPrim TF64 -> pure $ Sized Low.TF64
         TFun tparams tret -> do
@@ -1299,13 +1299,13 @@ lower noGC (Program (Topo defs) datas externs) =
             Nothing -> ZeroSized
             Just ix -> Sized $ Low.TConst ix
       where
-        genIntT :: Word32 -> Sized Low.Type
-        genIntT w = if
+        intWidthCeil :: Word32 -> Sized Word
+        intWidthCeil w = if
             | w == 0 -> ZeroSized
-            | w <= 8 -> Sized (Low.TInt 8)
-            | w <= 16 -> Sized (Low.TInt 16)
-            | w <= 32 -> Sized (Low.TInt 32)
-            | w <= 64 -> Sized (Low.TInt 64)
+            | w <= 8 -> Sized 8
+            | w <= 16 -> Sized 16
+            | w <= 32 -> Sized 32
+            | w <= 64 -> Sized 64
             | otherwise -> ice "Lower.lowerType: integral type larger than 64-bit"
 
     asTFun = \case
