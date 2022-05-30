@@ -278,7 +278,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             lc <- label "CONSEQ"
             la <- label "ALTERN"
             p' <- genOperand p
-            commitThen (LL.CondBr p' lc la []) lc
+            p'' <- emit $ GInstr LL.i1 (LL.Trunc p' LL.i1 [])
+            commitThen (LL.CondBr p'' lc la []) lc
             converge (genBlock genTerm c) [(la, genBlock genTerm a)]
 
         genSwitch
@@ -338,7 +339,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                             | isFloat (typeof a) -> LL.FCmp fop
                             | isInt (typeof a) -> LL.ICmp sop
                             | otherwise -> LL.ICmp uop
-                    pure (GInstr t' (op a' b' []))
+                    r <- emit $ GInstr LL.i1 (op a' b' [])
+                    pure (GInstr LL.i8 (LL.ZExt r LL.i8 []))
             case e of
                 Add a b -> arith (LL.Add False False)
                                  (LL.Add False False)
