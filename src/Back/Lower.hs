@@ -489,7 +489,7 @@ lower noGC (Program (Topo defs) datas externs) =
       where
         goStm = \case
             Low.VoidCall (Low.OGlobal (Low.Global other _)) args | other == self ->
-                Low.Block [] (Low.Continue args)
+                Low.Block [] (Low.Continue (drop (length args - length outerParams) args))
             Low.SBranch br -> goBranch br
             stm -> Low.Block [stm] (Low.Break ())
         goBranch = \case
@@ -521,7 +521,7 @@ lower noGC (Program (Topo defs) datas externs) =
             let termBlock = goExpr lastExpr in Low.Block stms () `thenBlock` termBlock
         goExpr = \case
             Low.Call (Low.OGlobal (Low.Global other _)) args | other == self ->
-                Low.Block [] (Low.Continue args)
+                Low.Block [] (Low.Continue (tail args))
             Low.EBranch br -> goBranch br
             e -> Low.Block [] (Low.Break (Low.Expr e t))
         goBranch = \case

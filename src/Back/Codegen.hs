@@ -385,10 +385,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 EAsVariant x _ ->
                     genOperand x <&> \x' -> GInstr t' (LL.BitCast x' (genType t) [])
                 EOperand x -> GOperand <$> genOperand x
-                ELoop loop -> genLoop loop genExpr $ \breaks -> do
-                    breaks' <- mapM (firstM emit) breaks
-                    let t = LL.typeOf . fst . head $ breaks'
-                    pure $ GInstr t (LL.Phi t breaks' [])
+                ELoop loop -> genLoop loop (emit <=< genExpr) $ \breaks -> do
+                    let t = LL.typeOf . fst . head $ breaks
+                    pure $ GInstr t (LL.Phi t breaks [])
                 Cast x t -> do
                     let tx = typeof x
                     x' <- genOperand x
@@ -421,7 +420,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     let t' = genType t
                     pure (GInstr t' (LL.BitCast x' t' []))
 
-        genLoop :: forall t a . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen a) -> Gen a
+        genLoop
+            :: forall t a b . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen b) -> Gen b
         genLoop (Loop params (Block stms term)) genTerm joinBreaks = do
             ll <- label "LOOP_BODY"
             la <- label "LOOP_ASSIGN"

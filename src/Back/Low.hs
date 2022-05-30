@@ -452,7 +452,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         pLoopTerm :: (Int -> term -> String) -> Int -> LoopTerminator term -> String
         pLoopTerm pTerm' d = \case
             Continue vs -> "continue (" ++ intercalate ", " (map pOp vs) ++ ");"
-            Break a -> pTerm' d a
+            Break a -> "break " ++ pTerm' d a ++ ";"
             LBranch br -> pBranch d (pLoopTerm pTerm') br
         pExpr d (Expr e t) = case e of
             EOperand op -> pOp op
