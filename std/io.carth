@@ -35,7 +35,7 @@
 (extern unsafe-display-inline (Fun Str Unit))
 
 (define (display-inline s)
-  (io/wrap (unsafe-display-inline s)))
+  (IO (fun (real-world) [(unsafe-display-inline s) real-world])))
 
 (define (display s)
   (display-inline (str-append s "\n")))

@@ -71,7 +71,8 @@ data Expr
 
 builtinExterns :: Map String Type
 builtinExterns = Map.fromList
-    [ ("GC_malloc", tfun [TPrim TNatSize] (TBox tByte))
+    [ ("GC_add_roots", tfun [TBox (TPrim (TNat 8)), TBox (TPrim (TNat 8))] tUnit)
+    , ("GC_malloc", tfun [TPrim TNatSize] (TBox tByte))
     , ("malloc", tfun [TPrim TNatSize] (TBox tByte))
     , ("str-eq", tfun [tStr, tStr] tBool)
     ]

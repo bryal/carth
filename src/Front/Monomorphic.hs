@@ -49,7 +49,7 @@ data DecisionTree
     = DLeaf (VarBindings, Expr)
     | DSwitch Span Access (Map VariantIx DecisionTree) DecisionTree
     | DSwitchStr Access (Map String DecisionTree) DecisionTree
-    deriving Show
+    deriving (Show, Eq)
 
 type Ction = (VariantIx, Span, TConst, [Expr])
 type Fun = ([TypedVar], (Expr, Type))
@@ -65,10 +65,10 @@ data Expr
     | Ction Ction
     | Sizeof Type
     | Absurd Type
-    deriving (Show)
+    deriving (Show, Eq)
 
 type Defs = TopologicalOrder Def
-data Def = VarDef VarDef | RecDefs RecDefs deriving Show
+data Def = VarDef VarDef | RecDefs RecDefs deriving (Show, Eq)
 type Inst = [Type]
 type VarDef = (TypedVar, (Inst, Expr))
 type RecDefs = [FunDef]

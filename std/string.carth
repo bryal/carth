@@ -63,7 +63,7 @@
             (c (if (< x 0xa)
                    (+ 48 x)
                  (+ 97 (- x 0xa)))))
-        (iter/cons (cast c) (it (shift-r n 4))))))
+        (iter/cons (cast c) (it (lshift-r n 4))))))
   (if (= n 0)
       "0x0"
     (str-append "0x" (Str (array/collect (reverse (it n)))))))

@@ -99,7 +99,7 @@ type FunMatch = (Cases, [Type], Type)
 
 -- | Whether a Var refers to a builtin virtual, or a global/local definition. So we don't
 --   have to keep as much state about environment definitions in later passes.
-data Virt = Virt | NonVirt deriving Show
+data Virt = Virt | NonVirt deriving (Show, Eq)
 
 type Var = (Virt, TypedVar)
 

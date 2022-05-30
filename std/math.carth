@@ -65,7 +65,7 @@
     (bit-and n (bit-not (shift-l (cast 1) i)))))
 
 (define (index-bit i n)
-  (bit-and 1 (shift-r n i)))
+  (bit-and 1 (lshift-r n i)))
 
 (define (bit-not n)
   (- (- (cast 0) n) (cast 1)))

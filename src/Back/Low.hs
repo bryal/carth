@@ -1,10 +1,13 @@
 module Back.Low (module Back.Low, Access') where
 
+import Data.Char
 import Data.List (intercalate)
 import Data.Maybe
 import Data.Vector (Vector)
+import Data.Word
 import Numeric.Natural
 import qualified Data.Vector as Vec
+import Text.Printf
 
 import Misc
 import Sizeof hiding (sizeof)
@@ -32,7 +35,7 @@ paramName = \case
 paramType :: Param _name -> Type
 paramType = \case
     ByVal _ t -> t
-    ByRef _ t -> t
+    ByRef _ t -> TPtr t
 
 data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
@@ -68,7 +71,12 @@ data Const
     | F64 Double
     | EnumVal { enumType :: TypeId, enumVariant :: String, enumWidth :: Word, enumVal :: Natural}
     | Array Type [Const]
+    | CharArray [Word8]
     | Zero Type
+    | CBitcast Const Type
+    | CGlobal Global
+    | CStruct Type [Const]
+    | CPtrIndex Const Word
     deriving Show
 
 type LocalId = Word
@@ -77,12 +85,17 @@ type TypeId = Word
 
 data Local = Local LocalId Type
     deriving Show
-data Global = Global GlobalId Type -- Type excluding the pointer
+data Global = Global GlobalId Type -- Type including the pointer
     deriving (Show, Eq)
 data Extern = Extern String [Param ()] Ret
     deriving (Show, Eq)
 
-data Operand = OLocal Local | OGlobal Global | OConst Const | OExtern Extern deriving Show
+data Operand
+    = OLocal Local
+    | OGlobal Global
+    | OConst Const
+    | OExtern Extern
+    deriving Show
 
 data Branch a
     = BIf Operand (Block a) (Block a)
@@ -100,7 +113,6 @@ data Statement
 data Terminator
     = TRetVal Expr
     | TRetVoid
-    | TBranch (Branch Terminator)
     deriving Show
 
 data LoopTerminator a
@@ -173,8 +185,9 @@ data FunDef = FunDef
 data ExternDecl = ExternDecl String [Param ()] Ret
     deriving Show
 
-type GlobVarDecl = Global
-newtype GlobDef = GlobVarDecl GlobVarDecl
+data GlobDef
+    = GlobVarDecl GlobalId Type
+    | GlobConstDef GlobalId Type Const
     deriving Show
 
 data Struct = Struct
@@ -202,7 +215,9 @@ type TypeDef = (String, TypeDef')
 
 type TypeDefs = Vector TypeDef
 
-data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames
+type MainRef = Global
+
+data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames MainRef
     deriving Show
 
 typeName :: TypeDefs -> Word -> String
@@ -274,6 +289,11 @@ alignmentofStruct tenv = maximum . map (alignmentof tenv)
 mkEOperand :: Operand -> Expr
 mkEOperand op = Expr (EOperand op) (typeof op)
 
+decodeCharArrayStrLit :: (Word8 -> String) -> [Word8] -> String
+decodeCharArrayStrLit escapeInvisible cs = do
+    c <- cs
+    if 0x20 <= c && c <= 0x7E then [chr (fromIntegral c)] else escapeInvisible c
+
 class TypeOf a where
     typeof :: a -> Type
 
@@ -305,7 +325,12 @@ instance TypeOf Const where
         F64 _ -> TF64
         EnumVal { enumType = tid } -> TConst tid
         Array t cs -> TArray t (fromIntegral (length cs))
+        CharArray cs -> TArray (TNat 8) (fromIntegral (length cs))
+        CStruct t _ -> t
+        CBitcast _ t -> t
+        CGlobal (Global _ t) -> t
         Zero t -> t
+        CPtrIndex p _ -> typeof p
 
 instance (TypeOf a, TypeOf b) => TypeOf (Either a b) where
     typeof = either typeof typeof
@@ -320,7 +345,7 @@ instance Pretty Program where
     pretty' _ = prettyProgram
 
 prettyProgram :: Program -> String
-prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
+prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
     intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs))
         ++ "\n\n"
         ++ intercalate "\n" (map pEdecl edecls)
@@ -328,6 +353,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
         ++ intercalate "\n" (map pGdef gdefs)
         ++ "\n\n"
         ++ intercalate "\n\n" (map pFdef fdefs)
+        ++ ("\n\n; Main: " ++ pGlobal main)
   where
     pTdef name = \case
         DEnum vs ->
@@ -364,7 +390,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
             "clo(" ++ intercalate ", " (map pAnonParam params) ++ ") -> " ++ pRet ret
     typeName ti = fst $ tdefs Vec.! fromIntegral ti
     pEdecl (ExternDecl name params ret) =
-        ("extern " ++ name ++ "(")
+        ("extern @" ++ name ++ "(")
             ++ intercalate ", " (map pAnonParam params)
             ++ (") -> " ++ pRet ret ++ ";")
     pAnonParam = pType . paramType
@@ -393,7 +419,6 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
         pTerm d = \case
             TRetVal e -> "return " ++ pExpr d e ++ ";"
             TRetVoid -> "return void;"
-            TBranch br -> pBranch d pTerm br
         pStm d = \case
             Let lhs e ->
                 ("let " ++ pLocal lhs)
@@ -419,7 +444,6 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
                     ++ pBlock (d + 4) pTerm' def
         pCase :: Int -> (Int -> term -> String) -> (Const, Block term) -> String
         pCase d pTerm' (c, blk) = "case " ++ pConst c ++ " " ++ pBlock d pTerm' blk
-        -- [(Local, Operand)] (Block (LoopTerminator a))
         pLoop :: Int -> (Int -> a -> String) -> Loop a -> String
         pLoop d pTerm' (Loop args body) =
             ("loop (" ++ intercalate ", " (map pLoopArg args) ++ ") ")
@@ -462,19 +486,26 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames) =
             OGlobal g -> pGlobal g
             OConst c -> pConst c
             OExtern (Extern x _ _) -> "@" ++ x
-        pConst = \case
-            Undef _ -> "undefined"
-            CInt { intVal = n } -> show n
-            CNat { natVal = n } -> show n
-            F32 x -> show x
-            F64 x -> show x
-            EnumVal { enumVariant = v } -> v
-            Array _ xs -> "[" ++ intercalate ", " (map pConst xs) ++ "]"
-            Zero _ -> "zeroinitializer"
-        -- pInt = \case
-        --     LowInt _nbits v -> show v
-        pGlobal (Global x _) = "@" ++ gname x
         pLocal (Local x _) = "%" ++ lname x
         lname lid = funDefLocalNames f Vec.! fromIntegral lid
-    pGdef (GlobVarDecl (Global x t)) = "var @" ++ gname x ++ ": " ++ pType t ++ ";"
+    pGdef = \case
+        GlobVarDecl x t -> "var @" ++ gname x ++ ": " ++ pType t ++ ";"
+        GlobConstDef x t rhs ->
+            "const @" ++ gname x ++ ": " ++ pType t ++ " = " ++ pConst rhs ++ ";"
+    pConst = \case
+        Undef _ -> "undefined"
+        CInt { intVal = n } -> show n
+        CNat { natVal = n } -> show n
+        F32 x -> show x
+        F64 x -> show x
+        EnumVal { enumVariant = v } -> v
+        Array _ xs -> "[" ++ intercalate ", " (map pConst xs) ++ "]"
+        CharArray cs -> "\"" ++ decodeCharArrayStrLit (printf "\\x%02X") cs ++ "\""
+        Zero _ -> "zeroinitializer"
+        CBitcast x t -> "(bitcast " ++ pConst x ++ " to " ++ pType t ++ ")"
+        CGlobal g -> pGlobal g
+        CStruct t ms ->
+            "(" ++ pType t ++ "){ " ++ intercalate ", " (map pConst ms) ++ " }"
+        CPtrIndex p i -> pConst p ++ "[" ++ show i ++ "]"
+    pGlobal (Global x _) = "@" ++ gname x
     gname gid = gnames Vec.! fromIntegral gid

@@ -20,6 +20,7 @@ import qualified LLVM.AST.ParameterAttribute as LL
 import qualified LLVM.AST.Type as LL
 import qualified LLVM.AST.Visibility as LLVis
 import qualified LLVM.AST.Constant as LL (Constant (Undef, Float, Array, Null, AggregateZero, Int, GlobalReference))
+import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.IntegerPredicate as LLIPred
 import qualified LLVM.AST.FloatingPointPredicate as LLFPred
 import Data.Either
@@ -46,7 +47,7 @@ type Gen = StateT St (Writer [BasicBlock])
 data GExpr = GInstr LL.Type LL.Instruction | GOperand LL.Operand
 
 codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
-codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames) =
+codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) =
     Module
         { moduleName = fromString (takeBaseName moduleFilePath)
         , moduleSourceFileName = fromString moduleFilePath
@@ -54,6 +55,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         , moduleTargetTriple = Just triple
         , moduleDefinitions = concat
                                   [ defineTypes
+                                  , defineBuiltinsHidden
                                   , declareExterns
                                   , declareGlobals
                                   , map defineFun funs
@@ -62,40 +64,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         }
   where
 
-    -- | How the different sorts of types are represented in LLVM:
-    --
-    --   A Unit is represented by a zero-sized array. The reason for using an array is that
-    --   LLVM did some "optimization" on empty structs that broke tail recursion when the
-    --   return type was a zero sized type.
-    --
-    --   An Enum is represented as the smallest integer type that can fit all variants.
-    --
-    --   A Data is represented by a struct that consists of 2 members: an integer that can fit
-    --   the variant index as well as "fill" the succeeding space (implied by alignment) until
-    --   the second member starts, followed by the second member which is an array of integers
-    --   with integer size equal to the alignment of the greatest aligned variant and array
-    --   length equal to the smallest n that results in the array being of size >= the size of
-    --   the largest sized variant.
-    --
-    --   The reason we must make sure to "fill" all space in the representing struct is that
-    --   LLVM may essentially otherwise incorrectly assume that the space is unused and
-    --   doesn't have to be considered passing the type as an argument to a function.
-    --
-    --   The reason we fill it with values the size of the alignment instead of bytes is to
-    --   not wrongfully signal to LLVM that the padding will be used as-is, and should be
-    --   passed/returned in its own registers (or whatever exactly is going on). I just know
-    --   from trial and error when debugging issues with how the representation of `(Maybe
-    --   Int8)` affects how it is returned from a function. The intuitive definition (which
-    --   indeed could be used for `Maybe` specifically without problems, since the only other
-    --   variant is the non-data-carrying `None`) is `{i8, i64}`. Representing it instead with
-    --   `{i64, i64}` (to make alignment-induced padding explicit, also this is how Rust
-    --   represents it) works well -- it seems to be passed/returned in exactly the same
-    --   way. However, if we represent it as `{i8, [7 x i8], i64}` or `{i8, [15 x i8], [0 x
-    --   i64]}`: while having the same size and alignment, it is not returned in the same way
-    --   (seeming instead to use an additional return parameter), and as such, a Carth
-    --   function returning `(Maybe Int8)` represented as `{i8, [15 x i8], [0 x i64]}` is not
-    --   ABI compatible with a Rust function returning `Maybe<i8>` represented as `{i64,
-    --   i64}`.
     defineTypes :: [Definition]
     defineTypes = define =<< Vec.toList tdefs
       where
@@ -113,6 +81,14 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 -- in generated code.
                 in  [TypeDefinition (mkName name) (Just (structType [fill]))]
 
+    defineBuiltinsHidden :: [Definition]
+    defineBuiltinsHidden = map declare (Map.toList builtinsHidden)
+      where
+        declare (x, (ps, tr)) = simpleFun LL.External x ps tr []
+
+        builtinsHidden :: Map String ([Parameter], LL.Type)
+        builtinsHidden = Map.fromList [("install_stackoverflow_handler", ([], LL.void))]
+
     declareExterns :: [Definition]
     declareExterns = map declare exts
       where
@@ -121,8 +97,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 (f, rt) = case r of
                     RetVal t -> (id, genType t)
                     RetVoid -> (id, LL.void)
-                    -- OutParam t ->
-                    --     ((Parameter (LL.ptr (genType t)) anon [LL.SRet] :), LL.void)
                 ps' = f $ flip map ps $ \case
                     ByVal () t -> Parameter (genType t) anon []
                     ByRef () t -> Parameter (LL.ptr (genType t)) anon [LL.ByVal]
@@ -132,9 +106,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     declareGlobals = map declare gvars
       where
         declare g =
-            let (isconst, ident, initializer) = case g of
-                    GlobVarDecl (Global x t) -> (False, x, LL.Undef (genType t))
-                    -- GConstDef (Global x _) c -> (True, x, genConst c)
+            let (isconst, ident, t, initializer) = case g of
+                    GlobVarDecl x t -> (False, x, genType t, LL.Undef (genType t))
+                    GlobConstDef x t c -> (True, x, genType t, genConst c)
             in  GlobalDefinition $ GlobalVariable { LLGlob.name = mkName (getGName ident)
                                                   , LLGlob.linkage = LL.Private
                                                   , LLGlob.visibility = LLVis.Default
@@ -143,7 +117,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                                   , LLGlob.addrSpace = LLAddr.AddrSpace 0
                                                   , LLGlob.unnamedAddr = Nothing
                                                   , LLGlob.isConstant = isconst
-                                                  , LLGlob.type' = LL.typeOf initializer
+                                                  , LLGlob.type' = t
                                                   , LLGlob.initializer = Just initializer
                                                   , LLGlob.section = Nothing
                                                   , LLGlob.comdat = Nothing
@@ -163,9 +137,21 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         EnumVal { enumWidth = w, enumVal = v } ->
             LL.Int (fromIntegral w) (fromIntegral v)
         Array t xs -> LL.Array (genType t) (map genConst xs)
+        CharArray cs -> LL.Array LL.i8 (map (LL.Int 8 . fromIntegral) cs)
         Zero t -> case genType t of
             t'@(LL.PointerType _ _) -> LL.Null t'
             t' -> LL.AggregateZero t'
+        CBitcast x t -> LLConst.BitCast (genConst x) (genType t)
+        CGlobal (Global x t) -> LL.GlobalReference (genType t) (mkName (getGName x))
+        CStruct t ms -> LLConst.Struct
+            (case genType t of
+                LL.NamedTypeReference tname -> Just tname
+                _ -> Nothing
+            )
+            False
+            (map genConst ms)
+        CPtrIndex p i ->
+            LLConst.GetElementPtr False (genConst p) [LL.Int 64 (fromIntegral i)]
 
     defineFun :: FunDef -> Definition
     defineFun (FunDef ident ps r block allocs lnames) =
@@ -173,8 +159,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             (f, rt) = case r of
                 RetVal t -> (id, genType t)
                 RetVoid -> (id, LL.void)
-                -- OutParam t ->
-                --     ((Parameter (LL.ptr (genType t)) (mkName "out") [LL.SRet] :), LL.void)
             ps' = f $ flip map ps $ \case
                 ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
                 ByRef x t ->
@@ -189,7 +173,44 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         (mkName "entry")
         [ LL.Do (callNamed "install_stackoverflow_handler" [] LL.void)
         , LL.Do (callNamed "carth_init" [] LL.void)
-        , LL.Do (callNamed "carth_main" [] LL.void)
+        , mkName "mainc_tmp" LL.:= LL.GetElementPtr
+            { inBounds = False
+            , address = LL.ConstantOperand (genGlobal main)
+            , indices = [litI64 (0 :: Word), litI32 (0 :: Word), litI32 (0 :: Word)]
+            , metadata = []
+            }
+        , mkName "mainc" LL.:= LL.Load
+            { volatile = False
+            , address = LL.LocalReference (LL.ptr (LL.ptr LL.i8)) (mkName "mainc_tmp")
+            , maybeAtomicity = Nothing
+            , alignment = 0
+            , metadata = []
+            }
+        , mkName "mainf_tmp" LL.:= LL.GetElementPtr
+            { inBounds = False
+            , address = LL.ConstantOperand (genGlobal main)
+            , indices = [litI64 (0 :: Word), litI32 (0 :: Word), litI32 (1 :: Word)]
+            , metadata = []
+            }
+        , mkName "mainf_tmp2" LL.:= LL.Load
+            { volatile = False
+            , address = LL.LocalReference (LL.ptr (LL.ptr LL.i8)) (mkName "mainf_tmp")
+            , maybeAtomicity = Nothing
+            , alignment = 0
+            , metadata = []
+            }
+        , mkName "mainf"
+            LL.:= LL.BitCast (LL.LocalReference (LL.ptr LL.i8) (mkName "mainf_tmp2"))
+                             (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
+                             []
+        , LL.Do
+            (call
+                (LL.LocalReference
+                    (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
+                    (mkName "mainf")
+                )
+                [LL.LocalReference (LL.ptr LL.i8) (mkName "mainc")]
+            )
         ]
         (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))
 
@@ -228,18 +249,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             commitThen (LL.Br ln []) ln
             let t = LL.typeOf d
             pure (GInstr t (LL.Phi t ((d, ld) : cs) []))
-
-        genTBranch :: Branch Terminator -> Gen ()
-        genTBranch = \case
-            BIf p c a -> genIf p c a genTerminator tconverge
-            BSwitch x cs d -> genSwitch x cs d genTerminator tconverge
-
-        tconverge :: Gen () -> [(Name, Gen ())] -> Gen ()
-        tconverge genDefault cases = do
-            genDefault
-            forM_ cases $ \(l, genCase) -> do
-                modify (\st -> st { currentLabel = l })
-                genCase
 
         genSBranch :: Branch () -> Gen ()
         genSBranch = \case
@@ -298,11 +307,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         genTerminator = \case
             TRetVal x -> genExpr x >>= emit >>= \v -> commitFinal (LL.Ret (Just v) [])
             TRetVoid -> commitFinal (LL.Ret Nothing [])
-            -- TOutParam x ->
-            --     let x' = genOperand x
-            --     in  store x' (LocalReference (LL.ptr (LL.typeOf x')) (mkName "out"))
-            --             *> commitFinal (LL.Ret Nothing [])
-            TBranch br -> genTBranch br
 
         store :: LL.Operand -> LL.Operand -> Gen ()
         store v dst = emitDo $ LL.Store { volatile = False
@@ -462,14 +466,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             -- In END
             joinBreaks breaks
 
-        -- getPointee = \case
-        --     LL.PointerType t _ -> t
-        --     t -> ice $ "Tried to get pointee of non-pointer type " ++ show t
-
-        -- getReturn = \case
-        --     LL.FunctionType rt _ _ -> rt
-        --     t -> ice $ "Tried to get return of non-function type " ++ show t
-
         genOperand :: Low.Operand -> Gen LL.Operand
         genOperand = \case
             OLocal x -> genLocal x
@@ -483,10 +479,6 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             in  gets aliases <&> Map.lookup name <&> \case
                     Just x -> x
                     Nothing -> LL.LocalReference (genType t) (mkName name)
-
-        genGlobal :: Low.Global -> LL.Constant
-        genGlobal (Global ident t) =
-            LL.GlobalReference (genType t) (mkName (getGName ident))
 
         genExtern :: Low.Extern -> LL.Constant
         genExtern (Extern name params ret) =
@@ -521,6 +513,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             modify (\st -> st { labelCount = n + 1 })
             pure $ mkName ("L" ++ show n ++ s)
 
+    genGlobal :: Low.Global -> LL.Constant
+    genGlobal (Global ident t) = LL.GlobalReference (genType t) (mkName (getGName ident))
+
     genType :: Low.Type -> LL.Type
     genType = \case
         TInt { tintWidth = w } -> LL.IntegerType (fromIntegral w)
@@ -528,12 +523,11 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         TF32 -> LL.FloatingPointType LL.FloatFP
         TF64 -> LL.FloatingPointType LL.DoubleFP
         TPtr u -> LL.ptr (genType u)
-        VoidPtr -> LL.ptr (LL.IntegerType 8)
+        VoidPtr -> LL.ptr LL.i8
         TFun ps r ->
             let (f, rt) = case r of
                     RetVal t -> (id, genType t)
                     RetVoid -> (id, LL.void)
-                    -- OutParam t -> ((LL.ptr (genType t) :), LL.void)
             in  LL.ptr $ LL.FunctionType rt (f (map genParam ps)) False
         TConst i -> case tdefs Vec.! fromIntegral i of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
