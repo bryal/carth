@@ -88,17 +88,13 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
         Lit c -> Just (Parsed.Lit c)
         _ -> Nothing
     eConstructor = fmap Ctor big
-    -- FIXME: These positions are completely wack. Gotta get a separate variant in the AST
-    --        for pairs. Similar to Box.
-    etuple =
-        fmap unpos
-            $ tuple expr (\p -> WithPos p (Ctor (Id (WithPos p "Unit"))))
-            $ \l r ->
-                  let p = getPos l
-                  in  WithPos p (App (WithPos p (Ctor (Id (WithPos p "Cons")))) [l, r])
+    -- FIXME: These positions are completely wack. Gotta get a separate variant in the AST for
+    --        pairs. Similar to Box.
+    etuple = fmap unpos $ tuple expr (\p -> WithPos p (Ctor (Id (WithPos p "Unit")))) $ \l r ->
+        let p = getPos l in WithPos p (App (WithPos p (Ctor (Id (WithPos p "Cons")))) [l, r])
     var = fmap Var small
-    pexpr = parens' $ \p -> choice
-        [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
+    pexpr = parens'
+        $ \p -> choice [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
     funMatch = do
         reserved KfunStar
         fmap FunMatch $ some
@@ -108,8 +104,8 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
     if' = reserved Kif *> liftM3 If expr expr expr
     fun = do
         reserved Kfun
-        -- TODO: Make this brackets. Since it's tuple-like, and we could do with some
-        --       variation when reading...
+        -- TODO: Make this brackets. Since it's tuple-like, and we could do with some variation
+        --       when reading...
         params <- withPos $ parens (some pat)
         body <- expr
         pure $ FunMatch [(params, body)]
@@ -174,8 +170,7 @@ scheme = do
     pos <- getSrcPos
     let wrap = fmap (Forall pos Set.empty Set.empty)
         universal =
-            reserved Kforall
-                *> liftA3 (Forall pos) tvars (option Set.empty (try constrs)) type_
+            reserved Kforall *> liftA3 (Forall pos) tvars (option Set.empty (try constrs)) type_
         tvars = parens (fmap Set.fromList (some tvar))
         constrs = parens (reserved Kwhere *> fmap Set.fromList (some (parens tapp)))
     wrap nonptype <|> (parens (universal <|> wrap ptype))
@@ -184,8 +179,7 @@ type_ :: Parser Type
 type_ = nonptype <|> parens ptype
 
 nonptype :: Parser Type
-nonptype = choice
-    [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big, ttuple]
+nonptype = choice [fmap TPrim tprim, fmap TVar tvar, fmap (TConst . (, []) . idstr) big, ttuple]
   where
     tprim = token "primitive type" $ const $ \case
         Lexd.Big ('N' : 'a' : 't' : s) | isWord s -> Just (TNat (read s))

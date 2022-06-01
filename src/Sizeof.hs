@@ -13,8 +13,8 @@ import Front.Subst
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and impl of
 --       `getTypeAllocSize`.  https://llvm.org/doxygen/classllvm_1_1DataLayout.html
 --
--- See the [System V ABI docs](https://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf)
--- for more info.
+-- See the [System V ABI docs](https://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf) for more
+-- info.
 sizeof :: TypeDefs -> Type -> Maybe Word32
 sizeof datas = \case
     TVar _ -> Nothing
@@ -32,8 +32,7 @@ sizeof datas = \case
   where
     lookupDatatype (x, args) = case Map.lookup x datas of
         Just (params, variants) ->
-            let sub = Map.fromList (zip params args)
-            in  map (map (subst sub) . snd) variants
+            let sub = Map.fromList (zip params args) in map (map (subst sub) . snd) variants
         Nothing -> ice $ "Infer.lookupDatatype: undefined datatype " ++ show x
 
     sizeofData :: [[Type]] -> Maybe Word32

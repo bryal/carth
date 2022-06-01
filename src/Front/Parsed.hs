@@ -158,8 +158,7 @@ fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases (map (first pure) cs))
 
 fvCases :: [([Pat], Expr)] -> Set (Id 'Small)
-fvCases =
-    Set.unions . map (\(ps, e) -> Set.difference (freeVars e) (Set.unions (map bvPat ps)))
+fvCases = Set.unions . map (\(ps, e) -> Set.difference (freeVars e) (Set.unions (map bvPat ps)))
 
 bvPat :: Pat -> Set (Id 'Small)
 bvPat = \case

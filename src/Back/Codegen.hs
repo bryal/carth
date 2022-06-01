@@ -47,21 +47,20 @@ type Gen = StateT St (Writer [BasicBlock])
 data GExpr = GInstr LL.Type LL.Instruction | GOperand LL.Operand
 
 codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
-codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) =
-    Module
-        { moduleName = fromString (takeBaseName moduleFilePath)
-        , moduleSourceFileName = fromString moduleFilePath
-        , moduleDataLayout = Just layout
-        , moduleTargetTriple = Just triple
-        , moduleDefinitions = concat
-                                  [ defineTypes
-                                  , defineBuiltinsHidden
-                                  , declareExterns
-                                  , declareGlobals
-                                  , map defineFun funs
-                                  , [defineMain]
-                                  ]
-        }
+codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) = Module
+    { moduleName = fromString (takeBaseName moduleFilePath)
+    , moduleSourceFileName = fromString moduleFilePath
+    , moduleDataLayout = Just layout
+    , moduleTargetTriple = Just triple
+    , moduleDefinitions = concat
+                              [ defineTypes
+                              , defineBuiltinsHidden
+                              , declareExterns
+                              , declareGlobals
+                              , map defineFun funs
+                              , [defineMain]
+                              ]
+    }
   where
 
     defineTypes :: [Definition]
@@ -76,9 +75,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             DUnion Union { unionGreatestSize = sMax, unionGreatestAlignment = aMax } ->
                 let fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
                                      (IntegerType (fromIntegral (toBits aMax)))
-                -- In LLVM, only structs can be identified type definitions, so wrap
-                -- the array in a singleton struct, since we want to see the type name
-                -- in generated code.
+                -- In LLVM, only structs can be identified type definitions, so wrap the array in a
+                -- singleton struct, since we want to see the type name in generated code.
                 in  [TypeDefinition (mkName name) (Just (structType [fill]))]
 
     defineBuiltinsHidden :: [Definition]
@@ -99,8 +97,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     RetVoid -> LL.void
                 out' = case out of
                     Nothing -> []
-                    Just (OutParam _ t) ->
-                        [Parameter (LL.ptr (genType t)) anon [LL.SRet]]
+                    Just (OutParam _ t) -> [Parameter (LL.ptr (genType t)) anon [LL.SRet]]
                 ps' = flip map ps $ \case
                     ByVal () t -> Parameter (genType t) anon []
                     ByRef () t -> Parameter (LL.ptr (genType t)) anon []
@@ -136,10 +133,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         CNat { natWidth = w, natVal = v } -> LL.Int (fromIntegral w) (fromIntegral v)
         F32 x -> LL.Float (LL.Single x)
         F64 x -> LL.Float (LL.Double x)
-        -- In the LLVM backend, we elide all enum name information, leaving just the
-        -- integer value
-        EnumVal { enumWidth = w, enumVal = v } ->
-            LL.Int (fromIntegral w) (fromIntegral v)
+        -- In the LLVM backend, we elide all enum name information, leaving just the integer value
+        EnumVal { enumWidth = w, enumVal = v } -> LL.Int (fromIntegral w) (fromIntegral v)
         Array t xs -> LL.Array (genType t) (map genConst xs)
         CharArray cs -> LL.Array LL.i8 (map (LL.Int 8 . fromIntegral) cs)
         Zero t -> case genType t of
@@ -154,8 +149,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             )
             False
             (map genConst ms)
-        CPtrIndex p i ->
-            LLConst.GetElementPtr False (genConst p) [LL.Int 64 (fromIntegral i)]
+        CPtrIndex p i -> LLConst.GetElementPtr False (genConst p) [LL.Int 64 (fromIntegral i)]
 
     defineFun :: FunDef -> Definition
     defineFun (FunDef ident out ps r block allocs lnames) =
@@ -168,16 +162,15 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     [Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.SRet]]
             ps' = flip map ps $ \case
                 ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
-                ByRef x t ->
-                    Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) []
+                ByRef x t -> Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) []
         in  simpleFun LL.Internal
                       (getGName ident)
                       (out' ++ ps')
                       rt
                       (genFunBody lnames allocs block)
 
-    -- In this incarnation, this outermost main should just call init and
-    -- user-main. init will in turn init global vars & setup stack overflow handler etc.
+    -- In this incarnation, this outermost main should just call init and user-main. init will in
+    -- turn init global vars & setup stack overflow handler etc.
     defineMain :: Definition
     defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
         (mkName "entry")
@@ -215,9 +208,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                              []
         , LL.Do
             (call
-                (LL.LocalReference
-                    (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
-                    (mkName "mainf")
+                (LL.LocalReference (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
+                                   (mkName "mainf")
                 )
                 Nothing
                 [LL.LocalReference (LL.ptr LL.i8) (mkName "mainc")]
@@ -238,9 +230,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
         genAllocs = mapM_ $ \(x, t) ->
             let t' = genType t
-            in  emitNamed (getName lnames x)
-                          (GInstr (LL.ptr t') (LL.Alloca t' Nothing 0 []))
-                    $> ()
+            in  emitNamed (getName lnames x) (GInstr (LL.ptr t') (LL.Alloca t' Nothing 0 [])) $> ()
 
         genEBranch :: Branch Expr -> Gen GExpr
         genEBranch = \case
@@ -312,10 +302,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             Let lhs rhs -> genExpr rhs >>= \rhs' -> emitLocal lhs rhs' $> ()
             Store v dst -> bindM2 store (genOperand v) (genOperand dst)
             SBranch br -> genSBranch br
-            VoidCall f out as -> emitDo =<< liftM3 call
-                                                   (genOperand f)
-                                                   (mapM genOperand out)
-                                                   (mapM genOperand as)
+            VoidCall f out as -> emitDo
+                =<< liftM3 call (genOperand f) (mapM genOperand out) (mapM genOperand as)
             SLoop loop -> genLoop loop pure (const (pure ()))
 
         genTerminator :: Terminator -> Gen ()
@@ -332,8 +320,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                         , metadata = []
                                         }
 
-        -- TODO: More elegant code for nested branches. Collapse in a single, flat step,
-        --       instead of level-wise.
+        -- TODO: More elegant code for nested branches. Collapse in a single, flat step, instead of
+        --       level-wise.
         genExpr :: Expr -> Gen GExpr
         genExpr (Expr e t) = do
             let t' = genType t
@@ -371,11 +359,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                  (LL.FMul LL.noFastMathFlags)
                                  a
                                  b
-                Div a b -> arith (LL.UDiv False)
-                                 (LL.SDiv False)
-                                 (LL.FDiv LL.noFastMathFlags)
-                                 a
-                                 b
+                Div a b -> arith (LL.UDiv False) (LL.SDiv False) (LL.FDiv LL.noFastMathFlags) a b
                 Rem a b -> arith LL.URem LL.SRem (LL.FRem LL.noFastMathFlags) a b
                 Shl a b -> logic (LL.Shl False False) a b
                 LShr a b -> logic (LL.LShr False) a b
@@ -399,10 +383,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                 , alignment = 0
                                 , metadata = []
                                 }
-                Call f as -> liftM3 (GInstr t' .** call)
-                                    (genOperand f)
-                                    (pure Nothing)
-                                    (mapM genOperand as)
+                Call f as ->
+                    liftM3 (GInstr t' .** call) (genOperand f) (pure Nothing) (mapM genOperand as)
                 EBranch br -> genEBranch br
                 EGetMember i x -> genOperand x <&> \x' -> GInstr
                     t'
@@ -411,8 +393,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                      , indices = [litI64 (0 :: Integer), litI32 i]
                                      , metadata = []
                                      }
-                EAsVariant x _ ->
-                    genOperand x <&> \x' -> GInstr t' (LL.BitCast x' (genType t) [])
+                EAsVariant x _ -> genOperand x <&> \x' -> GInstr t' (LL.BitCast x' (genType t) [])
                 EOperand x -> GOperand <$> genOperand x
                 ELoop loop -> genLoop loop (emit <=< genExpr) $ \breaks -> do
                     let t = LL.typeOf . fst . head $ breaks
@@ -425,18 +406,12 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                         _
                             | tx == t
                             -> GOperand x'
-                            | Just w1 <- integralWidth tx
-                            , Just w2 <- integralWidth t
-                            , w1 == w2
+                            | Just w1 <- integralWidth tx, Just w2 <- integralWidth t, w1 == w2
                             -> GOperand x'
                         (_, TInt w2) | Just w1 <- integralWidth tx ->
-                            GInstr t' $ if w2 < w1
-                                then LL.Trunc x' t' []
-                                else LL.SExt x' t' []
+                            GInstr t' $ if w2 < w1 then LL.Trunc x' t' [] else LL.SExt x' t' []
                         (_, TNat w2) | Just w1 <- integralWidth tx ->
-                            GInstr t' $ if w2 < w1
-                                then LL.Trunc x' t' []
-                                else LL.ZExt x' t' []
+                            GInstr t' $ if w2 < w1 then LL.Trunc x' t' [] else LL.ZExt x' t' []
                         (TF32, TF64) -> GInstr t' (LL.FPExt x' t' [])
                         (TF64, TF32) -> GInstr t' (LL.FPTrunc x' t' [])
                         (TInt _, _) | isFloat t -> GInstr t' (LL.SIToFP x' t' [])
@@ -449,16 +424,14 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     let t' = genType t
                     pure (GInstr t' (LL.BitCast x' t' []))
 
-        genLoop
-            :: forall t a b . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen b) -> Gen b
+        genLoop :: forall t a b . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen b) -> Gen b
         genLoop (Loop params (Block stms term)) genTerm joinBreaks = do
             ll <- label "LOOP_BODY"
             la <- label "LOOP_ASSIGN"
             le <- label "LOOP_END"
             lprev <- gets currentLabel
             commitThen (LL.Br la []) ll
-            let genLTerm
-                    :: LoopTerminator t -> Gen [Either ([LL.Operand], Name) (a, Name)]
+            let genLTerm :: LoopTerminator t -> Gen [Either ([LL.Operand], Name) (a, Name)]
                 genLTerm = \case
                     Continue args -> do
                         l <- gets currentLabel
@@ -491,8 +464,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             forM_ stms genStm
             (conts, breaks) <- partitionEithers <$> genLTerm term
             -- In ASSIGN
-            let conts' = transpose
-                    (map (\(nexts, lnext) -> zip nexts (repeat lnext)) conts)
+            let conts' = transpose (map (\(nexts, lnext) -> zip nexts (repeat lnext)) conts)
             forM_ (zip params conts') $ \((lhs, init), nexts) -> do
                 init' <- genOperand init
                 let u = LL.typeOf init'
@@ -539,8 +511,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             pure (LL.LocalReference t (mkName x))
 
         emitDo :: LL.Instruction -> Gen ()
-        emitDo instr =
-            modify (\st -> st { currentInstrs = LL.Do instr : currentInstrs st })
+        emitDo instr = modify (\st -> st { currentInstrs = LL.Do instr : currentInstrs st })
 
         label :: String -> Gen Name
         label s = do
@@ -608,41 +579,36 @@ structType ts = StructureType { isPacked = False, elementTypes = ts }
 callNamed :: String -> Maybe LL.Operand -> [LL.Operand] -> LL.Type -> Instruction
 callNamed f out as rt =
     let f' = ConstantOperand $ LL.GlobalReference
-            (LL.ptr $ FunctionType rt
-                                   (maybe id ((:) . LL.typeOf) out $ map LL.typeOf as)
-                                   False
-            )
+            (LL.ptr $ FunctionType rt (maybe id ((:) . LL.typeOf) out $ map LL.typeOf as) False)
             (mkName f)
     in  call f' out as
 
 call :: LL.Operand -> Maybe LL.Operand -> [LL.Operand] -> Instruction
-call f out as = LL.Call
-    { tailCallKind = Just LL.NoTail
-    , callingConvention = LL.C
-    , returnAttributes = []
-    , function = Right f
-    , arguments = maybe [] ((: []) . (, [LL.SRet])) out ++ map (, []) as
-    , functionAttributes = []
-    , metadata = []
-    }
+call f out as = LL.Call { tailCallKind = Just LL.NoTail
+                        , callingConvention = LL.C
+                        , returnAttributes = []
+                        , function = Right f
+                        , arguments = maybe [] ((: []) . (, [LL.SRet])) out ++ map (, []) as
+                        , functionAttributes = []
+                        , metadata = []
+                        }
 
 simpleFun :: LL.Linkage -> String -> [Parameter] -> LL.Type -> [BasicBlock] -> Definition
-simpleFun link n ps rt bs = GlobalDefinition $ Function
-    { LLGlob.linkage = link
-    , LLGlob.visibility = LLVis.Default
-    , LLGlob.dllStorageClass = Nothing
-    , LLGlob.callingConvention = LL.C
-    , LLGlob.returnAttributes = []
-    , LLGlob.returnType = rt
-    , LLGlob.name = mkName n
-    , LLGlob.parameters = (ps, False)
-    , LLGlob.functionAttributes = []
-    , LLGlob.section = Nothing
-    , LLGlob.comdat = Nothing
-    , LLGlob.alignment = 0
-    , LLGlob.garbageCollectorName = Nothing
-    , LLGlob.prefix = Nothing
-    , LLGlob.basicBlocks = bs
-    , LLGlob.personalityFunction = Nothing
-    , LLGlob.metadata = []
-    }
+simpleFun link n ps rt bs = GlobalDefinition $ Function { LLGlob.linkage = link
+                                                        , LLGlob.visibility = LLVis.Default
+                                                        , LLGlob.dllStorageClass = Nothing
+                                                        , LLGlob.callingConvention = LL.C
+                                                        , LLGlob.returnAttributes = []
+                                                        , LLGlob.returnType = rt
+                                                        , LLGlob.name = mkName n
+                                                        , LLGlob.parameters = (ps, False)
+                                                        , LLGlob.functionAttributes = []
+                                                        , LLGlob.section = Nothing
+                                                        , LLGlob.comdat = Nothing
+                                                        , LLGlob.alignment = 0
+                                                        , LLGlob.garbageCollectorName = Nothing
+                                                        , LLGlob.prefix = Nothing
+                                                        , LLGlob.basicBlocks = bs
+                                                        , LLGlob.personalityFunction = Nothing
+                                                        , LLGlob.metadata = []
+                                                        }

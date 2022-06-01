@@ -40,15 +40,14 @@ type Constraints = ([EqConstraint], [(SrcPos, ClassConstraint)])
 
 data Env = Env
     { _envTypeDefs :: TypeDefs
-    -- Separarate global (and virtual) defs and local defs, because `generalize` only has
-    -- to look at local defs.
+    -- Separarate global (and virtual) defs and local defs, because `generalize` only has to look
+    -- at local defs.
     , _envVirtuals :: Map String Scheme
     , _envGlobDefs :: Map String Scheme
     , _envLocalDefs :: Map String Scheme
-    -- | Maps a constructor to its variant index in the type definition it
-    --   constructs, the signature/left-hand-side of the type definition, the
-    --   types of its parameters, and the span (number of constructors) of the
-    --   datatype
+    -- | Maps a constructor to its variant index in the type definition it constructs, the
+    --   signature/left-hand-side of the type definition, the types of its parameters, and the span
+    --   (number of constructors) of the datatype
     , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
     }
 makeLenses ''Env
@@ -56,10 +55,6 @@ makeLenses ''Env
 type FreshTVs = [String]
 
 type Infer a = WriterT Constraints (ReaderT Env (StateT FreshTVs (Except TypeErr))) a
-
-------------------------------------------------------------------------------------------
--- Inference
-------------------------------------------------------------------------------------------
 
 inferTopDefs :: TypeDefs -> Ctors -> Externs -> [Parsed.Def] -> Except TypeErr Defs
 inferTopDefs tdefs ctors externs defs =
@@ -74,9 +69,8 @@ inferTopDefs tdefs ctors externs defs =
                 ns = map show [1 :: Word .. 99]
                 vs = [ l : n | l <- ls, n <- ns ] ++ [ l : v | l <- ls, v <- vs ]
             in  vs
-    in  evalStateT
-            (runReaderT (fmap fst (runWriterT (inferDefs envGlobDefs defs))) initEnv)
-            freshTvs
+    in  evalStateT (runReaderT (fmap fst (runWriterT (inferDefs envGlobDefs defs))) initEnv)
+                   freshTvs
   where
     builtinVirtuals :: Map String Scheme
     builtinVirtuals =
@@ -86,15 +80,12 @@ inferTopDefs tdefs ctors externs defs =
             ta = TVar tva
             tvb = tv "b"
             tb = TVar tvb
-            arithScm = Forall (Set.fromList [tva])
-                              (Set.singleton ("Num", [ta]))
-                              (tfun [ta, ta] ta)
-            bitwiseScm = Forall (Set.fromList [tva])
-                                (Set.singleton ("Bitwise", [ta]))
-                                (tfun [ta, ta] ta)
-            relScm = Forall (Set.fromList [tva])
-                            (Set.singleton ("Ord", [ta]))
-                            (tfun [ta, ta] tBool)
+            arithScm =
+                Forall (Set.fromList [tva]) (Set.singleton ("Num", [ta])) (tfun [ta, ta] ta)
+            bitwiseScm =
+                Forall (Set.fromList [tva]) (Set.singleton ("Bitwise", [ta])) (tfun [ta, ta] ta)
+            relScm =
+                Forall (Set.fromList [tva]) (Set.singleton ("Ord", [ta])) (tfun [ta, ta] tBool)
         in
             Map.fromList
                 $ [ ("+", arithScm)
@@ -121,9 +112,7 @@ inferTopDefs tdefs ctors externs defs =
                     )
                   , ("deref", Forall (Set.fromList [tva]) Set.empty (TFun [TBox ta] ta))
                   , ( "store"
-                    , Forall (Set.fromList [tva])
-                             Set.empty
-                             (TFun [ta, (TBox ta)] (TBox ta))
+                    , Forall (Set.fromList [tva]) Set.empty (TFun [ta, (TBox ta)] (TBox ta))
                     )
                   , ( "cast"
                     , Forall (Set.fromList [tva, tvb])
@@ -138,8 +127,7 @@ checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
 checkType' :: MonadError TypeErr m => TypeDefs -> SrcPos -> Parsed.Type -> m Type
 checkType' tdefs = checkType'' (\x -> fmap (length . fst) (Map.lookup x tdefs))
 
-checkType''
-    :: MonadError TypeErr m => (String -> Maybe Int) -> SrcPos -> Parsed.Type -> m Type
+checkType'' :: MonadError TypeErr m => (String -> Maybe Int) -> SrcPos -> Parsed.Type -> m Type
 checkType'' tdefsParams pos = go
   where
     go = \case
@@ -178,13 +166,11 @@ inferDefs envDefs defs = do
             else checkNoDuplicateDefs (Set.insert x already) ds
         Nothing -> pure ()
 
--- For unification to work properly with mutually recursive functions,
--- we need to create a dependency graph of non-recursive /
--- directly-recursive functions and groups of mutual functions. We do
--- this by creating a directed acyclic graph (DAG) of strongly
--- connected components (SCC), where a node is a definition and an
--- edge is a reference to another definition. For each SCC, we infer
--- types for all the definitions / the single definition before
+-- For unification to work properly with mutually recursive functions, we need to create a
+-- dependency graph of non-recursive / directly-recursive functions and groups of mutual
+-- functions. We do this by creating a directed acyclic graph (DAG) of strongly connected
+-- components (SCC), where a node is a definition and an edge is a reference to another
+-- definition. For each SCC, we infer types for all the definitions / the single definition before
 -- generalizing.
 orderDefs :: [Parsed.Def] -> [SCC Parsed.Def]
 orderDefs = stronglyConnComp . graph
@@ -200,24 +186,20 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
 (inferNonrecDef, inferRecDefs) = (inferNonrecDef', inferRecDefs')
   where
     inferNonrecDef' (Parsed.FunDef dpos lhs mayscm params body) =
-        -- FIXME: Just wanted to get things working, but this isn't really better than
-        --        doing the fold in the parser. Handle this such that we don't have to
-        --        assign the definition position to the nested lambdas.
+        -- FIXME: Just wanted to get things working, but this isn't really better than doing the
+        --        fold in the parser. Handle this such that we don't have to assign the definition
+        --        position to the nested lambdas.
         inferNonrecDef' $ Parsed.VarDef dpos lhs mayscm $ WithPos dpos $ Parsed.FunMatch
             [(params, body)]
     inferNonrecDef' (Parsed.VarDef _ lhs mayscm body) = do
         t <- fresh
         mayscm' <- checkScheme (idstr lhs) mayscm
         (body', cs) <- listen $ inferDef t mayscm' (getPos body) (infer body)
-        -- TODO: Can't we get rid of this somehow? It makes our solution more complex and
-        --       expensive if we have to do nested solves. Also re-solves many constraints
-        --       in vain.
+        -- TODO: Can't we get rid of this somehow? It makes our solution more complex and expensive
+        --       if we have to do nested solves. Also re-solves many constraints in vain.
         (sub, ccs) <- solve cs
         env <- view envLocalDefs
-        scm <- generalize (substEnv sub env)
-                          (fmap _scmConstraints mayscm')
-                          ccs
-                          (subst sub t)
+        scm <- generalize (substEnv sub env) (fmap _scmConstraints mayscm') ccs (subst sub t)
         let body'' = substExpr sub body'
         pure (idstr lhs, (scm, body''))
 
@@ -230,9 +212,8 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
             mayscm' <- checkScheme name mayscm
             pure (name, mayscm', t)
         let dummyDefs = Map.fromList $ zip names (map (Forall Set.empty Set.empty) ts)
-        (fs, ucs) <- listen $ augment envLocalDefs dummyDefs $ mapM
-            (uncurry3 inferRecDef)
-            (zip3 mayscms' ts ds)
+        (fs, ucs) <- listen $ augment envLocalDefs dummyDefs $ mapM (uncurry3 inferRecDef)
+                                                                    (zip3 mayscms' ts ds)
         (sub, cs) <- solve ucs
         env <- view envLocalDefs
         scms <- zipWithM
@@ -245,10 +226,7 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
     inferRecDef :: Maybe Scheme -> Type -> Parsed.Def -> Infer (WithPos FunMatch)
     inferRecDef mayscm t = \case
         Parsed.FunDef fpos _ _ params body ->
-            fmap (WithPos fpos)
-                $ inferDef t mayscm fpos
-                $ inferFunMatch
-                $ [(params, body)]
+            fmap (WithPos fpos) $ inferDef t mayscm fpos $ inferFunMatch $ [(params, body)]
         Parsed.VarDef fpos _ _ (WithPos _ (Parsed.FunMatch cs)) ->
             fmap (WithPos fpos) $ inferDef t mayscm fpos (inferFunMatch cs)
         Parsed.VarDef _ (Id lhs) _ _ -> throwError (RecursiveVarDef lhs)
@@ -272,10 +250,7 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
             cs' <- mapM (secondM (mapM (uncurry checkType))) (Set.toList cs)
             let s1 = Forall vs (Set.fromList cs') t'
             env <- view envLocalDefs
-            s2@(Forall vs2 _ t2) <- generalize env
-                                               (Just (_scmConstraints s1))
-                                               Map.empty
-                                               t'
+            s2@(Forall vs2 _ t2) <- generalize env (Just (_scmConstraints s1)) Map.empty t'
             if ((vs, t') == (vs2, t2))
                 then pure (Just s1)
                 else throwError (InvalidUserTypeSig pos s1 s2)
@@ -295,8 +270,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
             _ -> pure () -- If it's not k
         (tas', as') <- fmap unzip $ mapM infer as
         unify (Expected (TFun tas tr)) (Found (getPos f) tf')
-        forM_ (zip3 as tas tas')
-            $ \(a, ta, ta') -> unify (Expected ta) (Found (getPos a) ta')
+        forM_ (zip3 as tas tas') $ \(a, ta, ta') -> unify (Expected ta) (Found (getPos a) ta')
         pure (tr, App f' as' tr)
     Parsed.If p c a -> do
         (tp, p') <- infer p
@@ -342,9 +316,8 @@ inferLet1 pos defl body = case defl of
 inferMatch :: SrcPos -> Parsed.Expr -> [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
 inferMatch pos matchee cases = do
     (tmatchee, matchee') <- infer matchee
-    (tbody, cases') <- inferCases
-        [tmatchee]
-        (map (first (\pat -> WithPos (getPos pat) [pat])) cases)
+    (tbody, cases') <- inferCases [tmatchee]
+                                  (map (first (\pat -> WithPos (getPos pat) [pat])) cases)
     let f = WithPos pos (FunMatch (cases', [tmatchee], tbody))
     pure (tbody, App f [matchee'] tbody)
 
@@ -364,8 +337,7 @@ inferFunMatch cases = do
                 (throwError (FunCaseArityMismatch pos arity (length pats)))
             pure arity
 
--- | All the patterns must be of the same types, and all the bodies must be of
---   the same type.
+-- | All the patterns must be of the same types, and all the bodies must be of the same type.
 inferCases
     :: [Type] -- Type of matchee(s). Expected type(s) of pattern(s).
     -> [(WithPos [Parsed.Pat], Parsed.Expr)]
@@ -388,9 +360,8 @@ inferCases tmatchees cases = do
         let tps' = zipWith Found (map getPos ps) tps
         pure (tps', Found (getPos b) tb, (WithPos pos ps', b'))
 
--- | Returns the type of the pattern; the pattern in the Pat format that the
---   Match module wants, and a Map from the variables bound in the pattern to
---   fresh schemes.
+-- | Returns the type of the pattern; the pattern in the Pat format that the Match module wants,
+--   and a Map from the variables bound in the pattern to fresh schemes.
 inferPat :: Parsed.Pat -> Infer (Type, Pat, Map (Id 'Small) TVar)
 inferPat pat = fmap (\(t, p, ss) -> (t, Pat (getPos pat) t p, ss)) (inferPat' pat)
   where
@@ -412,11 +383,7 @@ inferPat pat = fmap (\(t, p, ss) -> (t, Pat (getPos pat) t p, ss)) (inferPat' pa
             pure (TBox tp', PBox p', vs)
 
     intToPCon n w = PCon
-        (Con { variant = VariantIx (fromIntegral n)
-             , span = 2 ^ (w :: Integer)
-             , argTs = []
-             }
-        )
+        (Con { variant = VariantIx (fromIntegral n), span = 2 ^ (w :: Integer), argTs = [] })
         []
 
     inferPatConstruction
@@ -430,8 +397,8 @@ inferPat pat = fmap (\(t, p, ss) -> (t, Pat (getPos pat) t p, ss)) (inferPat' pa
         let t = TConst tdefInst
         (cArgTs, cArgs', cArgsVars) <- fmap unzip3 (mapM inferPat cArgs)
         cArgsVars' <- nonconflictingPatVarDefs cArgsVars
-        forM_ (zip3 cParams' cArgTs cArgs) $ \(cParamT, cArgT, cArg) ->
-            unify (Expected cParamT) (Found (getPos cArg) cArgT)
+        forM_ (zip3 cParams' cArgTs cArgs)
+            $ \(cParamT, cArgT, cArg) -> unify (Expected cParamT) (Found (getPos cArg) cArgT)
         let con = Con { variant = VariantIx variantIx, span = cSpan, argTs = cArgTs }
         pure (t, PCon con cArgs', cArgsVars')
 
@@ -483,25 +450,21 @@ generalize
     -> m Scheme
 generalize env mayGivenCs allCs t = fmap (\cs -> Forall vs cs t) constraints
   where
-    -- A constraint should be included in a signature if the type variables include at
-    -- least one of the signature's forall-qualified tvars, and the rest of the tvars
-    -- exist in the surrounding environment. If a tvar is not from the signature or the
-    -- environment, it comes from an inner definition, and should already have been
-    -- included in that signature.
+    -- A constraint should be included in a signature if the type variables include at least one of
+    -- the signature's forall-qualified tvars, and the rest of the tvars exist in the surrounding
+    -- environment. If a tvar is not from the signature or the environment, it comes from an inner
+    -- definition, and should already have been included in that signature.
     --
-    -- TODO: Maybe we should handle the propagation of class constraints in a better way,
-    --       so that ones belonging to inner definitions no longer exist at this point.
-    constraints =
-        fmap (Set.fromList . map fst) $ flip filterM (Map.toList allCs) $ \(c, pos) ->
-            let vcs = ftvClassConstraint c
-                belongs =
-                    any (flip Set.member vs) vcs
-                        && all (\vc -> Set.member vc vs || Set.member vc ftvEnv) vcs
-            in  if belongs
-                    then if matchesGiven c
-                        then pure True
-                        else throwError (NoClassInstance pos c)
-                    else pure False
+    -- TODO: Maybe we should handle the propagation of class constraints in a better way, so that
+    --       ones belonging to inner definitions no longer exist at this point.
+    constraints = fmap (Set.fromList . map fst) $ flip filterM (Map.toList allCs) $ \(c, pos) ->
+        let vcs = ftvClassConstraint c
+            belongs =
+                any (flip Set.member vs) vcs
+                    && all (\vc -> Set.member vc vs || Set.member vc ftvEnv) vcs
+        in  if belongs
+                then if matchesGiven c then pure True else throwError (NoClassInstance pos c)
+                else pure False
     matchesGiven = case mayGivenCs of
         Just gcs -> flip Set.member gcs
         Nothing -> const True
@@ -533,18 +496,13 @@ unify e f = tell ([(e, f)], [])
 unifyClass :: SrcPos -> ClassConstraint -> Infer ()
 unifyClass p c = tell ([], [(p, c)])
 
-------------------------------------------------------------------------------------------
--- Constraint solver
-------------------------------------------------------------------------------------------
-
 data UnifyErr = UInfType TVar Type | UFailed Type Type
 
--- TODO: I actually don't really like this approach of keeping the unification solver
---       separate from the inferrer. The approach of doing it "inline" is, at least in
---       some ways, more flexible, and probably more performant. Consider this further --
---       maybe there's a big con I haven't considered or have forgotten. Will updating the
---       substitution map work well? How would it work for nested inferDefs, compared to
---       now?
+-- TODO: I actually don't really like this approach of keeping the unification solver separate from
+--       the inferrer. The approach of doing it "inline" is, at least in some ways, more flexible,
+--       and probably more performant. Consider this further -- maybe there's a big con I haven't
+--       considered or have forgotten. Will updating the substitution map work well? How would it
+--       work for nested inferDefs, compared to now?
 solve :: Constraints -> Infer (Subst', (Map ClassConstraint SrcPos))
 solve (eqcs, ccs) = do
     sub <- lift $ lift $ lift $ solveUnis Map.empty eqcs
@@ -561,10 +519,9 @@ solve (eqcs, ccs) = do
     solveClassCs :: [(SrcPos, ClassConstraint)] -> Infer (Map ClassConstraint SrcPos)
     solveClassCs = fmap Map.unions . mapM solveClassConstraint
 
-    solveClassConstraint
-        :: (SrcPos, ClassConstraint) -> Infer (Map ClassConstraint SrcPos)
+    solveClassConstraint :: (SrcPos, ClassConstraint) -> Infer (Map ClassConstraint SrcPos)
     solveClassConstraint (pos, c) = case c of
-            -- Virtual classes
+        -- Virtual classes
         ("SameSize", [ta, tb]) -> sameSize (ta, tb)
         ("Cast", [ta, tb]) -> cast (ta, tb)
         ("Num", [ta]) -> case ta of
@@ -601,12 +558,12 @@ solve (eqcs, ccs) = do
             _ -> False
 
         -- TODO: Maybe we should move the check against user-provided explicit signature from
-        --       `generalize` to here. Like, we could keep the explicit scheme (if there is
-        --       one) in the `Env`.
+        --       `generalize` to here. Like, we could keep the explicit scheme (if there is one) in
+        --       the `Env`.
         --
-        -- | As the name indicates, a predicate that is true / class that is instanced when
-        --   two types are of the same size. If the size for either cannot be determined yet
-        --   due to polymorphism, the constraint is propagated.
+        -- | As the name indicates, a predicate that is true / class that is instanced when two
+        --   types are of the same size. If the size for either cannot be determined yet due to
+        --   polymorphism, the constraint is propagated.
         sameSize :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)
         sameSize (ta, tb) = do
             sizeof' <- fmap sizeof (view envTypeDefs)
@@ -640,8 +597,8 @@ solve (eqcs, ccs) = do
         UInfType a t -> InfType pos t1 t2 a t
         UFailed t'1 t'2 -> UnificationFailed pos t1 t2 t'1 t'2
 
--- FIXME: Keep track of whether we've flipped the arguments. Alternatively, keep right
---        stuff to the right and vice versa. If we don't, we get confusing type errors.
+-- FIXME: Keep track of whether we've flipped the arguments. Alternatively, keep right stuff to the
+--        right and vice versa. If we don't, we get confusing type errors.
 unifies :: Type -> Type -> Except UnifyErr Subst'
 unifies = curry $ \case
     (TPrim a, TPrim b) | a == b -> pure Map.empty

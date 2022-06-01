@@ -1,7 +1,7 @@
 {-# LANGUAGE TupleSections, TemplateHaskell, RankNTypes #-}
 
--- | Read all the different kinds of configurtion options for Carth. Command
---   line options, config files, environment variables, etc.
+-- | Read all the different kinds of configurtion options for Carth. Command line options, config
+--   files, environment variables, etc.
 module GetConfig (getConfig, Conf(..)) where
 
 import System.Console.GetOpt
@@ -74,11 +74,7 @@ runCfg args = do
         cfg = foldl (&) defaultCfg fs
     pure (RunConf cfg)
 
-get
-    :: [String]
-    -> [OptDescr (cfg -> cfg)]
-    -> (forall a . IO a)
-    -> IO ([cfg -> cfg], FilePath)
+get :: [String] -> [OptDescr (cfg -> cfg)] -> (forall a . IO a) -> IO ([cfg -> cfg], FilePath)
 get args opts usage = do
     let (fs, extras, errs) = getOpt Permute opts args
     when (not (null errs)) $ putStrLn (concat errs) *> usage
@@ -116,10 +112,7 @@ compileOpts =
              ["cc"]
              (ReqArg (\cc' c -> c { cCompiler = cc' }) "PROGRAM")
              "C compiler to use for linking"
-    , Option ['o']
-             ["outfile"]
-             (ReqArg (\f c -> c { cOutfile = f }) "FILE")
-             "Output filepath"
+    , Option ['o'] ["outfile"] (ReqArg (\f c -> c { cOutfile = f }) "FILE") "Output filepath"
     , Option [] ["debug"] (NoArg (\c -> c { cDebug = True })) "Enable debugging"
     , Option ['v'] ["verbose"] (NoArg (\c -> c { cVerbose = True })) "Verbose output"
     , Option []

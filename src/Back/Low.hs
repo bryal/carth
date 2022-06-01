@@ -82,11 +82,10 @@ outParamLocal (OutParam x t) = Local x (TPtr t)
 
 data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
--- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
---   void-returns and void-calls are their own variants. This isn't very elegant from a
---   functional perspective, but this fits imperative low-level IRs much better. In
---   particular, LLVM is kind of bad at handling {} as a ZST, and fails to optimize tail
---   calls returning {} in my experience.
+-- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and void-returns
+--   and void-calls are their own variants. This isn't very elegant from a functional perspective,
+--   but this fits imperative low-level IRs much better. In particular, LLVM is kind of bad at
+--   handling {} as a ZST, and fails to optimize tail calls returning {} in my experience.
 data Type
     = TInt { tintWidth :: Word } -- Signed integer
     | TNat { tnatWidth :: Word }
@@ -98,9 +97,9 @@ data Type
     | TFun (Maybe (OutParam ())) [Param ()] Ret
     | TConst TypeId
     | TArray Type Word
-    -- Closures are represented as a builtin struct named "closure", with a generic
-    -- pointer to captures and a void-pointer representing the function. During lowering,
-    -- we still need to remember the "real" type of the function.
+    -- Closures are represented as a builtin struct named "closure", with a generic pointer to
+    -- captures and a void-pointer representing the function. During lowering, we still need to
+    -- remember the "real" type of the function.
     | TClosure (Maybe (OutParam ())) [Param ()] Ret
   deriving (Eq, Ord, Show)
 
@@ -168,8 +167,8 @@ data Loop a = Loop [(Local, Operand)] (Block (LoopTerminator a))
     deriving Show
 
 data Expr'
-    -- I know this doesn't map well to LLVM, but it makes codegen simpler, and it works
-    -- with C anyhow. Will just have to work around it a little in LLVM.
+    -- I know this doesn't map well to LLVM, but it makes codegen simpler, and it works with C
+    -- anyhow. Will just have to work around it a little in LLVM.
     = EOperand Operand
     | Add Operand Operand
     | Sub Operand Operand
@@ -412,18 +411,15 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         DStruct (Struct ts a s) ->
             ("struct " ++ name ++ " {")
                 ++ concat
-                       (zipWith
-                           (\i t -> "\n    m" ++ show i ++ ": " ++ pType t ++ ",")
-                           [0 :: Word ..]
-                           ts
+                       (zipWith (\i t -> "\n    m" ++ show i ++ ": " ++ pType t ++ ",")
+                                [0 :: Word ..]
+                                ts
                        )
                 ++ ("\n} // alignment: " ++ show a ++ ", size: " ++ show s)
         DUnion (Union vs gs ga) ->
             ("union " ++ name ++ " {")
                 ++ concatMap
-                       (\(x, ti) ->
-                           "\n    " ++ x ++ ": " ++ sized typeName "void" ti ++ ","
-                       )
+                       (\(x, ti) -> "\n    " ++ x ++ ": " ++ sized typeName "void" ti ++ ",")
                        (Vec.toList vs)
                 ++ ("\n} // greatest size: " ++ show gs)
                 ++ (", greatest alignment: " ++ show ga)
@@ -453,9 +449,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
     typeName ti = fst $ tdefs Vec.! fromIntegral ti
     pEdecl (ExternDecl name outParam params ret) =
         ("extern @" ++ name ++ "(")
-            ++ intercalate
-                   ", "
-                   (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
+            ++ intercalate ", " (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
             ++ (") -> " ++ pRet ret ++ ";")
     pAnonOutParam (OutParam _ t) = "out " ++ pType (TPtr t)
     pAnonParam = pType . paramType
@@ -474,8 +468,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         pParam p = lname (paramName p) ++ ": " ++ pType (paramType p)
         pAlloc (lid, t) = "var %" ++ lname lid ++ ": " ++ pType t ++ ";"
         pBlock :: Int -> (Int -> term -> String) -> Block term -> String
-        pBlock d pTerm' blk =
-            "{" ++ pBlock' (d + 4) pTerm' blk ++ ("\n" ++ indent d ++ "}")
+        pBlock d pTerm' blk = "{" ++ pBlock' (d + 4) pTerm' blk ++ ("\n" ++ indent d ++ "}")
         pBlock' :: Int -> (Int -> term -> String) -> Block term -> String
         pBlock' d pTerm' (Block stms term) =
             precalate ("\n" ++ indent d) (map (pStm d) stms) ++ case pTerm' d term of
@@ -502,9 +495,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         pBranch :: Int -> (Int -> term -> String) -> Branch term -> String
         pBranch d pTerm' = \case
             BIf p c a ->
-                ("if " ++ pOp p)
-                    ++ (" " ++ pBlock d pTerm' c)
-                    ++ (" else " ++ pBlock d pTerm' a)
+                ("if " ++ pOp p) ++ (" " ++ pBlock d pTerm' c) ++ (" else " ++ pBlock d pTerm' a)
             BSwitch m cs def ->
                 ("switch " ++ pOp m ++ " {")
                     ++ precalate ("\n" ++ indent d) (map (pCase d pTerm') cs)
@@ -571,8 +562,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         Zero _ -> "zeroinitializer"
         CBitcast x t -> "(bitcast " ++ pConst x ++ " to " ++ pType t ++ ")"
         CGlobal g -> pGlobal g
-        CStruct t ms ->
-            "(" ++ pType t ++ "){ " ++ intercalate ", " (map pConst ms) ++ " }"
+        CStruct t ms -> "(" ++ pType t ++ "){ " ++ intercalate ", " (map pConst ms) ++ " }"
         CPtrIndex p i -> pConst p ++ "[" ++ show i ++ "]"
     pGlobal (Global x _) = "@" ++ gname x
     gname gid = gnames Vec.! fromIntegral gid

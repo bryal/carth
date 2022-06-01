@@ -1,9 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 
--- | Implementation of the algorithm described in /ML pattern match compilation
---   and partial evaluation/ by Peter Sestoft. Close to 1:1, and includes the
---   additional checks for exhaustiveness and redundancy described in section
---   7.4.
+-- | Implementation of the algorithm described in /ML pattern match compilation and partial
+--   evaluation/ by Peter Sestoft. Close to 1:1, and includes the additional checks for
+--   exhaustiveness and redundancy described in section 7.4.
 module Front.Match (toDecisionTree, Span, Con(..), Access'(..), MTypeDefs) where
 
 import Prelude hiding (span)
@@ -73,8 +72,7 @@ toDecisionTree tds ePos tp cases =
         redundantCases = map (getPos . fst) cases
     in  do
             let env = Env { _tdefs = tds, _tpats = tp, _exprPos = ePos }
-            (d, redundantCases') <- runStateT (runReaderT (compile rules) env)
-                                              redundantCases
+            (d, redundantCases') <- runStateT (runReaderT (compile rules) env) redundantCases
             forM_ redundantCases' $ throwError . RedundantCase
             pure (switchify d)
     where compile = disjunct (Neg Set.empty)
@@ -108,11 +106,13 @@ disjunct descr = \case
 
     missingPat' :: [String] -> Descr -> Match String
     missingPat' vs =
-        let allVariants = Map.fromList (zip [0 ..] vs)
+        let
+            allVariants = Map.fromList (zip [0 ..] vs)
             variant' = \case
                 Con (VariantIx v) _ _ -> v
                 Con (VariantStr _) _ _ -> ice "variant' of Con VariantStr"
-        in  \case
+        in
+            \case
                 Neg cs -> lift $ lift $ lift $ listToMaybe $ Map.elems
                     (Map.withoutKeys allVariants (Set.map variant' cs))
                 Pos (Con (VariantStr _) _ _) _ -> ice "missingPat' of Con VariantStr"
@@ -129,19 +129,10 @@ disjunct descr = \case
                                 ps <- zipWithM missingPat argTs' dargs
                                 pure ("(" ++ s ++ precalate " " ps ++ ")")
 
-match
-    :: Access
-    -> Descr
-    -> Ctx
-    -> Work
-    -> Rhs
-    -> [(FunPats, Rhs)]
-    -> Pat'
-    -> Match DecisionTree'
+match :: Access -> Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> Pat' -> Match DecisionTree'
 match obj descr ctx work rhs rules = \case
     PVar (Inferred.TypedVar (Inferred.WithPos _ x) tx) ->
-        let x' = TypedVar x tx
-        in  conjunct (augment descr ctx) (addBind x' obj rhs) rules work
+        let x' = TypedVar x tx in conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
     PBox (Pat _ _ p) -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->
@@ -150,12 +141,11 @@ match obj descr ctx work rhs rules = \case
             disjunct' newDescr = disjunct (buildDescr newDescr ctx work) rules
 
             conjunct' :: Match DecisionTree'
-            conjunct' =
-                conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
+            conjunct' = conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs = args pcon $ \i _ ->
-                Sel i (span pcon) (As obj (span pcon) (variantIx pcon) (argTs pcon))
+            getoargs = args pcon
+                $ \i _ -> Sel i (span pcon) (As obj (span pcon) (variantIx pcon) (argTs pcon))
 
             variantIx = variant >>> \case
                 VariantIx ix -> ix
@@ -174,16 +164,15 @@ match obj descr ctx work rhs rules = \case
                     no <- disjunct' (addneg pcon descr)
                     pure (IfEq obj pcon yes no)
 
-matchFunPats
-    :: Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> FunPats -> Match DecisionTree'
+matchFunPats :: Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> FunPats -> Match DecisionTree'
 matchFunPats descr ctx work rhs rules (FunPats pats) =
     let ts = map (\(Pat _ t _) -> t) pats
         con = Con { variant = VariantIx 0, span = 1, argTs = ts }
         getoargs = args con TopSel
         getdargs = case descr of
-            -- TODO: Does this case ever happen? If the descr refers to the function
-            --       pattern list, then there's only one variant to speak of, and
-            --       therefore Pos by default, right?
+            -- TODO: Does this case ever happen? If the descr refers to the function pattern list,
+            --       then there's only one variant to speak of, and therefore Pos by default,
+            --       right?
             Neg _ -> args con (const (const (Neg Set.empty)))
             Pos _ dargs -> dargs
     in  conjunct ((con, []) : ctx) rhs rules ((pats, getoargs, getdargs) : work)
@@ -234,8 +223,7 @@ switchify = \case
     Success e -> DLeaf e
     d@(IfEq obj (Con (VariantIx _) span _) _ _) ->
         uncurry (DSwitch span obj) (switchifyIx obj [] d)
-    d@(IfEq obj (Con (VariantStr _) _ _) _ _) ->
-        uncurry (DSwitchStr obj) (switchifyStr obj [] d)
+    d@(IfEq obj (Con (VariantStr _) _ _) _ _) -> uncurry (DSwitchStr obj) (switchifyStr obj [] d)
   where
     switchifyIx obj rules = \case
         IfEq obj' con d0 d1 | obj == obj' -> case variant con of

@@ -24,9 +24,7 @@ printTypeErr :: TypeErr -> IO ()
 printTypeErr = \case
     MainNotDefined -> putStrLn "Error: main not defined"
     InvalidUserTypeSig p s1 s2 ->
-        posd p
-            $ ("Invalid user type signature " ++ pretty s1)
-            ++ (", expected " ++ pretty s2)
+        posd p $ ("Invalid user type signature " ++ pretty s1) ++ (", expected " ++ pretty s2)
     CtorArityMismatch p c arity nArgs ->
         posd p
             $ ("Arity mismatch for constructor `" ++ c)
@@ -48,11 +46,9 @@ printTypeErr = \case
             ++ (".\nExpected type: " ++ pretty t1)
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
     ConflictingTypeDef p x -> posd p $ "Conflicting definitions for type `" ++ x ++ "`."
-    ConflictingCtorDef p x ->
-        posd p $ "Conflicting definitions for constructor `" ++ x ++ "`."
+    ConflictingCtorDef p x -> posd p $ "Conflicting definitions for constructor `" ++ x ++ "`."
     RedundantCase p -> posd p $ "Redundant case in pattern match."
-    InexhaustivePats p patStr ->
-        posd p $ "Inexhaustive patterns: " ++ patStr ++ " not covered."
+    InexhaustivePats p patStr -> posd p $ "Inexhaustive patterns: " ++ patStr ++ " not covered."
     ExternNotMonomorphic name tv -> case tv of
         TVExplicit (Parsed.Id (WithPos p tv')) ->
             posd p
@@ -78,8 +74,7 @@ printTypeErr = \case
             $ ("Arity mismatch for instantiation of type `" ++ t)
             ++ ("`.\nExpected " ++ show expected)
             ++ (", found " ++ show found)
-    ConflictingVarDef p x ->
-        posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
+    ConflictingVarDef p x -> posd p $ "Conflicting definitions for variable `" ++ x ++ "`."
     NoClassInstance p c -> posd p $ "No instance for " ++ prettyTConst c
     FunCaseArityMismatch p expected found ->
         posd p
@@ -102,8 +97,8 @@ posd = posd' "Error"
 
 posd' :: String -> SrcPos -> Message -> IO ()
 posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
-    -- TODO: Keep source files in memory. They don't take up much space, and there's no
-    --       risk of them coming out of sync due to new changes.
+    -- TODO: Keep source files in memory. They don't take up much space, and there's no risk of
+    --       them coming out of sync due to new changes.
     src <- readFile f
     let (lineN', colN') = (fromIntegral lineN, fromIntegral colN)
         lines' = lines src
@@ -112,17 +107,16 @@ posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
             else ice "line num in SourcePos is greater than num of lines in src"
         rest = if (colN' <= length line)
             then drop (colN' - 1) line
-            else
-                ice $ "col num in SourcePos is greater than " ++ "num of cols in src line"
+            else ice $ "col num in SourcePos is greater than " ++ "num of cols in src line"
         lineNS = show lineN'
         pad = length lineNS + 1
         s = either (const rest) fst (parse' (match tokentree) "" rest)
-        printMsg kind msg = putStrLn $ unlines
+    let printMsg kind msg = putStrLn $ unlines
             [ prettySrcPos pos ++ ": " ++ kind ++ ":"
             , indent pad ++ "|"
             , lineNS ++ " | " ++ line
--- Find the span (end-pos) of the item in the source by applying the same
--- parser that gave the item, starting at its SourcePos
+            -- Find the span (end-pos) of the item in the source by applying the same parser that gave the
+            -- item, starting at its SourcePos
             , indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^'
             , msg
             ]

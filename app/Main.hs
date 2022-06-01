@@ -80,8 +80,7 @@ lex :: FilePath -> IO [Lexd.TokenTree]
 lex f = runExceptT (Lex.lex f) >>= \case
     Left e -> putStrLn (formatLexErr e) >> abort f
     Right p -> pure p
-  where
-    formatLexErr e = let ss = lines e in unlines ((head ss ++ " Error:") : tail ss)
+    where formatLexErr e = let ss = lines e in unlines ((head ss ++ " Error:") : tail ss)
 
 expandMacros :: FilePath -> [Lexd.TokenTree] -> IO [Lexd.TokenTree]
 expandMacros f tts = case runExcept (Macro.expandMacros tts) of

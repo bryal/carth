@@ -70,8 +70,8 @@ expand (WithPos tpos tt') = do
             Just (Parens xtts) -> expands xtts
             Just (Brackets xtts) -> expands xtts
             Just (Braces xtts) -> expands xtts
-            Just _ -> throwError
-                (epos, "Cannot ellipsis splice non-sequence macro pattern variable")
+            Just _ ->
+                throwError (epos, "Cannot ellipsis splice non-sequence macro pattern variable")
             Nothing -> throwError (epos, "Unbound macro pattern variable")
         Ellipsis (WithPos epos _) ->
             throwError (epos, "Can only ellipsis splice macro pattern variable")
@@ -92,13 +92,12 @@ applyMacro appPos args lits = \case
         (Ellipsis (WithPos _ x) : xs, ys) ->
             let ms = takeWhileJust (matchPat x) ys
                 ys' = drop (length ms) ys
-                -- By default, each pattern variable in an ellipsis pattern should be
-                -- bound to an empty Parens, even if ys was empty
+                -- By default, each pattern variable in an ellipsis pattern should be bound to an
+                -- empty Parens, even if ys was empty
                 ms' = Map.fromSet (const []) (fvPat x) : map (fmap pure) ms
                 ms'' = fmap Parens (Map.unionsWith (++) ms')
             in  fmap (Map.union ms'') (matchRule (xs, ys'))
-        (x : xs, y : ys) ->
-            liftA2 (Map.union . fmap unpos) (matchPat x y) (matchRule (xs, ys))
+        (x : xs, y : ys) -> liftA2 (Map.union . fmap unpos) (matchPat x y) (matchRule (xs, ys))
         ([], _ : _) -> Nothing
         (_ : _, []) -> Nothing
 

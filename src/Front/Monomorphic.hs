@@ -107,8 +107,7 @@ fvExpr = \case
     App f a -> Set.unions (map freeVars (f : a))
     If p c a -> fvIf p c a
     Fun (ps, (b, _)) -> Set.difference (freeVars b) (Set.fromList ps)
-    Let (VarDef (lhs, (_, rhs))) e ->
-        Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
+    Let (VarDef (lhs, (_, rhs))) e -> Set.union (freeVars rhs) (Set.delete lhs (freeVars e))
     Let (RecDefs ds) e -> fvLet (unzip (map (second (Fun . snd)) ds)) e
     Match es dt -> Set.unions (fvDecisionTree dt : map freeVars es)
     Ction (_, _, _, as) -> Set.unions (map freeVars as)

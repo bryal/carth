@@ -79,8 +79,7 @@ prettyType = \case
     Parsed.TBox t -> prettyTBox t
     Parsed.TConst tc -> prettyTConst tc
 
-prettyScheme
-    :: (Pretty p, TypeAst t, Pretty t) => Set p -> [(String, [t])] -> t -> String
+prettyScheme :: (Pretty p, TypeAst t, Pretty t) => Set p -> [(String, [t])] -> t -> String
 prettyScheme ps cs t = concat
     [ "(forall (" ++ spcPretty (Set.toList ps) ++ ") "
     , "(where " ++ unwords (map prettyTConst cs) ++ ") "
