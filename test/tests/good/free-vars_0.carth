@@ -1,6 +1,8 @@
 ;; 1337
 
-;; Reproduces bug fixed in #945c734
+;; Reproduces multiple bugs, respectively fixed in
+;; - #945c7349292858c6cc7714ba7fdf4e6a0fe3806e
+;; - #9763105f4610f15f06effa4786e11a05126751e6
 
 (import std)
 
