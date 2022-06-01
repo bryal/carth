@@ -66,6 +66,20 @@ paramType = \case
     ByVal _ t -> t
     ByRef _ t -> TPtr t
 
+paramDirectType :: Param _name -> Type
+paramDirectType = \case
+    ByVal _ t -> t
+    ByRef _ t -> t
+
+data OutParam name = OutParam
+    { outParamName :: name
+    , outParamType :: Type
+    }
+    deriving (Eq, Ord, Show)
+
+outParamLocal :: OutParam LocalId -> Local
+outParamLocal (OutParam x t) = Local x (TPtr t)
+
 data Ret = RetVal Type | RetVoid deriving (Eq, Ord, Show)
 
 -- | There is no unit or void type. Instead, Lower has purged datatypes of ZSTs, and
@@ -81,13 +95,13 @@ data Type
     | TPtr Type
     | VoidPtr
     -- Really a function pointer, like `fn` in rust
-    | TFun [Param ()] Ret
+    | TFun (Maybe (OutParam ())) [Param ()] Ret
     | TConst TypeId
     | TArray Type Word
     -- Closures are represented as a builtin struct named "closure", with a generic
     -- pointer to captures and a void-pointer representing the function. During lowering,
     -- we still need to remember the "real" type of the function.
-    | TClosure [Param ()] Ret
+    | TClosure (Maybe (OutParam ())) [Param ()] Ret
   deriving (Eq, Ord, Show)
 
 type Access = Access' Type
@@ -116,7 +130,7 @@ data Local = Local LocalId Type
     deriving Show
 data Global = Global GlobalId Type -- Type including the pointer
     deriving (Show, Eq)
-data Extern = Extern String [Param ()] Ret
+data Extern = Extern String (Maybe (OutParam ())) [Param ()] Ret
     deriving (Show, Eq)
 
 data Operand
@@ -134,7 +148,7 @@ data Branch a
 data Statement
     = Let Local Expr
     | Store Operand Operand -- value -> destination
-    | VoidCall Operand [Operand]
+    | VoidCall Operand (Maybe Operand) [Operand]
     | SLoop (Loop ())
     | SBranch (Branch ())
     deriving Show
@@ -204,6 +218,7 @@ type Allocs = [(LocalId, Type)]
 
 data FunDef = FunDef
     { funDefName :: GlobalId
+    , funDefOutParam :: Maybe (OutParam LocalId)
     , funDefParams :: [Param LocalId]
     , funDefRet :: Ret
     , funDefBody :: Block Terminator
@@ -211,7 +226,7 @@ data FunDef = FunDef
     , funDefLocalNames :: VarNames
     }
     deriving Show
-data ExternDecl = ExternDecl String [Param ()] Ret
+data ExternDecl = ExternDecl String (Maybe (OutParam ())) [Param ()] Ret
     deriving Show
 
 data GlobDef
@@ -290,8 +305,8 @@ sizeof tenv = \case
     TF64 -> 8
     TPtr _ -> wordsize
     VoidPtr -> wordsize
-    TFun _ _ -> wordsize
-    TClosure _ _ -> 2 * wordsize
+    TFun{} -> wordsize
+    TClosure{} -> 2 * wordsize
     TConst ix -> case fmap snd (tenv ix) of
         Nothing -> 0
         Just (DEnum vs) -> variantsTagBytes vs
@@ -348,7 +363,7 @@ instance TypeOf Global where
     typeof (Global _ t) = t
 
 instance TypeOf Extern where
-    typeof (Extern _ ps r) = TFun ps r
+    typeof (Extern _ out ps r) = TFun out ps r
 
 instance TypeOf Const where
     typeof = \case
@@ -419,17 +434,30 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         TF64 -> "f64"
         TPtr t -> "*" ++ pType t
         VoidPtr -> "*void"
-        TFun params ret ->
-            "fun(" ++ intercalate ", " (map pAnonParam params) ++ ") -> " ++ pRet ret
+        TFun outParam params ret ->
+            "fun("
+                ++ intercalate
+                       ", "
+                       (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
+                ++ ") -> "
+                ++ pRet ret
         TConst ti -> typeName ti
         TArray t n -> "[" ++ pType t ++ "; " ++ show n ++ "]"
-        TClosure params ret ->
-            "clo(" ++ intercalate ", " (map pAnonParam params) ++ ") -> " ++ pRet ret
+        TClosure outParam params ret ->
+            "clo("
+                ++ intercalate
+                       ", "
+                       (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
+                ++ ") -> "
+                ++ pRet ret
     typeName ti = fst $ tdefs Vec.! fromIntegral ti
-    pEdecl (ExternDecl name params ret) =
+    pEdecl (ExternDecl name outParam params ret) =
         ("extern @" ++ name ++ "(")
-            ++ intercalate ", " (map pAnonParam params)
+            ++ intercalate
+                   ", "
+                   (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
             ++ (") -> " ++ pRet ret ++ ";")
+    pAnonOutParam (OutParam _ t) = "out " ++ pType (TPtr t)
     pAnonParam = pType . paramType
     pRet = \case
         RetVal t -> pType t
@@ -462,10 +490,15 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                     ++ (": " ++ pType (eType e))
                     ++ (" = " ++ pExpr (d + 4) e ++ ";")
             Store x dst -> "store " ++ pOp x ++ " -> " ++ pOp dst ++ ";"
-            VoidCall f as ->
-                "call " ++ pOp f ++ "(" ++ intercalate ", " (map pOp as) ++ ");"
+            VoidCall f out as ->
+                "call "
+                    ++ pOp f
+                    ++ "("
+                    ++ intercalate ", " (maybe id ((:) . pOutArg) out $ map pOp as)
+                    ++ ");"
             SLoop lp -> pLoop d (\_ () -> "") lp
             SBranch br -> pBranch d (\_ () -> "") br
+        pOutArg x = "out " ++ pOp x
         pBranch :: Int -> (Int -> term -> String) -> Branch term -> String
         pBranch d pTerm' = \case
             BIf p c a ->
@@ -519,7 +552,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             OLocal l -> pLocal l
             OGlobal g -> pGlobal g
             OConst c -> pConst c
-            OExtern (Extern x _ _) -> "@" ++ x
+            OExtern (Extern x _ _ _) -> "@" ++ x
         pLocal (Local x _) = "%" ++ lname x
         lname lid = funDefLocalNames f Vec.! fromIntegral lid
     pGdef = \case

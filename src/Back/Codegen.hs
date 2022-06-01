@@ -92,15 +92,19 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     declareExterns :: [Definition]
     declareExterns = map declare exts
       where
-        declare (ExternDecl name ps r) =
+        declare (ExternDecl name out ps r) =
             let anon = mkName ""
-                (f, rt) = case r of
-                    RetVal t -> (id, genType t)
-                    RetVoid -> (id, LL.void)
-                ps' = f $ flip map ps $ \case
+                rt = case r of
+                    RetVal t -> genType t
+                    RetVoid -> LL.void
+                out' = case out of
+                    Nothing -> []
+                    Just (OutParam _ t) ->
+                        [Parameter (LL.ptr (genType t)) anon [LL.SRet]]
+                ps' = flip map ps $ \case
                     ByVal () t -> Parameter (genType t) anon []
-                    ByRef () t -> Parameter (LL.ptr (genType t)) anon [LL.ByVal]
-            in  simpleFun LL.External name ps' rt []
+                    ByRef () t -> Parameter (LL.ptr (genType t)) anon []
+            in  simpleFun LL.External name (out' ++ ps') rt []
 
     declareGlobals :: [Definition]
     declareGlobals = map declare gvars
@@ -154,25 +158,31 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             LLConst.GetElementPtr False (genConst p) [LL.Int 64 (fromIntegral i)]
 
     defineFun :: FunDef -> Definition
-    defineFun (FunDef ident ps r block allocs lnames) =
-        let
-            (f, rt) = case r of
-                RetVal t -> (id, genType t)
-                RetVoid -> (id, LL.void)
-            ps' = f $ flip map ps $ \case
+    defineFun (FunDef ident out ps r block allocs lnames) =
+        let rt = case r of
+                RetVal t -> genType t
+                RetVoid -> LL.void
+            out' = case out of
+                Nothing -> []
+                Just (OutParam x t) ->
+                    [Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.SRet]]
+            ps' = flip map ps $ \case
                 ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
                 ByRef x t ->
-                    Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.ByVal]
-        in
-            simpleFun LL.Internal (getGName ident) ps' rt (genFunBody lnames allocs block)
+                    Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) []
+        in  simpleFun LL.Internal
+                      (getGName ident)
+                      (out' ++ ps')
+                      rt
+                      (genFunBody lnames allocs block)
 
     -- In this incarnation, this outermost main should just call init and
     -- user-main. init will in turn init global vars & setup stack overflow handler etc.
     defineMain :: Definition
     defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
         (mkName "entry")
-        [ LL.Do (callNamed "install_stackoverflow_handler" [] LL.void)
-        , LL.Do (callNamed "carth_init" [] LL.void)
+        [ LL.Do (callNamed "install_stackoverflow_handler" Nothing [] LL.void)
+        , LL.Do (callNamed "carth_init" Nothing [] LL.void)
         , mkName "mainc_tmp" LL.:= LL.GetElementPtr
             { inBounds = False
             , address = LL.ConstantOperand (genGlobal main)
@@ -209,6 +219,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
                     (mkName "mainf")
                 )
+                Nothing
                 [LL.LocalReference (LL.ptr LL.i8) (mkName "mainc")]
             )
         ]
@@ -301,7 +312,10 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             Let lhs rhs -> genExpr rhs >>= \rhs' -> emitLocal lhs rhs' $> ()
             Store v dst -> bindM2 store (genOperand v) (genOperand dst)
             SBranch br -> genSBranch br
-            VoidCall f as -> emitDo =<< liftM2 call (genOperand f) (mapM genOperand as)
+            VoidCall f out as -> emitDo =<< liftM3 call
+                                                   (genOperand f)
+                                                   (mapM genOperand out)
+                                                   (mapM genOperand as)
             SLoop loop -> genLoop loop pure (const (pure ()))
 
         genTerminator :: Terminator -> Gen ()
@@ -385,8 +399,10 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                 , alignment = 0
                                 , metadata = []
                                 }
-                Call f as ->
-                    liftM2 (GInstr t' .* call) (genOperand f) (mapM genOperand as)
+                Call f as -> liftM3 (GInstr t' .** call)
+                                    (genOperand f)
+                                    (pure Nothing)
+                                    (mapM genOperand as)
                 EBranch br -> genEBranch br
                 EGetMember i x -> genOperand x <&> \x' -> GInstr
                     t'
@@ -500,8 +516,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     Nothing -> LL.LocalReference (genType t) (mkName name)
 
         genExtern :: Low.Extern -> LL.Constant
-        genExtern (Extern name params ret) =
-            LL.GlobalReference (genType (TFun params ret)) (mkName name)
+        genExtern (Extern name out params ret) =
+            LL.GlobalReference (genType (TFun out params ret)) (mkName name)
 
         emit :: GExpr -> Gen LL.Operand
         emit (GOperand x) = pure x
@@ -543,17 +559,19 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         TF64 -> LL.FloatingPointType LL.DoubleFP
         TPtr u -> LL.ptr (genType u)
         VoidPtr -> LL.ptr LL.i8
-        TFun ps r ->
-            let (f, rt) = case r of
-                    RetVal t -> (id, genType t)
-                    RetVoid -> (id, LL.void)
-            in  LL.ptr $ LL.FunctionType rt (f (map genParam ps)) False
+        TFun out ps r ->
+            let rt = case r of
+                    RetVal t -> genType t
+                    RetVoid -> LL.void
+                out' = maybe [] ((: []) . genOutParam) out
+            in  LL.ptr $ LL.FunctionType rt (out' ++ map genParam ps) False
         TConst i -> case tdefs Vec.! fromIntegral i of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
             (name, _) -> LL.NamedTypeReference (mkName name)
         TArray t n -> LL.ArrayType (fromIntegral n) (genType t)
-        TClosure _ _ -> LL.NamedTypeReference (mkName "closure")
+        TClosure{} -> LL.NamedTypeReference (mkName "closure")
       where
+        genOutParam (OutParam () pt) = LL.ptr (genType pt)
         genParam = \case
             ByVal () pt -> genType pt
             ByRef () pt -> LL.ptr (genType pt)
@@ -587,22 +605,26 @@ getName names i = names Vec.! fromIntegral i
 structType :: [LL.Type] -> LL.Type
 structType ts = StructureType { isPacked = False, elementTypes = ts }
 
-callNamed :: String -> [LL.Operand] -> LL.Type -> Instruction
-callNamed f as rt =
+callNamed :: String -> Maybe LL.Operand -> [LL.Operand] -> LL.Type -> Instruction
+callNamed f out as rt =
     let f' = ConstantOperand $ LL.GlobalReference
-            (LL.ptr (FunctionType rt (map LL.typeOf as) False))
+            (LL.ptr $ FunctionType rt
+                                   (maybe id ((:) . LL.typeOf) out $ map LL.typeOf as)
+                                   False
+            )
             (mkName f)
-    in  call f' as
+    in  call f' out as
 
-call :: LL.Operand -> [LL.Operand] -> Instruction
-call f as = LL.Call { tailCallKind = Just LL.NoTail
-                    , callingConvention = LL.C
-                    , returnAttributes = []
-                    , function = Right f
-                    , arguments = map (, []) as
-                    , functionAttributes = []
-                    , metadata = []
-                    }
+call :: LL.Operand -> Maybe LL.Operand -> [LL.Operand] -> Instruction
+call f out as = LL.Call
+    { tailCallKind = Just LL.NoTail
+    , callingConvention = LL.C
+    , returnAttributes = []
+    , function = Right f
+    , arguments = maybe [] ((: []) . (, [LL.SRet])) out ++ map (, []) as
+    , functionAttributes = []
+    , metadata = []
+    }
 
 simpleFun :: LL.Linkage -> String -> [Parameter] -> LL.Type -> [BasicBlock] -> Definition
 simpleFun link n ps rt bs = GlobalDefinition $ Function
