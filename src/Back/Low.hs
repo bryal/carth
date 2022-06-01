@@ -418,9 +418,9 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             "{" ++ pBlock' (d + 4) pTerm' blk ++ ("\n" ++ indent d ++ "}")
         pBlock' :: Int -> (Int -> term -> String) -> Block term -> String
         pBlock' d pTerm' (Block stms term) =
-            precalate ("\n" ++ indent d) (map (pStm d) stms)
-                ++ ("\n" ++ indent d)
-                ++ pTerm' d term
+            precalate ("\n" ++ indent d) (map (pStm d) stms) ++ case pTerm' d term of
+                "" -> ""
+                s -> "\n" ++ indent d ++ s
         pTerm d = \case
             TRetVal e -> "return " ++ pExpr d e ++ ";"
             TRetVoid -> "return void;"
@@ -441,12 +441,9 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                     ++ (" " ++ pBlock d pTerm' c)
                     ++ (" else " ++ pBlock d pTerm' a)
             BSwitch m cs def ->
-                "switch "
-                    ++ pOp m
-                    ++ " {"
+                ("switch " ++ pOp m ++ " {")
                     ++ precalate ("\n" ++ indent d) (map (pCase d pTerm') cs)
-                    ++ "default "
-                    ++ pBlock (d + 4) pTerm' def
+                    ++ ("\n" ++ indent d ++ "default " ++ pBlock d pTerm' def)
         pCase :: Int -> (Int -> term -> String) -> (Const, Block term) -> String
         pCase d pTerm' (c, blk) = "case " ++ pConst c ++ " " ++ pBlock d pTerm' blk
         pLoop :: Int -> (Int -> a -> String) -> Loop a -> String
