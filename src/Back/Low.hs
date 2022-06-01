@@ -24,7 +24,7 @@ mapParamName f = \case
 dropParamName :: Param name -> Param ()
 dropParamName = mapParamName (const ())
 
-addParamName :: name -> Param () -> Param name
+addParamName :: name -> Param oldName -> Param name
 addParamName x = mapParamName (const x)
 
 paramName :: Param name -> name
@@ -246,6 +246,11 @@ isFloat :: Type -> Bool
 isFloat = \case
     TF32 -> True
     TF64 -> True
+    _ -> False
+
+isPtr :: Type -> Bool
+isPtr = \case
+    TPtr _ -> True
     _ -> False
 
 sizeof :: (TypeId -> Maybe TypeDef) -> Type -> Word

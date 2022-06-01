@@ -1,5 +1,14 @@
 {-# LANGUAGE TemplateHaskell, DataKinds, InstanceSigs, ScopedTypeVariables, RankNTypes #-}
 
+-- | Lower a monomorphic AST to our Low IR
+--
+--   Generally, structs are kept on the stack in Low IR, even small ones. This way, we
+--   don't have to add additional insert- and extract-element operations to our IR -
+--   struct member indexing and load/store will be enough. We assume that the machine code
+--   generator (e.g. LLVM, GCC) will put things in registers and such for us as needed. In
+--   some moments we do have to load structs into locals though, e.g. when a small struct
+--   is an argument to a function call.
+
 module Back.Lower (lower) where
 
 import qualified Codec.Binary.UTF8.String as UTF8.String
@@ -23,7 +32,7 @@ import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), (.=), to)
 
-import Back.Low (typeof)
+import Back.Low (typeof, paramName, paramType, addParamName, dropParamName)
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
@@ -55,20 +64,6 @@ data St = St
     }
 makeLenses ''St
 
--- We need to be able to generate (pseudo) anonymous structs as part of lowering.
--- For example, a named struct needs to be defined for each captures struct of a closure.
--- In LLVM backend, this is not strictly necessary, as we can use anonymous structs. Naming
--- them implies shorter lines and less noise though, so that's still a good idea.
--- In C, anonymous structs are uniqued, and can't be "reused", so we will need to name them for
--- things to even work.
-
--- Just added (& renamed / modified) tids and tenv to St. This will affect a bunch of code, since
--- existing in the big `where` is no longer enough to access all of the type environment.
--- Things like `sizeof` needs to be in a `Lower` monad now, so yeah. Fixing that and implementing
--- lowerExpr for Fun is what's currently going on.
-
--- data TailPos = TailRet | TailOutParam Low.LocalId | NoTail
-
 data Env = Env
     { _localEnv :: Map TypedVar Low.Operand
     , _globalEnv :: Map TypedVar Low.Global
@@ -92,39 +87,36 @@ instance Monoid Out where
 
 type Lower = RWS Env Out St
 
--- | A potentially not yet emitted&named operand
--- type PartialOperand = Either Low.Expr Low.Operand
--- type EBlock = Low.Block (Sized PartialOperand)
-
--- Regarding the stack and registers.
---
--- I'm thinking we could generate Low IR such that all structs & unions are on the stack,
--- which means they would require an Alloc and the type would be behind a TPtr. All
--- primitive types would be in registers. This would simplify Lower. We would for example
--- not need both an ExtractElement and GetElementPointer, like in LLVM. Only a GEP would
--- do, since we keep all structs on the stack.
---
--- We assume then that the next codegen step in the pipe will do register allocation, and
--- optimize such that small structs are kept in register instead of on the stack etc.
-
 class Destination d where
     type DestTerm d
-    toDest :: d -> Sized Low.Expr -> Lower (Low.Block (DestTerm d))
+
+    -- | Take an object which is located /here/ and put it in the destination. A struct is
+    --   located /here/ if it's here directly, and not behind a pointer (e.g., on the
+    --   stack).
+    sizedToDest :: d -> Sized Low.Expr -> Lower (Low.Block (DestTerm d))
+
+    -- | Take a struct which is located somewhere indirectly behind a pointer, and put it
+    --   in the destination. In practice, this means loading it before passing it along to
+    --   `toDest`, unless the destination is `Anywhere`, in which case this is the
+    --   identity function.
+    indirectToDest :: d -> Low.Expr -> Lower (Low.Block (DestTerm d))
+
     branchToDest :: d -> Low.Branch (DestTerm d) -> Low.Block (DestTerm d)
+
     allocationAtDest :: d -> Maybe String -> Low.Type -> Lower (Low.Operand, DestTerm d)
+
+toDest :: Destination d => d -> Low.Expr -> Lower (Low.Block (DestTerm d))
+toDest dest = sizedToDest dest . Sized
 
 newtype There = There Low.Operand deriving Show
 instance Destination There where
     type DestTerm There = ()
 
-    toDest (There a) = \case
-        ZeroSized -> ice "Lower.toDest: ZeroSized to There"
-        Sized e -> do
-            Low.Block stms1 x <- emit e
-            Low.Block stms2 x' <- if typeof x == typeof a
-                then load x
-                else pure (Low.Block [] x)
-            pure $ Low.Block (stms1 ++ stms2 ++ [Low.Store x' a]) ()
+    sizedToDest (There a) = \case
+        ZeroSized -> ice "Lower.sizedToDest: ZeroSized to There"
+        Sized e -> bindrBlockM' (emit e) $ \v -> pure (Low.Block [Low.Store v a] ())
+
+    indirectToDest d e = loadE e `bindrBlockM'` toDest d
 
     branchToDest (There _) br = Low.Block [Low.SBranch br] ()
 
@@ -142,9 +134,11 @@ newtype ThereSized = ThereSized Low.Operand deriving Show
 instance Destination ThereSized where
     type DestTerm ThereSized = Sized ()
 
-    toDest (ThereSized a) = \case
+    sizedToDest (ThereSized a) = \case
         ZeroSized -> pure (Low.Block [] ZeroSized)
-        e -> mapTerm Sized <$> toDest (There a) e
+        Sized e -> mapTerm Sized <$> toDest (There a) e
+
+    indirectToDest (ThereSized a) = fmap (mapTerm Sized) . indirectToDest (There a)
 
     branchToDest (ThereSized _) br =
         Low.Block [Low.SBranch (mapBranchTerm (const ()) br)] (branchGetSomeTerm br)
@@ -152,47 +146,76 @@ instance Destination ThereSized where
     allocationAtDest (ThereSized addr) name t =
         second Sized <$> allocationAtDest (There addr) name t
 
+-- Directly here, which means structs are not kept on the stack, but loaded to locals.
 data Here = Here
     deriving Show
 instance Destination Here where
     type DestTerm Here = Low.Expr
 
-    toDest Here = \case
+    sizedToDest Here = \case
         ZeroSized -> ice "Lower.toDest: ZeroSized to Here"
-        Sized e -> pure $ Low.Block [] e
+        Sized e -> pure . Low.Block [] $ e
+
+    indirectToDest Here = loadE
 
     branchToDest Here br =
         Low.Block [] (Low.Expr (Low.EBranch br) (typeof (branchGetSomeTerm br)))
 
-    allocationAtDest Here =
-        fmap (\x -> (x, Low.Expr (Low.EOperand x) (typeof x))) .* stackAlloc
+    allocationAtDest Here name t =
+        stackAlloc name t <&> \addr -> (addr, Low.Expr (Low.Load addr) t)
 
+-- Directly here, which means structs are not kept on the stack, but loaded to locals.
 data HereSized = HereSized
     deriving Show
 instance Destination HereSized where
     type DestTerm HereSized = Sized Low.Expr
 
-    toDest HereSized = pure . Low.Block []
+    sizedToDest HereSized = pure . Low.Block []
+
+    indirectToDest HereSized = fmap (mapTerm Sized) . loadE
 
     branchToDest HereSized br = case branchGetSomeTerm br of
         Sized _ -> mapTerm Sized $ branchToDest Here (mapBranchTerm fromSized br)
         ZeroSized -> Low.Block [Low.SBranch (mapBranchTerm (const ()) br)] ZeroSized
 
-    allocationAtDest HereSized =
-        fmap (\x -> (x, Sized $ Low.Expr (Low.EOperand x) (typeof x))) .* stackAlloc
+    allocationAtDest HereSized = fmap (second Sized) .* allocationAtDest Here
 
 data Nowhere = Nowhere
     deriving Show
 instance Destination Nowhere where
     type DestTerm Nowhere = ()
 
-    toDest Nowhere = \case
+    sizedToDest Nowhere = \case
         ZeroSized -> pure $ Low.Block [] ()
-        Sized _ -> ice "Lower.toDest: Sized to Nowhere"
+        Sized _ -> ice "Lower.sizedToDest: Sized to Nowhere"
+
+    indirectToDest Nowhere _ = ice "Lower.indirectToDest: expression to Nowhere"
 
     branchToDest Nowhere br = Low.Block [Low.SBranch br] ()
 
     allocationAtDest Nowhere _ _ = ice "Lower.allocationAtDest: allocation at Nowhere"
+
+-- | "Anywhere" => "Wherever is appropriate for the type"
+--
+--   Structs are kept on the stack, other types are kept in locals, and zero-sized types
+--   are allowed.
+data Anywhere = Anywhere
+    deriving Show
+instance Destination Anywhere where
+    type DestTerm Anywhere = Sized Low.Expr
+
+    sizedToDest Anywhere = \case
+        ZeroSized -> pure (Low.Block [] ZeroSized)
+        Sized e -> mapTerm Sized <$> addIndirectionE e
+
+    indirectToDest Anywhere e = pure (Low.Block [] (Sized e))
+
+    -- Assumes that the input branch truly terminates with a result of DestTerm Anywhere
+    branchToDest Anywhere = branchToDest HereSized
+
+    allocationAtDest Anywhere =
+        fmap (\ptr -> (ptr, Sized $ Low.Expr (Low.EOperand ptr) (typeof ptr)))
+            .* stackAlloc
 
 lower :: Bool -> Program -> Low.Program
 lower noGC (Program (Topo defs) datas externs) =
@@ -382,51 +405,45 @@ lower noGC (Program (Topo defs) datas externs) =
         -- Gotta remember these for when we return to whichever scope we came from
         oldLocalNames <- replaceLocalNames Seq.empty
         oldAllocs <- replaceAllocs []
-        -- Zero-sized parameters don't actually get to exist in the Low IR and beyond
-        (binds, innerParamIds, directParamTs) <-
-            fmap (unzip3 . catMaybes) $ forM ps $ \p -> lowerType (tvType p) >>= \case
-                ZeroSized -> pure Nothing
-                Sized pt -> do
-                    pid <- newLName (tvName p)
-                    let bind = (p, Low.OLocal (Low.Local pid pt))
-                    pure (Just (bind, pid, pt))
+        (outParam, ret) <- toRet (newLName "sret") =<< lowerType rt
         capturesName <- newLName "captures"
-        rt' <- lowerType rt
-        (outParam, ret) <- toRet (newLName "sret") rt'
-        paramTs <- mapM
-            (\t -> passByRef t <&> \case
-                True -> Low.TPtr t
-                False -> t
-            )
-            directParamTs
-        let innerParams = zipWith Low.Local innerParamIds paramTs
         Low.Block capturesStms capturesBinds <- unpackCaptures capturesName freeLocals
-        anonParams <-
-            maybe id ((:) . Low.dropParamName) outParam
-            . (Low.ByVal () Low.VoidPtr :)
-            <$> mapM (sizedToParam ()) directParamTs
-        let tselfFun = Low.TFun anonParams ret
-            selfCaptures = Low.OLocal $ Low.Local capturesName Low.VoidPtr
-            selfRef = Low.Global name tselfFun
-            selfFun' = fmap (, selfCaptures, selfRef) lhs
-        -- Lower the body, generate an out-parameter if the return value is to be passed
-        -- on the stack, and optimize to loop if the function is tail recursive.
+        (ps', params) <-
+            unzip
+            . catMaybes
+            <$> mapM
+                    (\p@(TypedVar x t) -> fmap (p, ) <$> (sizedToParam x =<< lowerType t))
+                    ps
+        let metaParams = maybe id (:) outParam [Low.ByVal capturesName Low.VoidPtr]
+        let selfFun' =
+                let allParams = map dropParamName metaParams ++ map dropParamName params
+                    tselfFun = Low.TFun allParams ret
+                    selfCaptures = Low.OLocal $ Low.Local capturesName Low.VoidPtr
+                    selfRef = Low.Global name tselfFun
+                in  fmap (, selfCaptures, selfRef) lhs
+        -- The outer parameters will be discarded if the function is not tail
+        -- recursive. In that case, the inner params and the outer params are the same.
+        innerParamIds <- mapM (newLName . paramName) params
+        outerParamIds <- mapM (newLName . paramName) params
+        let innerParams = zipWith Low.Local innerParamIds (map paramType params)
+        let outerParams = zipWith Low.Local outerParamIds (map paramType params)
+        -- Lower the body and optimize to loop if the function is tail recursive.
         (outerParamIds, body'') <- locallySet selfFun selfFun' $ do
-            -- These will be discarded if the function is not tail recursive. In that
-            -- case, the inner params and the outer params are the same.
-            outerParamIds <- mapM spinoffLocalId innerParamIds
-            let outerParams = zipWith Low.Local outerParamIds paramTs
+            (blkBinds, binds) <- fmap (separateTerm . mapTerm (zip ps') . catBlocks)
+                                      (mapM (addIndirection . Low.OLocal) innerParams)
+            let lowerBody :: Destination d => d -> Expr -> Lower (Low.Block (DestTerm d))
+                lowerBody dest body = blkBinds `thenBlockM` lowerExpr dest body
             withVars (capturesBinds ++ binds) $ case (outParam, ret) of
                 (Nothing, Low.RetVoid) -> do
-                    body' <- lowerExpr Nowhere body
+                    body' <- lowerBody Nowhere body
                     pure $ if isTailRec_RetVoid name body'
                         then
                             ( outerParamIds
                             , tailCallOpt_RetVoid name outerParams innerParams body'
                             )
                         else (innerParamIds, mapTerm (\() -> Low.TRetVoid) body')
-                (Nothing, Low.RetVal rt) -> do
-                    body' <- bindBlockM (removeIndirectionE rt) =<< lowerExpr Here body
+                (Nothing, Low.RetVal _rt) -> do
+                    body' <- lowerBody Here body
                     pure $ if isTailRec_RetVal name body'
                         then
                             ( outerParamIds
@@ -435,7 +452,7 @@ lower noGC (Program (Topo defs) datas externs) =
                         else (innerParamIds, mapTerm Low.TRetVal body')
                 (Just outParam', Low.RetVoid) -> do
                     let outParamOp = Low.OLocal $ paramLocal outParam'
-                    body' <- lowerExpr (There outParamOp) body
+                    body' <- lowerBody (There outParamOp) body
                     pure $ if isTailRec_RetVoid name body'
                         then
                             ( outerParamIds
@@ -450,10 +467,8 @@ lower noGC (Program (Topo defs) datas externs) =
             . toList
             <$> replaceLocalNames oldLocalNames
         allocs' <- replaceAllocs oldAllocs
-        outerParams <- zipWithM sizedToParam outerParamIds directParamTs
-        let params =
-                maybe id (:) outParam $ Low.ByVal capturesName Low.VoidPtr : outerParams
-        pure $ Low.FunDef name params ret body''' allocs' localNames'
+        let params' = metaParams ++ zipWith addParamName outerParamIds params
+        pure $ Low.FunDef name params' ret body''' allocs' localNames'
 
     replaceLocalNames ns = localNames <<.= ns
     replaceAllocs as = reverse <$> (allocs <<.= as)
@@ -469,8 +484,12 @@ lower noGC (Program (Topo defs) datas externs) =
                 let t = Low.TPtr tcaptures
                 in  emitNamed "captures" (Low.Expr (Low.Bitcast capturesGeneric t) t)
             captures `bindrBlockM` \captures' -> catBlocks <$> mapM
-                (\(i, (v@(TypedVar x _), t)) -> mapTerm (v, )
-                    <$> emitNamed x (Low.Expr (Low.EGetMember i captures') (Low.TPtr t))
+                (\(i, (v@(TypedVar x _), t)) -> mapTerm (v, ) <$> do
+                    member <- emitNamed
+                        x
+                        (Low.Expr (Low.EGetMember i captures') (Low.TPtr t))
+                    onStack <- keepOnStack t
+                    if onStack then pure member else bindBlockM load member
                 )
                 (zip [0 ..] vars)
 
@@ -546,15 +565,9 @@ lower noGC (Program (Topo defs) datas externs) =
                                                          (map (second go) cases)
                                                          (go default')
 
-    spinoffLocalId :: Low.LocalId -> Lower Low.LocalId
-    spinoffLocalId x = do
-        names <- use localNames
-        let name = Seq.index names (fromIntegral x)
-        newLName name
-
-    lowerExpr :: (Show d, Destination d) => d -> Expr -> Lower (Low.Block (DestTerm d))
+    lowerExpr :: Destination d => d -> Expr -> Lower (Low.Block (DestTerm d))
     lowerExpr dest = \case
-        Lit c -> toDest dest . Sized . operandToExpr =<< lowerConst c
+        Lit c -> lowerConst dest c
         -- TODO: Keep a cache of wrapped virtuals, so as to not generate the same
         --       instantiation twice
         Var Virt f@(TypedVar _ (TFun pts rt)) ->
@@ -572,7 +585,7 @@ lower noGC (Program (Topo defs) datas externs) =
                                    alt' <- lowerExpr dest alt
                                    pure . branchToDest dest $ Low.BIf pred' conseq' alt'
         Fun f -> lowerLambda dest f
-        Let (VarDef (lhs, (_, rhs))) body -> lowerExpr HereSized rhs `bindrBlockM'` \case
+        Let (VarDef (lhs, (_, rhs))) body -> lowerExpr Anywhere rhs `bindrBlockM'` \case
             ZeroSized -> lowerExpr dest body
             Sized rhs' -> bindrBlockM' (emit rhs')
                 $ \rhs'' -> withVar lhs rhs'' (lowerExpr dest body)
@@ -588,11 +601,10 @@ lower noGC (Program (Topo defs) datas externs) =
                         fdef <- lowerFunDef freeLocalVars (Just lhs) name f
                         scribe outFunDefs [fdef]
                         closure <-
-                            bindBlockM (emitNamed "closure")
-                                =<< wrapInClosure Here (funDefGlobal fdef) captures'
-                        pure $ mapTerm
-                            (\closure' -> ((lhs, closure'), (freeLocalVars, captures')))
-                            closure
+                            bindBlockM (emitNamed "closure" . fromSized)
+                                =<< wrapInClosure Anywhere (funDefGlobal fdef) captures'
+                        pure $ mapTerm (\c -> ((lhs, c), (freeLocalVars, captures')))
+                                       closure
             withVars binds $ do
                 forM_ cs (uncurry populateCaptures)
                 body' <- lowerExpr dest body
@@ -601,23 +613,12 @@ lower noGC (Program (Topo defs) datas externs) =
         Ction (variantIx, span, tconst, xs) -> lowerCtion dest variantIx span tconst xs
         Sizeof t ->
             toDest dest
-                . Sized
-                . operandToExpr
+                . Low.mkEOperand
                 =<< sized (fmap (litI64 . fromIntegral) . sizeof) (pure (litI64 0))
                 =<< lowerType t
-        Absurd _ -> toDest dest ZeroSized
+        Absurd _ -> sizedToDest dest ZeroSized
 
-    lowerExprToOperand :: Expr -> Lower (Low.Block (Sized Low.Operand))
-    lowerExprToOperand e =
-        bindBlockM (sized (fmap (mapTerm Sized) . emit) (pure (Low.Block [] ZeroSized)))
-            =<< lowerExpr HereSized e
-
-    lowerApp
-        :: (Show d, Destination d)
-        => d
-        -> Expr
-        -> [Expr]
-        -> Lower (Low.Block (DestTerm d))
+    lowerApp :: Destination d => d -> Expr -> [Expr] -> Lower (Low.Block (DestTerm d))
     lowerApp dest f as = case f of
         -- TODO: Handle this more elegantly. For example by exchanging Ction in Low for a
         --       Ctor, which behaves like a constructor or a function depending on
@@ -625,7 +626,10 @@ lower noGC (Program (Topo defs) datas externs) =
         Fun (params, (Ction (variantIx, span, tconst, xs), _rt))
             | map (Var NonVirt) params == xs -> lowerCtion dest variantIx span tconst as
         Fun (params, (body, _rt)) -> do -- Beta reduction
-            (blk1, as') <- separateTerm . catBlocks <$> mapM lowerExprToOperand as
+            (blk1, as') <-
+                separateTerm
+                . catBlocks
+                <$> mapM (bindBlockM emitSized <=< lowerExpr Anywhere) as
             let binds = mapMaybe (\(p, a) -> fmap (p, ) (sizedMaybe a)) (zip params as')
             blk1 `thenBlockM` withVars binds (lowerExpr dest body)
         Var Virt f -> lowerAppVirtual dest f as
@@ -652,23 +656,19 @@ lower noGC (Program (Topo defs) datas externs) =
         _ -> do
             Low.Block stms (captures, fConcrete) <-
                 bindBlockM lowerApplicandOperand
-                =<< bindBlockM (emitNamed "closure")
-                =<< lowerExpr Here f
+                =<< bindBlockM (emitNamed "closure" . fromSized)
+                =<< lowerExpr Anywhere f
             Low.Block stms () `thenBlockM` lowerApp' captures fConcrete
       where
         lowerApp' captures fConcrete = do
-            let (params, ret) = asTFun (typeof fConcrete)
-            Low.Block stms1 as' <-
-                mapTerm catSized . catBlocks <$> mapM lowerExprToOperand as
+            let (_, ret) = asTFun (typeof fConcrete)
+            Low.Block stms1 as' <- lowerArgs as
             let args = maybe id (:) captures as'
-            Low.Block stms2 args' <-
-                catBlocks <$> zipWithM (removeIndirection . Low.paramType) params args
-            thenBlockM (Low.Block (stms1 ++ stms2) ()) $ case ret of
+            thenBlockM (Low.Block stms1 ()) $ case ret of
                 Low.RetVoid ->
-                    Low.Block [Low.VoidCall fConcrete args'] ()
-                        `thenBlockM` toDest dest ZeroSized
-                Low.RetVal tret ->
-                    toDest dest (Sized (Low.Expr (Low.Call fConcrete args') tret))
+                    Low.Block [Low.VoidCall fConcrete args] ()
+                        `thenBlockM` sizedToDest dest ZeroSized
+                Low.RetVal tret -> toDest dest (Low.Expr (Low.Call fConcrete args) tret)
         lowerApplicandOperand closure = do
             Low.Block stms1 captures <- bindBlockM load =<< indexStruct 0 closure
             Low.Block stms2 fGeneric <- bindBlockM load =<< indexStruct 1 closure
@@ -681,11 +681,7 @@ lower noGC (Program (Topo defs) datas externs) =
             $ Low.Block [] (Just (Low.OConst (Low.Zero Low.VoidPtr)), Low.OGlobal f)
 
     lowerAppVirtual
-        :: (Show d, Destination d)
-        => d
-        -> TypedVar
-        -> [Expr]
-        -> Lower (Low.Block (DestTerm d))
+        :: Destination d => d -> TypedVar -> [Expr] -> Lower (Low.Block (DestTerm d))
     lowerAppVirtual dest (TypedVar f tf) as = case f of
         "+" -> arith Low.Add
         "-" -> arith Low.Sub
@@ -706,21 +702,14 @@ lower noGC (Program (Topo defs) datas externs) =
         "<=" -> rel Low.LtEq
         "transmute" -> case (tf, as) of
             (TFun [ta] tr, [a]) -> lowerType tr >>= \case
-                ZeroSized -> toDest dest ZeroSized
+                ZeroSized -> sizedToDest dest ZeroSized
                 Sized tr' -> do
                     ta' <- fromSized <$> lowerType ta
-                    tids' <- use tids
-                    let isStackCast = \case
-                            Low.TClosure _ _ -> True
-                            Low.TConst tid ->
-                                case snd (Seq.index tids' (fromIntegral tid)) of
-                                    Low.DStruct _ -> True
-                                    Low.DUnion _ -> True
-                                    Low.DEnum _ -> False
-                            _ -> False
+                    stackCast_a <- keepOnStack ta'
+                    stackCast_r <- keepOnStack tr'
                     if
                         | ta' == tr' -> lowerExpr dest a
-                        | isStackCast ta' || isStackCast tr' -> do
+                        | stackCast_a || stackCast_r -> do
                             (ptrTo, retVal) <- allocationAtDest dest Nothing tr'
                             Low.Block stms1 ptrFrom <- emit $ Low.Expr
                                 (Low.Bitcast ptrTo (Low.TPtr tr'))
@@ -729,42 +718,40 @@ lower noGC (Program (Topo defs) datas externs) =
                             pure (Low.Block (stms1 ++ stms2) retVal)
                         | otherwise -> do
                             a' <- bindBlockM emit =<< lowerExpr Here a
-                            a' `bindrBlockM` \a'' -> toDest
-                                dest
-                                (Sized (Low.Expr (Low.Bitcast a'' tr') tr'))
+                            a' `bindrBlockM` \a'' ->
+                                toDest dest (Low.Expr (Low.Bitcast a'' tr') tr')
             _ -> err
         "cast" -> case (tf, as) of
             (TFun [ta] tr, [a]) | (isInt ta || isFloat ta) && (isInt tr || isFloat tr) ->
                 do
                     tr' <- fromSized <$> lowerType tr
                     (blk1, a') <- separateTerm <$> (bindBlockM emit =<< lowerExpr Here a)
-                    blk2 <- toDest dest (Sized (Low.Expr (Low.Cast a' tr') tr'))
+                    blk2 <- toDest dest (Low.Expr (Low.Cast a' tr') tr')
                     pure (blk1 `thenBlock` blk2)
             _ -> err
-        "deref" -> lowerArgsHere >>= bindBlockM
+        "deref" -> lowerArgs as >>= bindBlockM
             (\case
-                [a] -> toDest dest (Sized (Low.Expr (Low.Load a) (pointee (typeof a))))
+                [a] -> toDest dest (Low.Expr (Low.Load a) (pointee (typeof a)))
                 _ -> err
             )
-        "store" -> lowerArgsHere >>= bindBlockM
+        "store" -> lowerArgs as >>= bindBlockM
             (\case
                 [a, b] ->
-                    thenBlockM (Low.Block [Low.Store a b] ()) (toDest dest ZeroSized)
+                    thenBlockM (Low.Block [Low.Store a b] ()) (sizedToDest dest ZeroSized)
                 _ -> err
             )
         _ -> ice $ "lowerAppVirtual: no builtin virtual function: " ++ f
       where
-        arith op = lowerArgsHere >>= bindBlockM
+        arith op = lowerArgs as >>= bindBlockM
             (\case
-                [a, b] -> toDest dest (Sized (Low.Expr (op a b) (typeof a)))
+                [a, b] -> toDest dest (Low.Expr (op a b) (typeof a))
                 _ -> err
             )
-        rel op = lowerArgsHere >>= bindBlockM
+        rel op = lowerArgs as >>= bindBlockM
             (\case
-                [a, b] -> toDest dest . Sized . Low.Expr (op a b) =<< typeBool
+                [a, b] -> toDest dest . Low.Expr (op a b) =<< typeBool
                 _ -> err
             )
-        lowerArgsHere = mapTerm catSized . catBlocks <$> mapM lowerExprToOperand as
         isInt = \case
             Ast.TPrim (TInt _) -> True
             Ast.TPrim TIntSize -> True
@@ -777,6 +764,11 @@ lower noGC (Program (Topo defs) datas externs) =
             _ -> False
         err :: e
         err = ice $ "lowerAppVirtual: " ++ show (TypedVar f tf) ++ " of " ++ show as
+
+    lowerArgs as =
+        mapTerm catSized
+            . catBlocks
+            <$> mapM (bindBlockM emitSized <=< lowerExpr HereSized) as
 
     typeBool :: Lower Low.Type
     typeBool = Low.TConst . (Map.! ("Bool", [])) <$> use tconsts
@@ -813,14 +805,10 @@ lower noGC (Program (Topo defs) datas externs) =
 
     populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block Low.Operand)
     populateStruct vs dst = foldrM
-        (\(i, v) rest ->
-            indexStruct i dst
-                >>= bindBlockM
-                        (\member -> do
-                            Low.Block stms v' <- removeIndirection (typeof member) v
-                            pure $ Low.Block (stms ++ [Low.Store v' member]) ()
-                        )
-                <&> (`thenBlock` rest)
+        (\(i, v) blkRest -> do
+            (blk1, member) <- separateTerm <$> indexStruct i dst
+            let blk2 = Low.Block [Low.Store v member] ()
+            pure $ blk1 `thenBlock` blk2 `thenBlock` blkRest
         )
         (Low.Block [] dst)
         (zip [0 ..] vs)
@@ -873,33 +861,42 @@ lower noGC (Program (Topo defs) datas externs) =
 
     populateCaptures :: [TypedVar] -> Low.Operand -> Lower (Low.Block Low.Operand)
     populateCaptures freeLocals captures = do
-        xs <- mapM (\var -> (Map.! var) <$> view localEnv) freeLocals
-        populateStruct xs captures
-
-    operandToExpr x = Low.Expr (Low.EOperand x) (typeof x)
+        lowerArgs (map (Var NonVirt) freeLocals)
+            `bindrBlockM'` \xs -> populateStruct xs captures
 
     litI64 n = Low.OConst $ Low.CInt { Low.intWidth = 64, Low.intVal = n }
 
-    lookupVar dest x = view (localEnv . to (Map.lookup x)) >>= \case
-        Just l -> toDest dest (Sized (Low.mkEOperand l))
-        Nothing -> view (globalEnv . to (Map.lookup x)) >>= \case
-            Just f@(Low.Global _ (Low.TFun _ _)) ->
-                wrapInClosure dest f (Low.OConst (Low.Zero Low.VoidPtr))
-            Just g -> toDest dest (Sized (Low.mkEOperand (Low.OGlobal g)))
-            Nothing -> view (externEnv . to (Map.lookup x)) >>= \case
-                Just (_e, eWrapped) ->
-                    wrapInClosure dest eWrapped (Low.OConst (Low.Zero Low.VoidPtr))
-                Nothing -> view selfFun >>= \case
-                    Just (selfLhs, selfCapts, f) | x == selfLhs ->
-                        wrapInClosure dest f selfCapts
-                    _ -> toDest dest ZeroSized
+    lookupVar :: Destination d => d -> TypedVar -> Lower (Low.Block (DestTerm d))
+    lookupVar dest x = do
+        lowerType (tvType x) >>= \case
+            ZeroSized -> sizedToDest dest ZeroSized
+            Sized target -> do
+                let toDest' e = if not (Low.isPtr target) && Low.isPtr (typeof e)
+                        then indirectToDest dest e
+                        else toDest dest e
+                maybeLocal <- view (localEnv . to (Map.lookup x))
+                maybeGlobal <- view (globalEnv . to (Map.lookup x))
+                maybeExtern <- view (externEnv . to (Map.lookup x))
+                case (maybeLocal, maybeGlobal, maybeExtern) of
+                    (Just l, _, _) -> toDest' (Low.mkEOperand l)
+                    (_, Just f@(Low.Global _ (Low.TFun _ _)), _) ->
+                        wrapInClosure dest f (Low.OConst (Low.Zero Low.VoidPtr))
+                    (_, Just g, _) -> toDest' (Low.mkEOperand (Low.OGlobal g))
+                    (_, _, Just (_e, eWrapped)) ->
+                        wrapInClosure dest eWrapped (Low.OConst (Low.Zero Low.VoidPtr))
+                    _ -> view selfFun >>= \case
+                        Just (selfLhs, selfCapts, f) | x == selfLhs ->
+                            wrapInClosure dest f selfCapts
+                        _ -> ice $ "Lower.lookupVar: undefined var " ++ show x
 
-    lowerConst :: Const -> Lower Low.Operand
-    lowerConst = \case
-        Int n -> pure
-            (Low.OConst (Low.CInt { Low.intWidth = 64, Low.intVal = fromIntegral n }))
-        F64 x -> pure (Low.OConst (Low.F64 x))
-        Str s -> internStr s <&> \s' -> Low.OGlobal s'
+    lowerConst :: Destination d => d -> Const -> Lower (Low.Block (DestTerm d))
+    lowerConst dest = \case
+        Int n -> toDest dest . Low.mkEOperand . Low.OConst $ Low.CInt
+            { Low.intWidth = 64
+            , Low.intVal = fromIntegral n
+            }
+        F64 x -> toDest dest . Low.mkEOperand . Low.OConst $ Low.F64 x
+        Str s -> indirectToDest dest . Low.mkEOperand . Low.OGlobal =<< internStr s
 
     internStr :: String -> Lower Low.Global
     internStr s = do
@@ -939,7 +936,7 @@ lower noGC (Program (Topo defs) datas externs) =
 
     lowerMatch
         :: forall d
-         . (Show d, Destination d)
+         . Destination d
         => d
         -> [Expr]
         -> DecisionTree
@@ -949,7 +946,7 @@ lower noGC (Program (Topo defs) datas externs) =
         Low.Block stms2 result <- lowerDecisionTree (topSelections ms) decisionTree
         pure (Low.Block (stms1 ++ stms2) result)
       where
-        lowerMatchee m = lowerExpr HereSized m `bindrBlockM'` \case
+        lowerMatchee m = lowerExpr Anywhere m `bindrBlockM'` \case
             ZeroSized -> pure $ Low.Block [] ZeroSized
             Sized e -> mapTerm Sized <$> emitNamed "matchee" e
 
@@ -973,7 +970,7 @@ lower noGC (Program (Topo defs) datas externs) =
                 (m, selections') <- select selector' selections
                 Low.Block stms tag <- bindrBlockM m $ \m' -> case typeof m' of
                     -- Either a pointer to a struct, representing a tagged union
-                    Low.TPtr (Low.TConst _) -> indexStruct 0 m'
+                    Low.TPtr (Low.TConst _) -> bindBlockM' load (indexStruct 0 m')
                     -- or an enum, which, as an integer, is its own "tag"
                     _ -> pure (Low.Block [] m')
                 let litTagInt :: VariantIx -> Low.Const
@@ -1068,7 +1065,11 @@ lower noGC (Program (Topo defs) datas externs) =
 
     lowerAccess :: Access -> Lower (Sized Low.Access)
     lowerAccess = \case
-        TopSel i t -> mapSized (TopSel i) <$> lowerType t
+        TopSel i t -> lowerType t >>= mapSizedM
+            (\t' -> fmap (TopSel i) $ keepOnStack t' <&> \case
+                True -> Low.TPtr t'
+                False -> t'
+            )
         As a span vi vts ->
             mapSizedM (\a' -> As a' span vi <$> lowerSizedTypes vts) =<< lowerAccess a
         Sel i span a -> mapSized (Sel i span) <$> lowerAccess a
@@ -1087,7 +1088,7 @@ lower noGC (Program (Topo defs) datas externs) =
         case Map.lookup tconst tconsts' of
             Nothing -> do
                 blk <- catBlocks_ <$> mapM (lowerExpr Nowhere) xs
-                blk `thenBlockM` toDest dest ZeroSized
+                blk `thenBlockM` sizedToDest dest ZeroSized
             Just tidOuter -> do
                 tids' <- use tids
                 let (_, tdef) = Seq.index tids' (fromIntegral tidOuter)
@@ -1100,8 +1101,7 @@ lower noGC (Program (Topo defs) datas externs) =
                                 , Low.enumWidth = tagBits span
                                 , Low.enumVal = fromIntegral variantIx
                                 }
-                        in  toDest dest . Sized $ Low.Expr (Low.EOperand operand)
-                                                           (typeof operand)
+                        in  toDest dest $ Low.Expr (Low.EOperand operand) (typeof operand)
                     Low.DStruct _ | span == 1 -> do
                         (ptr, retVal) <- allocationAtDest dest
                                                           Nothing
@@ -1117,7 +1117,7 @@ lower noGC (Program (Topo defs) datas externs) =
                         Low.Block stms3 unionPtr <- indexStruct 1 ptr
                         Low.Block stms4 variantPtr <- emit $ Low.Expr
                             (Low.EAsVariant unionPtr variantIx)
-                            (Low.TConst tidVariant)
+                            (Low.TPtr (Low.TConst tidVariant))
                         Low.Block stms5 _ <- lowerExprsInStruct xs variantPtr
                         pure $ Low.Block (stms1 ++ stm2 : stms3 ++ stms4 ++ stms5) retVal
 
@@ -1275,14 +1275,14 @@ lower noGC (Program (Topo defs) datas externs) =
         liftM2 (Low.DStruct .* Low.Struct ts) (alignmentofStruct ts) (sizeofStruct ts)
 
     lowerParamTypes :: [Type] -> Lower [Low.Param ()]
-    lowerParamTypes pts = catMaybes <$> mapM (toParam () <=< lowerType) pts
+    lowerParamTypes pts = catMaybes <$> mapM (sizedToParam () <=< lowerType) pts
 
-    toParam :: name -> Sized Low.Type -> Lower (Maybe (Low.Param name))
-    toParam name = \case
+    sizedToParam :: name -> Sized Low.Type -> Lower (Maybe (Low.Param name))
+    sizedToParam name = \case
         ZeroSized -> pure Nothing
-        Sized t -> Just <$> sizedToParam name t
+        Sized t -> Just <$> toParam name t
 
-    sizedToParam name t = passByRef t <&> \case
+    toParam name t = passByRef t <&> \case
         True -> Low.ByRef name t
         False -> Low.ByVal name t
 
@@ -1381,10 +1381,21 @@ lower noGC (Program (Topo defs) datas externs) =
 
     tidsHelper f x = use tids <&> \tids' -> f (\tid -> tids' Seq.!? fromIntegral tid) x
 
+keepOnStack :: Low.Type -> Lower Bool
+keepOnStack t = do
+    tids' <- use tids
+    pure $ case t of
+        Low.TClosure _ _ -> True
+        Low.TConst tid -> case snd (Seq.index tids' (fromIntegral tid)) of
+            Low.DStruct _ -> True
+            Low.DUnion _ -> True
+            Low.DEnum _ -> False
+        _ -> False
+
 pointee :: Low.Type -> Low.Type
 pointee = \case
     Low.TPtr t -> t
-    _ -> ice "Lower.pointee of non pointer type"
+    t -> ice $ "Lower.pointee of non pointer type " ++ show t
 
 funDefGlobal :: Low.FunDef -> Low.Global
 funDefGlobal Low.FunDef { Low.funDefName = x, Low.funDefParams = ps, Low.funDefRet = r }
@@ -1460,15 +1471,25 @@ fromSized = \case
 catSized :: [Sized a] -> [a]
 catSized = mapMaybe sizedMaybe
 
--- Some types are kept on the stack for convenience when lowering, and may need to be
--- loaded to registers before being passed to function or put in a struct etc.
-removeIndirection :: Low.Type -> Low.Operand -> Lower (Low.Block Low.Operand)
-removeIndirection target x =
-    if typeof x == Low.TPtr target then load x else pure (Low.Block [] x)
+addIndirection :: Low.Operand -> Lower (Low.Block Low.Operand)
+addIndirection v = do
+    onStack <- keepOnStack (typeof v)
+    if onStack
+        then do
+            ptr <- stackAlloc Nothing (typeof v)
+            pure $ Low.Block [Low.Store v ptr] ptr
+        else pure $ Low.Block [] v
 
-removeIndirectionE :: Low.Type -> Low.Expr -> Lower (Low.Block Low.Expr)
-removeIndirectionE target x =
-    if typeof x == Low.TPtr target then loadE x else pure (Low.Block [] x)
+addIndirectionE :: Low.Expr -> Lower (Low.Block Low.Expr)
+addIndirectionE e = do
+    onStack <- keepOnStack (typeof e)
+    if onStack
+        then do
+            Low.Block stms1 v <- emit e
+            ptr <- stackAlloc Nothing (typeof v)
+            let stm2 = Low.Store v ptr
+            pure $ Low.Block (stms1 ++ [stm2]) (Low.Expr (Low.EOperand ptr) (typeof ptr))
+        else pure $ Low.Block [] e
 
 emit :: Low.Expr -> Lower (Low.Block Low.Operand)
 emit = emitNamed "tmp"
@@ -1479,6 +1500,11 @@ emitNamed name e = do
     name' <- newLName name
     let l = Low.Local name' (typeof e)
     pure (Low.Block [Low.Let l e] (Low.OLocal l))
+
+emitSized :: Sized Low.Expr -> Lower (Low.Block (Sized Low.Operand))
+emitSized = \case
+    ZeroSized -> pure $ Low.Block [] ZeroSized
+    Sized e -> mapTerm Sized <$> emit e
 
 load :: Low.Operand -> Lower (Low.Block Low.Operand)
 load addr = emit $ Low.Expr (Low.Load addr) (pointee (typeof addr))
