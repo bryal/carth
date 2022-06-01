@@ -14,6 +14,35 @@ import Sizeof hiding (sizeof)
 import Pretty
 import Front.Monomorphic (Access', VariantIx)
 
+data Sized x = ZeroSized | Sized x deriving (Show, Ord, Eq)
+
+mapSized :: (a -> b) -> Sized a -> Sized b
+mapSized f (Sized a) = Sized (f a)
+mapSized _ ZeroSized = ZeroSized
+
+mapSizedM :: Monad m => (a -> m b) -> Sized a -> m (Sized b)
+mapSizedM f = \case
+    Sized a -> fmap Sized (f a)
+    ZeroSized -> pure ZeroSized
+
+sized :: (a -> b) -> b -> Sized a -> b
+sized f b = \case
+    ZeroSized -> b
+    Sized a -> f a
+
+sizedMaybe :: Sized a -> Maybe a
+sizedMaybe = \case
+    ZeroSized -> Nothing
+    Sized t -> Just t
+
+fromSized :: Sized a -> a
+fromSized = \case
+    ZeroSized -> ice "Lower.fromSized: was ZeroSized"
+    Sized x -> x
+
+catSized :: [Sized a] -> [a]
+catSized = mapMaybe sizedMaybe
+
 data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
 
 mapParamName :: (nameA -> nameB) -> Param nameA -> Param nameB
@@ -199,7 +228,7 @@ data Struct = Struct
     deriving (Show, Eq, Ord)
 
 data Union = Union
-    { unionVariants :: Vector (String, TypeId)
+    { unionVariants :: Vector (String, Sized TypeId)
     , unionGreatestSize :: Word
     , unionGreatestAlignment :: Word
     }
@@ -376,8 +405,11 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                 ++ ("\n} // alignment: " ++ show a ++ ", size: " ++ show s)
         DUnion (Union vs gs ga) ->
             ("union " ++ name ++ " {")
-                ++ concatMap (\(x, ti) -> "\n    " ++ x ++ ": " ++ typeName ti ++ ",")
-                             (Vec.toList vs)
+                ++ concatMap
+                       (\(x, ti) ->
+                           "\n    " ++ x ++ ": " ++ sized typeName "void" ti ++ ","
+                       )
+                       (Vec.toList vs)
                 ++ ("\n} // greatest size: " ++ show gs)
                 ++ (", greatest alignment: " ++ show ga)
     pType = \case

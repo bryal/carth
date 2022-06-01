@@ -34,7 +34,9 @@
   x)
 
 (define: either/map-left
-    (Fun (Fun (Fun Unit Unit) Unit) (Either (Fun Unit Unit)) (Either Unit))
+    (Fun (Fun (Fun Unit Unit) Unit)
+         (Either (Fun Unit Unit))
+         (Either Unit))
   (fun* (case [f (Left a)] (Left (f a)))
         (case [_ (Right b)] (Right b))))
 

@@ -31,8 +31,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), (.=), to)
-
-import Back.Low (typeof, paramName, paramType, addParamName, dropParamName)
+import Back.Low (typeof, paramName, paramType, addParamName, dropParamName, Sized (..), fromSized, sizedMaybe, mapSized, sized, catSized, mapSizedM)
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
@@ -40,17 +39,6 @@ import Front.TypeAst as Ast hiding (TConst)
 import Misc
 import Sizeof
 import FreeVars
-
-data Sized x = ZeroSized | Sized x
-
-mapSized :: (a -> b) -> Sized a -> Sized b
-mapSized f (Sized a) = Sized (f a)
-mapSized _ ZeroSized = ZeroSized
-
-mapSizedM :: Monad m => (a -> m b) -> Sized a -> m (Sized b)
-mapSizedM f = \case
-    Sized a -> fmap Sized (f a)
-    ZeroSized -> pure ZeroSized
 
 data St = St
     { _strLits :: Map String Low.GlobalId
@@ -1025,8 +1013,7 @@ lower noGC (Program (Topo defs) datas externs) =
                             ++ show selections
                     As x span' i _ts -> do
                         (ba', s') <- select x selections
-                        ba'' <- bindrBlockM ba'
-                            $ \a' -> asVariant a' span' (fromIntegral i)
+                        ba'' <- bindrBlockM ba' $ \a' -> asVariant a' span' i
                         pure (ba'', s')
                     Sel i _span x -> do
                         (a', s') <- select x selections
@@ -1046,11 +1033,12 @@ lower noGC (Program (Topo defs) datas externs) =
                     tidData = case typeof matchee of
                         Low.TPtr (Low.TConst tid) -> tid
                         _ -> ice "Lower.asVariant: type of matchee is not TPtr to TConst"
-                let tvariant = Low.TPtr (Low.TConst (tidData + 2 + variantIx))
+                -- Assume `asVariant` will not be called for zero sized variants
+                vtid <- fromSized <$> variantTypeId tidData variantIx
+                let tvariant = Low.TPtr . Low.TConst $ vtid
                 -- Skip tag to get inner union
-                indexStruct 1 matchee `bindrBlockM'` \union -> emit $ Low.Expr
-                    (Low.EAsVariant union (fromIntegral variantIx))
-                    tvariant
+                indexStruct 1 matchee `bindrBlockM'` \union -> emit
+                    $ Low.Expr (Low.EAsVariant union (fromIntegral vtid)) tvariant
 
         selectVarBindings
             :: Map Low.Access Low.Operand
@@ -1062,6 +1050,15 @@ lower noGC (Program (Topo defs) datas externs) =
                 pure (mapTerm (pure . (x, )) block2 <> block1, ss')
             )
             (Low.Block [] [], selections)
+
+    variantTypeId :: Low.TypeId -> VariantIx -> Lower (Sized Low.TypeId)
+    variantTypeId tidData variantIx = do
+        variants <- use (tids . to (`Seq.index` (fromIntegral tidData + 1))) <&> \case
+            (_, Low.DUnion (Low.Union vs _ _)) -> vs
+            x -> ice $ "Lower.variantTypeId: expected union, found " ++ show x
+        pure $ case variants Vec.! fromIntegral variantIx of
+            (_, Sized vtid) -> Sized vtid
+            (_, ZeroSized) -> ZeroSized
 
     lowerAccess :: Access -> Lower (Sized Low.Access)
     lowerAccess = \case
@@ -1113,13 +1110,16 @@ lower noGC (Program (Topo defs) datas externs) =
                                                           (Low.TConst tidOuter)
                         Low.Block stms1 tagPtr <- indexStruct 0 ptr
                         let stm2 = Low.Store (lowerTag span variantIx) tagPtr
-                        let tidVariant = tidOuter + 2 + fromIntegral variantIx
-                        Low.Block stms3 unionPtr <- indexStruct 1 ptr
-                        Low.Block stms4 variantPtr <- emit $ Low.Expr
-                            (Low.EAsVariant unionPtr variantIx)
-                            (Low.TPtr (Low.TConst tidVariant))
-                        Low.Block stms5 _ <- lowerExprsInStruct xs variantPtr
-                        pure $ Low.Block (stms1 ++ stm2 : stms3 ++ stms4 ++ stms5) retVal
+                        Low.Block stms3 () <- variantTypeId tidOuter variantIx >>= \case
+                            ZeroSized -> catBlocks_ <$> mapM (lowerExpr Nowhere) xs
+                            Sized tidVariant -> do
+                                Low.Block stms'1 unionPtr <- indexStruct 1 ptr
+                                Low.Block stms'2 variantPtr <- emit $ Low.Expr
+                                    (Low.EAsVariant unionPtr (fromIntegral tidVariant))
+                                    (Low.TPtr (Low.TConst tidVariant))
+                                Low.Block stms'3 () <- lowerExprsInStruct xs variantPtr
+                                pure $ Low.Block (stms'1 ++ stms'2 ++ stms'3) ()
+                        pure $ Low.Block (stms1 ++ stm2 : stms3) retVal
 
     -- Assumes that struct is kept on stack. Returns pointer to member.
     indexStruct :: Word -> Low.Operand -> Lower (Low.Block Low.Operand)
@@ -1235,8 +1235,15 @@ lower noGC (Program (Topo defs) datas externs) =
                     let tss' = filter (not . null) tss
                     aMax <- maximum <$> mapM alignmentofStruct tss'
                     sMax <- maximum <$> mapM sizeofStruct tss'
-                    let variants' = Vec.fromList (zip variantNames [typeId0 + 2 ..])
-                        sTag = variantsTagBits variants' :: Word
+                    let variants' =
+                            Vec.fromList . zip variantNames . reverse . fst $ foldl'
+                                (\(acc, i) ts -> if null ts
+                                    then (ZeroSized : acc, i)
+                                    else (Sized i : acc, i + 1)
+                                )
+                                ([], typeId0 + 2)
+                                tss
+                        sTag = tagBits (fromIntegral (length variants)) :: Word
                         tag = if
                             | sTag <= 8 -> Low.TNat 8
                             | sTag <= 16 -> Low.TNat 16
@@ -1247,9 +1254,10 @@ lower noGC (Program (Topo defs) datas externs) =
                     outerStruct <- structDef [tag, Low.TConst unionId]
                     let innerUnion =
                             (name ++ "_union", Low.DUnion $ Low.Union variants' sMax aMax)
-                    variantStructs <- mapM
-                        (secondM structDef)
-                        (filter (not . null . snd) (zip variantNames tss))
+                    variantStructs <- mapM (secondM structDef) . catSized $ zipWith
+                        (\x ts -> if null ts then ZeroSized else Sized (x, ts))
+                        variantNames
+                        tss
                     pure $ Just (outerStruct, innerUnion : variantStructs)
 
         isSized :: Type -> Bool
@@ -1452,24 +1460,6 @@ bindBlockM' f ma = bindBlockM f =<< ma
 
 bindrBlockM' :: Monad m => m (Low.Block a) -> (a -> m (Low.Block b)) -> m (Low.Block b)
 bindrBlockM' = flip bindBlockM'
-
-sized :: (a -> b) -> b -> Sized a -> b
-sized f b = \case
-    ZeroSized -> b
-    Sized a -> f a
-
-sizedMaybe :: Sized a -> Maybe a
-sizedMaybe = \case
-    ZeroSized -> Nothing
-    Sized t -> Just t
-
-fromSized :: Sized a -> a
-fromSized = \case
-    ZeroSized -> ice "Lower.fromSized: was ZeroSized"
-    Sized x -> x
-
-catSized :: [Sized a] -> [a]
-catSized = mapMaybe sizedMaybe
 
 addIndirection :: Low.Operand -> Lower (Low.Block Low.Operand)
 addIndirection v = do
