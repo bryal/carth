@@ -27,6 +27,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Word
@@ -674,7 +675,10 @@ lower noGC (Program (Topo defs) datas externs) =
                         pure (Low.Block [] (Nothing, Low.OExtern e))
                     (_, _, _, Just (selfLhs, selfCapts, selfRef)) | x == selfLhs ->
                         pure $ Low.Block [] (Just selfCapts, Low.OGlobal selfRef)
-                    _ -> ice $ "lowerApplicand: variable not in any env: " ++ show x
+                    _ ->
+                        ice
+                            $ "lowerApp: variable not in any env: "
+                            ++ (show x ++ " -- " ++ show as)
             blk1 `thenBlockM` lowerApp' captures fConcrete
         _ -> do
             Low.Block stms (captures, fConcrete) <-
@@ -851,12 +855,15 @@ lower noGC (Program (Topo defs) datas externs) =
                     Low.Block (stmsIndex ++ stmsExpr) () `thenBlockM` go (i + 1) es
                 ZeroSized -> Low.Block stmsExpr () `thenBlockM` go i es
 
+    precaptureFreeLocalVars
+        :: Set TypedVar -> Fun -> Lower ([TypedVar], Low.Block Low.Operand)
     precaptureFreeLocalVars extraLocals (params, (body, _)) = do
         let params' = Set.fromList params
-        freeLocalVars <- view localEnv <&> \locals -> Set.toList
-            (Set.intersection (Set.difference (freeVars body) params')
-                              (Set.union extraLocals (Map.keysSet locals))
-            )
+        locals <- Map.keysSet <$> view localEnv
+        self <- maybe Set.empty (\(lhs, _, _) -> Set.singleton lhs) <$> view selfFun
+        let freeLocalVars = Set.toList $ Set.intersection
+                (Set.difference (freeVars body) params')
+                (Set.unions [extraLocals, self, locals])
         (freeLocalVars, ) <$> if null freeLocalVars
             then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
             else do
