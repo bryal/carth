@@ -88,38 +88,36 @@ inferTopDefs tdefs ctors externs defs =
                 Forall (Set.fromList [tva]) (Set.singleton ("Ord", [ta])) (tfun [ta, ta] tBool)
         in
             Map.fromList
-                $ [ ("+", arithScm)
-                  , ("-", arithScm)
-                  , ("*", arithScm)
-                  , ("/", arithScm)
-                  , ("rem", arithScm)
-                  , ("shift-l", bitwiseScm)
-                  , ("lshift-r", bitwiseScm)
-                  , ("ashift-r", bitwiseScm)
-                  , ("bit-and", bitwiseScm)
-                  , ("bit-or", bitwiseScm)
-                  , ("bit-xor", bitwiseScm)
-                  , ("=", relScm)
-                  , ("/=", relScm)
-                  , (">", relScm)
-                  , (">=", relScm)
-                  , ("<", relScm)
-                  , ("<=", relScm)
-                  , ( "transmute"
-                    , Forall (Set.fromList [tva, tvb])
-                             (Set.singleton ("SameSize", [ta, tb]))
-                             (TFun [ta] tb)
-                    )
-                  , ("deref", Forall (Set.fromList [tva]) Set.empty (TFun [TBox ta] ta))
-                  , ( "store"
-                    , Forall (Set.fromList [tva]) Set.empty (TFun [ta, (TBox ta)] (TBox ta))
-                    )
-                  , ( "cast"
-                    , Forall (Set.fromList [tva, tvb])
-                             (Set.singleton ("Cast", [ta, tb]))
-                             (TFun [ta] tb)
-                    )
-                  ]
+                [ ("+", arithScm)
+                , ("-", arithScm)
+                , ("*", arithScm)
+                , ("/", arithScm)
+                , ("rem", arithScm)
+                , ("shift-l", bitwiseScm)
+                , ("lshift-r", bitwiseScm)
+                , ("ashift-r", bitwiseScm)
+                , ("bit-and", bitwiseScm)
+                , ("bit-or", bitwiseScm)
+                , ("bit-xor", bitwiseScm)
+                , ("=", relScm)
+                , ("/=", relScm)
+                , (">", relScm)
+                , (">=", relScm)
+                , ("<", relScm)
+                , ("<=", relScm)
+                , ( "transmute"
+                  , Forall (Set.fromList [tva, tvb])
+                           (Set.singleton ("SameSize", [ta, tb]))
+                           (TFun [ta] tb)
+                  )
+                , ("deref", Forall (Set.fromList [tva]) Set.empty (TFun [TBox ta] ta))
+                , ("store", Forall (Set.fromList [tva]) Set.empty (TFun [ta, TBox ta] (TBox ta)))
+                , ( "cast"
+                  , Forall (Set.fromList [tva, tvb])
+                           (Set.singleton ("Cast", [ta, tb]))
+                           (TFun [ta] tb)
+                  )
+                ]
 
 checkType :: SrcPos -> Parsed.Type -> Infer Type
 checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
@@ -139,7 +137,7 @@ checkType'' tdefsParams pos = go
     checkTConst (x, inst) = case tdefsParams x of
         Just expectedN -> do
             let foundN = length inst
-            if (expectedN == foundN)
+            if expectedN == foundN
                 then do
                     inst' <- mapM go inst
                     pure (x, inst')
@@ -226,9 +224,9 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
     inferRecDef :: Maybe Scheme -> Type -> Parsed.Def -> Infer (WithPos FunMatch)
     inferRecDef mayscm t = \case
         Parsed.FunDef fpos _ _ params body ->
-            fmap (WithPos fpos) $ inferDef t mayscm fpos $ inferFunMatch $ [(params, body)]
+            fmap (WithPos fpos) $ inferDef t mayscm fpos $ inferFunMatch [(params, body)]
         Parsed.VarDef fpos _ _ (WithPos _ (Parsed.FunMatch cs)) ->
-            fmap (WithPos fpos) $ inferDef t mayscm fpos (inferFunMatch cs)
+            WithPos fpos <$> inferDef t mayscm fpos (inferFunMatch cs)
         Parsed.VarDef _ (Id lhs) _ _ -> throwError (RecursiveVarDef lhs)
 
     inferDef t mayscm bodyPos inferBody = do
@@ -251,7 +249,7 @@ inferRecDefs :: [Parsed.Def] -> Infer RecDefs
             let s1 = Forall vs (Set.fromList cs') t'
             env <- view envLocalDefs
             s2@(Forall vs2 _ t2) <- generalize env (Just (_scmConstraints s1)) Map.empty t'
-            if ((vs, t') == (vs2, t2))
+            if (vs, t') == (vs2, t2)
                 then pure (Just s1)
                 else throwError (InvalidUserTypeSig pos s1 s2)
 
@@ -259,7 +257,7 @@ infer :: Parsed.Expr -> Infer (Type, Expr)
 infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
     Parsed.Lit l -> pure (litType l, Lit l)
     Parsed.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
-    Parsed.Var x -> fmap (\(t, tv) -> (t, Var tv)) (lookupVar x)
+    Parsed.Var x -> fmap (second Var) (lookupVar x)
     Parsed.App f as -> do
         tas <- mapM (const fresh) as
         tr <- fresh
@@ -268,7 +266,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
             TFun tps _ -> unless (length tps == length tas)
                 $ throwError (FunArityMismatch pos (length tps) (length tas))
             _ -> pure () -- If it's not k
-        (tas', as') <- fmap unzip $ mapM infer as
+        (tas', as') <- unzip <$> mapM infer as
         unify (Expected (TFun tas tr)) (Found (getPos f) tf')
         forM_ (zip3 as tas tas') $ \(a, ta, ta') -> unify (Expected ta) (Found (getPos a) ta')
         pure (tr, App f' as' tr)
@@ -354,7 +352,7 @@ inferCases tmatchees cases = do
         -> Infer ([FoundType], FoundType, (WithPos [Pat], Expr))
     inferCase (WithPos pos ps, b) = do
         (tps, ps', pvss) <- fmap unzip3 (mapM inferPat ps)
-        let pvs' = map (bimap (Parsed.idstr) (Forall Set.empty Set.empty . TVar))
+        let pvs' = map (bimap Parsed.idstr (Forall Set.empty Set.empty . TVar))
                        (Map.toList (Map.unions pvss))
         (tb, b') <- withLocals pvs' (infer b)
         let tps' = zipWith Found (map getPos ps) tps
@@ -482,7 +480,7 @@ substClassConstraint :: Subst' -> ClassConstraint -> ClassConstraint
 substClassConstraint sub = second (map (subst sub))
 
 nFresh :: Int -> Infer [Type]
-nFresh n = sequence (replicate n fresh)
+nFresh n = replicateM n fresh
 
 fresh :: Infer Type
 fresh = fmap TVar fresh'
@@ -503,7 +501,7 @@ data UnifyErr = UInfType TVar Type | UFailed Type Type
 --       and probably more performant. Consider this further -- maybe there's a big con I haven't
 --       considered or have forgotten. Will updating the substitution map work well? How would it
 --       work for nested inferDefs, compared to now?
-solve :: Constraints -> Infer (Subst', (Map ClassConstraint SrcPos))
+solve :: Constraints -> Infer (Subst', Map ClassConstraint SrcPos)
 solve (eqcs, ccs) = do
     sub <- lift $ lift $ lift $ solveUnis Map.empty eqcs
     ccs' <- solveClassCs (map (second (substClassConstraint sub)) ccs)

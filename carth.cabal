@@ -48,7 +48,6 @@ library
 
       Back.Lower
       Back.Low
-      Back.Selections
       Back.Codegen
       Back.Compile
   other-modules:

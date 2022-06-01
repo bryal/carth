@@ -35,10 +35,10 @@ substFunMatch :: Map TVar Type -> FunMatch -> FunMatch
 substFunMatch s = substFunMatch' (flip Map.lookup s)
 
 substFunMatch' :: Subst -> FunMatch -> FunMatch
-substFunMatch' s (cs, tp, tb) = ((substCases s cs), (map (subst' s) tp), (subst' s tb))
+substFunMatch' s (cs, tp, tb) = (substCases s cs, map (subst' s) tp, subst' s tb)
 
 substCases :: Subst -> Cases -> Cases
-substCases s cs = map (bimap (mapPosd (map (substPat s))) (substExpr' s)) cs
+substCases s = map (bimap (mapPosd (map (substPat s))) (substExpr' s))
 
 substPat :: Subst -> Pat -> Pat
 substPat s (Pat pos t pat) = Pat pos (subst' s t) $ case pat of
@@ -62,7 +62,7 @@ subst' s t = case t of
     TPrim _ -> t
     TFun as b -> TFun (map (subst' s) as) (subst' s b)
     TBox a -> TBox (subst' s a)
-    TConst (c, ts) -> TConst (c, (map (subst' s) ts))
+    TConst (c, ts) -> TConst (c, map (subst' s) ts)
 
 composeSubsts :: Map TVar Type -> Map TVar Type -> Map TVar Type
 composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1

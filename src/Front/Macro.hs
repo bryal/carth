@@ -111,7 +111,7 @@ applyMacro appPos args lits = \case
                | otherwise -> Nothing
       where
         par xs ys = if length xs == length ys
-            then fmap Map.unions $ zipWithM matchPat (map unpos xs) ys
+            then Map.unions <$> zipWithM matchPat (map unpos xs) ys
             else Nothing
 
     fvPat = \case

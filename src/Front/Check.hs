@@ -37,14 +37,14 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     externs' <- checkExterns tdefs' externs
     inferred <- inferTopDefs tdefs' ctors externs' defs
     let bound = unboundTypeVarsToUnit inferred
-    let mTypeDefs = fmap ((map (unpos . fst)) . snd) tdefs'
+    let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
     compiled <- compileDecisionTrees mTypeDefs bound
     checkMainDefined compiled
     let tdefs'' = fmap (second (map (first unpos))) tdefs'
     pure (Checked.Program compiled tdefs'' externs')
   where
     checkMainDefined ds =
-        unless (elem "main" (map fst (Checked.flattenDefs ds))) (throwError MainNotDefined)
+        unless ("main" `elem` map fst (Checked.flattenDefs ds)) (throwError MainNotDefined)
 
 type CheckTypeDefs a
     = ReaderT (Map String Int) (StateT (Inferred.TypeDefs, Inferred.Ctors) (Except TypeErr)) a
@@ -77,7 +77,7 @@ checkCtors parent (Parsed.ConstructorDefs cs) =
         ts' <- mapM (checkType pos) ts
         modify (second (Map.insert c (i, parent, ts', cspan)))
         pure (c', ts')
-    checkType pos t = ask >>= \tdefs -> checkType'' (\x -> Map.lookup x tdefs) pos t
+    checkType pos t = ask >>= \tdefs -> checkType'' (`Map.lookup` tdefs) pos t
 
 builtinDataTypes :: Inferred.TypeDefs
 builtinDataTypes = Map.fromList $ map
@@ -155,11 +155,11 @@ unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
   where
     goDef :: Inferred.Def -> Reader (Set TVar) Inferred.Def
     goDef = \case
-        Inferred.VarDef d -> fmap Inferred.VarDef $ secondM (goDefRhs goExpr) d
+        Inferred.VarDef d -> Inferred.VarDef <$> secondM (goDefRhs goExpr) d
         Inferred.RecDefs ds ->
-            fmap Inferred.RecDefs $ mapM (secondM (goDefRhs (mapPosdM goFunMatch))) ds
+            Inferred.RecDefs <$> mapM (secondM (goDefRhs (mapPosdM goFunMatch))) ds
 
-    goDefRhs f (scm, x) = fmap (scm, ) $ local (Set.union (Inferred._scmParams scm)) (f x)
+    goDefRhs f (scm, x) = (scm, ) <$> local (Set.union (Inferred._scmParams scm)) (f x)
 
     goFunMatch :: Inferred.FunMatch -> Reader (Set TVar) Inferred.FunMatch
     goFunMatch (cs, tps, tb) =
@@ -168,7 +168,7 @@ unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
     goExpr :: Inferred.Expr -> Reader (Set TVar) Inferred.Expr
     goExpr = mapPosdM $ \case
         Inferred.Lit c -> pure (Inferred.Lit c)
-        Inferred.Var v -> fmap Inferred.Var $ secondM goTypedVar v
+        Inferred.Var v -> Inferred.Var <$> secondM goTypedVar v
         Inferred.App f as tr -> liftA3 Inferred.App (goExpr f) (mapM goExpr as) (subst tr)
         Inferred.If p c a -> liftA3 Inferred.If (goExpr p) (goExpr c) (goExpr a)
         Inferred.Let ld b -> liftA2 Inferred.Let (goDef ld) (goExpr b)
@@ -201,8 +201,7 @@ compileDecisionTrees tdefs = compDefs
     compDef :: Inferred.Def -> Except TypeErr Checked.Def
     compDef = \case
         Inferred.VarDef (lhs, rhs) -> fmap (Checked.VarDef . (lhs, )) (secondM compExpr rhs)
-        Inferred.RecDefs ds ->
-            fmap Checked.RecDefs $ flip mapM ds $ secondM (secondM compFunMatch)
+        Inferred.RecDefs ds -> fmap Checked.RecDefs $ forM ds $ secondM (secondM compFunMatch)
 
     compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr Checked.Fun
     compFunMatch (WithPos pos (cs, tps, tb)) = do

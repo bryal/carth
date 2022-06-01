@@ -47,7 +47,7 @@ printTypeErr = \case
             ++ (".\nFound type: " ++ pretty t2 ++ ".")
     ConflictingTypeDef p x -> posd p $ "Conflicting definitions for type `" ++ x ++ "`."
     ConflictingCtorDef p x -> posd p $ "Conflicting definitions for constructor `" ++ x ++ "`."
-    RedundantCase p -> posd p $ "Redundant case in pattern match."
+    RedundantCase p -> posd p "Redundant case in pattern match."
     InexhaustivePats p patStr -> posd p $ "Inexhaustive patterns: " ++ patStr ++ " not covered."
     ExternNotMonomorphic name tv -> case tv of
         TVExplicit (Parsed.Id (WithPos p tv')) ->
@@ -55,7 +55,7 @@ printTypeErr = \case
                 $ ("Extern " ++ pretty name ++ " is not monomorphic. ")
                 ++ ("Type variable " ++ tv' ++ " encountered in type signature")
         TVImplicit _ -> ice "TVImplicit in prettyErr ExternNotMonomorphic"
-    FoundHole p -> posd p $ "Found hole"
+    FoundHole p -> posd p "Found hole"
     RecTypeDef x p ->
         posd p
             $ ("Type `" ++ x ++ "` ")
@@ -68,7 +68,7 @@ printTypeErr = \case
             ++ ("Expected: " ++ pretty (mainType :: Type))
             ++ ("\nFound: " ++ pretty s)
     RecursiveVarDef (WithPos p x) ->
-        posd p $ ("Non-function variable definition `" ++ x ++ "` is recursive.")
+        posd p ("Non-function variable definition `" ++ x ++ "` is recursive.")
     TypeInstArityMismatch p t expected found ->
         posd p
             $ ("Arity mismatch for instantiation of type `" ++ t)
@@ -96,16 +96,16 @@ posd :: SrcPos -> Message -> IO ()
 posd = posd' "Error"
 
 posd' :: String -> SrcPos -> Message -> IO ()
-posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
+posd' kind pos@(SrcPos f lineN colN inExp) msg = do
     -- TODO: Keep source files in memory. They don't take up much space, and there's no risk of
     --       them coming out of sync due to new changes.
     src <- readFile f
     let (lineN', colN') = (fromIntegral lineN, fromIntegral colN)
         lines' = lines src
-        line = if (lineN' <= length lines')
+        line = if lineN' <= length lines'
             then lines' !! (lineN' - 1)
             else ice "line num in SourcePos is greater than num of lines in src"
-        rest = if (colN' <= length line)
+        rest = if colN' <= length line
             then drop (colN' - 1) line
             else ice $ "col num in SourcePos is greater than " ++ "num of cols in src line"
         lineNS = show lineN'
@@ -117,7 +117,7 @@ posd' kind (pos@(SrcPos f lineN colN inExp)) msg = do
             , lineNS ++ " | " ++ line
             -- Find the span (end-pos) of the item in the source by applying the same parser that gave the
             -- item, starting at its SourcePos
-            , indent pad ++ "|" ++ indent (colN') ++ replicate (length s) '^'
+            , indent pad ++ "|" ++ indent colN' ++ replicate (length s) '^'
             , msg
             ]
     case inExp of

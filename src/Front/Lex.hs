@@ -68,7 +68,7 @@ lexModule modPaths f = get >>= \visiteds -> if Set.member f visiteds
                             ++ ("Searched paths: " ++ show ps)
                     Just g' -> liftIO $ makeAbsolute g'
         impFs <- mapM resolve imps
-        ttsImp <- fmap concat $ mapM (lexModule modPaths) impFs
+        ttsImp <- concat <$> mapM (lexModule modPaths) impFs
         pure (ttsImp ++ tts)
 
 toplevels :: Lexer ([Import], [TokenTree])
@@ -178,8 +178,8 @@ otherChar :: Lexer Char
 otherChar = satisfy
     (\c -> and
         [ any ($ c) [isMark, isPunctuation, isSymbol]
-        , not (elem c ("()[]{}" :: String))
-        , not (elem c ("\"-+:•" :: String))
+        , c `notElem` ("()[]{}" :: String)
+        , c `notElem` ("\"-+:•" :: String)
         ]
     )
 

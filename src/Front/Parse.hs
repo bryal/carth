@@ -64,14 +64,12 @@ def' schemeParser topPos = varDef <|> funDef
     varDef = do
         name <- small
         scm <- schemeParser
-        b <- body
-        pure (VarDef topPos name scm b)
+        VarDef topPos name scm <$> body
     funDef = do
         pos <- getSrcPos -- FIXME: This should be a pos surrounding only the params
         (name, params) <- parens (liftM2 (,) small (some pat))
         scm <- schemeParser
-        b <- body
-        pure (FunDef topPos name scm (WithPos pos params) b)
+        FunDef topPos name scm (WithPos pos params) <$> body
 
 expr :: Parser Expr
 expr = withPos expr'
@@ -97,10 +95,10 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
         $ \p -> choice [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
     funMatch = do
         reserved KfunStar
-        fmap FunMatch $ some
-            (parens (reserved Kcase *> (liftA2 (,) (withPos (brackets (some pat))) expr)))
+        FunMatch <$> some
+            (parens (reserved Kcase *> liftA2 (,) (withPos (brackets (some pat))) expr))
     match = reserved Kmatch
-        *> liftA2 Match expr (many (parens (reserved Kcase *> (liftA2 (,) pat expr))))
+        *> liftA2 Match expr (many (parens (reserved Kcase *> liftA2 (,) pat expr)))
     if' = reserved Kif *> liftM3 If expr expr expr
     fun = do
         reserved Kfun
@@ -116,8 +114,7 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
     let' = do
         reserved Klet
         bs <- parens (many pbinding)
-        e <- expr
-        pure (Let bs e)
+        Let bs <$> expr
       where
         pbinding = parens' binding
         binding p = (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
@@ -134,12 +131,8 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
     varLhs = fmap VarLhs small
     funLhs = parens' (\pos -> liftA2 FunLhs small (fmap (WithPos pos) (some pat)))
     caseVarLhs = fmap CaseVarLhs pat
-    varBinding pos lhs = do
-        rhs <- expr
-        pure (VarDef pos lhs Nothing rhs)
-    funBinding pos name params = do
-        b <- expr
-        pure (FunDef pos name Nothing params b)
+    varBinding pos lhs = VarDef pos lhs Nothing <$> expr
+    funBinding pos name params = FunDef pos name Nothing params <$> expr
     typeAscr = reserved Kcolon *> liftA2 TypeAscr expr type_
     sizeof = reserved Ksizeof *> fmap Sizeof type_
     app = do
@@ -161,7 +154,7 @@ pat = choice [patInt, patStr, patCtor, patVar, patTuple, ppat]
     patVar = fmap PVar small
     patTuple = tuple pat (\p -> PConstruction p (Id (WithPos p "Unit")) [])
         $ \l r -> let p = getPos l in PConstruction p (Id (WithPos p "Cons")) [l, r]
-    ppat = parens' $ \pos -> (choice [patBox pos, patCtion pos])
+    ppat = parens' $ \pos -> choice [patBox pos, patCtion pos]
     patBox pos = reserved KBox *> fmap (PBox pos) pat
     patCtion pos = liftM3 PConstruction (pure pos) big (some pat)
 
@@ -173,7 +166,7 @@ scheme = do
             reserved Kforall *> liftA3 (Forall pos) tvars (option Set.empty (try constrs)) type_
         tvars = parens (fmap Set.fromList (some tvar))
         constrs = parens (reserved Kwhere *> fmap Set.fromList (some (parens tapp)))
-    wrap nonptype <|> (parens (universal <|> wrap ptype))
+    wrap nonptype <|> parens (universal <|> wrap ptype)
 
 type_ :: Parser Type
 type_ = nonptype <|> parens ptype
@@ -218,4 +211,4 @@ tvar :: Parser TVar
 tvar = fmap TVExplicit small
 
 isWord :: String -> Bool
-isWord s = isJust ((readMaybe s) :: Maybe Word)
+isWord s = isJust (readMaybe s :: Maybe Word)

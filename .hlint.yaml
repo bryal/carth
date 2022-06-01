@@ -23,8 +23,8 @@
 # - ignore: {name: "Use second"}
 # - ignore: {name: "Use mapAndUnzipM"}
 # - ignore: {name: "Use replicateM"}
-# - ignore: {name: "Use &&"}
-# - ignore: {name: "Use camelCase"}
+- ignore: {name: "Use &&"}
+- ignore: {name: "Use camelCase"}
 # - ignore: {name: "Use head"}
 # - ignore: {name: "Use null"}
 # - ignore: {name: "Use newtype instead of data"}

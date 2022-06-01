@@ -47,20 +47,20 @@ handleProgram
     -> Ast.Program
     -> IO ()
 handleProgram f file cfg pgm = withContext $ \ctx ->
-    -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize by -O2. No point in
-    -- going further to -O3, as those optimizations are expensive and seldom actually improve the
-    -- performance in a statistically significant way.
-    --
-    -- A minimum optimization level of -O1 ensures that all sibling calls are optimized, even if we
-    -- don't use a calling convention like `fastcc` that can optimize any tail call.
     let
-        optLvl = if (getDebug cfg) then CodeGenOpt.Less else CodeGenOpt.Default
+        -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize by -O2. No point in
+        -- going further to -O3, as those optimizations are expensive and seldom actually improve the
+        -- performance in a statistically significant way.
+        --
+        -- A minimum optimization level of -O1 ensures that all sibling calls are optimized, even if we
+        -- don't use a calling convention like `fastcc` that can optimize any tail call.
+        optLvl = if getDebug cfg then CodeGenOpt.Less else CodeGenOpt.Default
         dbgfile = ".dbg." ++ file
     in
         withMyTargetMachine optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
             triple <- getProcessTargetTriple
-            verbose cfg ("   Generating LLVM")
+            verbose cfg "   Generating LLVM"
             let amod = codegen layout triple (getNoGC cfg) file pgm
             when (getDebug cfg) (writeFile (addExtension dbgfile ".gen.ll") (pretty amod))
             flip
@@ -70,7 +70,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                     )
                 $ withModuleFromAST ctx amod
                 $ \mod -> do
-                      verbose cfg ("   Verifying LLVM")
+                      verbose cfg "   Verifying LLVM"
                       when (getDebug cfg)
                           $ writeLLVMAssemblyToFile' (addExtension dbgfile ".ll") mod
                       catch (verify mod) $ \case
@@ -78,7 +78,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                       withPassManager (optPasses optLvl tm) $ \passman -> do
                           verbose cfg "   Optimizing"
                           r <- runPassManager passman mod
-                          when (not r) $ putStrLn "DEBUG: runPassManager returned False"
+                          unless r $ putStrLn "DEBUG: runPassManager returned False"
                           when (getDebug cfg)
                               $ writeLLVMAssemblyToFile' (addExtension dbgfile ".opt.ll") mod
                           f cfg tm mod
@@ -89,7 +89,7 @@ compileModule cfg tm mod = do
         ofile = replaceExtension exefile "o"
     verbose cfg "   Writing object"
     writeObjectToFile tm (File ofile) mod
-    verbose cfg ("   Linking")
+    verbose cfg "   Linking"
     callProcess
         (cCompiler cfg)
         [ "-o"

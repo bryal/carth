@@ -41,7 +41,7 @@ sizeof datas = \case
     sizeofStruct :: [Type] -> Maybe Word32
     sizeofStruct ts = do
         (s, a) <- foldlM addMember (0, 1) ts
-        pure $ s + (mod (a - s) a)
+        pure $ s + mod (a - s) a
       where
         addMember :: (Word32, Word32) -> Type -> Maybe (Word32, Word32)
         addMember (accSize, maxAlign) t = do
@@ -66,7 +66,7 @@ sizeof datas = \case
     tagUnion vs = map (tagVariant (fromIntegral (length vs))) vs
 
     tagVariant :: Span -> [Type] -> [Type]
-    tagVariant span ts = if span <= 1 then ts else (TPrim (TNat (tagBits span)) : ts)
+    tagVariant span ts = if span <= 1 then ts else TPrim (TNat (tagBits span)) : ts
 
 toBytes :: Integral n => n -> n
 toBytes n = div (n + 7) 8
