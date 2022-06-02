@@ -34,8 +34,7 @@ pub extern "C" fn stdrs_tcp_connect_timeout(host: Str, port: u16, ms: u64) -> Ma
     let (last, init) = addrs.split_last().unwrap();
     if let Some(con) = init
         .iter()
-        .filter_map(|addr| TcpStream::connect_timeout(addr, timeout).ok())
-        .next()
+        .find_map(|addr| TcpStream::connect_timeout(addr, timeout).ok())
         .or_else(|| TcpStream::connect_timeout(last, timeout).ok())
     {
         Maybe::Some(handle_to_ffi(Box::into_raw(Box::new(con) as _)))
