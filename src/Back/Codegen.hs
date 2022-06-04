@@ -72,6 +72,17 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             DStruct s -> pure $ TypeDefinition
                 (mkName name)
                 (Just (structType (map genType (structMembers s))))
+            -- The reason we fill with values the size of the alignment instead of bytes is to not
+            -- wrongfully signal to LLVM that the padding will be used as-is, and should be
+            -- passed/returned in its own registers (or whatever exactly is going on). I just know
+            -- from trial and error when debugging issues with how the representation of `(Maybe
+            -- Int8)` affects how it is returned from a function. The definition we use is `{i8,
+            -- i64}`. Representing it instead with `{i8, [7 x i8], i64}` or `{i8, [15 x i8], [0 x
+            -- i64]}`: while having the same size and alignment, it is not returned in the same way
+            -- (seeming instead to use an additional return parameter), and as such, a Carth
+            -- function returning `(Maybe Int8)` represented as `{i8, [15 x i8], [0 x i64]}` is not
+            -- ABI compatible with a Rust function returning `Maybe<i8>` represented as `{i8,
+            -- i64}`.
             DUnion Union { unionGreatestSize = sMax, unionGreatestAlignment = aMax } ->
                 let fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
                                      (IntegerType (fromIntegral (toBits aMax)))

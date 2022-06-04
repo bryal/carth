@@ -296,7 +296,7 @@ isPtr = \case
     TPtr _ -> True
     _ -> False
 
-sizeof :: (TypeId -> Maybe TypeDef) -> Type -> Word
+sizeof :: (TypeId -> TypeDef) -> Type -> Word
 sizeof tenv = \case
     TInt { tintWidth = w } -> div w 8
     TNat { tnatWidth = w } -> div w 8
@@ -306,15 +306,14 @@ sizeof tenv = \case
     VoidPtr -> wordsize
     TFun{} -> wordsize
     TClosure{} -> 2 * wordsize
-    TConst ix -> case fmap snd (tenv ix) of
-        Nothing -> 0
-        Just (DEnum vs) -> variantsTagBytes vs
-        Just (DStruct s) -> structSize s
-        Just (DUnion Union { unionGreatestSize = s, unionGreatestAlignment = a }) ->
+    TConst ix -> case snd (tenv ix) of
+        DEnum vs -> variantsTagBytes vs
+        DStruct s -> structSize s
+        DUnion Union { unionGreatestSize = s, unionGreatestAlignment = a } ->
             a * div (s + a - 1) a
     TArray t n -> sizeof tenv t * n
 
-sizeofStruct :: (TypeId -> Maybe TypeDef) -> [Type] -> Word
+sizeofStruct :: (TypeId -> TypeDef) -> [Type] -> Word
 sizeofStruct tenv = foldl addMember 0
   where
     addMember accSize u =
@@ -323,15 +322,15 @@ sizeofStruct tenv = foldl addMember 0
             size = sizeof tenv u
         in  accSize + padding + size
 
-alignmentof :: (TypeId -> Maybe TypeDef) -> Type -> Word
+alignmentof :: (TypeId -> TypeDef) -> Type -> Word
 alignmentof tenv = \case
-    TConst ix -> case snd (fromJust (tenv ix)) of
+    TConst ix -> case snd (tenv ix) of
         DEnum vs -> variantsTagBytes vs
         DStruct s -> structAlignment s
         DUnion u -> unionGreatestAlignment u
     t -> sizeof tenv t
 
-alignmentofStruct :: (TypeId -> Maybe TypeDef) -> [Type] -> Word
+alignmentofStruct :: (TypeId -> TypeDef) -> [Type] -> Word
 alignmentofStruct tenv = maximum . map (alignmentof tenv)
 
 mkEOperand :: Operand -> Expr
