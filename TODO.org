@@ -114,6 +114,17 @@ Features and other stuff to do/implement in/around Carth.
    (define u (isFirst y))
    #+END_SRC
 
+* NEXT Bidirectional type checking
+I'm not fully convinced yet, but I believe we might want to use
+bidirectional type checking instead of a unification based, HM-like
+typechecker in Carth.
+
+HM shares a few properties with bidirectional typechecking, like
+implicit type abstraction / application, but it's not the same
+thing. Proper bidirectional typechecking would give us an easy way to
+do implicit numeric coercions for proper subtypes, afaik.
+
+https://www.haskellforall.com/2022/06/the-appeal-of-bidirectional-type.html
 * NEXT Typeclasses
   Need some kind of system like type classes for ad hoc
   polymorphism. Maybe Haskell style type classes, Agda style
