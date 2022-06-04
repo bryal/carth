@@ -864,7 +864,7 @@ internStr s = do
     tStr <- fromSized <$> lowerType Ast.tStr
     tArray <- fromSized <$> lowerType (Ast.tArray (TPrim (TNat 8)))
     use (strLits . to (Map.lookup s)) >>= \case
-        Just name -> pure (Low.Global name tStr)
+        Just name -> pure (Low.Global name (Low.TPtr tStr))
         Nothing -> do
             nameInner <- newGName "str_inner"
             name <- newGName "str"
