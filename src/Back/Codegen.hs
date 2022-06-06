@@ -407,7 +407,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                              , indices = [litI64 (0 :: Integer), litI32 i]
                                              , metadata = []
                                              }
-                EAsVariant x _ -> genOperand x <&> \x' -> GInstr t' (LL.BitCast x' (genType t) [])
+                EAsVariant x _ -> genOperand x <&> \x' -> GInstr t' (LL.BitCast x' t' [])
                 EOperand x -> GOperand <$> genOperand x
                 ELoop loop -> genLoop loop (emit <=< genExpr) $ \breaks -> do
                     let t = LL.typeOf . fst . head $ breaks
@@ -436,7 +436,21 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 Bitcast x t -> do
                     x' <- genOperand x
                     let t' = genType t
-                    pure (GInstr t' (LL.BitCast x' t' []))
+                    case (LL.typeOf x', t') of
+                        (a, b) | a == b -> pure $ GOperand x'
+                        (IntegerType _, PointerType _ _) ->
+                            pure $ GInstr t' (LL.IntToPtr x' t' [])
+                        (PointerType _ _, IntegerType _) ->
+                            pure $ GInstr t' (LL.PtrToInt x' t' [])
+                        (PointerType _ _, PointerType _ _) ->
+                            pure (GInstr t' (LL.BitCast x' t' []))
+                        (_, PointerType _ _) -> do
+                            y <- emit (GInstr LL.i64 (LL.BitCast x' LL.i64 []))
+                            pure (GInstr t' (LL.IntToPtr y t' []))
+                        (PointerType _ _, _) -> do
+                            y <- emit (GInstr LL.i64 (LL.PtrToInt x' LL.i64 []))
+                            pure (GInstr t' (LL.BitCast y t' []))
+                        (_, _) -> pure (GInstr t' (LL.BitCast x' t' []))
 
         genLoop :: forall t a b . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen b) -> Gen b
         genLoop (Loop params (Block stms term)) genTerm joinBreaks = do
