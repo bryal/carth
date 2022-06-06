@@ -124,7 +124,10 @@ implicit type abstraction / application, but it's not the same
 thing. Proper bidirectional typechecking would give us an easy way to
 do implicit numeric coercions for proper subtypes, afaik.
 
-https://www.haskellforall.com/2022/06/the-appeal-of-bidirectional-type.html
+- https://lobste.rs/s/mhdvzh/appeal_bidirectional_type_checking
+- https://www.haskellforall.com/2022/06/the-appeal-of-bidirectional-type.html
+- Complete and Easy Bidirectional Typechecking for Higher-Rank Polymorphism, by Jana Dunfield & Neelakantan R. Krishnaswami
+- Bidirectional Typing, by JANA DUNFIELD & NEEL KRISHNASWAMI
 * NEXT Typeclasses
   Need some kind of system like type classes for ad hoc
   polymorphism. Maybe Haskell style type classes, Agda style
