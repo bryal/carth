@@ -956,8 +956,10 @@ lowerMatch dest matchees decisionTree = do
                         ++ "\nselections: "
                         ++ show selections
                 As a span' vi -> withSizedSelection a $ asVariant span' vi
-                Sel a mi _span' ->
-                    withSizedSelection a $ lookupStruct (MemberId (fromIntegral mi))
+                Sel a mi _span' -> withSizedSelection a $ \x ->
+                    bindrBlockM' (lookupStruct (MemberId (fromIntegral mi)) x) $ \case
+                        ZeroSized -> pure (Low.Block [] ZeroSized)
+                        Sized m -> mapTerm Sized <$> deref m
                 ADeref a -> withSizedSelection a $ fmap (mapTerm Sized) . deref
             pure (val, Map.insert access (Low.blockTerm val) selections')
       where
@@ -1224,8 +1226,7 @@ queryTConst x = do
         TPrim _ -> pure True
         TFun _ _ -> pure True
         TBox _ -> pure True
-        TConst x ->
-            dataIsSized =<< use (tenv . datas . to (Map.! x))
+        TConst x -> dataIsSized =<< use (tenv . datas . to (Map.! x))
 
     lowerData :: String -> [(String, VariantTypes)] -> Lower Low.TypeDef
     lowerData name variants = do
