@@ -28,11 +28,10 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), to)
-import Back.Low (typeof, paramName, paramType, addParamName, dropParamName, Sized (..), fromSized, sizedMaybe, mapSized, sized, catSized, mapSizedM, OutParam (..), outParamLocal)
+import Back.Low (typeof, paramName, paramType, addParamName, dropParamName, Sized (..), fromSized, sizedMaybe, mapSized, sized, catSized, OutParam (..), outParamLocal, MemberName (..), MemberIx, Union (..), pointee, asTConst)
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
@@ -459,21 +458,23 @@ lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty
     pure $ Low.FunDef name outParam params' ret body''' allocs' localNames'
   where
     unpackCaptures :: Low.LocalId -> [TypedVar] -> Lower (Low.Block [(TypedVar, Low.Operand)])
-    unpackCaptures capturesName freeVars = typedVarsSizedTypes freeVars >>= \case
-        [] -> pure (Low.Block [] [])
-        vars -> do
-            let capturesGeneric = Low.OLocal $ Low.Local capturesName Low.VoidPtr
-            tcaptures <- Low.TConst <$> defineStruct "captures" (map snd vars)
-            captures <-
-                let t = Low.TPtr tcaptures
-                in  emitNamed "captures" (Low.Expr (Low.Bitcast capturesGeneric t) t)
-            captures `bindrBlockM` \captures' -> catBlocks <$> mapM
-                (\(i, (v@(TypedVar x _), t)) -> mapTerm (v, ) <$> do
-                    member <- emitNamed x (Low.Expr (Low.EGetMember i captures') (Low.TPtr t))
-                    onStack <- keepOnStack t
-                    if onStack then pure member else bindBlockM load member
-                )
-                (zip [0 ..] vars)
+    unpackCaptures capturesName freeVars = do
+        ts <- mapM (lowerType . tvType) freeVars
+        case sizedMembers ts of
+            [] -> pure (Low.Block [] [])
+            members -> do
+                let capturesGeneric = Low.OLocal $ Low.Local capturesName Low.VoidPtr
+                tcaptures <- Low.TConst <$> defineStruct "captures" members
+                captures <-
+                    let t = Low.TPtr tcaptures
+                    in  emitNamed "captures" (Low.Expr (Low.Bitcast capturesGeneric t) t)
+                captures `bindrBlockM` \captures' -> catBlocks <$> mapM
+                    (\(v@(TypedVar x _), (i, t)) -> mapTerm (v, ) <$> do
+                        member <- emitNamed x (Low.Expr (Low.EGetMember i captures') (Low.TPtr t))
+                        onStack <- keepOnStack t
+                        if onStack then pure member else bindBlockM load member
+                    )
+                    (zip freeVars members)
 
     isTailRec_RetVoid self = go
       where
@@ -809,43 +810,34 @@ populateStruct vs dst = foldrM
     (Low.Block [] dst)
     (zip [0 ..] vs)
 
-lowerExprsInStruct :: [Expr] -> Low.Operand -> Lower (Low.Block ())
-lowerExprsInStruct es ptr = go 0 es
-  where
-    go _ [] = pure $ Low.Block [] ()
-    go i (e : es) = do
-        Low.Block stmsIndex subPtr <- indexStruct i ptr
-        Low.Block stmsExpr result <- lowerExpr (ThereSized subPtr) e
-        case result of
-            Sized () -> Low.Block (stmsIndex ++ stmsExpr) () `thenBlockM` go (i + 1) es
-            ZeroSized -> Low.Block stmsExpr () `thenBlockM` go i es
+lowerExprsInStruct :: [(MemberName, Expr)] -> Low.Operand -> Lower (Low.Block ())
+lowerExprsInStruct es ptr = do
+    blks <- forM es $ \(memberName, e) -> bindrBlockM' (lookupStruct memberName ptr) $ \case
+        ZeroSized -> lowerExpr Nowhere e
+        Sized subPtr -> lowerExpr (There subPtr) e
+    pure $ catBlocks_ blks
 
 precaptureFreeLocalVars :: Set TypedVar -> Fun -> Lower ([TypedVar], Low.Block Low.Operand)
 precaptureFreeLocalVars extraLocals (params, (body, _)) = do
     let params' = Set.fromList params
     locals <- Map.keysSet <$> view localEnv
     self <- maybe Set.empty (\(lhs, _, _) -> Set.singleton lhs) <$> view selfFun
-    let freeLocalVars = Set.toList $ Set.intersection (Set.difference (freeVars body) params')
-                                                      (Set.unions [extraLocals, self, locals])
-    (freeLocalVars, ) <$> if null freeLocalVars
+    let freeLocals = Set.toList $ Set.intersection (Set.difference (freeVars body) params')
+                                                   (Set.unions [extraLocals, self, locals])
+    (freeLocals, ) <$> if null freeLocals
         then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
         else do
             t <-
                 fmap Low.TConst
                 . defineStruct "captures"
-                . map snd
-                =<< typedVarsSizedTypes freeLocalVars
+                . sizedMembers
+                =<< mapM (lowerType . tvType) freeLocals
             capturesSize <- sizeof t
             capturesGeneric <- emitNamed "captures"
                 =<< gcAlloc (Low.OConst (litI64 (fromIntegral capturesSize)))
             bindBlockM
                 (\c -> emitNamed "captures" (Low.Expr (Low.Bitcast c (Low.TPtr t)) (Low.TPtr t)))
                 capturesGeneric
-
-typedVarsSizedTypes :: [TypedVar] -> Lower [(TypedVar, Low.Type)]
-typedVarsSizedTypes = mapMaybeM $ \v@(TypedVar _ t) -> lowerType t <&> \case
-    Sized t' -> Just (v, t')
-    ZeroSized -> Nothing
 
 gcAlloc :: Low.Operand -> Lower Low.Expr
 gcAlloc size = fromLeft (ice "gcAlloc: (GC_)malloc was a void call")
@@ -903,132 +895,131 @@ lowerMatch dest matchees decisionTree = do
         ZeroSized -> pure $ Low.Block [] ZeroSized
         Sized e -> mapTerm Sized <$> emitNamed "matchee" e
 
-    topSelections :: [Sized Low.Operand] -> Map Low.Access Low.Operand
-    topSelections xs = Map.fromList . catMaybes $ zipWith
-        (\i x -> fmap (\x' -> (TopSel i (typeof x'), x')) (sizedMaybe x))
-        [0 ..]
-        xs
+    topSelections :: [Sized Low.Operand] -> Map Access (Sized Low.Operand)
+    topSelections xs = Map.fromList $ zipWith (\i x -> (TopSel i, x)) [0 ..] xs
 
     lowerDecisionTree
-        :: Map Low.Access Low.Operand -> DecisionTree -> Lower (Low.Block (DestTerm d))
+        :: Map Access (Sized Low.Operand) -> DecisionTree -> Lower (Low.Block (DestTerm d))
     lowerDecisionTree selections = \case
-        DLeaf (bs, e) -> do
-            bs' <- mapMaybeM (\(x, a) -> fmap (x, ) . sizedMaybe <$> lowerAccess a) bs
-            selectVarBindings selections bs'
-                `bindrBlockM'` \vars' -> withVars vars' (lowerExpr dest e)
-        DSwitch span selector cases default_ -> do
-            selector' <- lowerSelector selector
-            (m, selections') <- select selector' selections
-            Low.Block stms tag <- bindrBlockM m $ \m' -> case typeof m' of
-                -- Either a pointer to a struct, representing a tagged union
-                Low.TPtr (Low.TConst _) -> bindBlockM' load (indexStruct 0 m')
-                -- or an enum, which, as an integer, is its own "tag"
-                _ -> pure (Low.Block [] m')
-            cases' <- mapM (bimapM (pure . lowerTag span) (lowerDecisionTree selections'))
-                           (Map.toAscList cases)
-            default_' <- lowerDecisionTree selections' default_
-            let result = branchToDest dest (Low.BSwitch tag cases' default_')
-            pure $ Low.Block stms () `thenBlock` result
-        DSwitchStr selector cases default_ -> do
-            selector' <- lowerSelector selector
-            ((block, matchee), selections') <- first separateTerm <$> select selector' selections
+        DLeaf (bs, e) -> selectVarBindings selections bs
+            `bindrBlockM'` \vars' -> withVars vars' (lowerExpr dest e)
+        DSwitch span access cases default_ -> do
+            ((blk, m), selections') <- first separateTerm <$> select access selections
+            blk `thenBlockM` case m of
+                -- Somewhat bad manners of previous stages to pass something like this, but
+                -- type-wise it's legal, so we ought to handle it.
+                ZeroSized | Map.null cases -> lowerDecisionTree selections' default_
+                ZeroSized ->
+                    ice
+                        $ "Lower.lowerDecisionTree: matchee zero sized, but there are multiple cases, "
+                        ++ (show cases ++ ", " ++ show default_)
+                Sized m' -> do
+                    (blk', tag) <- separateTerm <$> case typeof m' of
+                        -- Either a pointer to a struct, representing a tagged union
+                        Low.TPtr (Low.TConst _) -> bindBlockM' load (indexStruct 0 m')
+                        -- or an enum, which, as an integer, is its own "tag"
+                        _ -> pure (Low.Block [] m')
+                    cases' <- mapM
+                        (bimapM (pure . lowerTag span) (lowerDecisionTree selections'))
+                        (Map.toAscList cases)
+                    default_' <- lowerDecisionTree selections' default_
+                    let result = branchToDest dest (Low.BSwitch tag cases' default_')
+                    pure $ blk' `thenBlock` result
+        DSwitchStr access cases default_ -> do
+            ((block, matchee), selections') <- first separateTerm <$> select access selections
+            let matchee' = fromSized matchee -- We're accessing a string, which is a sized type
             let
                 lowerCases = \case
                     [] -> lowerDecisionTree selections' default_
                     (s, dt) : cs -> do
                         s' <- internStr s
                         (block, isMatch) <- fmap separateTerm . emit =<< lowerStrEq
-                            matchee
+                            matchee'
                             (Low.OGlobal s')
                         conseq <- lowerDecisionTree selections' dt
                         alt <- lowerCases cs
                         pure $ block `thenBlock` branchToDest dest (Low.BIf isMatch conseq alt)
             block `thenBlockM` lowerCases (Map.toAscList cases)
 
-    -- Type checker wouldn't let us switch on something zero-sized, so we can safely unwrap the
-    -- Sized
-    lowerSelector selector = fromSized <$> lowerAccess selector
-
     select
-        :: Low.Access
-        -> Map Low.Access Low.Operand
-        -> Lower (Low.Block Low.Operand, Map Low.Access Low.Operand)
-    select selector selections = case Map.lookup selector selections of
-        Just a -> pure (Low.Block [] a, selections)
+        :: Access
+        -> Map Access (Sized Low.Operand)
+        -> Lower (Low.Block (Sized Low.Operand), Map Access (Sized Low.Operand))
+    select access selections = case Map.lookup access selections of
+        Just x -> pure (Low.Block [] x, selections)
         Nothing -> do
-            (ba, selections') <- case selector of
-                TopSel _ _ ->
+            (val, selections') <- case access of
+                TopSel{} ->
                     ice
                         $ "select: TopSel not in selections\nselector: "
-                        ++ show selector
+                        ++ show access
                         ++ "\nselections: "
                         ++ show selections
-                As x span' i _ts -> do
-                    (ba', s') <- select x selections
-                    ba'' <- bindrBlockM ba' $ \a' -> asVariant a' span' i
-                    pure (ba'', s')
-                Sel i _span x -> do
-                    (a', s') <- select x selections
-                    a'' <- bindrBlockM a' $ indexStruct (fromIntegral i)
-                    pure (a'', s')
-                ADeref x -> do
-                    (a', s') <- select x selections
-                    a'' <- bindrBlockM a' load
-                    pure (a'', s')
-            pure (ba, Map.insert selector (Low.blockTerm ba) selections')
+                As a span' vi -> withSizedSelection a $ asVariant span' vi
+                Sel a mi _span' ->
+                    withSizedSelection a $ lookupStruct (MemberId (fromIntegral mi))
+                ADeref a -> withSizedSelection a $ fmap (mapTerm Sized) . deref
+            pure (val, Map.insert access (Low.blockTerm val) selections')
+      where
+        withSizedSelection a f = do
+            ((blk, x), selections') <- first separateTerm <$> select a selections
+            y <- case x of
+                ZeroSized -> pure $ Low.Block [] ZeroSized
+                Sized x' -> f x'
+            pure (blk `thenBlock` y, Map.insert access (Low.blockTerm y) selections')
 
-    -- Assumes matchee is of type pointer to tagged union
-    asVariant matchee span variantIx = if span == 1
-        then pure $ Low.Block [] matchee
-        else do
-            let tidData = case typeof matchee of
+        asVariant :: Span -> VariantIx -> Low.Operand -> Lower (Low.Block (Sized Low.Operand))
+        asVariant 1 0 x = pure $ Low.Block [] (Sized x)
+        asVariant 1 vi x =
+            ice
+                $ "Lower.asVariant: span is 1 but variant index is not 0, vi = "
+                ++ show vi
+                ++ ", x = "
+                ++ show x
+        asVariant _ vi x = do
+            let tidData = case typeof x of
                     Low.TPtr (Low.TConst tid) -> tid
-                    _ -> ice "Lower.asVariant: type of matchee is not TPtr to TConst"
-            -- Assume `asVariant` will not be called for zero sized variants
-            vtid <- fromSized <$> variantTypeId tidData variantIx
-            let tvariant = Low.TPtr . Low.TConst $ vtid
-            -- Skip tag to get inner union
-            indexStruct 1 matchee
-                `bindrBlockM'` \union -> emit $ Low.Expr
-                                   (Low.EAsVariant union (fromIntegral vtid))
-                                   tvariant
+                    t ->
+                        ice $ "Lower.asVariant: type of matchee is not TPtr to TConst, " ++ show t
+            variantTypeId tidData vi >>= \case
+                ZeroSized -> pure (Low.Block [] ZeroSized)
+                Sized vtid -> do
+                    let tvariant = Low.TPtr (Low.TConst vtid)
+                    -- Skip tag to get inner union
+                    (blk1, union) <- separateTerm <$> indexStruct 1 x
+                    (blk2, v) <- separateTerm
+                        <$> emit (Low.Expr (Low.EAsVariant union vi) tvariant)
+                    pure (blk1 `thenBlock` blk2 `thenBlock` Low.Block [] (Sized v))
+
+        deref :: Low.Operand -> Lower (Low.Block Low.Operand)
+        deref ptr = keepOnStack (pointee (typeof ptr)) >>= \case
+            True -> pure (Low.Block [] ptr)
+            False -> load ptr
 
     selectVarBindings
-        :: Map Low.Access Low.Operand
-        -> [(TypedVar, Low.Access)]
+        :: Map Access (Sized Low.Operand)
+        -> [(TypedVar, Access)]
         -> Lower (Low.Block [(TypedVar, Low.Operand)])
     selectVarBindings selections = fmap fst . foldlM
         (\(block1, selections) (x, access) -> do
             (block2, ss') <- select access selections
-            pure (mapTerm (pure . (x, )) block2 <> block1, ss')
+            pure (mapTerm (sized ((: []) . (x, )) []) block2 <> block1, ss')
         )
         (Low.Block [] [], selections)
 
-    lowerAccess :: Access -> Lower (Sized Low.Access)
-    lowerAccess = \case
-        TopSel i t -> lowerType t >>= mapSizedM
-            (\t' -> fmap (TopSel i) $ keepOnStack t' <&> \case
-                True -> Low.TPtr t'
-                False -> t'
-            )
-        As a span vi vts ->
-            mapSizedM (\a' -> As a' span vi <$> lowerSizedTypes vts) =<< lowerAccess a
-        Sel i span a -> mapSized (Sel i span) <$> lowerAccess a
-        ADeref a -> mapSized ADeref <$> lowerAccess a
-
--- | Given the type ID of a tagged union, and the pre-lowered index of a variant, returns the type
---   ID of the structure representing that variant, unless zero sized.
+-- | Given the type ID of a tagged union or enum, and the pre-lowered index of a variant, returns
+--   the type ID of the structure representing that variant, unless zero sized.
 variantTypeId :: Low.TypeId -> VariantIx -> Lower (Sized Low.TypeId)
 variantTypeId tidData variantIx = do
-    tidUnion <- lookupTypeId tidData <&> \case
-        (_, Low.DStruct Low.Struct { Low.structMembers = [_tag, union] }) -> asTConst union
-        x -> ice $ "Lower.variantTypeId: expected tagged union, found " ++ show x
-    variants <- lookupTypeId tidUnion <&> \case
-        (_, Low.DUnion Low.Union { Low.unionVariants = vs }) -> vs
-        x -> ice $ "Lower.variantTypeId: expected union, found " ++ show x
-    pure $ case variants Vec.! fromIntegral variantIx of
-        (_, Sized vtid) -> Sized vtid
-        (_, ZeroSized) -> ZeroSized
+    lookupTypeId tidData >>= \case
+        (_, Low.DStruct Low.Struct { Low.structMembers = [_tag, (_, union)] }) -> do
+            let tidUnion = asTConst union
+            variants <- lookupTypeId tidUnion <&> \case
+                (_, Low.DUnion Low.Union { Low.unionVariants = vs }) -> vs
+                x -> ice $ "Lower.variantTypeId: expected union, found " ++ show x
+            pure $ snd (variants Vec.! fromIntegral variantIx)
+        (_, Low.DEnum _) -> pure ZeroSized
+        x -> ice $ "Lower.variantTypeId: expected tagged union or enum, found " ++ show x
 
 lowerCtion
     :: Destination d
@@ -1044,6 +1035,7 @@ lowerCtion dest variantIx span tconst xs = queryTConst tconst >>= \case
         blk `thenBlockM` sizedToDest dest ZeroSized
     Sized tidOuter -> do
         tdef <- lookupTypeId tidOuter
+        let memberXs = zip (map MemberId [0 ..]) xs
         case snd tdef of
             Low.DUnion _ -> ice "lowerExpr Ction: outermost TypeDef was a union"
             Low.DEnum variants ->
@@ -1056,7 +1048,7 @@ lowerCtion dest variantIx span tconst xs = queryTConst tconst >>= \case
                 in  toDest dest $ Low.Expr (Low.EOperand operand) (typeof operand)
             Low.DStruct _ | span == 1 -> do
                 (ptr, retVal) <- allocationAtDest dest Nothing (Low.TConst tidOuter)
-                lowerExprsInStruct xs ptr <&> mapTerm (const retVal)
+                lowerExprsInStruct memberXs ptr <&> mapTerm (const retVal)
             Low.DStruct _ | otherwise -> do
                 (ptr, retVal) <- allocationAtDest dest Nothing (Low.TConst tidOuter)
                 Low.Block stms1 tagPtr <- indexStruct 0 ptr
@@ -1068,7 +1060,7 @@ lowerCtion dest variantIx span tconst xs = queryTConst tconst >>= \case
                         Low.Block stms'2 variantPtr <- emit $ Low.Expr
                             (Low.EAsVariant unionPtr (fromIntegral tidVariant))
                             (Low.TPtr (Low.TConst tidVariant))
-                        Low.Block stms'3 () <- lowerExprsInStruct xs variantPtr
+                        Low.Block stms'3 () <- lowerExprsInStruct memberXs variantPtr
                         pure $ Low.Block (stms'1 ++ stms'2 ++ stms'3) ()
                 pure $ Low.Block (stms1 ++ stm2 : stms3) retVal
 
@@ -1076,11 +1068,18 @@ lowerTag :: Span -> VariantIx -> Low.Const
 lowerTag span variantIx =
     Low.CNat { Low.natWidth = tagBits span, Low.natVal = fromIntegral variantIx }
 
--- Assumes that struct is kept on stack. Returns pointer to member.
-indexStruct :: Word -> Low.Operand -> Lower (Low.Block Low.Operand)
+-- Assumes that struct is kept on stack. Returns pointer to member, unless the member was zero sized.
+lookupStruct :: MemberName -> Low.Operand -> Lower (Low.Block (Sized Low.Operand))
+lookupStruct i x = do
+    t <- fmap Low.TPtr . Low.lookupMember i <$> getTypeStruct (pointee (typeof x))
+    case t of
+        Nothing -> pure (Low.Block [] ZeroSized)
+        Just t' -> mapTerm Sized <$> emit (Low.Expr (Low.EGetMember i x) t')
+
+indexStruct :: MemberIx -> Low.Operand -> Lower (Low.Block Low.Operand)
 indexStruct i x = do
-    t <- Low.TPtr . (!! fromIntegral i) . Low.structMembers <$> getTypeStruct (pointee (typeof x))
-    emit (Low.Expr (Low.EGetMember i x) t)
+    member <- (!! fromIntegral i) . Low.structMembers <$> getTypeStruct (pointee (typeof x))
+    emit (Low.Expr (Low.EGetMember (fst member) x) (Low.TPtr (snd member)))
 
 getTypeStruct :: Low.Type -> Lower Low.Struct
 getTypeStruct = \case
@@ -1104,10 +1103,11 @@ builtinTypeDefs :: [Low.TypeDef]
 builtinTypeDefs =
     -- closure: pointer to captures struct & function pointer, genericized
     [ ( "closure"
-      , Low.DStruct Low.Struct { Low.structMembers = [Low.VoidPtr, Low.VoidPtr]
-                               , Low.structAlignment = wordsize
-                               , Low.structSize = wordsize * 2
-                               }
+      , Low.DStruct Low.Struct
+          { Low.structMembers = [(MemberId 0, Low.VoidPtr), (MemberId 1, Low.VoidPtr)]
+          , Low.structAlignment = wordsize
+          , Low.structSize = wordsize * 2
+          }
       )
     ]
 
@@ -1135,9 +1135,6 @@ toRet genName = \case
     Sized t -> passByRef t >>= \case
         True -> genName <&> \name -> (Just (OutParam name t), Low.RetVoid)
         False -> pure (Nothing, Low.RetVal t)
-
-lowerSizedTypes :: [Type] -> Lower [Low.Type]
-lowerSizedTypes = fmap catMaybes . mapM (fmap sizedMaybe . lowerType)
 
 -- TODO: Should respect platform ABI. For example wrt size of TNatSize on 32-bit vs. 64-bit
 --       platform.
@@ -1232,29 +1229,50 @@ queryTConst x = do
 
     lowerData :: String -> [(String, VariantTypes)] -> Lower Low.TypeDef
     lowerData name variants = do
-        let xs = map fst variants
-        tss <- mapM (lowerSizedTypes . snd) variants
-        case tss of
+        -- let xs = map fst variants
+        -- tss <- mapM (mapM lowerType . snd) variants
+        variants' <- mapM
+            (secondM $ fmap catMaybes . zipWithM
+                (\i t -> fmap (MemberId i, ) . sizedMaybe <$> lowerType t)
+                [0 ..]
+            )
+            variants
+        case variants' of
             [] -> unreachable
-            [ts] -> (name, ) <$> structDef ts
-            _ | all null tss -> pure (name, Low.DEnum (Vec.fromList xs))
+            _ | all (null . snd) variants' ->
+                pure (name, Low.DEnum (Vec.fromList (map fst variants')))
+            [(_, members)] -> (name, ) <$> structDef members
             _ -> do
-                let tss' = filter (not . null) tss
-                aMax <- maximum <$> mapM alignmentofStruct tss'
-                sMax <- maximum <$> mapM sizeofStruct tss'
-                variants' <- fmap (Vec.fromList . zip xs) $ forM (zip xs tss) $ \case
-                    (_, []) -> pure ZeroSized
-                    (x, ts) -> Sized <$> defineStruct x ts
-                tidInner <- defineUnion (name ++ "_union") variants' sMax aMax
-                let tag = Low.TNat (variantsTagBits variants')
-                outerStruct <- structDef [tag, Low.TConst tidInner]
+                -- tidInner <- defineUnion (name ++ "_union") variants' sMax aMax
+                tidInner <- defineUnion (name ++ "_union") variants'
+                let tag = Low.TNat (tagBits (fromIntegral (length variants')))
+                -- outerStruct <- structDef [tag, Low.TConst tidInner]
+                outerStruct <- structDef [(MemberId 0, tag), (MemberId 1, Low.TConst tidInner)]
                 pure (name, outerStruct)
 
-defineUnion :: String -> Vector (String, Sized Low.TypeId) -> Word -> Word -> Lower Low.TypeId
-defineUnion name variants sMax aMax =
-    defineTypeDef (name, Low.DUnion (Low.Union variants sMax aMax))
+-- | Assumes that there are at least two variants, and that at least one variant has at least one
+--   member.
+defineUnion :: String -> [(String, [(MemberName, Low.Type)])] -> Lower Low.TypeId
+defineUnion name variants = do
+    variants' <- mapM
+        (\case
+            (vname, []) -> pure (vname, ZeroSized)
+            (vname, ms) -> (vname, ) . Sized <$> defineStruct vname ms
+        )
+        variants
+    let ts = map Low.TConst (catSized (map snd variants'))
+    sMax <- maximum <$> mapM sizeof ts
+    aMax <- maximum <$> mapM alignmentof ts
+    defineTypeDef
+        ( name
+        , Low.DUnion Union { unionVariants = Vec.fromList variants'
+                           , unionGreatestSize = sMax
+                           , unionGreatestAlignment = aMax
+                           }
+        )
 
-defineStruct :: String -> [Low.Type] -> Lower Low.TypeId
+-- | Assumes that member list is nonempty
+defineStruct :: String -> [(MemberName, Low.Type)] -> Lower Low.TypeId
 defineStruct name members = defineTypeDef . (name, ) =<< structDef members
 
 defineTypeDef :: Low.TypeDef -> Lower Low.TypeId
@@ -1267,17 +1285,19 @@ defineTypeDef tdef = do
             modifying (tenv . tdefIds) (Map.insert tdef tid)
             pure tid
 
-structDef :: [Low.Type] -> Lower Low.TypeDef'
-structDef ts = liftM2 (Low.DStruct .* Low.Struct ts) (alignmentofStruct ts) (sizeofStruct ts)
+-- | Assumes that member list is nonempty
+structDef :: [(MemberName, Low.Type)] -> Lower Low.TypeDef'
+structDef ms =
+    let ts = map snd ms
+    in  liftM2 (Low.DStruct .* Low.Struct ms) (alignmentofStruct ts) (sizeofStruct ts)
+
+sizedMembers :: [Sized Low.Type] -> [(MemberName, Low.Type)]
+sizedMembers = catMaybes . zipWith (\i t -> fmap (MemberId i, ) (sizedMaybe t)) [0 ..]
 
 -- | Assumes that the given TypeId is live and valid, i.e. that it was first given to you by
 --   `lowerType` or something.
 lookupTypeId :: Low.TypeId -> Lower Low.TypeDef
 lookupTypeId tid = use (tenv . tdefs . to (`Seq.index` fromIntegral tid))
-
-asTConst :: Low.Type -> Low.TypeId
-asTConst (Low.TConst tid) = tid
-asTConst t = ice $ "Lower.asTConst of non TConst type " ++ show t
 
 asTFun :: Low.Type -> (Maybe (Low.OutParam ()), [Low.Param ()], Low.Ret)
 asTFun = \case
@@ -1331,6 +1351,9 @@ passByRef t = sizeof t <&> (> 2 * 8)
 sizeof :: Low.Type -> Lower Word
 sizeof = tdefsHelper Low.sizeof
 
+alignmentof :: Low.Type -> Lower Word
+alignmentof = tdefsHelper Low.alignmentof
+
 sizeofStruct :: [Low.Type] -> Lower Word
 sizeofStruct = tdefsHelper Low.sizeofStruct
 
@@ -1348,11 +1371,6 @@ keepOnStack = \case
         (_, Low.DUnion _) -> True
         (_, Low.DEnum _) -> False
     _ -> pure False
-
-pointee :: Low.Type -> Low.Type
-pointee = \case
-    Low.TPtr t -> t
-    t -> ice $ "Lower.pointee of non pointer type " ++ show t
 
 funDefGlobal :: Low.FunDef -> Low.Global
 funDefGlobal Low.FunDef { Low.funDefName = x, Low.funDefOutParam = out, Low.funDefParams = ps, Low.funDefRet = r }
@@ -1398,9 +1416,6 @@ thenBlock (Low.Block stms1 ()) (Low.Block stms2 a) = Low.Block (stms1 ++ stms2) 
 
 thenBlockM :: Low.Block () -> Lower (Low.Block a) -> Lower (Low.Block a)
 thenBlockM b1 mb2 = bindrBlockM b1 (\() -> mb2)
-
-thenBlockM' :: Lower (Low.Block ()) -> Lower (Low.Block a) -> Lower (Low.Block a)
-thenBlockM' mb1 mb2 = bindrBlockM' mb1 (\() -> mb2)
 
 bindBlockM :: Monad m => (a -> m (Low.Block b)) -> Low.Block a -> m (Low.Block b)
 bindBlockM f (Low.Block stms1 a) = f a <&> \(Low.Block stms2 b) -> Low.Block (stms1 ++ stms2) b

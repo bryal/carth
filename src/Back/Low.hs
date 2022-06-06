@@ -1,4 +1,4 @@
-module Back.Low (module Back.Low, Access') where
+module Back.Low (module Back.Low) where
 
 import Data.Char
 import Data.List (intercalate)
@@ -12,7 +12,7 @@ import Text.Printf
 import Misc
 import Sizeof hiding (sizeof)
 import Pretty
-import Front.Monomorphic (Access', VariantIx)
+import Front.Monomorphic (VariantIx)
 
 data Sized x = ZeroSized | Sized x deriving (Show, Ord, Eq)
 
@@ -103,7 +103,7 @@ data Type
     | TClosure (Maybe (OutParam ())) [Param ()] Ret
   deriving (Eq, Ord, Show)
 
-type Access = Access' Type
+type MemberIx = Word
 
 data Const
     = Undef Type
@@ -191,7 +191,7 @@ data Expr'
     | Call Operand [Operand]
     | ELoop (Loop Expr)
     -- Given a pointer to a struct, get a pointer to the Nth member of that struct
-    | EGetMember Word Operand
+    | EGetMember MemberName Operand
     -- Given a pointer to an untagged union, get it as a specific variant
     | EAsVariant Operand VariantIx
     | EBranch (Branch Expr)
@@ -233,13 +233,17 @@ data GlobDef
     | GlobConstDef GlobalId Type Const
     deriving Show
 
+newtype MemberName = MemberId Word deriving (Show, Eq, Ord)
+
 data Struct = Struct
-    -- TODO: Members should include names. Needed in C, and possibly other backends.
-    { structMembers :: [Type]
+    { structMembers :: [(MemberName, Type)]
     , structAlignment :: Word
     , structSize :: Word
     }
     deriving (Show, Eq, Ord)
+
+lookupMember :: MemberName -> Struct -> Maybe Type
+lookupMember m = lookup m . structMembers
 
 data Union = Union
     { unionVariants :: Vector (String, Sized TypeId)
@@ -295,6 +299,15 @@ isPtr :: Type -> Bool
 isPtr = \case
     TPtr _ -> True
     _ -> False
+
+pointee :: Type -> Type
+pointee = \case
+    TPtr t -> t
+    t -> ice $ "Low.pointee of non pointer type " ++ show t
+
+asTConst :: Type -> TypeId
+asTConst (TConst tid) = tid
+asTConst t = ice $ "Low.asTConst of non TConst type " ++ show t
 
 sizeof :: (TypeId -> TypeDef) -> Type -> Word
 sizeof tenv = \case
@@ -407,13 +420,9 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             ("enum " ++ name ++ " {")
                 ++ concatMap ((++ ",") . ("\n    " ++)) (Vec.toList vs)
                 ++ "\n}"
-        DStruct (Struct ts a s) ->
+        DStruct (Struct ms a s) ->
             ("struct " ++ name ++ " {")
-                ++ concat
-                       (zipWith (\i t -> "\n    m" ++ show i ++ ": " ++ pType t ++ ",")
-                                [0 :: Word ..]
-                                ts
-                       )
+                ++ concatMap pMember ms
                 ++ ("\n} // alignment: " ++ show a ++ ", size: " ++ show s)
         DUnion (Union vs gs ga) ->
             ("union " ++ name ++ " {")
@@ -422,6 +431,10 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                        (Vec.toList vs)
                 ++ ("\n} // greatest size: " ++ show gs)
                 ++ (", greatest alignment: " ++ show ga)
+    pMember (x, t) =
+        let sx = case x of
+                MemberId i -> show i
+        in  "\n    " ++ sx ++ ": " ++ pType t ++ ","
     pType = \case
         TInt width -> "i" ++ show width
         TNat width -> "n" ++ show width

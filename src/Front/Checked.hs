@@ -35,14 +35,12 @@ import Front.Inferred
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
-data Access' t
-    = TopSel Word32 t -- type of selectee
-    | As (Access' t) Span VariantIx [t]
-    | Sel Word32 Span (Access' t)
-    | ADeref (Access' t)
+data Access
+    = TopSel Word32 -- type of selectee
+    | As Access Span VariantIx
+    | Sel Access Word32 Span
+    | ADeref Access
     deriving (Show, Eq, Ord)
-
-type Access = Access' Type
 
 type VarBindings = Map TypedVar Access
 

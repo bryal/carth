@@ -169,29 +169,18 @@ monoDecisionTree = \case
         let ks = map (\(Checked.TypedVar x _, _) -> x) bs'
         censor (mapDefInsts (deletes ks)) $ do
             bs'' <- mapM
-                (bimapM (\(Checked.TypedVar x t) -> fmap (TypedVar x) (monotype t)) monoAccess)
+                (bimapM (\(Checked.TypedVar x t) -> fmap (TypedVar x) (monotype t)) pure)
                 bs'
             e' <- mono e
             pure (DLeaf (bs'', e'))
   where
     monoDecisionSwitch obj cs def f = do
-        obj' <- monoAccess obj
         cs' <- mapM monoDecisionTree cs
         def' <- monoDecisionTree def
-        pure (f obj' cs' def')
+        pure (f obj cs' def')
 
     deletes :: (Foldable t, Ord k) => t k -> Map k v -> Map k v
     deletes = flip (foldr Map.delete)
-
-monoAccess :: Checked.Access -> Mono Access
-monoAccess = \case
-    Checked.TopSel i t -> TopSel i <$> monotype t
-    Checked.As a span' i ts -> do
-        a' <- monoAccess a
-        ts' <- mapM monotype ts
-        pure (As a' span' i ts')
-    Checked.Sel i span' a -> fmap (Sel i span') (monoAccess a)
-    Checked.ADeref a -> fmap ADeref (monoAccess a)
 
 monoCtion :: VariantIx -> Span -> Checked.TConst -> [Checked.Expr] -> Mono Expr
 monoCtion i span' (tdefName, tdefArgs) as = do

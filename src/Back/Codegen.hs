@@ -6,6 +6,7 @@ module Back.Codegen (codegen) where
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Maybe
 import LLVM.Prelude hiding (Const)
 import LLVM.AST (Name (..), Named, BasicBlock (..), Module (..), Definition (..), Global (..), Type (..), Instruction, Parameter (..), mkName, Operand (ConstantOperand))
 import qualified LLVM.AST as LL
@@ -71,7 +72,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             DEnum _ -> []
             DStruct s -> pure $ TypeDefinition
                 (mkName name)
-                (Just (structType (map genType (structMembers s))))
+                (Just (structType (map (genType . snd) (structMembers s))))
             -- The reason we fill with values the size of the alignment instead of bytes is to not
             -- wrongfully signal to LLVM that the padding will be used as-is, and should be
             -- passed/returned in its own registers (or whatever exactly is going on). I just know
@@ -397,13 +398,15 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 Call f as ->
                     liftM3 (GInstr t' .** call) (genOperand f) (pure Nothing) (mapM genOperand as)
                 EBranch br -> genEBranch br
-                EGetMember i x -> genOperand x <&> \x' -> GInstr
-                    t'
-                    LL.GetElementPtr { inBounds = False
-                                     , address = x'
-                                     , indices = [litI64 (0 :: Integer), litI32 i]
-                                     , metadata = []
-                                     }
+                EGetMember m x ->
+                    let i = genMemberName m (pointee (typeof x))
+                    in  genOperand x <&> \x' -> GInstr
+                            t'
+                            LL.GetElementPtr { inBounds = False
+                                             , address = x'
+                                             , indices = [litI64 (0 :: Integer), litI32 i]
+                                             , metadata = []
+                                             }
                 EAsVariant x _ -> genOperand x <&> \x' -> GInstr t' (LL.BitCast x' (genType t) [])
                 EOperand x -> GOperand <$> genOperand x
                 ELoop loop -> genLoop loop (emit <=< genExpr) $ \breaks -> do
@@ -569,6 +572,22 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
     litI32 :: Integral a => a -> LL.Operand
     litI32 = LL.ConstantOperand . LL.Int 32 . toInteger
+
+    genMemberName :: MemberName -> Low.Type -> MemberIx
+    genMemberName mname = \case
+        TClosure{} -> case mname of
+            MemberId 0 -> 0
+            MemberId 1 -> 1
+            _ ->
+                ice
+                    $ "Codegen.genMemberName: type is closure, but member name is not MemberId 0 or 1, "
+                    ++ show mname
+        TConst tid -> case snd (tdefs Vec.! fromIntegral tid) of
+            DStruct Struct { structMembers = ms } ->
+                fromIntegral (fromJust (findIndex ((== mname) . fst) ms))
+            tdef -> ice $ "Codegen.genMemberName: type points to non-struct, " ++ show tdef
+        t -> ice $ "Codegen.genMemberName: type is not struct or closure, " ++ show t
+
 
 commitThen :: LL.Terminator -> Name -> Gen ()
 commitThen term next = do

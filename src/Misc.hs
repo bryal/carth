@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, MagicHash #-}
 
 module Misc where
 
@@ -18,6 +18,11 @@ import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import Data.Void
 
+import GHC.Stack.Types
+import GHC.Stack (callStack)
+import GHC.Exts
+import GHC.Exception (errorCallWithCallStackException)
+
 
 newtype TopologicalOrder a = Topo [a]
     deriving Show
@@ -25,8 +30,8 @@ newtype TopologicalOrder a = Topo [a]
 type Source = String
 
 
-ice :: String -> a
-ice = error . ("Internal Compiler Error: " ++)
+ice :: HasCallStack => String -> a
+ice s = raise# (errorCallWithCallStackException ("Internal Compiler Error: " ++ s) callStack)
 
 nyi :: String -> a
 nyi = error . ("Not yet implemented: " ++)

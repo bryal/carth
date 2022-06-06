@@ -3,7 +3,7 @@
 -- | Implementation of the algorithm described in /ML pattern match compilation and partial
 --   evaluation/ by Peter Sestoft. Close to 1:1, and includes the additional checks for
 --   exhaustiveness and redundancy described in section 7.4.
-module Front.Match (toDecisionTree, Span, Con(..), Access'(..), MTypeDefs) where
+module Front.Match (toDecisionTree, Span, Con(..), Access(..), MTypeDefs) where
 
 import Prelude hiding (span)
 import qualified Data.Set as Set
@@ -129,23 +129,21 @@ disjunct descr = \case
                                 ps <- zipWithM missingPat argTs' dargs
                                 pure ("(" ++ s ++ precalate " " ps ++ ")")
 
-match :: Access -> Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> Pat' -> Match DecisionTree'
-match obj descr ctx work rhs rules = \case
+match :: Access -> Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> Pat -> Match DecisionTree'
+match obj descr ctx work rhs rules (Pat _ _ pat) = case pat of
     PVar (Inferred.TypedVar (Inferred.WithPos _ x) tx) ->
         let x' = TypedVar x tx in conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
-    PBox (Pat _ _ p) -> match (ADeref obj) descr ctx work rhs rules p
+    PBox p -> match (ADeref obj) descr ctx work rhs rules p
     PCon pcon pargs ->
-        let
-            disjunct' :: Descr -> Match DecisionTree'
+        let disjunct' :: Descr -> Match DecisionTree'
             disjunct' newDescr = disjunct (buildDescr newDescr ctx work) rules
 
             conjunct' :: Match DecisionTree'
             conjunct' = conjunct ((pcon, []) : ctx) rhs rules ((pargs, getoargs, getdargs) : work)
 
             getoargs :: [Access]
-            getoargs = args pcon
-                $ \i _ -> Sel i (span pcon) (As obj (span pcon) (variantIx pcon) (argTs pcon))
+            getoargs = args pcon $ \i _ -> Sel (As obj (span pcon) (variantIx pcon)) i (span pcon)
 
             variantIx = variant >>> \case
                 VariantIx ix -> ix
@@ -155,8 +153,7 @@ match obj descr ctx work rhs rules = \case
             getdargs = case descr of
                 Neg _ -> args pcon (const (const (Neg Set.empty)))
                 Pos _ dargs -> dargs
-        in
-            case staticMatch pcon descr of
+        in  case staticMatch pcon descr of
                 Yes -> conjunct'
                 No -> disjunct' descr
                 Maybe -> do
@@ -168,7 +165,7 @@ matchFunPats :: Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> FunPats -> Ma
 matchFunPats descr ctx work rhs rules (FunPats pats) =
     let ts = map (\(Pat _ t _) -> t) pats
         con = Con { variant = VariantIx 0, span = 1, argTs = ts }
-        getoargs = args con TopSel
+        getoargs = args con (\i _t -> TopSel i)
         getdargs = case descr of
             -- TODO: Does this case ever happen? If the descr refers to the function pattern list,
             --       then there's only one variant to speak of, and therefore Pos by default,
@@ -185,7 +182,7 @@ conjunct ctx rhs@(casePos, binds, e) rules = \case
     [] -> caseReached casePos $> Success (binds, e)
     (work1 : workr) -> case work1 of
         ([], [], []) -> conjunct (norm ctx) rhs rules workr
-        (Pat _ _ pat1 : patr, obj1 : objr, descr1 : descrr) ->
+        (pat1 : patr, obj1 : objr, descr1 : descrr) ->
             match obj1 descr1 ctx ((patr, objr, descrr) : workr) rhs rules pat1
         x -> ice $ "unexpected pattern in conjunct: " ++ show x
 
