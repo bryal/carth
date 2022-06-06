@@ -468,15 +468,16 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
     pRet = \case
         RetVal t -> pType t
         RetVoid -> "void"
-    pFdef f =
-        ("fun @" ++ gname (funDefName f) ++ "(")
-            ++ intercalate ", " (map pParam (funDefParams f))
-            ++ (") -> " ++ pRet (funDefRet f) ++ " {")
-            ++ precalate "\n    " (map pAlloc (funDefAllocs f))
-            ++ (if null (funDefAllocs f) then "" else "\n    ")
-            ++ pBlock' 4 pTerm (funDefBody f)
+    pFdef (FunDef name out params ret body allocs lnames) =
+        ("fun @" ++ gname name ++ "(")
+            ++ intercalate ", " (maybe id ((:) . pOutParam) out $ map pParam params)
+            ++ (") -> " ++ pRet ret ++ " {")
+            ++ precalate "\n    " (map pAlloc allocs)
+            ++ (if null allocs then "" else "\n    ")
+            ++ pBlock' 4 pTerm body
             ++ "\n}"
       where
+        pOutParam (OutParam x t) = "out " ++ lname x ++ ": " ++ pType t
         pParam p = lname (paramName p) ++ ": " ++ pType (paramType p)
         pAlloc (lid, t) = "var %" ++ lname lid ++ ": " ++ pType t ++ ";"
         pBlock :: Int -> (Int -> term -> String) -> Block term -> String
@@ -557,7 +558,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             OConst c -> pConst c
             OExtern (Extern x _ _ _) -> "@" ++ x
         pLocal (Local x _) = "%" ++ lname x
-        lname lid = funDefLocalNames f Vec.! fromIntegral lid
+        lname lid = lnames Vec.! fromIntegral lid
     pGdef = \case
         GlobVarDecl x t -> "var @" ++ gname x ++ ": " ++ pType t ++ ";"
         GlobConstDef x t rhs ->
