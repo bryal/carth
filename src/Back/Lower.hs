@@ -1003,7 +1003,7 @@ lowerMatch dest matchees decisionTree = do
     selectVarBindings selections = fmap fst . foldlM
         (\(block1, selections) (x, access) -> do
             (block2, ss') <- select access selections
-            pure (mapTerm (sized ((: []) . (x, )) []) block2 <> block1, ss')
+            pure (block1 <> mapTerm (sized ((: []) . (x, )) []) block2, ss')
         )
         (Low.Block [] [], selections)
 
