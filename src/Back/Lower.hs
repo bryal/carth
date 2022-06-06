@@ -586,15 +586,17 @@ lowerExpr dest = \case
         let lhss = Set.fromList $ map fst defs
         Low.Block stms1 (binds, cs) <-
             fmap (mapTerm unzip . catBlocks) . forM defs $ \(lhs, (_, f)) -> do
-                (freeLocalVars, captures) <- precaptureFreeLocalVars (Set.delete lhs lhss) f
-                bindrBlockM captures $ \captures' -> do
-                    name <- newGName (tvName lhs)
-                    fdef <- lowerFunDef freeLocalVars (Just lhs) name f
-                    scribe outFunDefs [fdef]
-                    closure <-
-                        bindBlockM (emitNamed "closure" . fromSized)
-                            =<< wrapInClosure Anywhere (funDefGlobal fdef) captures'
-                    pure $ mapTerm (\c -> ((lhs, c), (freeLocalVars, captures'))) closure
+                (freeLocalVars, (blk, (gcaptures, captures))) <-
+                    second separateTerm <$> precaptureFreeLocalVars (Set.delete lhs lhss) f
+                name <- newGName (tvName lhs)
+                fdef <- lowerFunDef freeLocalVars (Just lhs) name f
+                scribe outFunDefs [fdef]
+                closure <-
+                    bindBlockM (emitNamed "closure" . fromSized)
+                        =<< wrapInClosure Anywhere (funDefGlobal fdef) gcaptures
+                pure
+                    $ blk
+                    `thenBlock` mapTerm (\c -> ((lhs, c), (freeLocalVars, captures))) closure
         withVars binds $ do
             forM_ cs (uncurry populateCaptures)
             body' <- lowerExpr dest body
@@ -645,7 +647,8 @@ lowerExpr dest = \case
     lowerLambda :: Destination d => d -> Fun -> Lower (Low.Block (DestTerm d))
     lowerLambda dest f = do
         (freeLocalVars, captures) <- precaptureFreeLocalVars Set.empty f
-        Low.Block stms1 captures' <- populateCaptures freeLocalVars `bindBlockM` captures
+        Low.Block stms1 captures' <-
+            populateCaptures freeLocalVars `bindBlockM` mapTerm snd captures
         Low.Block stms2 captures'' <- emit
             (Low.Expr (Low.Bitcast captures' Low.VoidPtr) Low.VoidPtr)
         name <- newGName "fun"
@@ -817,7 +820,10 @@ lowerExprsInStruct es ptr = do
         Sized subPtr -> lowerExpr (There subPtr) e
     pure $ catBlocks_ blks
 
-precaptureFreeLocalVars :: Set TypedVar -> Fun -> Lower ([TypedVar], Low.Block Low.Operand)
+-- | Returns the list of free variables to capture, and the heap allocated captures struct, both
+--   the generic void-pointer, and a pointer to the concrete captures struct.
+precaptureFreeLocalVars
+    :: Set TypedVar -> Fun -> Lower ([TypedVar], Low.Block (Low.Operand, Low.Operand))
 precaptureFreeLocalVars extraLocals (params, (body, _)) = do
     let params' = Set.fromList params
     locals <- Map.keysSet <$> view localEnv
@@ -825,7 +831,9 @@ precaptureFreeLocalVars extraLocals (params, (body, _)) = do
     let freeLocals = Set.toList $ Set.intersection (Set.difference (freeVars body) params')
                                                    (Set.unions [extraLocals, self, locals])
     (freeLocals, ) <$> if null freeLocals
-        then pure (Low.Block [] (Low.OConst (Low.Zero Low.VoidPtr)))
+        then
+            let captures = Low.OConst (Low.Zero Low.VoidPtr)
+            in  pure (Low.Block [] (captures, captures))
         else do
             t <-
                 fmap Low.TConst
@@ -833,11 +841,12 @@ precaptureFreeLocalVars extraLocals (params, (body, _)) = do
                 . sizedMembers
                 =<< mapM (lowerType . tvType) freeLocals
             capturesSize <- sizeof t
-            capturesGeneric <- emitNamed "captures"
-                =<< gcAlloc (Low.OConst (litI64 (fromIntegral capturesSize)))
-            bindBlockM
-                (\c -> emitNamed "captures" (Low.Expr (Low.Bitcast c (Low.TPtr t)) (Low.TPtr t)))
-                capturesGeneric
+            (blk1, generic) <- fmap separateTerm . emitNamed "captures" =<< gcAlloc
+                (Low.OConst (litI64 (fromIntegral capturesSize)))
+            (blk2, captures) <- separateTerm <$> emitNamed
+                "captures"
+                (Low.Expr (Low.Bitcast generic (Low.TPtr t)) (Low.TPtr t))
+            pure (blk1 `thenBlock` blk2 `thenBlock` Low.Block [] (generic, captures))
 
 gcAlloc :: Low.Operand -> Lower Low.Expr
 gcAlloc size = fromLeft (ice "gcAlloc: (GC_)malloc was a void call")
