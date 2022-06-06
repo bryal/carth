@@ -1225,7 +1225,7 @@ queryTConst x = do
         TFun _ _ -> pure True
         TBox _ -> pure True
         TConst x ->
-            fmap (or . concat) $ mapM (mapM isSized . snd) . (Map.! x) =<< use (tenv . datas)
+            dataIsSized =<< use (tenv . datas . to (Map.! x))
 
     lowerData :: String -> [(String, VariantTypes)] -> Lower Low.TypeDef
     lowerData name variants = do
