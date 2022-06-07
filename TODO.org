@@ -2,6 +2,17 @@
 
 Features and other stuff to do/implement in/around Carth.
 
+* TODO Migrate TODO to some kind of Kanban board or the like
+Self hosted? Does Sourcehut have anything? Base it on mailing lists (no... or maybe?)
+
+But I need something other than this file. It only pollutes the Git
+history for no real good. It's also less useful now that I've had to
+disable magit-todos.
+
+Another reason is that this file doesn't scale at all. Not that I
+expect or particularly desire to have contributors, but I also don't
+want to scare anyone away xd.
+
 * INACTIVE Package system
   We will need some kind of package-management solution, or we will
   end up like C where using dependencies is a chore.
@@ -766,9 +777,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
      assertions are inserted and checked at runtime.
   - Release-mode. Conditions are completely ignored.
 
-* NEXT Consider using lib for pretty printing
-  https://hackage.haskell.org/package/pretty-1.1.1.1
-
 * INACTIVE Hoogle equivalent
   https://wiki.haskell.org/Hoogle
 
@@ -852,7 +860,7 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
 ** INACTIVE Random number generation
    References:
    - [[https://arxiv.org/abs/1910.06437][It is high time we let go of the Mersenne Twister]]
-* NEXT Some algorithms & data structures
+** NEXT Some algorithms & data structures
   We need good collections & algs for sorting etc. if Carth is going
   to be of any use to anyone. Would also be a good way to add to the
   set of test-programs & find the worst pain points of current Carth.
@@ -865,13 +873,11 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   persistend data structures as well.
 
   - Priority queue
-  - Binary tree
-  - B-tree
+  - Binary tree (2-3 tree better?)
+  - B-tree (specifically 2-3 tree?)
   - Random number generator
-  - Binary search
   - bubble, insertion, selection sort
   - quicksort
-
 * INACTIVE "Global" memoization
   This is just an idea I had, and may or may not be wise to implement.
 
@@ -1123,18 +1129,7 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   apply(..., thunk, thunk_ctxt, ...);
   #+END_SRC
 
-* NEXT Add separate pass before Codegen to compile SrcPos:s
-  I think it could be done purely and independently from rest of codegen. Would be more clean.
-* NEXT Refactor & document Codegen & Gen
-  It's getting big, complex, and unwieldy. Probably buggy as
-  well. There's also a distinct lack of documentation. Always takes a
-  sec for me to remember what some badly named function actually does.
 * INACTIVE Use GADTs in Infer
-* NEXT Have a look at LLVM.IRBuilder
-  Might simplify my Codegen
-
-  https://hackage.haskell.org/package/llvm-hs-pure-9.0.0/docs/LLVM-IRBuilder-Module.html#v:function
-
 * INACTIVE Add basic repl
   Add a basic repl based on the JIT. Something very similar to
   http://www.stephendiehl.com/llvm/.
@@ -1143,9 +1138,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   Would probably require some memoization mechanism so that we don't
   unnecessarily check, monomorphise, and compile stuff we don't need
   to.
-* NEXT Un-generalize module Selections
-  Since we now use JIT instead of interpreter, only Codegen uses
-  Selections, and we could make it simpler by inlining it.
 * NEXT Type aliases
   Like ~type String = [Char]~ in Haskell.
 * INACTIVE Query-based / on-demand compilation
@@ -1240,38 +1232,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   type ParsedExpr = Expr (Type, SrcPos)
   type CheckedExpr = Expr CheckedType
   #+END_SRC
-* INACTIVE Optimize away zero-sized types before codegen
-  It's bad that many operations on zero-sized types are currently
-  actually compiled to, in practice, a ton of no-ops. I think it might
-  be a good idea to add a dedicated optimization pass after
-  monomorphization but before codegen that just gets rid of all
-  zero-sized types and operations on them. For example, a type like
-  ~(data Foo (Foo Bar Unit Baz))~ can be changed to ~(data Foo (Foo
-  Bar Baz))~ without affecting the size of the generated struct
-  etc. Also, a store of a ~{}~ into a ~{}*~ is really a no-op -- just
-  noise in the generated LLVM. Being able to assume no zero-sized
-  types in Gen/Codegen would also be really nice, I think.
-
-  One issue: If you get rid of all ZSTs, what happens to a function
-  with return-type Unit? What does it now return? One option could be
-  to have add a special LLVM-Void type that just marks that the
-  function should return void later. Another, more interesting option,
-  would be to simply remove all functions and function-calls where the
-  only remaining return type is a ZST, since, in purely functional
-  programming, such a function can't do anything anyways. This would
-  work, as long as *all* functions with side-effects are marked with
-  IO & the RealWorld of IO is not a ZST & unsafePerformIO is known to
-  the compiler and is (one of) the only (potentially) ZST-returning
-  functions not optimized away, or unsafePerformIO returns something
-  like ~(data (UnsafeIOResult a) (UnsafeIOResult a SizedMarker))~ to
-  ensure the result is sized.
-
-  Maybe do the flattening thing so there is only one zero sized type,
-  but don't optimize away operations returning Unit completely. It
-  would still be nice to be able to expect side effects and panics to
-  happen. Also, RealWorld wouldn't have to have a size and actually
-  impact performance.
-
 * INACTIVE Builtin parsing of C header files
   I think Zig has this, and in Rust you can use the external tool
   ~bindgen~ to generate Rust declarations for C headers ahead of time.
@@ -1299,30 +1259,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
 
 * INACTIVE Build Future into IO, or have both IO and AsyncIO?
 
-* NEXT Some algorithms & data structures
-  We need good collections & algs for sorting etc. if Carth is going
-  to be of any use to anyone. Would also be a good way to add to the
-  set of test-programs & find the worst pain points of current Carth.
-
-  Many of these have implementations to look at and compare to on
-  [[rosettacode.org]].
-
-  This list is sort of off the top of my head, so some might not be
-  good fits in a purely functional language. Look at some resource on
-  persistend data structures as well.
-
-  - Priority queue
-  - Binary tree (2-3 tree better?)
-  - B-tree (specifically 2-3 tree?)
-  - Random number generator
-  - bubble, insertion, selection sort
-  - quicksort
-* NEXT Don't actually define stuff like Str in the compiler
-  Just assume they're defined by the user. Would mean less stuff in
-  the compiler, and more in carth source. Both positives and
-  negatives. I feel it would be nice as a user to be able to inspect
-  the .carth source of the stdlib and actually see all the types and
-  stuff though.
 * INACTIVE Union types
   Like Typescript (I think, I'm not all that familiar with it). Could
   be nice for error handling, for example. That's one of the problems
@@ -1363,13 +1299,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   need to make sure that their mutexes are destroyed at some point.
 
   https://www.hboehm.info/gc/finalization.html
-* NEXT "Use ptrtoint/inttoptr sparingly, prefer GEPs"
-  https://llvm.org/docs/Frontend/PerformanceTips.html#other-things-to-consider
-
-  I don't think I use ptrtoint/inttoptr much or at all in the compiler
-  itself, but the ~ptr/+~ function in the stdlib transmutes to int for
-  addition. Should add a builtin virtual function that uses gep to
-  offset pointer.
 * Pattern matching
 ** INACTIVE Var pattern syntax, comparison
   What if we did
@@ -1405,7 +1334,7 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
 
    Could enable us to use pattern matching more?
    
-* TODO Move from LLVM to alternative backend
+* TODO Move from LLVM to alternative backend (MIR/QBE)
   LLVM is kind of not great in some ways. It's often not trivial to
   debug errors stemming from displeasing LLVM. It updates frequently,
   but the Haskell bindings lag behind, so I have to use an older
@@ -1427,208 +1356,66 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   rid of LLVM right away, but I'm not sure about what to replace it
   with just yet, so an interpreter is needed in the meantime.
 
-** TODO Add low-level intermediate representation in Carth
-   Would require less work to change backend or add multiple ones of I
-   just have to translate from a low-level IR to the backend code,
-   instead of all the way from an AST. Might also be good for the
-   interpreter to run at a lower lever, but not sure.
+So we're done implementing Lower and Low, so the next step is simply
+to add additional backends and remove LLVM!
 
-   *UPDATE*: I'm warming up to focusing on this rather than the
-   interpreter.
+Investigate QBE, Cranelift, GNU Lightning, libgccjit, GCC, MIR.
 
-   Features the LIR should have (or maybe lack, rather):
-   - Switches with sub-value extraction instead of pattern match.
-   - No closures, but their representation in the form of function +
-     environment instead.
-   - Tail call optimized. (Replace tail-recursion &
-     sibling-tail-recursion with loops or smth).
-   - Beta reduction.
-   - Detect fully saturated calls & have special ways of directly
-     calling builtin virtuals, externs, and normal functions
-     saturatedly.
+#+BEGIN_QUOTE Candidates
+- C :: I.e., spit out C source and call out to ~cc~. Very portable
+  (every platform has a C compiler). Not very elegant. Does not
+  natively support tail call elimination, so would have to do that
+  myself (true for pretty much everything except llvm though). Used
+  by respectable languages like Nim and Haskell (sort of).
+- C-- :: Similar to C, but even more "portable assembly
+  language". Created by SPJ and friend, specifically for being
+  generated by compilers. Fork called Cmm used by GHC.
+- LLVM :: Approx 5 million LOC. Many targets, OK usability, but
+  breaking changes sometimes and big and scary.
+- GCC :: Even bigger than LLVM. Also many targets. Not very good
+  usability. Probably quite stable. GPL.
+- libgccjit :: Despite the name, also AOT. Basically an easier to
+  use frontend for GCC with additional functionality to leverage GCC
+  for JITting. Most points of GCC apply, but easier to use, and JIT
+  included.
+- GNU Lightning :: JIT (only). Used by some schemes. Disjoint from
+  GCC.
+- Cranelift :: Small-ish atm, but not sure it has any goals to stay
+  that way. Seems more like an effort to replace LLVM, including
+  much of its "bloat". Written in Rust. Maybe not all that
+  standalone? Seems to be meant to be called from Rust. Performance
+  of generated code seems bad atm, but should be improved.
+- QBE :: Small! 10k LOC. Goals to be 70% as fast as
+  GCC/LLVM. Generates ASM instead of machine code for some
+  reason. Seems like it hasn't seen much update this last
+  year. However, one [[https://github.com/michaelforney/qbe][Michael Forney is actively maintaining a fork]],
+  for his own language I think, so that might be interesting.
+- [[https://github.com/vnmakarov/mir][MIR]] :: This one looks the most interesting! Similarly to QBE, very
+  small at 15k LOC and 70% the performance of GCC. Primarily a
+  JIT(?), but seems to be able to to AOT as well. Has a 4 backends
+  atm, including AMD64 and Aarch64, and it seems relatively easy to
+  add a new one. I've found 2 languages that make use of MIR to
+  study: [[https://github.com/grame-cncm/faust][Faust]] and [[https://github.com/dibyendumajumdar/ravi][Ravi]].
+#+END_QUOTE
 
-   Thinking about alloca:s (stack allocations) in generated loops for
-   e.g. tail call optimization. Is it fine to simply generate all the
-   alloca:s as we do in the LLVM codegen, but maybe instead of placing
-   the statements at the point of use, output them with a Writer monad
-   and place them at the function entry. As long as the register names
-   used are good, it should work out fine right? Similar to how we
-   currently generate strings.
+In the end, I most like the look of MIR. It seems to make good
+tradeoffs.
 
-   Thinking about to what level we should lower the IR. Remain at
-   nested expressions, or move on to blocks and goto:s? Blocks with
-   parameters vs. Phi-nodes? If remain with if-expressions,
-   translation to C would be much cleaner, but how do we create the
-   loop for tail-recursion? If we go to block level, might be easier
-   to generate MIR, LLVM, or even ASM, but what if we want to generate
-   for some slightly higher level target like C?
+Compiling to C comes at second place. Incredibly portable, and .c
+files would be a lot more readable than .ll files. Would lose the
+GDB source-line from DWARF stuff though, but that shit kinda sucked
+anyways. Function names would work as well, if not better than in
+LLVM, since the names would be kept in the C, and C compilers
+probable output much better dwarf than I ever could.
 
-   Mutual tail recursion and/or sibling calls seem more difficult to
-   optimize, so maybe just guarantee optimization of tail-recursive
-   calls for all backends & platforms, but rely on the backend for
-   general sibling call optimization when supported. LLVM can do
-   sibling calls, for example.
+Maybe I'll do both? If I just a low-level IR that's just above the
+level of the union of C and MIR it ought to be quite simple to
+translate from that to whatever backendest backend.
 
-   Thinking about non-recursive tail calls. What is it that makes them
-   difficult to optimize exactly I wonder. If we want to support stuff
-   like continuation-passing style, general TCO would be quite
-   necessary. Wiki sort of explains it: "However, for language
-   implementations which store function arguments and local variables
-   on a call stack (which is the default implementation for many
-   languages, at least on systems with a hardware stack, such as the
-   x86), implementing generalized tail call optimization (including
-   mutual tail recursion) presents an issue: if the size of the
-   callee's activation record is different from that of the caller,
-   then additional cleanup or resizing of the stack frame may be
-   required. For these cases, optimizing tail recursion remains
-   trivial, but general tail call optimization may be harder to
-   implement efficiently.". "As a result, functional languages such as
-   Scala that target the JVM can efficiently implement direct tail
-   recursion, but not mutual tail recursion.". If Scala can't do it,
-   maybe it's fine if we can't either?
-
-   http://web.eecs.umich.edu/~mahlke/courses/483f06/lectures/483L17.pdf
-
-   I think I'll start with a very simplified version of Monomorphic,
-   and possibly change it or add an additional even lower step
-   afterwards.
-
-   Detect tail recursive functions in lowering & mark the tail
-   recursive calls. Should then be able to generate an efficient loop
-   in LLVM / whatever, and should be able to not generate anything
-   unnecessary.
-
-   #+BEGIN_EXAMPLE
-   f x y =
-     if foo x y
-     then f (x - 1, y)
-     else g x y
-   #+END_EXAMPLE
-
-   becomes
-
-   #+BEGIN_EXAMPLE
-   @recursive=yes
-   f x y =
-     if foo x y
-     then @recurse (x - 1, y)
-     else g x y
-   #+END_EXAMPLE
-
-   If function is marked as recursive, the codegen knows to stack
-   allocate the parameters so they can be modified for each iteration
-   (could consider block-params / phi-nodes as alt., but this solution
-   seems relatively simple). If special instruction to recurse is
-   encountered, just set the parameter stack variables and jump to the
-   entry label kept in Reader.
-
-   https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md
-   https://www.cs.tufts.edu/~nr/c--/extern/man2.pdf
-   https://llvm.org/pubs/2009-10-TereiThesis.pdf
-   https://llvm.org/devmtg/2015-10/slides/GroffLattner-SILHighLevelIR.pdf
-
-*** INACTIVE Separate backend from Low and beyond into its own library?
-    Maybe a separate package in the same repo?
-
-    Not sure about this one, but maybe. The idea popped into my head
-    that I could test Low out before implementing Lower if a write a
-    simple C frontend or something for it, and just try compiling C
-    code. But it would be kind of ugly for the carth package to
-    contain a C frontend -- except it would not! it could be wicked
-    useful for generating bindings for C libraries!! but I digress --
-    so why not separate the backend into its own package, and the C
-    frontend wouldn't really have to be "a part of" carth.
-
-    Something to consider for sure.
-** DONE Step 1: Re-add interpreter for pure Carth code
-   Fairly self explanatory. Just operate on whatever is returned by
-   the Optimize pass. Make sure to add / translate as many test-cases
-   as possible to work without ~extern~ declarations, so that I can
-   ensure as few correctness regressions as possible.
-
-** INACTIVE Step 2: Support ~extern~ in interpreter
-   This may not be trivial, but I think it won't be too hard. Can get
-   some stuff from the codegen.
-
-   Use [[https://hackage.haskell.org/package/libffi][libffi]] for dynamic FFI calls with runtime type info.
-
-   How to convert data from Haskell to C? Functions for primitive
-   types in libffi. For complex datatypes, I'm sure there's libraries
-   for converting to bytes directly.
-
-   Use sizeof and alignmentof from codegen module.
-
-   *UPDATE*: Actually, this got complicated. How to handle GC roots,
-   Haskell GC vs. Boehm GC. Allowing arbitrary extern calls, including
-   those that might unsafely mutate memory. When we add our own GC
-   with user-defineable destructor functions, how can we pass the
-   user-defined function via FFI if it's a Haskell function basically?
-   It all just gets really messy. Might not be much point in trying to
-   do this after all... Focusing on adding our own LIR and using MIR
-   for JIT/compilation seems like a better route at this point.
-
-** NEXT Step 3: Remove LLVM support
-   yeah
-
-** INACTIVE Step 4: Add new native codegen backend
-  Investigate QBE, Cranelift, GNU Lightning, libgccjit, GCC, MIR.
-
-  #+BEGIN_QUOTE Candidates
-  - C :: I.e., spit out C source and call out to ~cc~. Very portable
-    (every platform has a C compiler). Not very elegant. Does not
-    natively support tail call elimination, so would have to do that
-    myself (true for pretty much everything except llvm though). Used
-    by respectable languages like Nim and Haskell (sort of).
-  - C-- :: Similar to C, but even more "portable assembly
-    language". Created by SPJ and friend, specifically for being
-    generated by compilers. Fork called Cmm used by GHC.
-  - LLVM :: Approx 5 million LOC. Many targets, OK usability, but
-    breaking changes sometimes and big and scary.
-  - GCC :: Even bigger than LLVM. Also many targets. Not very good
-    usability. Probably quite stable. GPL.
-  - libgccjit :: Despite the name, also AOT. Basically an easier to
-    use frontend for GCC with additional functionality to leverage GCC
-    for JITting. Most points of GCC apply, but easier to use, and JIT
-    included.
-  - GNU Lightning :: JIT (only). Used by some schemes. Disjoint from
-    GCC.
-  - Cranelift :: Small-ish atm, but not sure it has any goals to stay
-    that way. Seems more like an effort to replace LLVM, including
-    much of its "bloat". Written in Rust. Maybe not all that
-    standalone? Seems to be meant to be called from Rust. Performance
-    of generated code seems bad atm, but should be improved.
-  - QBE :: Small! 10k LOC. Goals to be 70% as fast as
-    GCC/LLVM. Generates ASM instead of machine code for some
-    reason. Seems like it hasn't seen much update this last
-    year. However, one [[https://github.com/michaelforney/qbe][Michael Forney is actively maintaining a fork]],
-    for his own language I think, so that might be interesting.
-  - [[https://github.com/vnmakarov/mir][MIR]] :: This one looks the most interesting! Similarly to QBE, very
-    small at 15k LOC and 70% the performance of GCC. Primarily a
-    JIT(?), but seems to be able to to AOT as well. Has a 4 backends
-    atm, including AMD64 and Aarch64, and it seems relatively easy to
-    add a new one. I've found 2 languages that make use of MIR to
-    study: [[https://github.com/grame-cncm/faust][Faust]] and [[https://github.com/dibyendumajumdar/ravi][Ravi]].
-  #+END_QUOTE
-
-  In the end, I most like the look of MIR. It seems to make good
-  tradeoffs.
-
-  Compiling to C comes at second place. Incredibly portable, and .c
-  files would be a lot more readable than .ll files. Would lose the
-  GDB source-line from DWARF stuff though, but that shit kinda sucked
-  anyways. Function names would work as well, if not better than in
-  LLVM, since the names would be kept in the C, and C compilers
-  probable output much better dwarf than I ever could.
-
-  Maybe I'll do both? If I just a low-level IR that's just above the
-  level of the union of C and MIR it ought to be quite simple to
-  translate from that to whatever backendest backend.
-
-  Ravi, a language using MIR: https://github.com/dibyendumajumdar/ravi
+Ravi, a language using MIR: https://github.com/dibyendumajumdar/ravi
 
 ** References
    - [[https://gist.github.com/zeux/3ce4fcc3a43072b4315abde95319ecb6][How does clang 2.7 hold up in 2021?]]
-* NEXT Try our an alternative prelude, like relude
 * TODO `tail` keyword to ensure tail call or compiler error
   Sometimes you want to be sure that tail calls are optimized. To be
   able to assert this at compile time, so as to not accidentally
@@ -1640,15 +1427,19 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
   actually a tail call, if you've done something wrong or
   something. Sort of like Rust is considering the `become` keyword to
   work?
-* TODO Cleaner method of producing useful stack traces
-  I don't really like how we do source positions now, annotating
-  everything and generating bad DWARF in the LLVM
-  backend. Line-by-line stepping won't work well regardless of how we
-  do, due to the expression-oriented nature of the language. Stack
-  traces is the most interesting thing we want for debugging by far,
-  and that might be achievable with some more general and cleaner
-  method. Some kind of shadow stack, for example. Such a method might
-  work well for other potential backends as well, like a C backend.
+* TODO Stack traces
+I want something like what you get when running a panic:ing Rust
+program with ~RUST_BACKTRACE=1~.
+
+Annotating generated code with good DWARF is not easy, and it wouldn't
+be optimally useful in an expression oriented language anyways. That's
+more for line-by-line / statement oriented languages like C. But
+stacktraces are awesome! Seeing exactly where a panic occurs is
+critical for quick debugging.
+
+So how do we get the traces? Maybe using some kind of shadow
+stack. Such a method might work well for other potential backends as
+well, like a C backend.
 
 * INACTIVE Add kind of ~apply~ function that takes tuple
   #+BEGIN_SRC carth
@@ -1807,148 +1598,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
 
   Must consider how this interacts with monomorphization vs. boxing
   vs. value witness tables for static dispatch.b
-* TODO Don't curry by default
-** <2022-03-16 ons>
-   So what I'm thinking is: argument lists should be their own
-   thing. Not tuples.
-
-   Pros: Matches the hardware better. Fewer surprises. No hidden
-         allocations etc.
-
-   Cons: Not as ergonomic.
-
-   Argument lists wouldn't be first-class types, so you can't pass
-   around objects of them. But what I'm thinking is that for the
-   relatively infrequent cases when you'd want that, we can supply
-   nice adapters to make functions accept tuples, sort of like how we
-   can supply adapters to make them curried.
-
-   - ~partial~ :: given a function and one argument, partially apply that one argument
-   - ~curry~ :: given a function, return a function that takes the
-     first argument and returns a function that takes the rest of the
-     arguments
-   - ~apply~ :: given a function and a tuple, destructure the tuple
-     and apply the elements as arguments.
-   - ~unapply~ :: (not sure about this name.) given a function that
-     accepts a tuple, returns a function that accepts the tuple
-     elements as an argument list.
-
-   #+BEGIN_EXAMPLE
-   ((partial + 1) 2)               ; = 3
-   (((curry +) 1) 2)               ; = 3
-   ((partial apply +) [1 2])       ; = 3
-
-   f                       ; : (Fun (a b) c)
-   (partial apply f)       ; : (Fun ([a b]) c)
-
-   g                       ; : (Fun ([a b]) c)
-   (unapply g)             ; : (Fun (a b) c)
-   #+END_EXAMPLE
-** <2022-03-10 tor>
-   I'm coming around to the idea of, at least to begin
-   with, just doing function arguments the "normal" way. I.e., no
-   automagic currying or wrapping in tuples or whatever. Leave that to
-   the users (hah) for now.
-
-   #+BEGIN_SRC carth
-   (defun polynomial-2 (a b c) : (Fun (F64 F64 F64) (Fun (F64) F64))
-          (fun (x) (+ (* a x x) (* b x) c)))
-   #+END_SRC
-
-   These special forms would be nice
-
-   #+BEGIN_SRC carth
-   (defun f (a b c)
-          (+ a b c))
-
-   (((curry f) a) b c)
-   ((((curry* f) a) b) c)
-
-   (defun f
-          (case (0 0) None)
-          (case (a b) (Some (+ a b))))
-   #+END_SRC
-** Old
-
-  If we don't do currying, we could also better fit a nice
-  arbitrary-position anonymous function syntax into Carth. Like
-  Clojure's,
-  https://clojure.org/guides/learn/functions#_anonymous_function_syntax.
-
-  #+BEGIN_SRC clojure
-  ;; Equivalent to: (fn [x] (+ 6 x))
-  #(+ 6 %)
-
-  ;; Equivalent to: (fn [x y] (+ x y))
-  #(+ %1 %2)
-
-  ;; Equivalent to: (fn [x y & zs] (println x y zs))
-  #(println %1 %2 %&)
-  #+END_SRC
-
-  Or like Scala's (optionally typed) holes:
-
-  #+BEGIN_EXAMPLE
-  ;; In this example, _ is not a hole, but a partial application placeholder
-
-  (+ 10 _) ;; Type of placeholder inferred to Int
-
-  (define (pair x y) [x y])
-  (pair 5 (: _ Nat)) ;; Type Nat ascribed to placeholder, to lock it
-  #+END_EXAMPLE
-
-** Older
-  I did currying by default mostly because it's the Haskell way of
-  doing things, but this has, among other things, performance
-  implications. And we're not Haskell, we're a Lisp.
-
-  Maybe let's do function application a bit more like Clojure? We
-  reduce the complexity of our call stacks and make profiling more
-  clear and easy. We'd also improve performance by not having to heap
-  allocate as many closure captures for the wrapping
-  curry-closures. Also, variadic special forms and macros wouldn't
-  cause confusion about whether it's a curried application or an extra
-  argument. Maybe we could even have variadic functions in some
-  way. ~(+ 1 2 3)~, ~(|> x f g h)~.
-
-  In Clojure, one direct way of making a curried application is with
-  ~partial~. But we'd call it ~curry~ I think.
-
-  #+BEGIN_SRC carth
-  ((cons 1) [2]) ;; error
-  ((curry cons 1) [2]) ;; [1 2]
-  #+END_SRC
-
-  We probably couldn't implement it as a function, but we could have
-  it as a special form. Or, I guess we could implement it by doing
-  Rust-style
-  implement-a-class-for-every-arity-version-up-to-a-big-number-like-11. Another
-  possibility might be if function arguments were behind the scenes a
-  tuple. Then we might implement it like
-
-  #+BEGIN_SRC carth
-  (define: (curry f a)
-      (Fun [a . bs] c)
-    (fun bs (f (cons a bs))))
-  #+END_SRC
-  
-  This might have other negative implications, however.
-
-  I suppose it would be nice if we could treat the function
-  paramer-list as if it were a tuple, but under the scenes they
-  actually don't, and the tuple stuff is just wrapped around it, and
-  optimized away when calls are saturated. Then you could fmatch
-  directly on the whole argument list, e.g.
-
-  #+BEGIN_SRC carth
-  (foldl (fmatch (case [(Left n) x]
-                       (Left (inc n)))
-                 (case [(Right xs) x]
-                       (if (> 10 x)
-                           (Right (list/cons x xs))
-                         (Left 1))))
-         ...)
-  #+END_SRC
 * INACTIVE Have error messages quote section numbers for the spec
   when there is a spec.
 
