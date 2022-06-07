@@ -11,10 +11,10 @@
   (Queue (list/cons x in) out))
 
 (define queue/pop
-  (fmatch (case (Queue LNil LNil)
-                None)
-          (case (Queue in LNil)
-                (let1 [x out] (unwrap! (list/uncons (list/reverse in)))
-                  (Some [(Queue LNil out) x])))
-          (case (Queue in (LCons (Box [x out'])))
-                (Some [(Queue in out') x]))))
+  (fun* (case [(Queue LNil LNil)]
+              None)
+        (case [(Queue in LNil)]
+              (let1 [x out] (unwrap! (list/uncons (list/reverse in)))
+                (Some [(Queue LNil out) x])))
+        (case [(Queue in (LCons (Box [x out'])))]
+              (Some [(Queue in out') x]))))

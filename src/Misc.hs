@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, MagicHash #-}
 
 module Misc where
 
@@ -18,6 +18,11 @@ import Text.Megaparsec hiding (parse, match)
 import Text.Megaparsec.Char hiding (space, space1)
 import Data.Void
 
+import GHC.Stack.Types
+import GHC.Stack (callStack)
+import GHC.Exts
+import GHC.Exception (errorCallWithCallStackException)
+
 
 newtype TopologicalOrder a = Topo [a]
     deriving Show
@@ -25,11 +30,14 @@ newtype TopologicalOrder a = Topo [a]
 type Source = String
 
 
-ice :: String -> a
-ice = error . ("Internal Compiler Error: " ++)
+ice :: HasCallStack => String -> a
+ice s = raise# (errorCallWithCallStackException ("Internal Compiler Error: " ++ s) callStack)
 
 nyi :: String -> a
 nyi = error . ("Not yet implemented: " ++)
+
+unreachable :: a
+unreachable = ice "unreachable"
 
 -- | Like `intercalate`, but concatenate a list with a prefix before each
 --   element, instead of an separator between each pair of elements.
@@ -41,8 +49,20 @@ precalate prefix = \case
 indent :: Int -> String
 indent = flip replicate ' '
 
+firstM :: (Bitraversable t, Applicative f) => (a -> f a') -> t a b -> f (t a' b)
+firstM = flip bimapM pure
+
 secondM :: (Bitraversable t, Applicative f) => (b -> f b') -> t a b -> f (t a b')
 secondM = bimapM pure
+
+mapMaybeM :: Monad m => (a -> m (Maybe b)) -> [a] -> m [b]
+mapMaybeM f xs = catMaybes <$> mapM f xs
+
+bindM2 :: Monad m => (a -> b -> m c) -> m a -> m b -> m c
+bindM2 f ma mb = do
+    a' <- ma
+    b' <- mb
+    f a' b'
 
 locallySet :: MonadReader s m => Lens' s a -> a -> m r -> m r
 locallySet l = locally l . const
@@ -66,6 +86,10 @@ scribe l b = tell (set l b mempty)
 (.*) = (.) . (.)
 infixr 8 .*
 
+(.**) :: (d -> e) -> (a -> b -> c -> d) -> a -> b -> c -> e
+(.**) = (.) . (.*)
+infixr 8 .**
+
 abort :: FilePath -> IO a
 abort f = do
     putStrLn "Error: Aborting due to previous error."
@@ -79,7 +103,7 @@ splitOn sep = fromMaybe [] . Mega.parseMaybe splitOn'
     splitOn' = do
         as <- Mega.many (try (manyTill anySingle (try (string sep))))
         a <- Mega.many anySingle
-        pure $ (as ++) $ if not (null a) then [a] else []
+        pure $ (as ++) $ [ a | not (null a) ]
 
 parse' :: Parsec Void String a -> FilePath -> Source -> Either String a
 parse' p name src = first errorBundlePretty (Mega.parse p name src)
@@ -102,6 +126,14 @@ unsnoc = \case
         Just (ys, y) -> Just (x : ys, y)
         Nothing -> Just ([], x)
 
+lastMay :: [a] -> Maybe a
+lastMay = fmap snd . unsnoc
+
+deleteAt :: Int -> [a] -> [a]
+deleteAt 0 (_ : xs) = xs
+deleteAt i (x : xs) = x : deleteAt (i - 1) xs
+deleteAt _ _ = error "deleteAt at invalid index"
+
 takeWhileJust :: (a -> Maybe b) -> [a] -> [b]
 takeWhileJust f = \case
     [] -> []
@@ -117,3 +149,6 @@ whenJust = flip (maybe (pure ()))
 
 uncurry3 :: (a -> b -> c -> d) -> ((a, b, c) -> d)
 uncurry3 f (a, b, c) = f a b c
+
+zipWith3M :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m [d]
+zipWith3M f = mapM (uncurry3 f) .** zip3

@@ -10,7 +10,7 @@ license = "AGPL-3.0-or-later"
 
 [dependencies]
 libc = "0.2"
-native-tls = "0.2.6"
+native-tls = "0.2.10"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]

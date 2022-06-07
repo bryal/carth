@@ -13,7 +13,7 @@
       (let1 [(Str header) body] (unwrap! (string/split-first-line s)))
 
       (let1 [code meta] (map-two (apps <o unwrap! parse-nat Str)
-                                 (<o Str (array/from 1))
+                                 (<o Str (partial-2 array/slice-from 1))
                                  (unwrap! (array/split (cast 2) header))))
       (display (str-append "Code: " (show-nat code)))
       (display (str-append "Meta: " meta))

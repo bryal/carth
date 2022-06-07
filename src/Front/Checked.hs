@@ -2,8 +2,10 @@ module Front.Checked
     ( module Front.Checked
     , TVar(..)
     , TPrim(..)
+    , Type
     , TConst
-    , Type(..)
+    , TConst'
+    , Type'(..)
     , Scheme(..)
     , VariantIx
     , Span
@@ -19,11 +21,10 @@ import Data.Bifunctor
 import qualified Data.Map as Map
 
 import Misc
-import Front.TypeAst hiding (TConst)
 import Front.Inferred
     ( TVar(..)
     , TConst
-    , Type(..)
+    , Type
     , Scheme(..)
     , Const(..)
     , VariantIx
@@ -31,14 +32,15 @@ import Front.Inferred
     , Con(..)
     , Virt(..)
     )
+import Front.TypeAst
 
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
 data Access
-    = Obj
-    | As Access Span [Type]
-    | Sel Word32 Span Access
+    = TopSel Word32 -- type of selectee
+    | As Access Span VariantIx
+    | Sel Access Word32 Span
     | ADeref Access
     deriving (Show, Eq, Ord)
 
@@ -50,36 +52,36 @@ data DecisionTree
     | DSwitchStr Access (Map String DecisionTree) DecisionTree
     deriving Show
 
-type Fun = ((String, Type), (Expr, Type))
+type Fun = ([(String, Type)], (Expr, Type))
 
 type Var = (Virt, TypedVar)
 
 data Expr
     = Lit Const
     | Var Var
-    | App Expr Expr
+    | App Expr [Expr]
     | If Expr Expr Expr
     | Fun Fun
     | Let Def Expr
-    | Match Expr DecisionTree
+    | Match [Expr] DecisionTree
     | Ction VariantIx Span TConst [Expr]
     | Sizeof Type
     | Absurd Type
     deriving (Show)
 
 builtinExterns :: Map String Type
-builtinExterns =
-    Map.fromList
-        $ [ ("GC_malloc", tfun (TPrim TNatSize) (TBox tByte))
-          , ("malloc", tfun (TPrim TNatSize) (TBox tByte))
-          , ("str-eq", tfun tStr (tfun tStr tBool))
-          ]
+builtinExterns = Map.fromList
+    [ ("GC_add_roots", TFun [TBox (TPrim (TNat 8)), TBox (TPrim (TNat 8))] tUnit)
+    , ("GC_malloc", TFun [TPrim TNatSize] (TBox tByte))
+    , ("malloc", TFun [TPrim TNatSize] (TBox tByte))
+    , ("str-eq", TFun [tStr, tStr] tBool)
+    ]
 
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (String, (Scheme, Expr))
 type RecDefs = [(String, (Scheme, Fun))]
-type TypeDefs = Map String ([TVar], [[Type]])
+type TypeDefs = Map String ([TVar], [(String, [Type])])
 type Externs = Map String Type
 
 data Program = Program Defs TypeDefs Externs

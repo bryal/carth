@@ -1,11 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 
--- Note: Some parsers are greedy wrt consuming spaces and comments succeding the
---       item, while others are lazy. You'll have to look at the impl to be
---       sure.
+-- Note: Some parsers are greedy wrt consuming spaces and comments succeding the item, while others
+--       are lazy. You'll have to look at the impl to be sure.
 --
---       If a parser has a variant with a "ns_" prefix, that variant does not
---       consume succeding space, while the unprefixed variant does.
+--       If a parser has a variant with a "ns_" prefix, that variant does not consume succeding
+--       space, while the unprefixed variant does.
 
 module Front.Lex (lex, toplevel, tokentree) where
 
@@ -48,11 +47,9 @@ lex filepath = do
     filepath' <- lift $ makeAbsolute filepath
     evalStateT (lexModule modPaths filepath') Set.empty
 
--- NOTE: For the current implementation of macros where order of definition matters, it's
---       important that we visit imports and concatenate all token trees in the correct
---       order, which is DFS.
-lexModule
-    :: [FilePath] -> FilePath -> StateT (Set FilePath) (ExceptT String IO) [TokenTree]
+-- NOTE: For the current implementation of macros where order of definition matters, it's important
+--       that we visit imports and concatenate all token trees in the correct order, which is DFS.
+lexModule :: [FilePath] -> FilePath -> StateT (Set FilePath) (ExceptT String IO) [TokenTree]
 lexModule modPaths f = get >>= \visiteds -> if Set.member f visiteds
     then pure []
     else do
@@ -71,7 +68,7 @@ lexModule modPaths f = get >>= \visiteds -> if Set.member f visiteds
                             ++ ("Searched paths: " ++ show ps)
                     Just g' -> liftIO $ makeAbsolute g'
         impFs <- mapM resolve imps
-        ttsImp <- fmap concat $ mapM (lexModule modPaths) impFs
+        ttsImp <- concat <$> mapM (lexModule modPaths) impFs
         pure (ttsImp ++ tts)
 
 toplevels :: Lexer ([Import], [TokenTree])
@@ -88,8 +85,8 @@ toplevels = do
         tops
 
 toplevel :: Lexer TopLevel
-toplevel = getSrcPos >>= \p -> parens
-    (fmap TImport import' <|> fmap (TTokenTree . WithPos p . Parens) (many tokentree))
+toplevel = getSrcPos >>= \p ->
+    parens (fmap TImport import' <|> fmap (TTokenTree . WithPos p . Parens) (many tokentree))
     where import' = keyword' "import" *> small
 
 tokentree :: Lexer TokenTree
@@ -120,8 +117,7 @@ tokentree = do
                       (\x -> F64 (if neg then -x else x))
                       a
     ns_nat :: Lexer Word
-    ns_nat = choice
-        [string "0b" *> Lexer.binary, string "0x" *> Lexer.hexadecimal, Lexer.decimal]
+    ns_nat = choice [string "0b" *> Lexer.binary, string "0x" *> Lexer.hexadecimal, Lexer.decimal]
 
 strlit :: Lexer String
 strlit = andSkipSpaceAfter ns_strlit
@@ -140,7 +136,7 @@ keyword = andSkipSpaceAfter $ choice $ (++)
         , string "extern" $> Kextern
         , string "forall" $> Kforall
         , string "where" $> Kwhere
-        , string "fmatch" $> Kfmatch
+        , string "fun*" $> KfunStar
         , string "match" $> Kmatch
         , string "if" $> Kif
         , string "fun" $> Kfun
@@ -164,8 +160,8 @@ small = smallSpecial <|> smallNormal
 smallSpecial = keyword' "id@" *> strlit
 smallNormal = andSkipSpaceAfter $ liftA2 (:) smallStart identRest
   where
-    smallStart = lowerChar <|> otherChar <|> try
-        (oneOf ("-+" :: String) <* notFollowedBy digitChar)
+    smallStart =
+        lowerChar <|> otherChar <|> try (oneOf ("-+" :: String) <* notFollowedBy digitChar)
 
 bigSpecial, bigNormal :: Lexer String
 bigSpecial = keyword' "id@" *> strlit
@@ -182,8 +178,8 @@ otherChar :: Lexer Char
 otherChar = satisfy
     (\c -> and
         [ any ($ c) [isMark, isPunctuation, isSymbol]
-        , not (elem c ("()[]{}" :: String))
-        , not (elem c ("\"-+:•" :: String))
+        , c `notElem` ("()[]{}" :: String)
+        , c `notElem` ("\"-+:•" :: String)
         ]
     )
 
@@ -211,7 +207,5 @@ space = Lexer.space Char.space1 (Lexer.skipLineComment ";") empty
 
 getSrcPos :: Lexer SrcPos
 getSrcPos = fmap
-    (\(SourcePos f l c) ->
-        SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c)) Nothing
-    )
+    (\(SourcePos f l c) -> SrcPos f (fromIntegral (unPos l)) (fromIntegral (unPos c)) Nothing)
     getSourcePos

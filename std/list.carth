@@ -5,44 +5,44 @@
   LNil)
 
 (define first
-  (fmatch (case (LCons (Box [x _])) (Some x))
-          (case LNil None)))
+  (fun* (case [(LCons (Box [x _]))] (Some x))
+        (case [LNil] None)))
 (define first!
-  (fmatch (case (LCons (Box [x _])) x)
-          (case LNil (panic "first! of empty list"))))
+  (fun* (case [(LCons (Box [x _]))] x)
+        (case [LNil] (panic "first! of empty list"))))
 
 (define rest
-  (fmatch (case (LCons (Box [_ xs])) (Some xs))
-          (case LNil None)))
+  (fun* (case [(LCons (Box [_ xs]))] (Some xs))
+        (case [LNil] None)))
 (define rest!
-  (fmatch (case (LCons (Box [_ xs])) xs)
-          (case LNil (panic "rest! of empty list"))))
+  (fun* (case [(LCons (Box [_ xs]))] xs)
+        (case [LNil] (panic "rest! of empty list"))))
 
 (define list/uncons
-  (fmatch (case (LCons (Box p)) (Some p))
-          (case LNil None)))
+  (fun* (case [(LCons (Box p))] (Some p))
+        (case [LNil] None)))
 (define list/uncons!
-  (fmatch (case (LCons (Box p)) p)
-          (case LNil (panic "list/uncons! of empty list"))))
+  (fun* (case [(LCons (Box p))] p)
+        (case [LNil] (panic "list/uncons! of empty list"))))
 
 (define last
-  (fmatch (case (LCons (Box [x LNil])) (Some x))
-          (case (LCons (Box [_ xs])) (last xs))
-          (case LNil None)))
+  (fun* (case [(LCons (Box [x LNil]))] (Some x))
+        (case [(LCons (Box [_ xs]))] (last xs))
+        (case [LNil] None)))
 (define last!
-  (fmatch (case (LCons (Box [x LNil])) x)
-          (case (LCons (Box [_ xs])) (last! xs))
-          (case LNil (panic "last! of empty list"))))
+  (fun* (case [(LCons (Box [x LNil]))] x)
+        (case [(LCons (Box [_ xs]))] (last! xs))
+        (case [LNil] (panic "last! of empty list"))))
 
 (define init
-  (fmatch (case LNil None)
-          (case xs (Some (init! xs)))))
+  (fun* (case [LNil] None)
+        (case [xs] (Some (init! xs)))))
 (define init!
-  (fmatch (case (LCons (Box [_ LNil])) LNil)
-          (case (LCons (Box [x xs])) (list/cons x (init! xs)))
-          (case LNil (panic "init! of empty list"))))
+  (fun* (case [(LCons (Box [_ LNil]))] LNil)
+        (case [(LCons (Box [x xs]))] (list/cons x (init! xs)))
+        (case [LNil] (panic "init! of empty list"))))
 
-(define list/nil? (fmatch (case LNil True) (case _ False)))
+(define list/nil? (fun* (case [LNil] True) (case [_] False)))
 
 (define (list/reverse xs)
   (define (rev xs a)
@@ -74,12 +74,12 @@
     (case None ys)))
 
 (define list/concat
-  (fmatch (case (LCons (Box [xs xss])) (list/append xs (list/concat xss)))
-          (case LNil LNil)))
+  (fun* (case [(LCons (Box [xs xss]))] (list/append xs (list/concat xss)))
+        (case [LNil] LNil)))
 
-(define (list/map f)
-  (fmatch (case (LCons (Box [x xs])) (list/cons (f x) (list/map f xs)))
-          (case LNil LNil)))
+(define list/map
+  (fun* (case [f (LCons (Box [x xs]))] (list/cons (f x) (list/map f xs)))
+        (case [_ LNil] LNil)))
 
 (define (list/bind f xs)
   (list/concat (list/map f xs)))
@@ -99,10 +99,10 @@
 (define (list/count xs)
   (count (list/iter xs)))
 
-(define (list/elem? cmp x)
-  (fmatch (case LNil False)
-          (case (LCons (Box [y ys]))
-                (match (cmp x y) (case Eq True) (case _ (list/elem? cmp x ys))))))
+(define list/elem?
+  (fun* (case [_ _ LNil] False)
+        (case [cmp x (LCons (Box [y ys]))]
+              (match (cmp x y) (case Eq True) (case _ (list/elem? cmp x ys))))))
 
 (define (list/show show-x xs)
   (apps str-append "{" (string/concat (intersperse " " (map show-x (list/iter xs)))) "}"))

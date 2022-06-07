@@ -1,7 +1,9 @@
 {-# LANGUAGE TemplateHaskell, DataKinds #-}
 
+-- TODO: Can this and Checked be merged to a single, parametrized AST?
+
 -- | Type annotated AST as a result of typechecking
-module Front.Inferred (module Front.Inferred, WithPos(..), TVar(..), TPrim(..), Const(..)) where
+module Front.Inferred (module Front.Inferred, Type, TConst, WithPos(..), TVar(..), TPrim(..), Const(..), Type' (..), TConst') where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -11,10 +13,9 @@ import Lens.Micro.Platform (makeLenses)
 
 import Misc
 import qualified Front.Parsed as Parsed
-import Front.Parsed (TVar(..), Const(..))
+import Front.Parsed (Type, TConst, TVar(..), Const(..))
 import Front.SrcPos
-import Front.TypeAst hiding (TConst)
-import qualified Front.TypeAst as TypeAst
+import Front.TypeAst
 
 
 data TypeErr
@@ -39,17 +40,9 @@ data TypeErr
     | TypeInstArityMismatch SrcPos String Int Int
     | ConflictingVarDef SrcPos String
     | NoClassInstance SrcPos ClassConstraint
+    | FunCaseArityMismatch SrcPos Int Int
+    | FunArityMismatch SrcPos Int Int
     deriving (Show)
-
-type TConst = TypeAst.TConst Type
-
-data Type
-    = TVar TVar
-    | TPrim TPrim
-    | TConst TConst
-    | TFun Type Type
-    | TBox Type
-    deriving (Show, Eq, Ord)
 
 type ClassConstraint = (String, [Type])
 
@@ -86,21 +79,23 @@ data Pat'
     | PCon Con [Pat]
     | PBox Pat
     deriving Show
-type Pat = WithPos Pat'
 
-type Cases = [(Pat, Expr)]
-type FunMatch = (Cases, Type, Type)
+data Pat = Pat SrcPos Type Pat'
+    deriving Show
+
+type Cases = [(WithPos [Pat], Expr)]
+type FunMatch = (Cases, [Type], Type)
 
 -- | Whether a Var refers to a builtin virtual, or a global/local definition. So we don't
 --   have to keep as much state about environment definitions in later passes.
-data Virt = Virt | NonVirt deriving Show
+data Virt = Virt | NonVirt deriving (Show, Eq)
 
 type Var = (Virt, TypedVar)
 
 data Expr'
     = Lit Const
     | Var Var
-    | App Expr Expr Type
+    | App Expr [Expr] Type
     | If Expr Expr Expr
     | Let Def Expr
     | FunMatch FunMatch
@@ -125,18 +120,12 @@ instance Eq Con where
 instance Ord Con where
     compare (Con c1 _ _) (Con c2 _ _) = compare c1 c2
 
-instance TypeAst Type where
-    tprim = TPrim
-    tconst = TConst
-    tfun = TFun
-    tbox = TBox
-
 
 ftv :: Type -> Set TVar
 ftv = \case
     TVar tv -> Set.singleton tv
     TPrim _ -> Set.empty
-    TFun t1 t2 -> Set.union (ftv t1) (ftv t2)
+    TFun pts rt -> Set.unions (ftv rt : map ftv pts)
     TBox t -> ftv t
     TConst (_, ts) -> Set.unions (map ftv ts)
 
@@ -146,7 +135,7 @@ defSigs = \case
     RecDefs ds -> map defSig ds
 
 defSig :: (String, (Scheme, a)) -> (String, Scheme)
-defSig d = (fst d, fst (snd d))
+defSig = second fst
 
 flattenDefs :: Defs -> [(String, (Scheme, Expr))]
 flattenDefs (Topo defs) = defToVarDefs =<< defs

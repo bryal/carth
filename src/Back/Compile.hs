@@ -47,20 +47,19 @@ handleProgram
     -> Ast.Program
     -> IO ()
 handleProgram f file cfg pgm = withContext $ \ctx ->
-    -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize
-    -- by -O2. No point in going further to -O3, as those optimizations are
-    -- expensive and seldom actually improve the performance in a statistically
-    -- significant way.
-    --
-    -- A minimum optimization level of -O1 ensures that all sibling calls are
-    -- optimized, even if we don't use a calling convention like `fastcc` that
-    -- can optimize any tail call.
-    let optLvl = if (getDebug cfg) then CodeGenOpt.Less else CodeGenOpt.Default
+    let
+        -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize by -O2. No point in
+        -- going further to -O3, as those optimizations are expensive and seldom actually improve the
+        -- performance in a statistically significant way.
+        --
+        -- A minimum optimization level of -O1 ensures that all sibling calls are optimized, even if we
+        -- don't use a calling convention like `fastcc` that can optimize any tail call.
+        optLvl = if getDebug cfg then CodeGenOpt.Less else CodeGenOpt.Default
     in
         withMyTargetMachine optLvl $ \tm -> do
             layout <- getTargetMachineDataLayout tm
             triple <- getProcessTargetTriple
-            verbose cfg ("   Generating LLVM")
+            verbose cfg "   Generating LLVM"
             let amod = codegen layout triple (getNoGC cfg) file pgm
             when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
             flip
@@ -70,15 +69,14 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
                     )
                 $ withModuleFromAST ctx amod
                 $ \mod -> do
-                      verbose cfg ("   Verifying LLVM")
+                      verbose cfg "   Verifying LLVM"
                       when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
                       catch (verify mod) $ \case
-                          VerifyException msg ->
-                              ice $ "LLVM verification exception:\n" ++ msg
+                          VerifyException msg -> ice $ "LLVM verification exception:\n" ++ msg
                       withPassManager (optPasses optLvl tm) $ \passman -> do
                           verbose cfg "   Optimizing"
                           r <- runPassManager passman mod
-                          when (not r) $ putStrLn "DEBUG: runPassManager returned False"
+                          unless r $ putStrLn "DEBUG: runPassManager returned False"
                           when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
                           f cfg tm mod
 
@@ -88,7 +86,7 @@ compileModule cfg tm mod = do
         ofile = replaceExtension exefile "o"
     verbose cfg "   Writing object"
     writeObjectToFile tm (File ofile) mod
-    verbose cfg ("   Linking")
+    verbose cfg "   Linking"
     callProcess
         (cCompiler cfg)
         [ "-o"
@@ -136,24 +134,19 @@ orcJitModule cfg tm mod = do
     disposeLinkingLayer linkLay
     disposeExecutionSession session
 
--- Following are some useful things to know regarding symbol resolution when it
--- comes to JIT, LLVM, and OrcJIT. I'm not sure about all of this, so take it
--- with a grain of salt.
+-- Following are some useful things to know regarding symbol resolution when it comes to JIT, LLVM,
+-- and OrcJIT. I'm not sure about all of this, so take it with a grain of salt.
 --
--- - `CompileLayer.findSymbol`: Only looks in the compile-layer, which includes
---   our compiled LLVM modules, but not linked object code, or linked shared
---   libraries.
+-- - `CompileLayer.findSymbol`: Only looks in the compile-layer, which includes our compiled LLVM
+--   modules, but not linked object code, or linked shared libraries.
 --
--- - `LinkingLayer.findSymbol`: Looks in the linking-layer, a superset of the
---   compile-layer that includes all object code added to the layer with
---   `addObjectFile`.
+-- - `LinkingLayer.findSymbol`: Looks in the linking-layer, a superset of the compile-layer that
+--   includes all object code added to the layer with `addObjectFile`.
 --
--- - `Linking.getSymbolAddressInProcess`: Looks in the address-space of the
---   running process, which includes all shared object code added with
---   `Linking.loadLibraryPermanently`. Disjoint from the compile and linking
---   layer.
-resolver
-    :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
+-- - `Linking.getSymbolAddressInProcess`: Looks in the address-space of the running process, which
+--   includes all shared object code added with `Linking.loadLibraryPermanently`. Disjoint from the
+--   compile and linking layer.
+resolver :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
 resolver compLay symb =
     let
         flags = JITSymbolFlags { jitSymbolWeak = False
@@ -163,16 +156,14 @@ resolver compLay symb =
                                }
         err = fromString ("Error resolving symbol: " ++ show symb)
         findInLlvmModules = CL.findSymbol compLay symb False
-        findInSharedObjects = getSymbolAddressInProcess symb <&> \addr -> if addr == 0
-            then Left (JITSymbolError err)
-            else Right (JITSymbol addr flags)
+        findInSharedObjects = getSymbolAddressInProcess symb <&> \addr ->
+            if addr == 0 then Left (JITSymbolError err) else Right (JITSymbol addr flags)
     in
         findInLlvmModules >>= \case
             Right js -> pure (Right js)
             Left _ -> findInSharedObjects
 
--- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing,
---   so this is a workaround.
+-- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing, so this is a workaround.
 writeLLVMAssemblyToFile' :: FilePath -> Module -> IO ()
 writeLLVMAssemblyToFile' f m = do
     writeFile f ""

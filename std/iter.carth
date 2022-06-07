@@ -39,9 +39,9 @@
   (maybe/map (fun ([x xs']) (unwrap-or x (iter/last xs'))) (next xs)))
 (define (iter/last! it) (unwrap! (iter/last it)))
 
-(define: (iter/nth n)
+(define: (iter/nth n xs)
     (forall (a) (Fun Nat (Iter a) (Maybe a)))
-  (apps <o (maybe/map car) next (skip n)))
+  (maybe/map car (next (skip n xs))))
 
 (define (xrange a b)
   (take (- b a) (range-from a)))
@@ -53,7 +53,7 @@
 
 (define (take n xs)
   (Iter (if (> n (cast 0))
-            (fun (_) (maybe/map (map-cadr (take (- n (cast 1)))) (next xs)))
+            (fun (_) (maybe/map (partial-2 map-cadr (partial-2 take (- n (cast 1)))) (next xs)))
           (fun (_) None))))
 
 (define (skip n xs)
@@ -80,7 +80,7 @@
                                     None))
                                 (next xs)))))
 
-(define (for xs f) (foldl (const f) Unit xs))
+(define (for xs f) (foldl (fun (_ x) (f x)) Unit xs))
 
 (define (map f xs)
   (Iter (fun (Unit) (match (next xs)
@@ -88,7 +88,7 @@
                       (case (Some [x xs]) (Some [(f x) (map f xs)]))))))
 
 (define (filter pred xs)
-  (Iter (fun (_) (maybe/map (map-cadr (filter pred))
+  (Iter (fun (_) (maybe/map (partial-2 map-cadr (partial-2 filter pred))
                             (next (skip-while (<o not pred) xs))))))
 
 (define: (flat-map f xs)
@@ -108,8 +108,8 @@
   (Iter (fun (Unit) (maybe/bind (fun ([xs xss']) (next (iter/chain xs (iter/join xss'))))
                                 (next xss)))))
 
-(define (filter-map f)
-  (flat-map (<o maybe/iter f)))
+(define (filter-map f xs)
+  (flat-map (<o maybe/iter f) xs))
 
 (define: (foldl f acc xs)
     (forall (acc x) (Fun (Fun acc x acc) acc (Iter x) acc))
@@ -125,9 +125,9 @@
     (forall (a b) (Fun (Fun a (Maybe [b a]))
                        a
                        (Iter b)))
-  (Iter (fun (_) (maybe/map (map-cadr (unfoldr f)) (f a)))))
+  (Iter (fun (_) (maybe/map (partial-2 map-cadr (partial-2 unfoldr f)) (f a)))))
 
-(define: (unfoldr' f)
+(define: (unfoldr' f inp)
     (forall (inp x) (Fun (Fun inp (Maybe [x inp]))
                          inp
                          [(List x) inp]))
@@ -135,7 +135,7 @@
     (match (f inp)
       (case None [(list/reverse xs) inp])
       (case (Some [x inp]) (go (list/cons x xs) inp))))
-  (go LNil))
+  (go LNil inp))
 
 (define (reverse xs)
   (define (rev xs a)
@@ -144,9 +144,9 @@
 
 (define: (count xs)
     (forall (a) (Fun (Iter a) Nat))
-  (foldl (<o const inc) (cast 0) xs))
+  (foldl (fun (n _) (inc n)) (cast 0) xs))
 
-(define enumerate (zip (range-from (: (cast 0) Nat))))
+(define enumerate (partial-2 zip (range-from (: (cast 0) Nat))))
 
 (define (zip xs ys)
   (Iter (fun (_) (match [(next xs) (next ys)]
@@ -164,7 +164,7 @@
   (not (iter/nil? (filter f xs))))
 
 (define (iter/cartesian xs ys)
-  (flat-map (fun (x) (map (cons' x) ys)) xs))
+  (flat-map (fun (x) (map (fun (y) [x . y]) ys)) xs))
 
 (define (repeat x)
   (Iter (fun (Unit) (Some [x (repeat x)]))))
@@ -182,17 +182,18 @@
   (define (go m it)
     (Iter (nonstrict (if (= m n)
                          (next (go 0 (skip (to-nat 1) it)))
-                       (maybe/map (map-cadr (go (+ 1 m))) (next it))))))
+                       (maybe/map (partial-2 map-cadr (partial-2 go (+ 1 m))) (next it))))))
   (go 0 it))
 
 ;; Sliding windows over an iterator, each of width `n`
-(define: (iter/windows n)
+(define: (iter/windows n it)
     (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
   (unfoldr (fun (xs)
              (let1 window (array/collect (take n xs))
                (if (< (array/length window) n)  ; At the end
                    None
-                 (Some [window (skip 1 xs)]))))))
+                 (Some [window (skip 1 xs)]))))
+           it))
 
 (define: (iter/next-n n it)
     (forall (a) (Fun Nat (Iter a) (Maybe [(Array a) (Iter a)])))
@@ -206,10 +207,10 @@
 
 (define: (iter/chunks width it)
     (forall (a) (Fun Nat (Iter a) (Iter (Array a))))
-  (unfoldr (iter/next-n width) it))
+  (unfoldr (partial-2 iter/next-n width) it))
 
-(define (maximum xs) (uncurry (foldl max) (next! xs)))
-(define (minimum xs) (uncurry (foldl min) (next! xs)))
+(define (maximum xs) (apply3 foldl [max . (next! xs)]))
+(define (minimum xs) (apply3 foldl [min . (next! xs)]))
 
 (define (iter/find pred xs)
   (match (next xs)

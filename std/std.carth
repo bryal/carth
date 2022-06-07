@@ -115,40 +115,45 @@
 (extern show-nat (Fun Nat Str))
 (extern show-f64 (Fun F64 Str))
 
-(define show-bool (fmatch (case True "True") (case False "False")))
+(define show-bool (fun* (case [True] "True") (case [False] "False")))
 
 (extern str-append (Fun Str Str Str))
 
 ;;; Function
 
-(define (uncurry f [a b]) (f a b))
-(define (curry f a b) (f [a b]))
+;; (define (uncurry f [a b]) (f a b))
+;; (define (curry f a b) (f [a b]))
+
+(define (partial-2 f a) (fun (b) (f a b)))
+
+(define (apply2 f [a b]) (f a b))
+(define (apply3 f [a b c]) (f a b c))
 
 (define (app f a) (f a))
 (define (rapp a f) (f a))
 
-(define (const a b) a)
-(define (seq   a b) b)
+(define (const a) (fun (b) a))
+(define (seq a b) b)
 
-(define (<o f g a) (f (g a)))
-(define (<oo f g a b) (f (g a b)))
-(define (<ooo f g a b c) (f (g a b c)))
-(define (o> f g a) (g (f a)))
-(define (oo> f g a b) (g (f a b)))
-(define (ooo> f g a b c) (g (f a b c)))
+(define (<o f g) (fun (a) (f (g a))))
+(define (<oo f g) (fun (a b) (f (g a b))))
+(define (<ooo f g) (fun (a b c) (f (g a b c))))
+(define (o> f g) (fun (a) (g (f a))))
+(define (oo> f g) (fun (a b) (g (f a b))))
+(define (ooo> f g) (fun (a b c) (g (f a b c))))
 
 (define (<| f a) (f a))
 (define (|> a f) (f a))
 
-(define (flip f a b) (f b a))
+(define (flip f) (fun (a b) (f b a)))
 
 (define (id x) x)
 
 (data Void)
 
-(define: void-elim
+(define: (void-elim void)
     (forall (a) (Fun Void a))
-  (fmatch))
+  (match void))
 
 (define (to-nat x) (: (cast x) Nat))
 (define (to-int x) (: (cast x) Int))

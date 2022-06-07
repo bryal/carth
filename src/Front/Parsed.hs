@@ -1,10 +1,11 @@
 {-# LANGUAGE DataKinds #-}
 
-module Front.Parsed (module Front.Parsed, Const (..), TPrim(..), TConst) where
+module Front.Parsed (module Front.Parsed, Const (..), TPrim(..), Type' (..), TConst') where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Control.Arrow ((>>>))
+import Data.Bifunctor
 
 import Front.SrcPos
 import FreeVars
@@ -21,14 +22,8 @@ data TVar
     | TVImplicit String
     deriving (Show, Eq, Ord)
 
-data Type
-    = TVar TVar
-    | TPrim TPrim
-    | TConst (TConst Type)
-    -- TODO: Remove special case for these two? Is it really needed?
-    | TFun Type Type
-    | TBox Type
-    deriving (Show, Eq, Ord)
+type TConst = TConst' TVar
+type Type = Type' TVar
 
 type ClassConstraint = (String, [(SrcPos, Type)])
 
@@ -44,17 +39,19 @@ data Pat
     -- TODO: Add special pattern for Lazy
     deriving Show
 
+type FunPats = WithPos [Pat]
+
 data Expr'
     = Lit Const
     | Var (Id 'Small)
-    | App Expr Expr
+    | App Expr [Expr]
     | If Expr Expr Expr
     | Let1 DefLike Expr
     | Let [DefLike] Expr
     | LetRec [Def] Expr
     | TypeAscr Expr Type
     | Match Expr [(Pat, Expr)]
-    | FunMatch [(Pat, Expr)]
+    | FunMatch [(FunPats, Expr)]
     | Ctor (Id 'Big)
     | Sizeof Type
     deriving (Show, Eq)
@@ -62,7 +59,7 @@ data Expr'
 type Expr = WithPos Expr'
 
 data Def = VarDef SrcPos (Id 'Small) (Maybe Scheme) Expr
-         | FunDef SrcPos (Id 'Small) (Maybe Scheme) [Pat] Expr
+         | FunDef SrcPos (Id 'Small) (Maybe Scheme) FunPats Expr
     deriving (Show, Eq)
 
 data DefLike = Def Def | Deconstr Pat Expr
@@ -81,12 +78,6 @@ data Program = Program [Def] [TypeDef] [Extern]
     deriving (Show, Eq)
 
 
-instance TypeAst Type where
-    tprim = TPrim
-    tconst = TConst
-    tfun = TFun
-    tbox = TBox
-
 instance Eq Pat where
     (==) = curry $ \case
         (PConstruction _ x ps, PConstruction _ x' ps') -> x == x' && ps == ps'
@@ -97,7 +88,7 @@ instance FreeVars Def (Id 'Small) where
     freeVars = \case
         VarDef _ _ _ rhs -> freeVars rhs
         FunDef _ _ _ pats rhs ->
-            Set.difference (freeVars rhs) (Set.unions (map bvPat pats))
+            Set.difference (freeVars rhs) (Set.unions (map bvPat (unpos pats)))
 
 instance FreeVars DefLike (Id 'Small) where
     freeVars = \case
@@ -125,7 +116,7 @@ fvExpr = unpos >>> fvExpr'
     fvExpr' = \case
         Lit _ -> Set.empty
         Var x -> Set.singleton x
-        App f a -> fvApp f a
+        App f as -> fvApp f as
         If p c a -> fvIf p c a
         Let1 b e -> Set.union (freeVars b) (Set.difference (freeVars e) (bvDefLike b))
         Let bs e -> foldr
@@ -135,7 +126,7 @@ fvExpr = unpos >>> fvExpr'
         LetRec ds e -> fvLet (unzip (map (\d -> (defLhs d, d)) ds)) e
         TypeAscr e _t -> freeVars e
         Match e cs -> fvMatch e cs
-        FunMatch cs -> fvCases cs
+        FunMatch cs -> fvCases (map (first unpos) cs)
         Ctor _ -> Set.empty
         Sizeof _t -> Set.empty
     bvDefLike = \case
@@ -148,10 +139,10 @@ defLhs = \case
     FunDef _ lhs _ _ _ -> lhs
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
-fvMatch e cs = Set.union (freeVars e) (fvCases cs)
+fvMatch e cs = Set.union (freeVars e) (fvCases (map (first pure) cs))
 
-fvCases :: [(Pat, Expr)] -> Set (Id 'Small)
-fvCases = Set.unions . map (\(p, e) -> Set.difference (freeVars e) (bvPat p))
+fvCases :: [([Pat], Expr)] -> Set (Id 'Small)
+fvCases = Set.unions . map (\(ps, e) -> Set.difference (freeVars e) (Set.unions (map bvPat ps)))
 
 bvPat :: Pat -> Set (Id 'Small)
 bvPat = \case

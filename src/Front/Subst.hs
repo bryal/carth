@@ -24,25 +24,24 @@ substExpr' :: Subst -> Expr -> Expr
 substExpr' s (WithPos pos expr) = WithPos pos $ case expr of
     Lit c -> Lit c
     Var v -> Var (second (substTypedVar s) v)
-    App f a rt -> App (substExpr' s f) (substExpr' s a) (subst' s rt)
+    App f as rt -> App (substExpr' s f) (map (substExpr' s) as) (subst' s rt)
     If p c a -> If (substExpr' s p) (substExpr' s c) (substExpr' s a)
     Let def body -> Let (substDef s def) (substExpr' s body)
     FunMatch f -> FunMatch (substFunMatch' s f)
-    Ctor i span' (tx, tts) ps ->
-        Ctor i span' (tx, map (subst' s) tts) (map (subst' s) ps)
+    Ctor i span' (tx, tts) ps -> Ctor i span' (tx, map (subst' s) tts) (map (subst' s) ps)
     Sizeof t -> Sizeof (subst' s t)
 
 substFunMatch :: Map TVar Type -> FunMatch -> FunMatch
 substFunMatch s = substFunMatch' (flip Map.lookup s)
 
 substFunMatch' :: Subst -> FunMatch -> FunMatch
-substFunMatch' s (cs, tp, tb) = ((substCases s cs), (subst' s tp), (subst' s tb))
+substFunMatch' s (cs, tp, tb) = (substCases s cs, map (subst' s) tp, subst' s tb)
 
 substCases :: Subst -> Cases -> Cases
-substCases s cs = map (bimap (substPat s) (substExpr' s)) cs
+substCases s = map (bimap (mapPosd (map (substPat s))) (substExpr' s))
 
 substPat :: Subst -> Pat -> Pat
-substPat s (WithPos pos pat) = WithPos pos $ case pat of
+substPat s (Pat pos t pat) = Pat pos (subst' s t) $ case pat of
     PWild -> PWild
     PVar v -> PVar (substTypedVar s v)
     PBox p -> PBox (substPat s p)
@@ -61,9 +60,9 @@ subst' :: Subst -> Type -> Type
 subst' s t = case t of
     TVar tv -> fromMaybe t (s tv)
     TPrim _ -> t
-    TFun a b -> TFun (subst' s a) (subst' s b)
+    TFun as b -> TFun (map (subst' s) as) (subst' s b)
     TBox a -> TBox (subst' s a)
-    TConst (c, ts) -> TConst (c, (map (subst' s) ts))
+    TConst (c, ts) -> TConst (c, map (subst' s) ts)
 
 composeSubsts :: Map TVar Type -> Map TVar Type -> Map TVar Type
 composeSubsts s1 s2 = Map.union (fmap (subst s1) s2) s1

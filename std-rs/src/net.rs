@@ -16,24 +16,31 @@ pub struct Certificate {
 #[no_mangle]
 pub extern "C" fn stdrs_tcp_connect(host: Str, port: u16) -> Maybe<FfiHandle> {
     Maybe::Some(handle_to_ffi(Box::into_raw(Box::new(
-        TcpStream::connect((host.as_str(), port)).ok()?,
+        match TcpStream::connect((host.as_str(), port)).ok() {
+            Some(x) => x,
+            None => return Maybe::None,
+        },
     ) as _)))
 }
 
 #[no_mangle]
 pub extern "C" fn stdrs_tcp_connect_timeout(host: Str, port: u16, ms: u64) -> Maybe<FfiHandle> {
     let timeout = Duration::from_millis(ms);
-    let addrs = (host.as_str(), port)
-        .to_socket_addrs()
-        .ok()?
-        .collect::<Vec<_>>();
+    let addrs = match (host.as_str(), port).to_socket_addrs().ok() {
+        Some(x) => x,
+        None => return Maybe::None,
+    }
+    .collect::<Vec<_>>();
     let (last, init) = addrs.split_last().unwrap();
-    let con = init
+    if let Some(con) = init
         .iter()
-        .filter_map(|addr| TcpStream::connect_timeout(addr, timeout).ok())
-        .next()
-        .or_else(|| TcpStream::connect_timeout(last, timeout).ok())?;
-    Maybe::Some(handle_to_ffi(Box::into_raw(Box::new(con) as _)))
+        .find_map(|addr| TcpStream::connect_timeout(addr, timeout).ok())
+        .or_else(|| TcpStream::connect_timeout(last, timeout).ok())
+    {
+        Maybe::Some(handle_to_ffi(Box::into_raw(Box::new(con) as _)))
+    } else {
+        Maybe::None
+    }
 }
 
 /// Open a TLS connection over some transport channel (e.g. a TCP stream) without
@@ -45,16 +52,24 @@ pub unsafe extern "C" fn stdrs_tls_connect_without_validation(
 ) -> Maybe<FfiHandle> {
     let domain = domain.as_str();
     let transport = Box::from_raw(handle_from_ffi(transport));
-    let connector = native_tls::TlsConnector::builder()
+    let connector = match native_tls::TlsConnector::builder()
         .danger_accept_invalid_certs(true)
         // Rust's native-tls does not yet provide Tlsv13 :(
         .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
         .build()
-        .ok()?;
-    let tls = connector
+        .ok()
+    {
+        Some(x) => x,
+        None => return Maybe::None,
+    };
+    let tls = match connector
         .connect(domain, transport)
         .map_err(show_tls_err)
-        .ok()?;
+        .ok()
+    {
+        Some(x) => x,
+        None => return Maybe::None,
+    };
     Maybe::Some(handle_to_ffi(Box::into_raw(Box::new(tls) as _)))
 }
 
@@ -76,16 +91,24 @@ pub unsafe extern "C" fn stdrs_tls_connect_tofu(
     // We typically use self signed certs and TOFU in Gemini, but self signed certs are
     // considered "invalid" by default. Therefore, we accept invalid certs, but check for
     // expiration later.
-    let connector = native_tls::TlsConnector::builder()
+    let connector = match native_tls::TlsConnector::builder()
         .danger_accept_invalid_certs(true)
         // Rust's native-tls does not yet provide Tlsv13 :(
         .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
         .build()
-        .ok()?;
-    let _tls = connector
+        .ok()
+    {
+        Some(x) => x,
+        None => return Maybe::None,
+    };
+    let _tls = match connector
         .connect(domain, transport)
         .map_err(show_tls_err)
-        .ok()?;
+        .ok()
+    {
+        Some(x) => x,
+        None => return Maybe::None,
+    };
     // TODO: See https://github.com/jansc/ncgopher/blob/26762fdcec959cc847d055372269b948cbee6822/src/controller.rs#L270-L336
     todo!("Check for cert expiration date and do TOFU")
 }

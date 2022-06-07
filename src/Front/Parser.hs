@@ -49,9 +49,8 @@ instance Alternative Parser where
     empty = Parser (throwError mempty)
     (<|>) ma mb = do
         n <- gets stCount
-        catchError ma $ \e -> if errLength e > n
-            then throwError e
-            else catchError mb (throwError . (e <>))
+        catchError ma $ \e ->
+            if errLength e > n then throwError e else catchError mb (throwError . (e <>))
 
 runParser' :: Parser a -> [TokenTree] -> Except (SrcPos, String) a
 runParser' ma = runParser ma (ice "read SrcPos in parser state at top level")
@@ -73,15 +72,13 @@ token exp f = do
             a <- mexcept (Err n innerPos (Set.singleton exp)) (f innerPos x)
             modify (\st -> st { stCount = n + 1, stInput = xs' })
             pure a
-        [] -> throwError
-            $ Err n outerPos (Set.singleton "continuation of token sequence")
+        [] -> throwError $ Err n outerPos (Set.singleton "continuation of token sequence")
 
 -- | Succeeds only when current input sequence (may be nested in sexpr) is empty
 end :: Parser ()
 end = get >>= \(St n _ inp) -> case inp of
     [] -> pure ()
-    WithPos p _ : _ ->
-        throwError (Err n p (Set.singleton "end of (nested) token sequence"))
+    WithPos p _ : _ -> throwError (Err n p (Set.singleton "end of (nested) token sequence"))
 
 mexcept :: MonadError e m => e -> Maybe a -> m a
 mexcept e = maybe (throwError e) pure

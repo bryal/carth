@@ -48,15 +48,12 @@ library
 
       Back.Lower
       Back.Low
-      Back.Selections
       Back.Codegen
-      Back.Extern
-      Back.Gen
       Back.Compile
   other-modules:
   hs-source-dirs:
       src
-  ghc-options: -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports
+  ghc-options: -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports -Wno-deprecations -Wno-partial-fields
   build-depends:
       base
     , bytestring
@@ -87,6 +84,7 @@ library
     , GeneralizedNewtypeDeriving
     , TypeFamilies
     , TypeApplications
+    , MultiWayIf
   default-language: Haskell2010
 
 executable carth
@@ -96,7 +94,7 @@ executable carth
       Prebaked
   hs-source-dirs:
       app
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports -Wno-partial-fields
   build-depends:
       base
     , carth
@@ -125,7 +123,7 @@ test-suite carth-test
       SystemSpec
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Weverything -Werror -Wno-safe -Wno-unsafe -Wno-missing-import-lists -Wno-missing-exported-signatures -Wno-missing-local-signatures -Wno-monomorphism-restriction -Wno-implicit-prelude -Wno-name-shadowing -Wno-orphans -Wno-missed-specialisations -Wno-all-missed-specialisations -Wno-unticked-promoted-constructors -Wno-missing-deriving-strategies -Wno-missing-export-lists -Wno-missing-safe-haskell-mode -Wno-prepositive-qualified-module -Wno-compat-unqualified-imports -Wno-partial-fields
   build-depends:
       base
     , carth

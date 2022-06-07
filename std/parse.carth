@@ -54,8 +54,8 @@
 (define (parse/take-bytes-while1 f)
   (Parser (fun (inp)
             (let1 (Parser p) (parse/take-bytes-while f)
-              (either/bind (fmatch (case [_ ""] (Left (ParseErr inp "Expected at least one byte to match predicate")))
-                                   (case res (Right res)))
+              (either/bind (fun* (case [[_ ""]] (Left (ParseErr inp "Expected at least one byte to match predicate")))
+                                 (case [res] (Right res)))
                            (p inp))))))
 
 (define (parse/take-codepoints-while f)
@@ -101,7 +101,7 @@
   (or (= b ascii-0) (= b ascii-1)))
 
 (define (parse/map f (Parser pa))
-  (Parser (fun (inp) (either/map (map-cadr f) (pa inp)))))
+  (Parser (fun (inp) (either/map (partial-2 map-cadr f) (pa inp)))))
 
 (define: (parse/pure x) (forall (a) (Fun a (Parser a)))
   (Parser (fun (inp) (Right [inp x]))))
@@ -142,7 +142,7 @@
 (define parse/space1 (parse/map (const Unit) (parse/take-bytes-while1 whitespace-byte?)))
 
 (define (parse/many (Parser pa))
-  (Parser (fun (inp) (Right (swap (unfoldr' (apps <o (maybe/map swap) right-to-maybe pa) inp))))))
+  (Parser (fun (inp) (Right (swap (unfoldr' (apps <o (partial-2 maybe/map swap) right-to-maybe pa) inp))))))
 
 (define (parse/sep-by1 psep pa)
   (do parse/bind

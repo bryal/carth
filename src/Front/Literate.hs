@@ -16,11 +16,11 @@ beginSrc :: String -> Bool
 beginSrc l =
     let ws = words l
     in  (length ws >= 2)
-            && (map toLower (ws !! 0) == "#+begin_src")
+            && (map toLower (head ws) == "#+begin_src")
             && (ws !! 1 == "carth")
             && case elemIndex ":tangle" ws of
                    Just i -> length ws >= i + 2 && ws !! (i + 1) == "yes"
                    Nothing -> True
 
 endSrc :: String -> Bool
-endSrc = (\ws -> length ws > 0 && map toLower (ws !! 0) == "#+end_src") . words
+endSrc = (\ws -> not (null ws) && map toLower (head ws) == "#+end_src") . words

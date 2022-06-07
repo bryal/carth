@@ -1,0 +1,24 @@
+;; 0
+
+;; Had problem during advent of code day 5 where one of my `foldl`s weren't being tail call
+;; optimized. Now backend with `Loop` and all has fixed this. A temporary fix was to wrap acc
+;; in box so as to decrease the size. Problem was probably related to calling convention / ABI and
+;; passing big, complex structures as args.
+
+(import std)
+
+(define main
+  (let1 points (array/collect (iter/join (take 1000 (repeat (zip (xrange 0 100) (xrange 0 100))))))
+    (display (show-int (count-intersections-plain points)))))
+
+(define (count-intersections-plain ps)
+  (let (([p0 ps] (next! (array/iter ps)))
+        ([p1 ps] (next! ps))
+        (init (if (point-eq p0 p1) 0 1)))
+    (car (foldl (fun ([n p0 p1] p2)
+                  ;; Don't count more than one intersection when more than one duplicate
+                  [(if (and (point-eq p2 p1) (not (point-eq p2 p0))) (+ n 1) n) p1 p2])
+                [init p0 p1]
+                ps))))
+
+(define (point-eq [x1 x2] [y1 y2]) (and (= x1 x2) (= y1 y2)))

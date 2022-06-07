@@ -12,7 +12,7 @@
 (defmacro +s () (case (+s-xs ...) (apps + +s-xs ...)))
 (defmacro *s () (case (*s-xs ...) (apps * *s-xs ...)))
 (defmacro =s ()
-  (case (=s-x =s-xs ...) (all (= =s-x) (list/iter (list =s-xs ...)))))
+  (case (=s-x =s-xs ...) (all (partial-2 = =s-x) (list/iter (list =s-xs ...)))))
 
 (defmacro io/wrap ()
   (case (computation) (IO (fun (real-world) [computation real-world]))))

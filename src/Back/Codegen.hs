@@ -1,441 +1,658 @@
-{-# LANGUAGE DuplicateRecordFields, GADTs, RankNTypes #-}
+{-# LANGUAGE DuplicateRecordFields, GADTs, RankNTypes, ScopedTypeVariables #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
 module Back.Codegen (codegen) where
 
-import LLVM.Prelude
-import LLVM.AST hiding (args)
-import LLVM.AST.Typed
-import LLVM.AST.Type hiding (ptr)
+import Control.Monad.Reader
+import Control.Monad.State
+import Control.Monad.Writer
+import Data.Maybe
+import LLVM.Prelude hiding (Const)
+import LLVM.AST (Name (..), Named, BasicBlock (..), Module (..), Definition (..), Global (..), Type (..), Instruction, Parameter (..), mkName, Operand (ConstantOperand))
+import qualified LLVM.AST as LL
+import qualified LLVM.AST.AddrSpace as LLAddr
+import qualified LLVM.AST.Typed as LL
+import qualified LLVM.AST.CallingConvention as LL
 import LLVM.AST.DataLayout
-import qualified LLVM.AST.Float as LLFloat
-import qualified LLVM.AST.Type as LLType
+import qualified LLVM.AST.Float as LL
+import qualified LLVM.AST.Global as LLGlob
+import qualified LLVM.AST.Linkage as LL
+import qualified LLVM.AST.ParameterAttribute as LL
+import qualified LLVM.AST.Type as LL
+import qualified LLVM.AST.Visibility as LLVis
+import qualified LLVM.AST.Constant as LL (Constant (Undef, Float, Array, Null, AggregateZero, Int, GlobalReference))
 import qualified LLVM.AST.Constant as LLConst
-import qualified Codec.Binary.UTF8.String as UTF8.String
+import qualified LLVM.AST.IntegerPredicate as LLIPred
+import qualified LLVM.AST.FloatingPointPredicate as LLFPred
+import Data.Either
+import Data.List
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.String
 import System.FilePath
-import Control.Monad.Reader
-import Control.Monad.Writer
-import qualified Data.Map as Map
-import Data.Map (Map)
-import qualified Data.Set as Set
-import Data.List
-import Data.Function
-import Data.Maybe
 import qualified Data.Vector as Vec
-import Lens.Micro.Platform (use, assign, view)
 
 import Misc
-import FreeVars
-import Sizeof (toBytes, tagBitWidth)
-import qualified Back.Low as Ast
-import Back.Low hiding (Type, Const)
-import Front.TypeAst
-import Back.Selections
-import Back.Gen
-import Back.Extern
+import Sizeof (variantsTagBits, toBits)
+import Back.Low as Low
 
-instance Select Gen Val where
-    selectAs span ts matchee = if span == 1
-        then pure matchee
-        else do
-            p <- getVar matchee
-            tvariant <- fmap typeStruct (mapM genType ts)
-            fmap VVar $ selectVarAs p tvariant
-    selectSub _span i matchee = genIndexStruct matchee [i]
-    selectDeref = genDeref
+data St = St
+    { currentLabel :: Name
+    , currentInstrs :: [Named LL.Instruction] -- In reverser order
+    , labelCount :: Word
+    , tmpCount :: Word
+    , aliases :: Map String LL.Operand
+    }
+type Gen = StateT St (Writer [BasicBlock])
+
+data GExpr = GInstr LL.Type LL.Instruction | GOperand LL.Operand
 
 codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
-codegen layout triple noGC' moduleFilePath (Program (Topo defs) tdefs externs strs) =
-    let (tdefs', externs', globDefs) =
-            let (enums, tdefs'') = runGen' noGC' (defineDataTypes tdefs)
-                defs' = defToVarDefs =<< defs
-                (funDefs, varDefs) = separateFunDefs defs'
-            in  runGen' noGC'
-                    $ augment enumTypes enums
-                    $ augment dataTypes tdefs''
-                    $ withBuiltins
-                    $ withExternSigs externs
-                    $ withGlobFunSigs funDefs
-                    $ withGlobVarSigs varDefs
-                    $ withStrLits strs
-                    $ \strDefs -> do
-                          es <- genExterns externs
-                          funDefs' <- mapM genGlobFunDef funDefs
-                          varDecls <- mapM genGlobVarDecl varDefs
-                          init_ <- genInit varDefs
-                          main <- genMain
-                          let ds = strDefs ++ main : init_ ++ join funDefs' ++ varDecls
-                          pure (tdefs'', es, ds)
-    in  Module
-            { moduleName = fromString (takeBaseName moduleFilePath)
-            , moduleSourceFileName = fromString moduleFilePath
-            , moduleDataLayout = Just layout
-            , moduleTargetTriple = Just triple
-            , moduleDefinitions = concat
-                                      [ map
-                                          (\(n, tmax) ->
-                                              TypeDefinition n (Just (typeStruct tmax))
-                                          )
-                                          (Map.toList tdefs')
-                                      , defineBuiltinsHidden
-                                      , externs'
-                                      , globDefs
-                                      ]
-            }
+codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) = Module
+    { moduleName = fromString (takeBaseName moduleFilePath)
+    , moduleSourceFileName = fromString moduleFilePath
+    , moduleDataLayout = Just layout
+    , moduleTargetTriple = Just triple
+    , moduleDefinitions = concat
+                              [ defineTypes
+                              , defineBuiltinsHidden
+                              , declareExterns
+                              , declareGlobals
+                              , map defineFun funs
+                              , [defineMain]
+                              ]
+    }
   where
-    withGlobFunSigs sigs ga = do
-        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
-            t' <- genType t
-            tf <- getIndexed t' [1 :: Int]
-            pure (v, (tf, mkName (mangleName (x, us) ++ "_func")))
-        augment globalFunEnv (Map.fromList sigs') ga
 
-    withGlobVarSigs sigs ga = do
-        sigs' <- forM sigs $ \(v@(TypedVar x t), (us, _)) -> do
-            t' <- genType t
-            pure (v, (LLType.ptr t', mkName (mangleName (x, us))))
-        augment globalEnv (Map.fromList sigs') ga
+    defineTypes :: [Definition]
+    defineTypes = define =<< Vec.toList tdefs
+      where
+        define :: TypeDef -> [Definition]
+        define (name, d) = case d of
+            DEnum _ -> []
+            DStruct s -> pure $ TypeDefinition
+                (mkName name)
+                (Just (structType (map (genType . snd) (structMembers s))))
+            -- The reason we fill with values the size of the alignment instead of bytes is to not
+            -- wrongfully signal to LLVM that the padding will be used as-is, and should be
+            -- passed/returned in its own registers (or whatever exactly is going on). I just know
+            -- from trial and error when debugging issues with how the representation of `(Maybe
+            -- Int8)` affects how it is returned from a function. The definition we use is `{i8,
+            -- i64}`. Representing it instead with `{i8, [7 x i8], i64}` or `{i8, [15 x i8], [0 x
+            -- i64]}`: while having the same size and alignment, it is not returned in the same way
+            -- (seeming instead to use an additional return parameter), and as such, a Carth
+            -- function returning `(Maybe Int8)` represented as `{i8, [15 x i8], [0 x i64]}` is not
+            -- ABI compatible with a Rust function returning `Maybe<i8>` represented as `{i8,
+            -- i64}`.
+            DUnion Union { unionGreatestSize = sMax, unionGreatestAlignment = aMax } ->
+                let fill = ArrayType (fromIntegral (div (sMax + aMax - 1) aMax))
+                                     (IntegerType (fromIntegral (toBits aMax)))
+                -- In LLVM, only structs can be identified type definitions, so wrap the array in a
+                -- singleton struct, since we want to see the type name in generated code.
+                in  [TypeDefinition (mkName name) (Just (structType [fill]))]
 
-    withStrLits lits f = do
-        (defs, refs) <- fmap unzip $ mapM globStrVar (Vec.toList lits)
-        locallySet Back.Gen.strLits (Vec.fromList refs) $ f (concat defs)
+    defineBuiltinsHidden :: [Definition]
+    defineBuiltinsHidden = map declare (Map.toList builtinsHidden)
+      where
+        declare (x, (ps, tr)) = simpleFun LL.External x ps tr []
 
-    globStrVar s = do
-        strName <- newName "strlit"
-        name_inner <- newName "strlit_inner"
-        let bytes = UTF8.String.encode s
-            len = length bytes
-            tInner = ArrayType (fromIntegral len) i8
-            defInner = simpleGlobConst
-                name_inner
-                tInner
-                (LLConst.Array i8 (map (LLConst.Int 8 . toInteger) bytes))
-            inner = LLConst.GlobalReference (LLType.ptr tInner) name_inner
-            ptrBytes = LLConst.BitCast inner typeGenericPtr
-            array =
-                litStructNamed ("Array", [Ast.TPrim (TNat 8)]) [ptrBytes, litI64' len]
-            str = litStructNamed ("Str", []) [array]
-            defStr = simpleGlobConst strName typeStr str
-            ref = VVar $ ConstantOperand
-                (LLConst.GlobalReference (LLType.ptr typeStr) strName)
-        pure (map GlobalDefinition [defInner, defStr], ref)
+        builtinsHidden :: Map String ([Parameter], LL.Type)
+        builtinsHidden = Map.fromList [("install_stackoverflow_handler", ([], LL.void))]
 
--- TODO: Use more specialized monad or none at all.
---
--- | A data-type is a tagged union, and we represent it in LLVM as a representing struct
---   of a tagged union, an untagged struct, an integer, or a zero-sized empty array,
---   depending on how many variants and members it has.
---
---   If there's only one variant, the struct just contains the members of that variant. If
---   there's more than one variant, the representing type consists of 2 members: an
---   integer that can fit the variant index as well as "fill" the succeeding space
---   (implied by alignment) until the second member starts, followed by the second member
---   which is an array of integers with integer size equal to the alignment of the
---   greatest aligned variant and array length equal to the smallest n that results in the
---   array being of size >= the size of the largest sized variant.
---
---   If none of the variants of the data-type has any members, we say it's an
---   enumeration, which is represented as a single integer, equal to the size it
---   would have been as a tag. If further there's only a single variant, the
---   data-type is represented as `{}`.
---
---   The reason we must make sure to "fill" all space in the representing struct is that
---   LLVM may essentially otherwise incorrectly assume that the space is unused and
---   doesn't have to be considered passing the type as an argument to a function.
---
---   The reason we fill it with values the size of the alignment instead of bytes is to
---   not wrongfully signal to LLVM that the padding will be used as-is, and should be
---   passed/returned in its own registers (or whatever exactly is going on). I just know
---   from trial and error when debugging issues with how the representation of `(Maybe
---   Int8)` affects how it is returned from a function. The intuitive definition (which
---   indeed could be used for `Maybe` specifically without problems, since the only other
---   variant is the non-data-carrying `None`) is `{i8, i64}`. Representing it instead with
---   `{i64, i64}` (to make alignment-induced padding explicit, also this is how Rust
---   represents it) works well -- it seems to be passed/returned in exactly the same
---   way. However, if we represent it as `{i8, [7 x i8], i64}` or `{i8, [15 x i8], [0 x
---   i64]}`: while having the same size and alignment, it is not returned in the same way
---   (seeming instead to use an additional return parameter), and as such, a Carth
---   function returning `(Maybe Int8)` represented as `{i8, [15 x i8], [0 x i64]}` is not
---   ABI compatible with a Rust function returning `Maybe<i8>` represented as `{i64,
---   i64}`.
-defineDataTypes :: Datas -> Gen' (Map Name Word32, Map Name [Type])
-defineDataTypes datasEnums = do
-    let (enums, datas) = partition (all null . snd) (Map.toList datasEnums)
-    let enums' = Map.fromList $ map
-            (\(tc, vs) ->
-                ( mkName (mangleTConst tc)
-                , fromMaybe 0 (tagBitWidth (fromIntegral (length vs)))
-                )
+    declareExterns :: [Definition]
+    declareExterns = map declare exts
+      where
+        declare (ExternDecl name out ps r) =
+            let anon = mkName ""
+                rt = case r of
+                    RetVal t -> genType t
+                    RetVoid -> LL.void
+                out' = case out of
+                    Nothing -> []
+                    Just (OutParam _ t) -> [Parameter (LL.ptr (genType t)) anon [LL.SRet]]
+                ps' = flip map ps $ \case
+                    ByVal () t -> Parameter (genType t) anon []
+                    ByRef () t -> Parameter (LL.ptr (genType t)) anon []
+            in  simpleFun LL.External name (out' ++ ps') rt []
+
+    declareGlobals :: [Definition]
+    declareGlobals = map declare gvars
+      where
+        declare g =
+            let (isconst, ident, t, initializer) = case g of
+                    GlobVarDecl x t -> (False, x, genType t, LL.Undef (genType t))
+                    GlobConstDef x t c -> (True, x, genType t, genConst c)
+            in  GlobalDefinition $ GlobalVariable { LLGlob.name = mkName (getGName ident)
+                                                  , LLGlob.linkage = LL.Private
+                                                  , LLGlob.visibility = LLVis.Default
+                                                  , LLGlob.dllStorageClass = Nothing
+                                                  , LLGlob.threadLocalMode = Nothing
+                                                  , LLGlob.addrSpace = LLAddr.AddrSpace 0
+                                                  , LLGlob.unnamedAddr = Nothing
+                                                  , LLGlob.isConstant = isconst
+                                                  , LLGlob.type' = t
+                                                  , LLGlob.initializer = Just initializer
+                                                  , LLGlob.section = Nothing
+                                                  , LLGlob.comdat = Nothing
+                                                  , LLGlob.alignment = 0
+                                                  , LLGlob.metadata = []
+                                                  }
+
+    genConst :: Const -> LL.Constant
+    genConst = \case
+        Undef t -> LL.Undef (genType t)
+        CInt { intWidth = w, intVal = v } -> LL.Int (fromIntegral w) v
+        CNat { natWidth = w, natVal = v } -> LL.Int (fromIntegral w) (fromIntegral v)
+        F32 x -> LL.Float (LL.Single x)
+        F64 x -> LL.Float (LL.Double x)
+        -- In the LLVM backend, we elide all enum name information, leaving just the integer value
+        EnumVal { enumWidth = w, enumVal = v } -> LL.Int (fromIntegral w) (fromIntegral v)
+        Array t xs -> LL.Array (genType t) (map genConst xs)
+        CharArray cs -> LL.Array LL.i8 (map (LL.Int 8 . fromIntegral) cs)
+        Zero t -> case genType t of
+            t'@(LL.PointerType _ _) -> LL.Null t'
+            t' -> LL.AggregateZero t'
+        CBitcast x t -> LLConst.BitCast (genConst x) (genType t)
+        CGlobal (Global x t) -> LL.GlobalReference (genType t) (mkName (getGName x))
+        CStruct t ms -> LLConst.Struct
+            (case genType t of
+                LL.NamedTypeReference tname -> Just tname
+                _ -> Nothing
             )
-            enums
-    datas'' <- mfix $ \datas' ->
-        fmap Map.fromList
-            $ augment enumTypes enums'
-            $ augment dataTypes datas'
-            $ forM datas
-            $ \(tc, vs) ->
-                  let
-                      n = mkName (mangleTConst tc)
-                      totVariants = fromIntegral (length vs)
-                  in
-                      fmap (n, ) $ if totVariants == 1
-                          then mapM genType (head vs)
-                          else do
-                              ts <- mapM (fmap typeStruct . mapM genType) vs
-                              aMax <- fmap maximum $ mapM alignmentof ts
-                              sMax <- fmap maximum $ mapM sizeof ts
-                              let sTag = toBytes (fromJust (tagBitWidth totVariants))
-                              let tag = IntegerType (sTag * 8)
-                              pure
-                                  [ tag
-                                  , ArrayType (div (sMax + aMax - 1) aMax)
-                                              (IntegerType (8 * fromIntegral aMax))
-                                  ]
-    pure (enums', datas'')
+            False
+            (map genConst ms)
+        CPtrIndex p i -> LLConst.GetElementPtr False (genConst p) [LL.Int 64 (fromIntegral i)]
 
-genMain :: Gen' Definition
-genMain = do
-    let tDummyParam = typeUnit
-    let init_ = ConstantOperand $ LLConst.GlobalReference
-            (LLType.ptr (FunctionType LLType.void [typeGenericPtr, tDummyParam] False))
-            (mkName "carth_init")
-    assign currentBlockLabel (mkName "entry")
-    assign currentBlockInstrs []
-    Out basicBlocks _ <- execWriterT $ do
-        emitDo' =<< callBuiltin "install_stackoverflow_handler" []
-        emitDo (callIntern Nothing init_ [(null' typeGenericPtr, []), (litUnit, [])])
-        iof <- lookupVar (TypedVar "main" mainType)
-        f <- genIndexStruct iof [0]
-        _ <- app' @Val f (VLocal litRealWorld)
-        commitFinalFuncBlock (Ret (Just (ConstantOperand (LLConst.Int 32 0))) [])
-    pure (GlobalDefinition (externFunc (mkName "main") [] i32 basicBlocks))
+    defineFun :: FunDef -> Definition
+    defineFun (FunDef ident out ps r block allocs lnames) =
+        let rt = case r of
+                RetVal t -> genType t
+                RetVoid -> LL.void
+            out' = case out of
+                Nothing -> []
+                Just (OutParam x t) ->
+                    [Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.SRet]]
+            ps' = flip map ps $ \case
+                ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
+                ByRef x t -> Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) []
+        in  simpleFun LL.Internal
+                      (getGName ident)
+                      (out' ++ ps')
+                      rt
+                      (genFunBody lnames allocs block)
 
-separateFunDefs :: [VarDef] -> ([FunDef], [VarDef])
-separateFunDefs = partitionWith $ \(lhs, (ts, e)) -> case e of
-    Fun f -> Left (lhs, (ts, f))
-    _ -> Right (lhs, (ts, e))
+    -- In this incarnation, this outermost main should just call init and user-main. init will in
+    -- turn init global vars & setup stack overflow handler etc.
+    defineMain :: Definition
+    defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
+        (mkName "entry")
+        [ LL.Do (callNamed "install_stackoverflow_handler" Nothing [] LL.void)
+        , LL.Do (callNamed "carth_init" Nothing [] LL.void)
+        , mkName "mainc_tmp" LL.:= LL.GetElementPtr
+            { inBounds = False
+            , address = LL.ConstantOperand (genGlobal main)
+            , indices = [litI64 (0 :: Word), litI32 (0 :: Word), litI32 (0 :: Word)]
+            , metadata = []
+            }
+        , mkName "mainc" LL.:= LL.Load
+            { volatile = False
+            , address = LL.LocalReference (LL.ptr (LL.ptr LL.i8)) (mkName "mainc_tmp")
+            , maybeAtomicity = Nothing
+            , alignment = 0
+            , metadata = []
+            }
+        , mkName "mainf_tmp" LL.:= LL.GetElementPtr
+            { inBounds = False
+            , address = LL.ConstantOperand (genGlobal main)
+            , indices = [litI64 (0 :: Word), litI32 (0 :: Word), litI32 (1 :: Word)]
+            , metadata = []
+            }
+        , mkName "mainf_tmp2" LL.:= LL.Load
+            { volatile = False
+            , address = LL.LocalReference (LL.ptr (LL.ptr LL.i8)) (mkName "mainf_tmp")
+            , maybeAtomicity = Nothing
+            , alignment = 0
+            , metadata = []
+            }
+        , mkName "mainf"
+            LL.:= LL.BitCast (LL.LocalReference (LL.ptr LL.i8) (mkName "mainf_tmp2"))
+                             (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
+                             []
+        , LL.Do
+            (call
+                (LL.LocalReference (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
+                                   (mkName "mainf")
+                )
+                Nothing
+                [LL.LocalReference (LL.ptr LL.i8) (mkName "mainc")]
+            )
+        ]
+        (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))
 
-genInit :: [VarDef] -> Gen' [Definition]
-genInit ds = do
-    let name = mkName "carth_init"
-    let param = TypedVar "_" tUnit
-    let genDefs =
-            forM_ ds genDefineGlobVar
-                *> commitFinalFuncBlock (Ret Nothing [])
-                $> LLType.void
-    fmap (uncurry ((:) . GlobalDefinition)) $ genFunDef (name, [], param, genDefs)
+    genFunBody :: VarNames -> Allocs -> Block Terminator -> [LL.BasicBlock]
+    genFunBody lnames allocs body = execWriter
+        (evalStateT (genAllocs allocs *> genBlock genTerminator body) initSt)
+      where
+        initSt = St { currentLabel = "entry"
+                    , currentInstrs = []
+                    , labelCount = 0
+                    , tmpCount = 0
+                    , aliases = Map.empty
+                    }
 
-genDefineGlobVar :: VarDef -> Gen ()
-genDefineGlobVar (TypedVar v _, (ts, e)) = do
-    let name = mkName (mangleName (v, ts))
-    e' <- genExpr e
-    let ref = LLConst.GlobalReference (LLType.ptr (typeOf e')) name
-    -- Fix for Boehm GC to detect global vars when running in JIT
-    genGcAddRoot ref
-    genStore e' (VLocal (ConstantOperand ref)) $> ()
+        genAllocs = mapM_ $ \(x, t) ->
+            let t' = genType t
+            in  emitNamed (getName lnames x) (GInstr (LL.ptr t') (LL.Alloca t' Nothing 0 [])) $> ()
 
-genGlobVarDecl :: VarDef -> Gen' Definition
-genGlobVarDecl (TypedVar v t, (ts, _)) = do
-    let name = mkName (mangleName (v, ts))
-    t' <- genType t
-    pure (GlobalDefinition (simpleGlobVar name t' (LLConst.Undef t')))
+        genEBranch :: Branch Expr -> Gen GExpr
+        genEBranch = \case
+            BIf p c a -> genIf p c a genExpr econverge
+            BSwitch x cs d -> genSwitch x cs d genExpr econverge
 
--- TODO: Detect when a fun def is nested lambdas, like (define (foo a b) (+ a b)). Now,
---       nested functions wrappers are generated for the currying that handle boilerplate
---       closure capturing, but only the outermost, fully curried function is actually
---       exposed as a variable, and if you apply the function with all arguments, like
---       (foo 1 2), it has to needlessly go through all the wrapping stuff of putting in
---       closures and directly extracting again.
---
---       It would be a serious optimization to handle saturated (i.e., fully applied)
---       calls specially. Just generate an extra, innermost function that takes the params
---       as a tuple, and does no closure-extraction stuff, then generate the currying
---       wrappers around that.
---
---       Look at how Haskell does
---       it. https://gitlab.haskell.org/ghc/ghc/-/wikis/commentary/rts/haskell-execution/function-calls. Seems
---       very reasonable. They handle 4 different cases when compiling a call: Unknown
---       function, Known function - saturated call, Known function - too few arguments,
---       and Known function - too many arguments.
---
---       Additional reading: http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.134.9317&rep=rep1&type=pdf
-genGlobFunDef :: FunDef -> Gen' [Definition]
-genGlobFunDef (TypedVar v _, (ts, (p, (body, rt)))) = do
-    let name = mangleName (v, ts)
-    assign lambdaParentFunc (Just name)
-    let fName = mkName (name ++ "_func")
-    (f, gs) <- genFunDef (fName, [], p, genTailExpr body *> genType rt)
-    pure (GlobalDefinition f : gs)
+        econverge :: Gen GExpr -> [(Name, Gen GExpr)] -> Gen GExpr
+        econverge genDefault cases = do
+            ln <- label "NEXT"
+            d <- emit =<< genDefault
+            ld <- gets currentLabel
+            cs <- forM cases $ \(l, genCase) -> do
+                commitThen (LL.Br ln []) l
+                c <- emit =<< genCase
+                lc <- gets currentLabel
+                pure (c, lc)
+            commitThen (LL.Br ln []) ln
+            let t = LL.typeOf d
+            pure (GInstr t (LL.Phi t ((d, ld) : cs) []))
 
-genTailExpr :: Expr -> Gen ()
-genTailExpr = genExpr
+        genSBranch :: Branch () -> Gen ()
+        genSBranch = \case
+            BIf p c a -> genIf p c a pure sconverge
+            BSwitch x cs d -> genSwitch x cs d pure sconverge
 
-genExpr :: TailVal v => Expr -> Gen v
-genExpr expr = do
-    case expr of
-        Lit c -> propagate =<< genConst c
-        Var (_, x) -> propagate =<< lookupVar x
-        App f as -> genApp f as
-        If p c a -> genExpr p >>= \p' -> genCondBr p' (genExpr c) (genExpr a)
-        Fun (p, b) -> genExprLambda p b >>= propagate
-        Let d b -> genLet d b
-        Match e cs -> genMatch e cs
-        Ction c -> propagate =<< genCtion c
-        Sizeof t ->
-            propagate
-                =<< (VLocal . litI64 . fromIntegral)
-                <$> ((lift . sizeof) =<< genType t)
-        Absurd t -> propagate =<< fmap (VLocal . undef) (genType t)
+        sconverge :: Gen () -> [(Name, Gen ())] -> Gen ()
+        sconverge genDefault cases = do
+            ln <- label "NEXT"
+            genDefault
+            forM_ cases $ \(l, genCase) -> do
+                commitThen (LL.Br ln []) l
+                genCase
+            commitThen (LL.Br ln []) ln
 
-genExprLambda :: TypedVar -> (Expr, Ast.Type) -> Gen Val
-genExprLambda p (b, bt) = do
-    fvXs <- view localEnv <&> \locals ->
-        Set.toList (Set.intersection (Set.delete p (freeVars b)) (Map.keysSet locals))
-    bt' <- genType bt
-    genLambda fvXs p (genTailExpr b, bt')
+        genBlock :: (term -> Gen out) -> Block term -> Gen out
+        genBlock genTerm (Block stms term) = forM_ stms genStm *> genTerm term
 
-genConst :: Ast.Const -> Gen Val
-genConst = \case
-    Int n -> pure (VLocal (litI64 n))
-    F64 x -> pure (VLocal (ConstantOperand (LLConst.Float (LLFloat.Double x))))
-    Str s -> getStrLit s
+        genIf
+            :: Low.Operand
+            -> Block t
+            -> Block t
+            -> (t -> Gen a)
+            -> (Gen a -> [(Name, Gen a)] -> Gen b)
+            -> Gen b
+        genIf p c a genTerm converge = do
+            lc <- label "CONSEQ"
+            la <- label "ALTERN"
+            p' <- genOperand p
+            p'' <- emit $ GInstr LL.i1 (LL.Trunc p' LL.i1 [])
+            commitThen (LL.CondBr p'' lc la []) lc
+            converge (genBlock genTerm c) [(la, genBlock genTerm a)]
 
-getStrLit :: Word -> Gen Val
-getStrLit s = view strLits <&> (Vec.! (fromIntegral s))
+        genSwitch
+            :: Low.Operand
+            -> [(Const, Block t)]
+            -> Block t
+            -> (t -> Gen a)
+            -> (Gen a -> [(Name, Gen a)] -> Gen a)
+            -> Gen a
+        genSwitch x cs d genTerm converge = do
+            ld <- label "DEFAULT"
+            lcs <- mapM (const (label "CASE")) cs
+            x' <- genOperand x
+            commitThen (LL.Switch x' ld (zip (map (genConst . fst) cs) lcs) []) ld
+            converge (genBlock genTerm d) (zip lcs (map (genBlock genTerm . snd) cs))
 
-class TailVal v where
-    propagate :: Val -> Gen v
-    app' :: Val -> Val -> Gen v
-    converge :: Gen v -> [(Name, Gen v)] -> Gen v
+        genStm :: Statement -> Gen ()
+        genStm = \case
+            Let lhs rhs -> genExpr rhs >>= \rhs' -> emitLocal lhs rhs' $> ()
+            Store v dst -> bindM2 store (genOperand v) (genOperand dst)
+            SBranch br -> genSBranch br
+            VoidCall f out as -> emitDo
+                =<< liftM3 call (genOperand f) (mapM genOperand out) (mapM genOperand as)
+            SLoop loop -> genLoop loop pure (const (pure ()))
 
-instance TailVal Val where
-    propagate = pure
-    app' = app (Just NoTail)
-    converge default' cs = do
-        nextL <- newName "next"
-        v <- liftA2 (,) (getLocal =<< default') (use currentBlockLabel)
-        let genCase (l, mv) = do
-                commitToNewBlock (Br nextL []) l
-                liftA2 (,) (getLocal =<< mv) (use currentBlockLabel)
-        vs <- mapM genCase cs
-        commitToNewBlock (Br nextL []) nextL
-        fmap VLocal (emitAnonReg (phi (v : vs)))
+        genTerminator :: Terminator -> Gen ()
+        genTerminator = \case
+            TRetVal x -> genExpr x >>= emit >>= \v -> commitFinal (LL.Ret (Just v) [])
+            TRetVoid -> commitFinal (LL.Ret Nothing [])
 
-instance TailVal () where
-    propagate v = commitFinalFuncBlock . flip Ret [] . Just =<< getLocal v
-    app' f e = propagate =<< app (Just Tail) f e
-    converge default' cs = do
-        () <- default'
-        forM_ cs $ \(l, gen) -> assign currentBlockLabel l *> gen
+        store :: LL.Operand -> LL.Operand -> Gen ()
+        store v dst = emitDo $ LL.Store { volatile = False
+                                        , address = dst
+                                        , value = v
+                                        , maybeAtomicity = Nothing
+                                        , alignment = 0
+                                        , metadata = []
+                                        }
 
-genApp :: TailVal v => Expr -> [Expr] -> Gen v
-genApp fe aes = case fe of
-    Var (Virt, x) -> propagate =<< genAppBuiltinVirtual x =<< mapM genExpr aes
-    _ -> do
-        f <- genExpr fe
-        as <- mapM genExpr (init aes)
-        closure <- foldlM app' f as
-        arg <- genExpr (last aes)
-        app' closure arg
+        -- TODO: More elegant code for nested branches. Collapse in a single, flat step, instead of
+        --       level-wise.
+        genExpr :: Expr -> Gen GExpr
+        genExpr (Expr e t) = do
+            let t' = genType t
+            let arith uop sop fop a b = do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    let op = if
+                            | isFloat t -> fop
+                            | isInt t -> sop
+                            | otherwise -> uop
+                    pure (GInstr t' (op a' b' []))
+                logic op a b = do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    pure (GInstr t' (op a' b' []))
+                rel uop sop fop a b = do
+                    (a', b') <- liftM2 (,) (genOperand a) (genOperand b)
+                    let op = if
+                            | isFloat (typeof a) -> LL.FCmp fop
+                            | isInt (typeof a) -> LL.ICmp sop
+                            | otherwise -> LL.ICmp uop
+                    r <- emit $ GInstr LL.i1 (op a' b' [])
+                    pure (GInstr LL.i8 (LL.ZExt r LL.i8 []))
+            case e of
+                Add a b -> arith (LL.Add False False)
+                                 (LL.Add False False)
+                                 (LL.FAdd LL.noFastMathFlags)
+                                 a
+                                 b
+                Sub a b -> arith (LL.Sub False False)
+                                 (LL.Sub False False)
+                                 (LL.FSub LL.noFastMathFlags)
+                                 a
+                                 b
+                Mul a b -> arith (LL.Mul False False)
+                                 (LL.Mul False False)
+                                 (LL.FMul LL.noFastMathFlags)
+                                 a
+                                 b
+                Div a b -> arith (LL.UDiv False) (LL.SDiv False) (LL.FDiv LL.noFastMathFlags) a b
+                Rem a b -> arith LL.URem LL.SRem (LL.FRem LL.noFastMathFlags) a b
+                Shl a b -> logic (LL.Shl False False) a b
+                LShr a b -> logic (LL.LShr False) a b
+                AShr a b -> logic (LL.AShr False) a b
+                BAnd a b -> logic LL.And a b
+                BOr a b -> logic LL.Or a b
+                BXor a b -> logic LL.Xor a b
+                Eq a b -> rel LLIPred.EQ LLIPred.EQ LLFPred.OEQ a b
+                Ne a b -> rel LLIPred.NE LLIPred.NE LLFPred.ONE a b
+                Gt a b -> rel LLIPred.UGT LLIPred.SGT LLFPred.OGT a b
+                GtEq a b -> rel LLIPred.UGE LLIPred.SGE LLFPred.OGE a b
+                Lt a b -> rel LLIPred.ULT LLIPred.SLT LLFPred.OLT a b
+                LtEq a b -> rel LLIPred.ULE LLIPred.SLE LLFPred.OLE a b
+                Load src -> do
+                    src' <- genOperand src
+                    pure $ GInstr
+                        t'
+                        LL.Load { volatile = False
+                                , address = src'
+                                , maybeAtomicity = Nothing
+                                , alignment = 0
+                                , metadata = []
+                                }
+                Call f as ->
+                    liftM3 (GInstr t' .** call) (genOperand f) (pure Nothing) (mapM genOperand as)
+                EBranch br -> genEBranch br
+                EGetMember m x ->
+                    let i = genMemberName m (pointee (typeof x))
+                    in  genOperand x <&> \x' -> GInstr
+                            t'
+                            LL.GetElementPtr { inBounds = False
+                                             , address = x'
+                                             , indices = [litI64 (0 :: Integer), litI32 i]
+                                             , metadata = []
+                                             }
+                EAsVariant x _ -> genOperand x <&> \x' -> GInstr t' (LL.BitCast x' t' [])
+                EOperand x -> GOperand <$> genOperand x
+                ELoop loop -> genLoop loop (emit <=< genExpr) $ \breaks -> do
+                    let t = LL.typeOf . fst . head $ breaks
+                    pure $ GInstr t (LL.Phi t breaks [])
+                Cast x t -> do
+                    let tx = typeof x
+                    x' <- genOperand x
+                    let t' = genType t
+                    pure $ case (tx, t) of
+                        _
+                            | tx == t
+                            -> GOperand x'
+                            | Just w1 <- integralWidth tx, Just w2 <- integralWidth t, w1 == w2
+                            -> GOperand x'
+                        (_, TInt w2) | Just w1 <- integralWidth tx ->
+                            GInstr t' $ if w2 < w1 then LL.Trunc x' t' [] else LL.SExt x' t' []
+                        (_, TNat w2) | Just w1 <- integralWidth tx ->
+                            GInstr t' $ if w2 < w1 then LL.Trunc x' t' [] else LL.ZExt x' t' []
+                        (TF32, TF64) -> GInstr t' (LL.FPExt x' t' [])
+                        (TF64, TF32) -> GInstr t' (LL.FPTrunc x' t' [])
+                        (TInt _, _) | isFloat t -> GInstr t' (LL.SIToFP x' t' [])
+                        (TNat _, _) | isFloat t -> GInstr t' (LL.UIToFP x' t' [])
+                        (_, TInt _) | isFloat tx -> GInstr t' (LL.FPToSI x' t' [])
+                        (_, TNat _) | isFloat tx -> GInstr t' (LL.FPToUI x' t' [])
+                        _ -> ice $ "genExpr.Cast: " ++ show tx ++ " to " ++ show t
+                Bitcast x t -> do
+                    x' <- genOperand x
+                    let t' = genType t
+                    case (LL.typeOf x', t') of
+                        (a, b) | a == b -> pure $ GOperand x'
+                        (IntegerType _, PointerType _ _) ->
+                            pure $ GInstr t' (LL.IntToPtr x' t' [])
+                        (PointerType _ _, IntegerType _) ->
+                            pure $ GInstr t' (LL.PtrToInt x' t' [])
+                        (PointerType _ _, PointerType _ _) ->
+                            pure (GInstr t' (LL.BitCast x' t' []))
+                        (_, PointerType _ _) -> do
+                            y <- emit (GInstr LL.i64 (LL.BitCast x' LL.i64 []))
+                            pure (GInstr t' (LL.IntToPtr y t' []))
+                        (PointerType _ _, _) -> do
+                            y <- emit (GInstr LL.i64 (LL.PtrToInt x' LL.i64 []))
+                            pure (GInstr t' (LL.BitCast y t' []))
+                        (_, _) -> pure (GInstr t' (LL.BitCast x' t' []))
 
-genCondBr :: TailVal v => Val -> Gen v -> Gen v -> Gen v
-genCondBr predV genConseq genAlt = do
-    predV' <- emitAnonReg . flip trunc i1 =<< getLocal predV
-    conseqL <- newName "consequent"
-    altL <- newName "alternative"
-    commitToNewBlock (CondBr predV' conseqL altL []) conseqL
-    converge genConseq [(altL, genAlt)]
+        genLoop :: forall t a b . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen b) -> Gen b
+        genLoop (Loop params (Block stms term)) genTerm joinBreaks = do
+            ll <- label "LOOP_BODY"
+            la <- label "LOOP_ASSIGN"
+            le <- label "LOOP_END"
+            lprev <- gets currentLabel
+            commitThen (LL.Br la []) ll
+            let genLTerm :: LoopTerminator t -> Gen [Either ([LL.Operand], Name) (a, Name)]
+                genLTerm = \case
+                    Continue args -> do
+                        l <- gets currentLabel
+                        commitThen (LL.Br la []) la
+                        args' <- mapM genOperand args
+                        pure [Left (args', l)]
+                    Break x -> do
+                        l <- gets currentLabel
+                        x' <- genTerm x
+                        commitThen (LL.Br le []) la
+                        pure [Right (x', l)]
+                    LBranch br -> genLBranch br
 
-genLet :: TailVal v => Def -> Expr -> Gen v
-genLet def body = case def of
-    VarDef (lhs, (_, rhs)) -> genExpr rhs >>= \rhs' -> withVal lhs rhs' (genExpr body)
-    RecDefs ds -> do
-        (binds, cs) <- fmap unzip $ forM ds $ \case
-            (lhs, (_, (p, (fb, fbt)))) -> do
-                fvXs <- view localEnv <&> \locals ->
-                    let locals' = Set.insert lhs (Map.keysSet locals)
-                    in  Set.toList (Set.intersection (Set.delete p (freeVars fb)) locals')
-                tcaptures <- fmap typeStruct (mapM (\(TypedVar _ t) -> genType t) fvXs)
-                captures <- genHeapAllocGeneric tcaptures
-                fbt' <- genType fbt
-                lam <- genLambda' p (genTailExpr fb, fbt') (VLocal captures) fvXs
-                pure ((lhs, lam), (captures, fvXs))
-        withVals binds $ do
-            forM_ cs (uncurry populateCaptures)
-            (genExpr body)
+                genLBranch = \case
+                    BIf p c a -> genIf p c a genLTerm lconverge
+                    BSwitch x cs d -> genSwitch x cs d genLTerm lconverge
 
-genMatch :: TailVal v => Expr -> DecisionTree -> Gen v
-genMatch m dt = genDecisionTree dt . newSelections =<< genExpr m
+                lconverge
+                    :: Gen [Either ([LL.Operand], Name) (a, Name)]
+                    -> [(Name, Gen [Either ([LL.Operand], Name) (a, Name)])]
+                    -> Gen [Either ([LL.Operand], Name) (a, Name)]
+                lconverge genDefault cases = do
+                    d <- genDefault
+                    cs <- forM cases $ \(l, genCase) -> do
+                        modify (\st -> st { currentLabel = l })
+                        genCase
+                    pure (concat (d : cs))
 
-genDecisionTree :: TailVal v => DecisionTree -> Selections Val -> Gen v
-genDecisionTree = \case
-    Ast.DLeaf l -> genDecisionLeaf l
-    Ast.DSwitch span selector cs def -> genDecisionSwitchIx span selector cs def
-    Ast.DSwitchStr selector cs def -> genDecisionSwitchStr selector cs def
-  where
-    genDecisionLeaf (bs, e) selections = do
-        bs' <- selectVarBindings selections bs
-        withVals bs' (genExpr e)
-    genDecisionSwitchIx span selector cs def selections = do
-        let (variantIxs, variantDts) = unzip (Map.toAscList cs)
-        (m, selections') <- select selector selections
-        mVariantIx <- case typeOf m of
-            IntegerType _ -> getLocal m
-            -- We can't read the index from the representative struct directly. We first
-            -- have to "remove the padding" on the index by truncating it to the smallest
-            -- size that can fit all variants. We have to do this because the padding
-            -- bytes may be nonzero.
-            _ -> do
-                tagBig <- getLocal =<< genIndexStruct m [0]
-                let tSmall = IntegerType (fromJust (tagBitWidth span))
-                if typeOf tagBig == tSmall
-                    then pure tagBig
-                    else emitAnonReg $ trunc tagBig tSmall
-        let ixBits = getIntBitWidth (typeOf mVariantIx)
-        let litIxInt = LLConst.Int ixBits
-        variantLs <- mapM (newName . (++ "_") . ("variant_" ++) . show) variantIxs
-        defaultL <- newName "default"
-        let dests' = zip (map litIxInt variantIxs) variantLs
-        commitToNewBlock (Switch mVariantIx defaultL dests' []) defaultL
-        converge (genDecisionTree def selections')
-                 (zip variantLs (map (flip genDecisionTree selections') variantDts))
-    genDecisionSwitchStr selector cs def selections = do
-        (matchee, selections') <- select selector selections
-        let cs' = Map.toAscList cs
-        let genCase (s, dt) next = do
-                s' <- getStrLit s
-                isMatch <- genStrEq matchee s'
-                -- Do some wrapping to preserve effect order
-                pure $ genCondBr isMatch (genDecisionTree dt selections') next
-        join (foldrM genCase (genDecisionTree def selections') cs')
+            -- In LOOP
+            forM_ stms genStm
+            (conts, breaks) <- partitionEithers <$> genLTerm term
+            -- In ASSIGN
+            let conts' = transpose (map (\(nexts, lnext) -> zip nexts (repeat lnext)) conts)
+            forM_ (zip params conts') $ \((lhs, init), nexts) -> do
+                init' <- genOperand init
+                let u = LL.typeOf init'
+                emitLocal lhs (GInstr u (LL.Phi u ((init', lprev) : nexts) []))
+            commitThen (LL.Br ll []) le
+            -- In END
+            joinBreaks breaks
 
-genCtion :: Ast.Ction -> Gen Val
-genCtion (i, span', dataType, as) = do
-    lookupEnum dataType & lift >>= \case
-        Just 0 -> pure (VLocal litUnit)
-        Just w -> pure (VLocal (ConstantOperand (LLConst.Int w i)))
-        Nothing -> do
-            as' <- mapM genExpr as -- can have side effects, so generate even if zero size
-            let tnominal = genDatatypeRef dataType
-            pnominal <- emitReg "nominal" (alloca tnominal)
-            -- If span is 1, there is no tag & no need to bitcast etc
-            p <- if span' == 1
-                then pure pnominal
-                else do
-                    ptag <- emitReg "tag" =<< getelementptr pnominal (litI64 0) [0]
-                    let w = getIntBitWidth (getPointee (typeOf ptag))
-                    let tag = ConstantOperand (LLConst.Int w i)
-                    _ <- genStore (VLocal tag) (VLocal ptag)
-                    selectVarAs pnominal (typeStruct (map typeOf as'))
-            genStructInPtr p as'
-            pure (VVar pnominal)
+        genOperand :: Low.Operand -> Gen LL.Operand
+        genOperand = \case
+            OLocal x -> genLocal x
+            OGlobal x -> pure $ LL.ConstantOperand (genGlobal x)
+            OConst c -> pure $ LL.ConstantOperand (genConst c)
+            OExtern e -> pure $ LL.ConstantOperand (genExtern e)
 
-genStrEq :: Val -> Val -> Gen Val
-genStrEq s1 s2 =
-    fmap VLocal . emitAnonReg =<< callBuiltin "str-eq" =<< mapM getLocal [s1, s2]
+        genLocal :: Local -> Gen LL.Operand
+        genLocal (Local ident t) =
+            let name = getName lnames ident
+            in  gets aliases <&> Map.lookup name <&> \case
+                    Just x -> x
+                    Nothing -> LL.LocalReference (genType t) (mkName name)
 
-selectVarAs :: Operand -> Type -> Gen Operand
-selectVarAs pRepresentative tvariant = do
-    pGeneric <- emitReg "generic" =<< getelementptr pRepresentative (litI64 0) [1]
-    emitReg "structural" (bitcast pGeneric (LLType.ptr tvariant))
+        genExtern :: Low.Extern -> LL.Constant
+        genExtern (Extern name out params ret) =
+            LL.GlobalReference (genType (TFun out params ret)) (mkName name)
+
+        emit :: GExpr -> Gen LL.Operand
+        emit (GOperand x) = pure x
+        emit e = do
+            n <- gets tmpCount
+            modify (\st -> st { tmpCount = n + 1 })
+            let name = "tmp" ++ show n
+            emitNamed name e
+
+        emitLocal :: Local -> GExpr -> Gen LL.Operand
+        emitLocal (Local x _) = emitNamed (getName lnames x)
+
+        emitNamed :: String -> GExpr -> Gen LL.Operand
+        emitNamed lhs (GOperand rhs) =
+            modify (\st -> st { aliases = Map.insert lhs rhs (aliases st) }) $> rhs
+        emitNamed x (GInstr t instr) = do
+            let instr' = mkName x LL.:= instr
+            modify (\st -> st { currentInstrs = instr' : currentInstrs st })
+            pure (LL.LocalReference t (mkName x))
+
+        emitDo :: LL.Instruction -> Gen ()
+        emitDo instr = modify (\st -> st { currentInstrs = LL.Do instr : currentInstrs st })
+
+        label :: String -> Gen Name
+        label s = do
+            n <- gets labelCount
+            modify (\st -> st { labelCount = n + 1 })
+            pure $ mkName ("L" ++ show n ++ s)
+
+    genGlobal :: Low.Global -> LL.Constant
+    genGlobal (Global ident t) = LL.GlobalReference (genType t) (mkName (getGName ident))
+
+    genType :: Low.Type -> LL.Type
+    genType = \case
+        TInt { tintWidth = w } -> LL.IntegerType (fromIntegral w)
+        TNat { tnatWidth = w } -> LL.IntegerType (fromIntegral w)
+        TF32 -> LL.FloatingPointType LL.FloatFP
+        TF64 -> LL.FloatingPointType LL.DoubleFP
+        TPtr u -> LL.ptr (genType u)
+        VoidPtr -> LL.ptr LL.i8
+        TFun out ps r ->
+            let rt = case r of
+                    RetVal t -> genType t
+                    RetVoid -> LL.void
+                out' = maybe [] ((: []) . genOutParam) out
+            in  LL.ptr $ LL.FunctionType rt (out' ++ map genParam ps) False
+        TConst i -> case tdefs Vec.! fromIntegral i of
+            (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
+            (name, _) -> LL.NamedTypeReference (mkName name)
+        TArray t n -> LL.ArrayType (fromIntegral n) (genType t)
+        TClosure{} -> LL.NamedTypeReference (mkName "closure")
+      where
+        genOutParam (OutParam () pt) = LL.ptr (genType pt)
+        genParam = \case
+            ByVal () pt -> genType pt
+            ByRef () pt -> LL.ptr (genType pt)
+
+    getGName = getName $ if noGC'
+        then flip Vec.map gnames $ \case
+            "GC_malloc" -> "malloc"
+            s -> s
+        else gnames
+
+    litI64 :: Integral a => a -> LL.Operand
+    litI64 = LL.ConstantOperand . LL.Int 64 . toInteger
+
+    litI32 :: Integral a => a -> LL.Operand
+    litI32 = LL.ConstantOperand . LL.Int 32 . toInteger
+
+    genMemberName :: MemberName -> Low.Type -> MemberIx
+    genMemberName mname = \case
+        TClosure{} -> case mname of
+            MemberId 0 -> 0
+            MemberId 1 -> 1
+            _ ->
+                ice
+                    $ "Codegen.genMemberName: type is closure, but member name is not MemberId 0 or 1, "
+                    ++ show mname
+        TConst tid -> case snd (tdefs Vec.! fromIntegral tid) of
+            DStruct Struct { structMembers = ms } ->
+                fromIntegral (fromJust (findIndex ((== mname) . fst) ms))
+            tdef -> ice $ "Codegen.genMemberName: type points to non-struct, " ++ show tdef
+        t -> ice $ "Codegen.genMemberName: type is not struct or closure, " ++ show t
+
+
+commitThen :: LL.Terminator -> Name -> Gen ()
+commitThen term next = do
+    current <- gets currentLabel
+    rinstrs <- gets currentInstrs
+    let instrs = reverse rinstrs
+    tell [BasicBlock current instrs (LL.Do term)]
+    modify (\st -> st { currentLabel = next, currentInstrs = [] })
+
+commitFinal :: LL.Terminator -> Gen ()
+commitFinal term = commitThen term (ice "Continued codegen after commitFinal")
+
+getName :: VarNames -> Word -> String
+getName names i = names Vec.! fromIntegral i
+
+structType :: [LL.Type] -> LL.Type
+structType ts = StructureType { isPacked = False, elementTypes = ts }
+
+callNamed :: String -> Maybe LL.Operand -> [LL.Operand] -> LL.Type -> Instruction
+callNamed f out as rt =
+    let f' = ConstantOperand $ LL.GlobalReference
+            (LL.ptr $ FunctionType rt (maybe id ((:) . LL.typeOf) out $ map LL.typeOf as) False)
+            (mkName f)
+    in  call f' out as
+
+call :: LL.Operand -> Maybe LL.Operand -> [LL.Operand] -> Instruction
+call f out as = LL.Call { tailCallKind = Just LL.NoTail
+                        , callingConvention = LL.C
+                        , returnAttributes = []
+                        , function = Right f
+                        , arguments = maybe [] ((: []) . (, [LL.SRet])) out ++ map (, []) as
+                        , functionAttributes = []
+                        , metadata = []
+                        }
+
+simpleFun :: LL.Linkage -> String -> [Parameter] -> LL.Type -> [BasicBlock] -> Definition
+simpleFun link n ps rt bs = GlobalDefinition $ Function { LLGlob.linkage = link
+                                                        , LLGlob.visibility = LLVis.Default
+                                                        , LLGlob.dllStorageClass = Nothing
+                                                        , LLGlob.callingConvention = LL.C
+                                                        , LLGlob.returnAttributes = []
+                                                        , LLGlob.returnType = rt
+                                                        , LLGlob.name = mkName n
+                                                        , LLGlob.parameters = (ps, False)
+                                                        , LLGlob.functionAttributes = []
+                                                        , LLGlob.section = Nothing
+                                                        , LLGlob.comdat = Nothing
+                                                        , LLGlob.alignment = 0
+                                                        , LLGlob.garbageCollectorName = Nothing
+                                                        , LLGlob.prefix = Nothing
+                                                        , LLGlob.basicBlocks = bs
+                                                        , LLGlob.personalityFunction = Nothing
+                                                        , LLGlob.metadata = []
+                                                        }

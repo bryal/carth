@@ -10,12 +10,12 @@
 (define (map/singleton k v) (MTree (box [k v (to-nat 1) MLeaf MLeaf])))
 
 (define map/size
-  (fmatch (case MLeaf (to-nat 0))
-          (case (MTree (Box [_ _ n _ _])) n)))
+  (fun* (case [MLeaf] (to-nat 0))
+        (case [(MTree (Box [_ _ n _ _]))] n)))
 
 
-(define (map/insert cmp k v) (map/adjust-or-insert cmp (const v) k v))
-(define (map/insert-with cmp f k v2) (map/adjust-or-insert cmp (fun (v1) (f v1 v2)) k v2))
+(define (map/insert cmp k v m) (map/adjust-or-insert cmp (const v) k v m))
+(define (map/insert-with cmp f k v2 m) (map/adjust-or-insert cmp (fun (v1) (f v1 v2)) k v2 m))
 
 (define: (map/adjust-or-insert cmp f k v m)
     (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k v (Map k v) (Map k v)))
@@ -63,7 +63,7 @@
           (else
            t))))
 
-(define map/-left-rot (fmatch (case MLeaf MLeaf) (case (MTree (Box m)) (MTree (map/-left-rot' m)))))
+(define map/-left-rot (fun* (case [MLeaf] MLeaf) (case [(MTree (Box m))] (MTree (map/-left-rot' m)))))
 ;; FIXME: Segfault if we accept the tuple wrapped in its box here.
 (define (map/-left-rot' [k v n l r])
   (match r
@@ -71,7 +71,7 @@
           (box [rk rv n (MTree (box [k v (inc (+ (map/size l) (map/size rl))) l rl])) rr]))
     (case MLeaf (panic "map/-left-rot': right child is leaf"))))
 
-(define map/-right-rot (fmatch (case MLeaf MLeaf) (case (MTree (Box m)) (MTree (map/-right-rot' m)))))
+(define map/-right-rot (fun* (case [MLeaf] MLeaf) (case [(MTree (Box m))] (MTree (map/-right-rot' m)))))
 (define (map/-right-rot' [k v n l r])
   (match l
     (case (MTree (Box [lk lv ln ll lr]))
@@ -79,42 +79,42 @@
     (case MLeaf (panic "map/-right-rot': left child is leaf"))))
 
 (define (map/map-left f)
-  (fmatch (case MLeaf MLeaf)
-          (case (MTree (Box [k v n l r]))
-                (MTree (box [k v n (f l) r])))))
+  (fun* (case [MLeaf] MLeaf)
+        (case [(MTree (Box [k v n l r]))]
+              (MTree (box [k v n (f l) r])))))
 
 (define (map/map-right f)
-  (fmatch (case MLeaf MLeaf)
-          (case (MTree (Box [k v n l r]))
-                (MTree (box [k v n l (f r)])))))
+  (fun* (case [MLeaf] MLeaf)
+        (case [(MTree (Box [k v n l r]))]
+              (MTree (box [k v n l (f r)])))))
 
 (define: (map/adjust cmp f k m)
     (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k (Map k v) (Map k v)))
   (define go
-    (fmatch (case MLeaf MLeaf)
-            (case (MTree (Box [k' v n l r]))
-                  (match (cmp k k')
-                    (case Eq (MTree (box [k' (f v) n l r])))
-                    (case Lt (MTree (box [k' v n (go l) r])))
-                    (case Gt (MTree (box [k' v n l (go r)])))))))
+    (fun* (case [MLeaf] MLeaf)
+          (case [(MTree (Box [k' v n l r]))]
+                (match (cmp k k')
+                  (case Eq (MTree (box [k' (f v) n l r])))
+                  (case Lt (MTree (box [k' v n (go l) r])))
+                  (case Gt (MTree (box [k' v n l (go r)])))))))
   (go m))
 
 (define (map/lookup cmp k m)
   (define go
-    (fmatch (case MLeaf None)
-            (case (MTree (Box [k' v _ l r]))
-                  (match (cmp k k')
-                    (case Eq (Some v))
-                    (case Lt (go l))
-                    (case Gt (go r))))))
+    (fun* (case [MLeaf] None)
+          (case [(MTree (Box [k' v _ l r]))]
+                (match (cmp k k')
+                  (case Eq (Some v))
+                  (case Lt (go l))
+                  (case Gt (go r))))))
   (go m))
 
 (define (map/lookup! cmp k m) (unwrap! (map/lookup cmp k m)))
 
 (define map/iter
-  (fmatch (case MLeaf iter/nil)
-          (case (MTree (Box [k v _ l r]))
-                (apps iter/chain (map/iter l) (iter/once [k v]) (map/iter r)))))
+  (fun* (case [MLeaf] iter/nil)
+        (case [(MTree (Box [k v _ l r]))]
+              (apps iter/chain (map/iter l) (iter/once [k v]) (map/iter r)))))
 
 (define (map/collect cmp kvs) (map/extend cmp map/empty kvs))
 (define (map/collect-with cmp f kvs) (map/extend-with cmp f map/empty kvs))
@@ -124,32 +124,32 @@
 (define (map/extend-with cmp f m kvs)
   (deref (foldl (fun ((Box m) [k v]) (box (map/insert-with cmp f k v m))) (box m) kvs)))
 
-(define (map/collect-with-count cmp)
-  (map/extend-with-count cmp map/empty))
+(define (map/collect-with-count cmp it)
+  (map/extend-with-count cmp map/empty it))
 
 (define (map/extend-with-count cmp m it)
   (deref (foldl (fun ((Box m) x) (box (map/insert-with cmp + x (to-nat 1) m))) (box m) it)))
 
 (define map/left-child
-  (fmatch (case MLeaf None)
-          (case (MTree (Box [_ _ _ l _])) (Some l))))
+  (fun* (case [MLeaf] None)
+        (case [(MTree (Box [_ _ _ l _]))] (Some l))))
 (define map/right-child
-  (fmatch (case MLeaf None)
-          (case (MTree (Box [_ _ _ _ r])) (Some r))))
+  (fun* (case [MLeaf] None)
+        (case [(MTree (Box [_ _ _ _ r]))] (Some r))))
 
 (define map/left-child!
-  (fmatch (case MLeaf (panic "map/left-child!: leaf has no left child"))
-          (case (MTree (Box [_ _ _ l _])) l)))
+  (fun* (case [MLeaf] (panic "map/left-child!: leaf has no left child"))
+        (case [(MTree (Box [_ _ _ l _]))] l)))
 (define map/right-child!
-  (fmatch (case MLeaf (panic "map/right-child!: leaf has no right child"))
-          (case (MTree (Box [_ _ _ _ r])) r)))
+  (fun* (case [MLeaf] (panic "map/right-child!: leaf has no right child"))
+        (case [(MTree (Box [_ _ _ _ r]))] r)))
 
-(define (map/map f)
-  (fmatch (case MLeaf MLeaf)
-          (case (MTree (Box [k v n l r]))
-                (MTree (box [k (f v) n (map/map f l) (map/map f r)])))))
+(define map/map
+  (fun* (case [_ MLeaf] MLeaf)
+        (case [f (MTree (Box [k v n l r]))]
+              (MTree (box [k (f v) n (map/map f l) (map/map f r)])))))
 
-(define (map/unions cmp) (foldl (map/union cmp) map/empty))
+(define (map/unions cmp ms) (foldl (fun (macc m) (map/union cmp macc m)) map/empty ms))
 
 ;; TODO: Use more efficient algorithm
 (define (map/union cmp m1 m2)
@@ -159,53 +159,53 @@
 ;;
 ;; Data of first map for keys of second map
 (define (map/isect cmp m1 m2)
-  (map/collect cmp (filter-map (fun (k) (maybe/map (cons' k) (map/lookup cmp k m1))) (map/keys m2))))
+  (map/collect cmp (filter-map (fun (k) (maybe/map (partial-2 cons' k) (map/lookup cmp k m1))) (map/keys m2))))
 
 (define (map/keys m) (map car (map/iter m)))
 (define (map/vals m) (map cadr (map/iter m)))
 
 (define (map/member? cmp k m) (some? (map/lookup cmp k m)))
 
-(define map/empty? (fmatch (case MLeaf True) (case _ False)))
+(define map/empty? (fun* (case [MLeaf] True) (case [_] False)))
 
 ;; Wiki says maintenance after deleting is extraneous
 (define: map/remove-min
     (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
-  (fmatch (case MLeaf None)
-          (case (MTree (Box [k v n l r]))
-                (match (map/remove-min l)
-                  (case (Some [x l]) (Some [x (MTree (box [k v (dec n) l r]))]))
-                  (case None (Some [[k v] r]))))))
+  (fun* (case [MLeaf] None)
+        (case [(MTree (Box [k v n l r]))]
+              (match (map/remove-min l)
+                (case (Some [x l]) (Some [x (MTree (box [k v (dec n) l r]))]))
+                (case None (Some [[k v] r]))))))
 
 ;; Wiki says maintenance after deleting is extraneous
 (define: map/remove-max
     (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
-  (fmatch (case MLeaf None)
-          (case (MTree (Box [k v n l r]))
-                (match (map/remove-max r)
-                  (case (Some [x r]) (Some [x (MTree (box [k v (dec n) l r]))]))
-                  (case None (Some [[k v] l]))))))
+  (fun* (case [MLeaf] None)
+        (case [(MTree (Box [k v n l r]))]
+              (match (map/remove-max r)
+                (case (Some [x r]) (Some [x (MTree (box [k v (dec n) l r]))]))
+                (case None (Some [[k v] l]))))))
 
 (define (map/remove cmp k m)
   (define go
-    (fmatch (case MLeaf None)
-            (case (MTree (Box [k' v n l r]))
-                  (match (cmp k k')
-                    (case Eq (Some [v (if (map/empty? l)
-                                          r
-                                        (match (map/remove-min r)
-                                          (case None l)
-                                          (case (Some [[ksucc vsucc] r])
-                                                (MTree (box [ksucc vsucc (dec n) l r])))))]))
-                    (case Lt (maybe/map (map-cadr (fun (l) (MTree (box [k' v (dec n) l r]))))
-                                        (go l)))
-                    (case Gt (maybe/map (map-cadr (fun (r) (MTree (box [k' v (dec n) l r]))))
-                                        (go r)))))))
+    (fun* (case [MLeaf] None)
+          (case [(MTree (Box [k' v n l r]))]
+                (match (cmp k k')
+                  (case Eq (Some [v (if (map/empty? l)
+                                        r
+                                      (match (map/remove-min r)
+                                        (case None l)
+                                        (case (Some [[ksucc vsucc] r])
+                                              (MTree (box [ksucc vsucc (dec n) l r])))))]))
+                  (case Lt (maybe/map (partial-2 map-cadr (fun (l) (MTree (box [k' v (dec n) l r]))))
+                                      (go l)))
+                  (case Gt (maybe/map (partial-2 map-cadr (fun (r) (MTree (box [k' v (dec n) l r]))))
+                                      (go r)))))))
   (go m))
 
 (define (map/delete cmp k m) (maybe' m cadr (map/remove cmp k m)))
 
-(define (map/show show-k show-v)
-  (fmatch (case MLeaf "MLeaf")
-          (case (MTree (Box [k v n l r]))
-                (apps str-append "(MTree " (show-k k) " " (show-v v) " " (show-nat n) " " (map/show show-k show-v l) " " (map/show show-k show-v r) ")"))))
+(define map/show
+  (fun* (case [_ _ MLeaf] "MLeaf")
+        (case [show-k show-v (MTree (Box [k v n l r]))]
+              (apps str-append "(MTree " (show-k k) " " (show-v v) " " (show-nat n) " " (map/show show-k show-v l) " " (map/show show-k show-v r) ")"))))

@@ -6,4 +6,5 @@
   (display (show-int (factorial 20))))
 
 (define (factorial n)
-  (foldl * 1 (range 1 n)))
+  (if (= n 0) 1
+    (* n (factorial (- n 1)))))

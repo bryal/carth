@@ -3,7 +3,70 @@
 Features and other stuff to do/implement in/around Carth.
 
 * INACTIVE Package system
+  We will need some kind of package-management solution, or we will
+  end up like C where using dependencies is a chore.
 
+  I kind of want to just use Guix somehow, but it should ideally be
+  possible to use whatever package management solution on other
+  distros as well...
+
+  I'm thinking: the package manager shouldn't make too many
+  assumptions about the system and get in the way in unorthodox
+  scenarios. Consider how Guix and Nix have to use some hacks to get
+  packages to play nice with the store, not make assumptions about the
+  dir tree structure (like there being a /usr/lib, a /bin/bash) and
+  stuff like that.
+  
+  See: https://drewdevault.com/2021/09/27/Let-distros-do-their-job.html
+** Carth + Guix = 💜?
+   Använd guix som pakethanterare + virtualenv för Carth, typ som Stack
+   för Haskell och Cargo för rust.
+
+   Tänk att carth antingen drar in guix som bibliotek, eller på något
+   annat vis kräver guix från systemet.
+
+   Tänk:
+     carth init
+   Skulle kunna köra
+     guix environment
+   och lite mer.
+
+   Update <2021-10-20 ons>: I think pulling in guix as a dependency
+   would not work well. That's not how it's designed to be used. Would
+   also work weirdly when actually using Guix as the OS package
+   manager on top as well. Also, asking users to install Guix and add
+   our channel would not be ergonomic enough to be the simplest way to
+   do things.
+
+   Instead, I think we should do something like what this comment
+   proposes: https://news.ycombinator.com/item?id=24847060, i.e.,
+   imitate cargo. Cargo is fairly primitive, and maybe allows "too
+   much" when it comes to using different versions, but it's fairly
+   simple and does its job well. Then we can "bless" Guix as a package
+   manager to use on top of our primitive cargo-clone for more
+   advanced features, like releases with compatible packages,
+   environments, etc etc. Basically, we don't put too much
+   responsibility on our own shoulders, and let OS distributions do
+   what they do best. Make sure that cargo-clone never gets in the way
+   of Guix and other distributions. For example, overriding dependency
+   config to use local files and other versions should have first
+   class support.
+
+   Maybe help maintain the Guix (& Nix?) packages myself.
+   
+*** Extra säkert?
+    "guix environment allows you to run any application in an isolated
+     container that restricts network access, hides the filesystem (no
+     risk that the closed-source program steals any of your files, say
+     your Bitcoin wallet or your PGP keys) and even system-level
+     information such as your user name. This is essential to run any
+     non-trusted, closed-source program."
+
+    Skulle kanske förhindra vissa av problemen man sett i NPM, typ "event-stream" debaklet.
+
+*** Läs mer
+    https://www.gnu.org/software/guix/manual/en/guix.html#Channels
+  
 * NEXT Module system
   Postfix syntax for module paths? A bit like web-domains -
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
@@ -51,6 +114,20 @@ Features and other stuff to do/implement in/around Carth.
    (define u (isFirst y))
    #+END_SRC
 
+* NEXT Bidirectional type checking
+I'm not fully convinced yet, but I believe we might want to use
+bidirectional type checking instead of a unification based, HM-like
+typechecker in Carth.
+
+HM shares a few properties with bidirectional typechecking, like
+implicit type abstraction / application, but it's not the same
+thing. Proper bidirectional typechecking would give us an easy way to
+do implicit numeric coercions for proper subtypes, afaik.
+
+- https://lobste.rs/s/mhdvzh/appeal_bidirectional_type_checking
+- https://www.haskellforall.com/2022/06/the-appeal-of-bidirectional-type.html
+- Complete and Easy Bidirectional Typechecking for Higher-Rank Polymorphism, by Jana Dunfield & Neelakantan R. Krishnaswami
+- Bidirectional Typing, by JANA DUNFIELD & NEEL KRISHNASWAMI
 * NEXT Typeclasses
   Need some kind of system like type classes for ad hoc
   polymorphism. Maybe Haskell style type classes, Agda style
@@ -381,7 +458,193 @@ Features and other stuff to do/implement in/around Carth.
      }
    #+END_SRC
 
-* INACTIVE Custom GC
+* NEXT RC / ARC / Refcount / reference counting
+GC is inelegant, needing to stop the world or use a bunch of complex
+methods. Also, latency is bad.
+
+Do good refcounting instead.
+
+There were other reasons, but I can't remember them of the top of my
+head.
+
+https://atp.fm/205-chris-lattner-interview-transcript#gc /
+https://news.ycombinator.com/item?id=31139610
+
+#+BEGIN_QUOTE
+Chris Lattner: Here’s the way I look at it, and as you said, the ship
+has somewhat sailed: I am totally convinced that ARC is the right way
+to go upfront. It is better in a whole bunch of different ways. It
+gives you deterministic behavior, so it doesn’t have the
+unpredictable-stutter problem that people like to bash on GCs.
+
+The stutter problem, to me, isn’t really the issue, even though
+[1:59:30] that’s what GC-haters will bring up all the time. It’s more
+about being able to reason about when the memory goes away. The most
+important aspect of that is that ARC gets rid of finalizers.
+
+If you use a garbage-collected language, you use
+finalizers. Finalizers are the thing that gets run when you’re not
+object gets destroyed. Finalizers have so many problems that there are
+entire bodies of work talking about how to work around problems with
+finalizers.
+
+For example: the finalizer gets run on the wrong thread, it has to get
+run multiple [2:00:00] times, the object can get resurrected while the
+finalizer’s running. It happens non-deterministically later. You can’t
+count on it, and so you can’t use it for resource management for
+database handles and things like that, for example. There are so many
+problems with finalizers that ARC just defines away by having
+deterministic destruction.
+
+There are two arguments that people make [2:00:30] against ARC in
+favor of a tracing garbage collector, one of which is that ARC adds
+overhead because you have retain and release operations that run. That
+is true. The other is that you have to think about cycles in ARC
+because it doesn’t automatically collect cycles, and that is also
+true.
+
+The rebuttal I’d give to people is that those problems are also true
+in garbage collection, just in different ways. In a garbage collector,
+for example, [2:01:00] people don’t think about it, but garbage
+collection injects additional code into your application just like ARC
+does.
+
+There are many different garbage collection algorithms, and not all of
+them are the same. But most modern garbage collectors, that use a
+nursery for short-lifetime objects then promote them out — that are
+generational — use something called a write barrier. Every time you
+store to a property [2:01:30] of an object, say, you have to run
+additional code.
+
+Garbage collectors also need the ability to stop all the threads, or
+at least to be able to stop threads at some point in time, and they
+need to be able to do so within a specific time bound because they
+don’t want the garbage collector to take forever. The artifact of that
+is that typical garbage collectors, in Java for example, will
+introduce what’s called a safepoint into loops. So now, in your loops,
+extra code is being run because of the garbage collector.
+
+On more [2:02:00] aggressive garbage collection algorithms — for
+example, I was reading a blog post recently about Go’s tricolor
+algorithm — they’re touting the advantage of really low latency and
+the ability to guarantee response times in a more fine-grained level
+than most garbage collectors. But to do that, they use this tricolor
+algorithm which dramatically lowers throughput, because they’re doing
+almost exactly the same kinds of operations that ARC is doing.
+
+The problem [2:02:30] that it then introduces, though, is that these
+operations that the garbage collector is introducing are sometimes but
+not nearly as well optimizable as the ARC overhead that the ARC
+optimizer applies to.
+
+Furthermore, there’s no out on it. With ARC, I think and hope that the
+ownership model will give people the ability to take control of those
+overheads. And if it becomes a problem in practice, or if they’re just
+that kind of person, they can take full control over the lifetime of
+their objects, and then know that ARC will never happen. In a garbage
+collector, you don’t have that.
+
+[2:03:00] The performance side of things I think is still up in the
+air because ARC certainly does introduce overhead. Some of that’s
+unavoidable, at least without lots of annotations in your code, but
+also I think that ARC is not done yet. A ton of energy’s been poured
+into research for garbage collection, particularly since Java has come
+up. There’s been hundreds of papers written in the academic circles,
+tons of work in HotSpot and other Java [2:03:30] implementations to do
+different tweaks and different tunings and different new kinds of
+algorithms in garbage collecting. That work really hasn’t been done
+for ARC yet, so really, I think there’s still a a big future ahead.
+
+On the programming side of things, the cycle side of things, I think
+it’s also a really interesting question of how much should people
+think about memory?
+
+When I was baiting you a little bit, you said that the great thing
+about garbage collection is that you don’t have to think about
+memory. Of course we know that’s not true, right? Because if [2:04:00]
+you have a reference to some big object graph that you didn’t mean to
+keep around (maybe it’s in your undo stack), then you will “leak” that
+memory. That’s true of a garbage collector, and that’s true of ARC as
+well. Any automatic memory-management approach has that problem.
+
+There’s this question of if you’re building a large scale system, do
+you want people to [2:04:30] “never think about memory?” Do you want
+them to think about memory all the time, like they did in
+Objective-C’s classic manual retain-and-release? Or do you want
+something in the middle?
+
+I think that ARC strikes a really interesting balance, whether it’s in
+Objective-C or Swift. I look at manual retain-and-release as being a
+very imperative style of memory management, or malloc and free, where
+you’re telling the code, line by line: this is where you should do a
+reference-count operation, [2:05:00] this is where you should release
+the memory, this is what you should do at this point in time.
+
+ARC then takes that model and bubbles it up a big step, and it makes
+it be a very declarative model. So instead of telling the compiler
+that this is the place that you should do a retain, you instead say,
+“This is an owning relationship.” The cool thing about that to me is
+that not only does it get rid of the mechanics of maintaining
+reference counting and define away tons of bugs by doing that, it also
+means that [2:05:30] it is now explicit in your code what your
+intention was. That’s something that people who maintain your code
+benefit from.
+
+By saying that I have a weak point or two, the parent object of my
+thing, that’s a really important relationship to know about and as
+you’re looking at the code, you’re maintaining the code. Having that
+be explicit is very valuable, because that talks about the
+relationship between values. To me, again with the goal of being able
+to write large scale applications in Swift, I think that’s really
+useful. [2:06:00] I also don’t think it’s hugely burdensome, though
+it’s definitely part of the learning curve of learning how Swift works
+that it has to be balanced in there as well.
+
+So I don’t know. ARC has clear advantages in terms of allowing Swift
+to scale down to systems that can’t tolerate having a garbage
+collector, for example, if you want to write firmware in Swift. I
+think that it does provide a better programming model where
+programmers think just [2:06:30] a little bit about memory. And I
+think that going forward, it provides a really high performance model
+that you can get better than garbage collection in almost every way. I
+think that in terms of trade-offs, it’s the right one to push forward.
+
+The third piece that garbage collection is really bad about, which is
+kind of a showstopper for Swift, is interoperability with C code. If
+you’ve ever worked with Java or other [2:07:00] similar
+garbage-collected languages, one of the major advantages the garbage
+collectors give you is that they move objects, and they need to do
+that so they can compact those objects so they can then efficiently do
+allocations. The problem is that once you start moving objects around,
+if you’re interfacing with C code, you can’t have some random C code
+having a pointer to your object and have it move because then you get
+a dangling pointer.
+
+Once you get down that line, you end up with things like JNI, the Java
+Native Interface, where you have to [2:07:30] explicitly pin things,
+you have to maintain them, it’s very complicated, it’s really
+buggy. ARC completely defines this away by just saying that
+something’s in memory, It has predictable lifetime, you can reason
+about it. Swift provides tools for dealing with unsafe pointers and
+things like that, and that makes the interoperability with existing C
+code — but also with Objective-C, and maybe someday C++ code — really
+simple, really natural and really efficient. I think that’s a huge
+advantage that ARC [2:08:00] provides that really would be impossible
+to do with a garbage collector.
+
+That’s my opinion. I think reasonable people disagree, obviously, but
+it’s something that does come up now and then.
+#+END_QUOTE
+
+https://gankra.github.io/blah/deinitialize-me-maybe/
+
+* CANCELLED Custom GC
+  Update <2022-05-24 tis>: I've actually changed my mind about
+  refcounting. With some ownership analysys, which we'd need anyways
+  for linear types, one could easily ommit most RC increments /
+  decrements in the generated code. And predictable deinitialization +
+  no GC latency is actually really valuable.
+
   Until we get linear types, and even then, we'll need some form of
   GC. Boehm's seems to be working well enough, but a conservative
   collector is not ideal, and I think it would be a fun project to
@@ -415,7 +678,9 @@ Features and other stuff to do/implement in/around Carth.
   Implementing a tracing GC would be a fun challenge, and I'm sure it
   could be fun to try different algorithms etc.
 
-  Look at https://github.com/mkirchner/gc.
+  Look at
+  - https://github.com/mkirchner/gc
+  - https://youtu.be/FeLHo6tIgKI
 
 * INACTIVE Effect system
   tags: Algebraic effects
@@ -464,6 +729,7 @@ Features and other stuff to do/implement in/around Carth.
   See:
   - https://youtu.be/z8SI7WBtlcA, https://youtu.be/z8SI7WBtlcA?t=1433
   - Eff language
+  - https://youtu.be/XAnFUwIaZB8
 
 ** INACTIVE Memory allocation as an explicit effect
    In Rust, you can override the global memory allocator. Situational
@@ -485,8 +751,6 @@ Features and other stuff to do/implement in/around Carth.
    lang? I mean, couldn't pretty much any closure actually heap
    allocate for the captures? Hmm.
   
-* INACTIVE Macros?
-
 * INACTIVE Property system
   I'm thinking of a system where you annotate functions in a source
   file with pre- and postconditions, which can then be checked in
@@ -521,31 +785,6 @@ Features and other stuff to do/implement in/around Carth.
   #+BEGIN_EXAMPLE
   guix environment --container --ad-hoc coreutils clang carth
   #+END_EXAMPLE
-* INACTIVE Carth + Guix = 💜?
-  Använd guix som pakethanterare + virtualenv för Carth, typ som Stack
-  för Haskell och Cargo för rust.
-
-  Tänk att carth antingen drar in guix som bibliotek, eller på något
-  annat vis kräver guix från systemet.
-
-  Tänk:
-    carth init
-  Skulle kunna köra
-    guix environment
-  och lite mer.
-
-** Extra säkert?
-   "guix environment allows you to run any application in an isolated
-    container that restricts network access, hides the filesystem (no
-    risk that the closed-source program steals any of your files, say
-    your Bitcoin wallet or your PGP keys) and even system-level
-    information such as your user name. This is essential to run any
-    non-trusted, closed-source program."
-
-   Skulle kanske förhindra vissa av problemen man sett i NPM, typ "event-stream" debaklet.
-
-** Läs mer
-   https://www.gnu.org/software/guix/manual/en/guix.html#Channels
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
@@ -978,7 +1217,7 @@ Features and other stuff to do/implement in/around Carth.
   of all names necessary to parse the entry definition. Make a
   topological order. Compile them (to interpretable AST) in order. If
   there are any cyclical groups, compilation error.
-* INACTIVE Benchmark, profile, optimize
+* TODO Benchmark, profile, optimize
   Check out
   https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
   tips!
@@ -1001,22 +1240,6 @@ Features and other stuff to do/implement in/around Carth.
   type ParsedExpr = Expr (Type, SrcPos)
   type CheckedExpr = Expr CheckedType
   #+END_SRC
-* INACTIVE Use algebraic effects instead of mtl
-  Not 100% about this one -- maybe my monad use is simple enough that
-  there wouldn't actually be any gain? But still, I'd like to learn
-  effects, so maybe it's worth trying out.
-
-  Polysemy seems like the best one, but I'd have to do a little
-  research. https://github.com/thma/PolysemyCleanArchitecture/tree/3a9354a5c31eaf03009e389ce49b318881a2460f#readme
-
-  https://koka-lang.github.io/koka/doc/index.html
-* INACTIVE GRIN as alternative to LLVM and some of my own Codegen
-  https://github.com/grin-compiler/grin
-
-  GRIN seems promising. I wouldn't have to perform as complex
-  transformations from Carth IR to LLVM, instead transforming to this
-  more functional IR. GRIN might also be able to perform more
-  optimizations.
 * INACTIVE Optimize away zero-sized types before codegen
   It's bad that many operations on zero-sized types are currently
   actually compiled to, in practice, a ton of no-ops. I think it might
@@ -1147,24 +1370,6 @@ Features and other stuff to do/implement in/around Carth.
   itself, but the ~ptr/+~ function in the stdlib transmutes to int for
   addition. Should add a builtin virtual function that uses gep to
   offset pointer.
-* INACTIVE Is my llvm representation of unions causing problems?
-  Just had a bug which I haven't quite fixed yet. My current guess is
-  that it's caused by an (Either (Fun Unit (Maybe Int)) (Maybe Int))
-  being represented as a (Maybe Int) when generic in LLVM. This should
-  not be a problem, as both variants are equally (some basic testing
-  with equivalent structs in Rust and C seems to confirm this), but
-  maybe it's a problem that a function pointer is cast to integer. The
-  reference mentioned that LLVM has a harder time doing pointer
-  analysis if pointers are cast to integers and back.
-
-  Check out that approach that Troels used in Futhark, with
-  deduplicating but otherwise laying out all the members of all
-  variants in a single sequence. Why did he pick that approach? I
-  remember that I asked when he had a zoom presentation, but I don't
-  remember his answer.
-
-  Ooh, this seems cool:
-  https://mapping-high-level-constructs-to-llvm-ir.readthedocs.io/en/latest/README.html
 * Pattern matching
 ** INACTIVE Var pattern syntax, comparison
   What if we did
@@ -1222,7 +1427,7 @@ Features and other stuff to do/implement in/around Carth.
   rid of LLVM right away, but I'm not sure about what to replace it
   with just yet, so an interpreter is needed in the meantime.
 
-** INACTIVE Optinal step: Add low-level intermediate representation in Carth
+** TODO Add low-level intermediate representation in Carth
    Would require less work to change backend or add multiple ones of I
    just have to translate from a low-level IR to the backend code,
    instead of all the way from an AST. Might also be good for the
@@ -1317,6 +1522,24 @@ Features and other stuff to do/implement in/around Carth.
    encountered, just set the parameter stack variables and jump to the
    entry label kept in Reader.
 
+   https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/docs/ir.md
+   https://www.cs.tufts.edu/~nr/c--/extern/man2.pdf
+   https://llvm.org/pubs/2009-10-TereiThesis.pdf
+   https://llvm.org/devmtg/2015-10/slides/GroffLattner-SILHighLevelIR.pdf
+
+*** INACTIVE Separate backend from Low and beyond into its own library?
+    Maybe a separate package in the same repo?
+
+    Not sure about this one, but maybe. The idea popped into my head
+    that I could test Low out before implementing Lower if a write a
+    simple C frontend or something for it, and just try compiling C
+    code. But it would be kind of ugly for the carth package to
+    contain a C frontend -- except it would not! it could be wicked
+    useful for generating bindings for C libraries!! but I digress --
+    so why not separate the backend into its own package, and the C
+    frontend wouldn't really have to be "a part of" carth.
+
+    Something to consider for sure.
 ** DONE Step 1: Re-add interpreter for pure Carth code
    Fairly self explanatory. Just operate on whatever is returned by
    the Optimize pass. Make sure to add / translate as many test-cases
@@ -1507,6 +1730,31 @@ Features and other stuff to do/implement in/around Carth.
   the sugar is "unneccesary", but it really is quite concise and
   readable. Might be nice to have.
 
+* NEXT Look at these languages
+  For inspiration, learn from their mistakes, etc.
+  
+  Also add related work to readme, after looking closer at it, if applicable.
+
+  - Hackett
+  - Liskell
+  - Axellang
+  - Kalyn
+    https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
+  - Unison
+    https://github.com/unisonweb/unison
+* NEXT Refactor type checker
+  keywords: type checking, inferenc, inferrer
+
+  I'm not completely happy with the typechecking. 4 module files
+  (Check, Checked, Infer, Inferred) totalling over 900 SLOC. Also,
+  ~solve~ is not just run once at the outermost level, visiting each
+  constraint at most once. Because of nested ~let~ with polymorphism,
+  we currently run ~solve~ nestedly, and in total, each constraint is
+  likely visited more than once. This is ugly.
+
+  See:
+  - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
+
 * INACTIVE Nonstrict parameters
   Similar to how you can mark parameters as strict and force
   evaluation in Haskell, we could benefit from having params marked as
@@ -1560,59 +1808,67 @@ Features and other stuff to do/implement in/around Carth.
   Must consider how this interacts with monomorphization vs. boxing
   vs. value witness tables for static dispatch.b
 * TODO Don't curry by default
-  I did currying by default mostly because it's the Haskell way of
-  doing things, but this has, among other things, performance
-  implications. And we're not Haskell, we're a Lisp.
+** <2022-03-16 ons>
+   So what I'm thinking is: argument lists should be their own
+   thing. Not tuples.
 
-  Maybe let's do function application a bit more like Clojure? We
-  reduce the complexity of our call stacks and make profiling more
-  clear and easy. We'd also improve performance by not having to heap
-  allocate as many closure captures for the wrapping
-  curry-closures. Also, variadic special forms and macros wouldn't
-  cause confusion about whether it's a curried application or an extra
-  argument. Maybe we could even have variadic functions in some
-  way. ~(+ 1 2 3)~, ~(|> x f g h)~.
+   Pros: Matches the hardware better. Fewer surprises. No hidden
+         allocations etc.
 
-  In Clojure, one direct way of making a curried application is with
-  ~partial~. 
+   Cons: Not as ergonomic.
 
-  #+BEGIN_SRC carth
-  ((cons 1) [2]) ;; error
-  ((partial cons 1) [2]) ;; [1 2]
-  #+END_SRC
+   Argument lists wouldn't be first-class types, so you can't pass
+   around objects of them. But what I'm thinking is that for the
+   relatively infrequent cases when you'd want that, we can supply
+   nice adapters to make functions accept tuples, sort of like how we
+   can supply adapters to make them curried.
 
-  We probably couldn't implement it as a function, but we could have
-  it as a special form. Or, I guess we could implement it by doing
-  Rust-style
-  implement-a-class-for-every-arity-version-up-to-a-big-number-like-11. Another
-  possibility might be if function arguments were behind the scenes a
-  tuple. Then we might implement it like
+   - ~partial~ :: given a function and one argument, partially apply that one argument
+   - ~curry~ :: given a function, return a function that takes the
+     first argument and returns a function that takes the rest of the
+     arguments
+   - ~apply~ :: given a function and a tuple, destructure the tuple
+     and apply the elements as arguments.
+   - ~unapply~ :: (not sure about this name.) given a function that
+     accepts a tuple, returns a function that accepts the tuple
+     elements as an argument list.
 
-  #+BEGIN_SRC carth
-  (define: (partial f a)
-      (Fun [a . bs] c)
-    (fun bs (f (cons a bs))))
-  #+END_SRC
-  
-  This might have other negative implications, however.
+   #+BEGIN_EXAMPLE
+   ((partial + 1) 2)               ; = 3
+   (((curry +) 1) 2)               ; = 3
+   ((partial apply +) [1 2])       ; = 3
 
-  I suppose it would be nice if we could treat the function
-  paramer-list as if it were a tuple, but under the scenes they
-  actually don't, and the tuple stuff is just wrapped around it, and
-  optimized away when calls are saturated. Then you could fmatch
-  directly on the whole argument list, e.g.
+   f                       ; : (Fun (a b) c)
+   (partial apply f)       ; : (Fun ([a b]) c)
 
-  #+BEGIN_SRC carth
-  (foldl (fmatch (case [(Left n) x]
-                       (Left (inc n)))
-                 (case [(Right xs) x]
-                       (if (> 10 x)
-                           (Right (list/cons x xs))
-                         (Left 1))))
-         ...)
-  #+END_SRC
+   g                       ; : (Fun ([a b]) c)
+   (unapply g)             ; : (Fun (a b) c)
+   #+END_EXAMPLE
+** <2022-03-10 tor>
+   I'm coming around to the idea of, at least to begin
+   with, just doing function arguments the "normal" way. I.e., no
+   automagic currying or wrapping in tuples or whatever. Leave that to
+   the users (hah) for now.
 
-  --------------------------------------
+   #+BEGIN_SRC carth
+   (defun polynomial-2 (a b c) : (Fun (F64 F64 F64) (Fun (F64) F64))
+          (fun (x) (+ (* a x x) (* b x) c)))
+   #+END_SRC
+
+   These special forms would be nice
+
+   #+BEGIN_SRC carth
+   (defun f (a b c)
+          (+ a b c))
+
+   (((curry f) a) b c)
+   ((((curry* f) a) b) c)
+
+   (defun f
+          (case (0 0) None)
+          (case (a b) (Some (+ a b))))
+   #+END_SRC
+** Old
 
   If we don't do currying, we could also better fit a nice
   arbitrary-position anonymous function syntax into Carth. Like
@@ -1640,3 +1896,129 @@ Features and other stuff to do/implement in/around Carth.
   (define (pair x y) [x y])
   (pair 5 (: _ Nat)) ;; Type Nat ascribed to placeholder, to lock it
   #+END_EXAMPLE
+
+** Older
+  I did currying by default mostly because it's the Haskell way of
+  doing things, but this has, among other things, performance
+  implications. And we're not Haskell, we're a Lisp.
+
+  Maybe let's do function application a bit more like Clojure? We
+  reduce the complexity of our call stacks and make profiling more
+  clear and easy. We'd also improve performance by not having to heap
+  allocate as many closure captures for the wrapping
+  curry-closures. Also, variadic special forms and macros wouldn't
+  cause confusion about whether it's a curried application or an extra
+  argument. Maybe we could even have variadic functions in some
+  way. ~(+ 1 2 3)~, ~(|> x f g h)~.
+
+  In Clojure, one direct way of making a curried application is with
+  ~partial~. But we'd call it ~curry~ I think.
+
+  #+BEGIN_SRC carth
+  ((cons 1) [2]) ;; error
+  ((curry cons 1) [2]) ;; [1 2]
+  #+END_SRC
+
+  We probably couldn't implement it as a function, but we could have
+  it as a special form. Or, I guess we could implement it by doing
+  Rust-style
+  implement-a-class-for-every-arity-version-up-to-a-big-number-like-11. Another
+  possibility might be if function arguments were behind the scenes a
+  tuple. Then we might implement it like
+
+  #+BEGIN_SRC carth
+  (define: (curry f a)
+      (Fun [a . bs] c)
+    (fun bs (f (cons a bs))))
+  #+END_SRC
+  
+  This might have other negative implications, however.
+
+  I suppose it would be nice if we could treat the function
+  paramer-list as if it were a tuple, but under the scenes they
+  actually don't, and the tuple stuff is just wrapped around it, and
+  optimized away when calls are saturated. Then you could fmatch
+  directly on the whole argument list, e.g.
+
+  #+BEGIN_SRC carth
+  (foldl (fmatch (case [(Left n) x]
+                       (Left (inc n)))
+                 (case [(Right xs) x]
+                       (if (> 10 x)
+                           (Right (list/cons x xs))
+                         (Left 1))))
+         ...)
+  #+END_SRC
+* INACTIVE Have error messages quote section numbers for the spec
+  when there is a spec.
+
+  Would be nice, to have concrete documentation for what is ok and what is not.
+* NEXT Dump everythiong to Graphviz
+  Particularly the pre-LLVM ASTs. They're very hard to read as text,
+  but would probably fit really well as a graph. This could be useful
+  both for debugging the compiler, as well as to debug compiled
+  programs.
+* TODO Change syntax of definitions & funs
+  #+BEGIN_EXAMPLE
+  ;; I don't like how it's only the parmeters in parens in fun
+  ;; and Fun, but in define the function name is included as well.
+  (Fun      (a b) c)
+  (fun      (a b) c)
+  (define (f a b) c)
+
+  ;; This would align up much more nicely. More symmetry == better.
+    (Fun   (a b) c)
+    (fun   (a b) c)
+  (defun f (a b) c)
+  #+END_EXAMPLE
+
+  No but really, more symmetry => easier for beginners to make correct
+  extrapolations => less friction.
+
+  Also, it's slightly annoying having to jump back to the ~define~
+  just to make it a ~define:~ when we want to add a type signature to
+  a definition. Maybe instead:
+
+  #+BEGIN_EXAMPLE
+  (defun f (a b) : (Fun (a b) c)
+    c)
+  #+END_EXAMPLE
+
+  Also, since fun:s are essentially treated as a special case of
+  fmatch:es in the frontend, we should support matching immediately in
+  the definition, I'm thinking. Just a bit of extra sugar.
+
+  #+BEGIN_EXAMPLE
+  (defun f (a b)
+    (* a b))  
+  (defvar f
+    (fun (a b)
+      (* a b)))
+
+  (defun* f
+    (case (a True)  (* a 10))
+    (case (a False) (+ a 1)))
+  (defvar f
+    (fun* (case [a True]  (* a 10))
+          (case [a False] (+ a 1))))
+  #+END_EXAMPLE
+
+  Something like this? Would help reduce rightward drift, and would be
+  a fairly common pattern, I believe.
+
+  If we have a defun and defun*, I think we should have a fun and fun*
+  as well. That would essentially entail renaming fmatch to fun*.
+
+  fun*/fmatch lives somewhere between both fun and match. I don't
+  think that leaning towards one or the other is more of a correct
+  choice, so I feel we can just pick something arbitrarily.
+
+  I used to like fmatch, because it matches \case in Haskell, but now
+  I'm leaning more towards fun*. fun* is particularly nice if we go
+  with defun* as well. Nice symmetry.
+
+  Another approach, which I've pretty much already rejected, is to
+  merge fun and fmatch into a single, overloaded fun. Might be nice in
+  some ways, but it might also get kinda confusing. More ambiguity
+  etc. Not as trivial to parse in carth-mode, for indentation etc. No,
+  better to have different special forms, I think.

@@ -14,7 +14,7 @@
     (case [True  True ] "Fizzbuzz")))
 
 (define my-show-int
-  (fmatch
-    (case 1 "one")
-    (case 2 "two")
-    (case n (show-int n))))
+  (fun*
+    (case [1] "one")
+    (case [2] "two")
+    (case [n] (show-int n))))

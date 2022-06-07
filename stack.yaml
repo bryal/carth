@@ -1,7 +1,7 @@
 # Resolver to choose a 'specific' stackage snapshot or a compiler version.
 # A snapshot resolver dictates the compiler version and the set of packages
 # to be used for project dependencies.
-resolver: lts-17.1
+resolver: lts-18.28
 
 # User packages to be built.
 packages:
@@ -10,6 +10,7 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 extra-deps:
 - llvm-hs-pretty-0.9.0.0@sha256:b7a5de5f3dd97893d19d2b47af1e4dd8d075a5cf57062180a912d1f3ef1def60,1671
+- llvm-hs-9.0.1@sha256:ee6ec2eb8cba4daf2a43586388a87dbfd6a2ec6d81d1f9965896ac187acad286,8700
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

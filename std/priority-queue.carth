@@ -52,9 +52,9 @@
 
 (define (pq/delete-min cmp (PQHeap ts))
   (define get-min
-    (fmatch
-      (case LNil None)
-      (case (LCons (Box [t ts]))
+    (fun*
+      (case [LNil] None)
+      (case [(LCons (Box [t ts]))]
             (Some (match (get-min ts)
                     (case None [t LNil])
                     (case (Some [t' ts'])
@@ -70,7 +70,7 @@
 
 (define (pq/iter cmp heap)
   (Iter (fun (Unit)
-          (maybe/map (map-cadr (pq/iter cmp)) (pq/delete-min cmp heap)))))
+          (maybe/map (partial-2 map-cadr (partial-2 pq/iter cmp)) (pq/delete-min cmp heap)))))
 
 ;; (define main
 ;;   (do io/bind

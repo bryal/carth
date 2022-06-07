@@ -9,4 +9,4 @@
 (define (sieve xs)
   (Iter (fun (_)
           (let1 [x xs'] (next! xs)
-            (Some [x (sieve (filter (<o not (flip divisible? x)) xs'))])))))
+            (Some [x (sieve (filter (<o not (partial-2 (flip divisible?) x)) xs'))])))))

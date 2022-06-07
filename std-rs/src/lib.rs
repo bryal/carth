@@ -1,5 +1,5 @@
-#![feature(try_trait_v2)]
-#![feature(control_flow_enum)]
+// #![feature(try_trait_v2)]
+// #![feature(control_flow_enum)]
 #![allow(non_camel_case_types)]
 
 mod ffi;
@@ -45,6 +45,13 @@ where
         unsafe {
             let len = src.len();
             let p = ffi::GC_malloc(len * mem::size_of::<A>()) as *mut A;
+            // let p = std::alloc::alloc(
+            //     std::alloc::Layout::from_size_align(
+            //         len * mem::size_of::<A>(),
+            //         mem::align_of::<A>(),
+            //     )
+            //     .unwrap(),
+            // ) as *mut A;
             let dest = slice::from_raw_parts_mut(p, len);
             dest.clone_from_slice(src);
             Array {
@@ -108,31 +115,6 @@ impl<A> Maybe<A> {
         match self {
             Maybe::None => panic!("Maybe::unwrap on None"),
             Maybe::Some(a) => a,
-        }
-    }
-}
-
-impl<A> std::ops::FromResidual for Maybe<A> {
-    #[inline]
-    fn from_residual(_: <Self as std::ops::Try>::Residual) -> Self {
-        Maybe::None
-    }
-}
-
-impl<A> std::ops::Try for Maybe<A> {
-    type Output = A;
-    type Residual = Option<std::convert::Infallible>;
-
-    #[inline]
-    fn from_output(v: A) -> Self {
-        Maybe::Some(v)
-    }
-
-    #[inline]
-    fn branch(self) -> std::ops::ControlFlow<Self::Residual, Self::Output> {
-        match self {
-            Maybe::None => std::ops::ControlFlow::Break(None),
-            Maybe::Some(x) => std::ops::ControlFlow::Continue(x),
         }
     }
 }
@@ -202,6 +184,11 @@ pub extern "C" fn show_f64(n: f64) -> Str {
     Str::new(&n.to_string())
 }
 
+#[export_name = "-print-int"]
+pub extern "C" fn print_int(n: i64) {
+    println!("-print-int: {}", n);
+}
+
 #[export_name = "-panic"]
 pub extern "C" fn panic(s: Str) {
     eprintln!("*** Panic: {}", s.as_str());
@@ -220,10 +207,16 @@ pub extern "C" fn get_contents() -> Str {
 #[export_name = "unsafe-read-file"]
 pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
     let fp = fp.as_str();
-    let mut f = File::open(fp).ok()?;
-    let mut s = String::new();
-    f.read_to_string(&mut s).ok()?;
-    Maybe::Some(Str::new(&s))
+    File::open(fp)
+        .ok()
+        .map(|mut f| {
+            let mut s = String::new();
+            f.read_to_string(&mut s)
+                .ok()
+                .map(|_| Maybe::Some(Str::new(&s)))
+                .unwrap_or(Maybe::None)
+        })
+        .unwrap_or(Maybe::None)
 }
 
 // NOTE: This is a hack to ensure that Rust links in libm.

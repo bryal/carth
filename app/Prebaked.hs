@@ -13,8 +13,7 @@ type Parser = M.Parsec Void String
 readCompilerVersion :: Q Exp
 readCompilerVersion = do
     s <- runIO (readFile "carth.cabal")
-    let (_, major, minor, patch) =
-            head (catMaybes (map (M.parseMaybe pversion) (lines s)))
+    let (_, major, minor, patch) = head (catMaybes (map (M.parseMaybe pversion) (lines s)))
     lift (major, minor, patch)
 
 pversion :: Parser (Int, Int, Int, Int)
