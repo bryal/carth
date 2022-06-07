@@ -514,10 +514,10 @@ lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty
                 matchee
                 (map (second go) cases)
                 (go default')
-        go (Low.Block stms ()) =
-            let (initStms, lastStm) = fromJust (unsnoc stms)
-                termBlock = goStm lastStm
-            in  Low.Block initStms () `thenBlock` termBlock
+        go (Low.Block stms ()) = case unsnoc stms of
+            Just (initStms, lastStm) ->
+                let termBlock = goStm lastStm in Low.Block initStms () `thenBlock` termBlock
+            Nothing -> Low.Block [] (Low.Break ())
 
     tailCallOpt_RetVal
         :: Low.GlobalId
