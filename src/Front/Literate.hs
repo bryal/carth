@@ -23,4 +23,4 @@ beginSrc l =
                    Nothing -> True
 
 endSrc :: String -> Bool
-endSrc = (\ws -> null ws && map toLower (head ws) == "#+end_src") . words
+endSrc = (\ws -> not (null ws) && map toLower (head ws) == "#+end_src") . words
