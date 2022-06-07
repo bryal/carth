@@ -1,6 +1,7 @@
 -- | Monomorphic AST as a result of monomorphization
 module Front.Monomorphic
     ( module Front.Monomorphic
+    , Type' (..)
     , TPrim(..)
     , Const(..)
     , VariantIx
@@ -16,22 +17,16 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Void
 
 import FreeVars
 import Misc
 import Front.Checked (VariantIx, Span, Access (..), Virt (..))
 import Front.Parsed (Const(..))
-import Front.TypeAst hiding (TConst)
-import qualified Front.TypeAst as TypeAst
+import Front.TypeAst
 
-type TConst = TypeAst.TConst Type
-
-data Type
-    = TPrim TPrim
-    | TFun [Type] Type
-    | TBox Type
-    | TConst TConst
-    deriving (Show, Eq, Ord)
+type TConst = TConst' Void
+type Type = Type' Void
 
 data TypedVar = TypedVar
     { tvName :: String
@@ -76,16 +71,6 @@ type Externs = [(String, Type)]
 
 data Program = Program Defs Datas Externs
     deriving Show
-
-instance TypeAst Type where
-    tprim = TPrim
-    tconst = TConst
-    tfun = TFun
-    tbox = TBox
-
-    unTconst = \case
-        TConst tc -> Just tc
-        _ -> Nothing
 
 instance FreeVars Expr TypedVar where
     freeVars e = fvExpr e

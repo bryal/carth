@@ -81,11 +81,11 @@ inferTopDefs tdefs ctors externs defs =
             tvb = tv "b"
             tb = TVar tvb
             arithScm =
-                Forall (Set.fromList [tva]) (Set.singleton ("Num", [ta])) (tfun [ta, ta] ta)
+                Forall (Set.fromList [tva]) (Set.singleton ("Num", [ta])) (TFun [ta, ta] ta)
             bitwiseScm =
-                Forall (Set.fromList [tva]) (Set.singleton ("Bitwise", [ta])) (tfun [ta, ta] ta)
+                Forall (Set.fromList [tva]) (Set.singleton ("Bitwise", [ta])) (TFun [ta, ta] ta)
             relScm =
-                Forall (Set.fromList [tva]) (Set.singleton ("Ord", [ta])) (tfun [ta, ta] tBool)
+                Forall (Set.fromList [tva]) (Set.singleton ("Ord", [ta])) (TFun [ta, ta] tBool)
         in
             Map.fromList
                 [ ("+", arithScm)
@@ -564,14 +564,23 @@ solve (eqcs, ccs) = do
         --   polymorphism, the constraint is propagated.
         sameSize :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)
         sameSize (ta, tb) = do
-            sizeof' <- fmap sizeof (view envTypeDefs)
+            sizeof' <- sizeof . sizeofData' <$> view envTypeDefs
             case liftA2 (==) (sizeof' ta) (sizeof' tb) of
                 _ | ta == tb -> ok
-                Just True -> ok
-                Just False -> err
+                Right True -> ok
+                Right False -> err
                 -- One or both of the two types are of unknown size due to polymorphism, so
                 -- propagate the constraint to the scheme of the definition.
-                Nothing -> propagate
+                Left _ -> propagate
+
+        sizeofData' datas tc =
+            sizeofData (sizeofData' datas) (alignofData' datas) (lookupDatatype datas tc)
+        alignofData' datas tc = alignmentofData (alignofData' datas) (lookupDatatype datas tc)
+
+        lookupDatatype datas (x, args) = case Map.lookup x datas of
+            Just (params, variants) ->
+                let sub = Map.fromList (zip params args) in map (map (subst sub) . snd) variants
+            Nothing -> ice $ "Infer.lookupDatatype: undefined datatype " ++ show x
 
         -- | This class is instanced when the first type can be `cast` to the other.
         cast :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)

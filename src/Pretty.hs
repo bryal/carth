@@ -58,35 +58,35 @@ instance Pretty Lexd.Keyword where
         Lexd.KIdAt -> "Id@"
         Lexd.Kdefmacro -> "defmacro"
 
+instance Pretty var => Pretty (Type' var) where
+    pretty' _ = prettyType
+instance Pretty TPrim where
+    pretty' _ = prettyTPrim
 
 instance Pretty Parsed.Scheme where
     pretty' _ (Parsed.Forall _ ps cs t) =
         prettyScheme ps (map (second (map snd)) (Set.toList cs)) t
-instance Pretty Parsed.Type where
-    pretty' _ = prettyType
-instance Pretty Parsed.TPrim where
-    pretty' _ = prettyTPrim
 instance Pretty Parsed.TVar where
     pretty' _ = prettyTVar
 instance Pretty (Parsed.Id a) where
     pretty' _ = Parsed.idstr
 
-prettyType :: Parsed.Type -> String
+prettyType :: Pretty var => Type' var -> String
 prettyType = \case
-    Parsed.TVar tv -> pretty tv
-    Parsed.TPrim c -> pretty c
-    Parsed.TFun ps r -> prettyTFun ps r
-    Parsed.TBox t -> prettyTBox t
-    Parsed.TConst tc -> prettyTConst tc
+    TVar tv -> pretty tv
+    TPrim c -> pretty c
+    TFun ps r -> prettyTFun ps r
+    TBox t -> prettyTBox t
+    TConst tc -> prettyTConst tc
 
-prettyScheme :: (Pretty p, TypeAst t, Pretty t) => Set p -> [(String, [t])] -> t -> String
+prettyScheme :: (Pretty p, Pretty var) => Set p -> [(String, [Type' var])] -> Type' var -> String
 prettyScheme ps cs t = concat
     [ "(forall (" ++ spcPretty (Set.toList ps) ++ ") "
     , "(where " ++ unwords (map prettyTConst cs) ++ ") "
     , pretty t ++ ")"
     ]
 
-prettyTConst :: (TypeAst t, Pretty t) => (String, [t]) -> String
+prettyTConst :: (Pretty var) => (String, [Type' var]) -> String
 prettyTConst = \case
     ("Cons", [t1, t2]) -> "[" ++ pretty t1 ++ prettyConses t2
     ("Cons", []) -> ice "prettyTConst: Cons hasn't two types"
@@ -102,7 +102,7 @@ prettyTConst = \case
 prettyTBox :: Pretty t => t -> String
 prettyTBox t = "(Box " ++ pretty t ++ ")"
 
-prettyTFun :: Pretty t => [t] -> t -> String
+prettyTFun :: Pretty var => [Type' var] -> Type' var -> String
 prettyTFun as b = concat ["(Fun ", spcPretty as, " ", pretty b, ")"]
 
 prettyTPrim :: Parsed.TPrim -> String
@@ -121,16 +121,6 @@ prettyTVar = \case
 
 instance Pretty Inferred.Scheme where
     pretty' _ (Inferred.Forall ps cs t) = prettyScheme ps (Set.toList cs) t
-instance Pretty Inferred.Type where
-    pretty' _ = prettyAnType
-
-prettyAnType :: Inferred.Type -> String
-prettyAnType = \case
-    Inferred.TVar tv -> pretty tv
-    Inferred.TPrim c -> pretty c
-    Inferred.TFun as b -> prettyTFun as b
-    Inferred.TBox t -> prettyTBox t
-    Inferred.TConst tc -> prettyTConst tc
 
 instance Pretty Module where
     pretty' _ = show . Prettyprint.pretty

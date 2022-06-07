@@ -1,72 +1,80 @@
-module Sizeof (sizeof, toBytes, toBits, wordsize, wordsizeBits, tagBits, tagBytes, variantsTagBits, variantsTagBytes) where
+{-# LANGUAGE ScopedTypeVariables, AllowAmbiguousTypes #-}
+
+module Sizeof where
 
 import Data.Foldable
-import qualified Data.Map as Map
 import qualified Data.Vector as Vec
 import Data.Vector (Vector)
-import Data.Word
 
 import Misc
-import Front.Inferred (TypeDefs, Type (..), TPrim (..), Span)
-import Front.Subst
+import Front.Inferred (Span)
+import Front.TypeAst
+
+type SizeofConst tvar = TConst' tvar -> Either tvar Word
+type AlignofConst tvar = TConst' tvar -> Either tvar Word
 
 -- TODO: Handle different data layouts. Check out LLVMs DataLayout class and impl of
 --       `getTypeAllocSize`.  https://llvm.org/doxygen/classllvm_1_1DataLayout.html
 --
 -- See the [System V ABI docs](https://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf) for more
 -- info.
-sizeof :: TypeDefs -> Type -> Maybe Word32
-sizeof datas = \case
-    TVar _ -> Nothing
-    TConst x -> sizeofData (lookupDatatype x)
-    TPrim (TNat nbits) -> Just (toBytes nbits)
-    TPrim (TInt nbits) -> Just (toBytes nbits)
-    -- integer sized to fit a pointer, which is of word size (right?)
-    TPrim TNatSize -> Just wordsize
-    TPrim TIntSize -> Just wordsize
-    TPrim TF32 -> Just (toBytes 32)
-    TPrim TF64 -> Just (toBytes 64)
-    -- pointer to captures struct + function pointer, word alignment => no padding
-    TFun _ _ -> Just (2 * wordsize)
-    TBox _ -> Just wordsize -- single pointer
+sizeof :: forall tvar . SizeofConst tvar -> Type' tvar -> Either tvar Word
+sizeof siConst = \case
+    TVar tv -> Left tv
+    TConst x -> siConst x
+    TPrim tp -> Right $ sizeofTPrim tp
+    -- pointer to captures struct + function pointer
+    TFun _ _ -> Right (2 * wordsize)
+    TBox _ -> Right wordsize -- single pointer
+
+sizeofData :: SizeofConst tvar -> AlignofConst tvar -> [[Type' tvar]] -> Either tvar Word
+sizeofData siConst alConst = \case
+    [] -> Right 0
+    [ts] -> sizeofStruct siConst alConst ts
+    vs -> do
+        tag <- alignmentofData alConst vs
+        maxStruct <- maximumOr 0 <$> mapM (sizeofStruct siConst alConst) vs
+        Right (tag + maxStruct)
+
+sizeofStruct
+    :: forall tvar . SizeofConst tvar -> AlignofConst tvar -> [Type' tvar] -> Either tvar Word
+sizeofStruct siConst alConst ts = do
+    (s, a) <- foldlM addMember (0, 1) ts
+    pure $ s + mod (a - s) a
   where
-    lookupDatatype (x, args) = case Map.lookup x datas of
-        Just (params, variants) ->
-            let sub = Map.fromList (zip params args) in map (map (subst sub) . snd) variants
-        Nothing -> ice $ "Infer.lookupDatatype: undefined datatype " ++ show x
+    addMember :: (Word, Word) -> Type' tvar -> Either tvar (Word, Word)
+    addMember (accSize, maxAlign) t = do
+        a <- alignmentof alConst t
+        let padding = if a == 0 then 0 else mod (a - accSize) a
+        size <- sizeof siConst t
+        Right (accSize + padding + size, max a maxAlign)
 
-    sizeofData :: [[Type]] -> Maybe Word32
-    sizeofData = fmap (maximumOr 0) . mapM sizeofStruct . tagUnion
+alignmentof :: forall tvar . AlignofConst tvar -> Type' tvar -> Either tvar Word
+alignmentof alConst = \case
+    TVar tv -> Left tv
+    TConst x -> alConst x
+    TFun _ _ -> Right wordsize
+    TBox _ -> Right wordsize
+    TPrim tp -> Right $ sizeofTPrim tp
 
-    sizeofStruct :: [Type] -> Maybe Word32
-    sizeofStruct ts = do
-        (s, a) <- foldlM addMember (0, 1) ts
-        pure $ s + mod (a - s) a
-      where
-        addMember :: (Word32, Word32) -> Type -> Maybe (Word32, Word32)
-        addMember (accSize, maxAlign) t = do
-            a <- alignmentof t
-            let padding = if a == 0 then 0 else mod (a - accSize) a
-            size <- sizeof datas t
-            Just (accSize + padding + size, max a maxAlign)
+sizeofTPrim :: TPrim -> Word
+sizeofTPrim = \case
+    TNat nbits -> toBytes (fromIntegral nbits)
+    TInt nbits -> toBytes (fromIntegral nbits)
+    -- integer sized to fit a pointer, which is of word size (right?)
+    TNatSize -> wordsize
+    TIntSize -> wordsize
+    TF32 -> toBytes 32
+    TF64 -> toBytes 64
 
-    alignmentof :: Type -> Maybe Word32
-    alignmentof = \case
-        TVar _ -> Nothing
-        TConst x -> alignmentofData (lookupDatatype x)
-        t -> sizeof datas t
+alignmentofData :: AlignofConst tvar -> [[Type' tvar]] -> Either tvar Word
+alignmentofData alConst vs = do
+    let aTag = tagBytes (fromIntegral (length vs))
+    as <- mapM (alignmentofStruct alConst) vs
+    pure (max aTag (maximumOr 0 as))
 
-    alignmentofData :: [[Type]] -> Maybe Word32
-    alignmentofData = fmap (maximumOr 0) . mapM alignmentofStruct . tagUnion
-
-    alignmentofStruct :: [Type] -> Maybe Word32
-    alignmentofStruct = fmap (maximumOr 0) . mapM alignmentof
-
-    tagUnion :: [[Type]] -> [[Type]]
-    tagUnion vs = map (tagVariant (fromIntegral (length vs))) vs
-
-    tagVariant :: Span -> [Type] -> [Type]
-    tagVariant span ts = if span <= 1 then ts else TPrim (TNat (tagBits span)) : ts
+alignmentofStruct :: AlignofConst tvar -> [Type' tvar] -> Either tvar Word
+alignmentofStruct alConst = fmap (maximumOr 0) . mapM (alignmentof alConst)
 
 toBytes :: Integral n => n -> n
 toBytes n = div (n + 7) 8
@@ -90,7 +98,7 @@ tagBytes :: Integral n => Span -> n
 tagBytes = toBytes . tagBits
 
 tagBits :: Integral n => Span -> n
-tagBits span | span <= 2 ^ (0 :: Integer) = ice $ "tagBits: span = " ++ show span
+tagBits span | span <= 2 ^ (0 :: Integer) = 0
              | span <= 2 ^ (8 :: Integer) = 8
              | span <= 2 ^ (16 :: Integer) = 16
              | span <= 2 ^ (32 :: Integer) = 32

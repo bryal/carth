@@ -14,45 +14,49 @@ data TPrim
     | TF64
     deriving (Show, Eq, Ord)
 
-type TConst t = (String, [t])
+type TConst' var = (String, [Type' var])
 
-class TypeAst t where
-    tprim :: TPrim -> t
-    tconst :: TConst t -> t
-    tfun :: [t] -> t -> t
-    tbox :: t -> t
+data Type' var
+    = TVar var
+    | TPrim TPrim
+    | TConst (TConst' var)
+    | TFun [Type' var] (Type' var)
+    | TBox (Type' var)
+    deriving (Show, Eq, Ord)
 
-    unTconst :: t -> Maybe (TConst t)
+unTconst :: Type' var -> Maybe (TConst' var)
+unTconst (TConst tc) = Just tc
+unTconst _ = Nothing
 
-mainType :: TypeAst t => t
+mainType :: Type' var
 mainType = tIO tUnit
 
-tIO :: TypeAst t => t -> t
-tIO a = tconst ("IO", [a])
+tIO :: Type' var -> Type' var
+tIO a = TConst ("IO", [a])
 
-tByte :: TypeAst t => t
-tByte = tprim (TNat 8)
+tByte :: Type' var
+tByte = TPrim (TNat 8)
 
-tBox' :: t -> TConst t
+tBox' :: Type' var -> TConst' var
 tBox' t = ("Box", [t])
 
-tStr :: TypeAst t => t
-tStr = tconst tStr'
+tStr :: Type' var
+tStr = TConst tStr'
 
-tStr' :: TConst t
+tStr' :: TConst' var
 tStr' = ("Str", [])
 
-tArray :: TypeAst t => t -> t
-tArray a = tconst ("Array", [a])
+tArray :: Type' var -> Type' var
+tArray a = TConst ("Array", [a])
 
-tUnit :: TypeAst t => t
-tUnit = tconst tUnit'
+tUnit :: Type' var
+tUnit = TConst tUnit'
 
-tUnit' :: TConst t
+tUnit' :: TConst' var
 tUnit' = ("Unit", [])
 
-tBool :: TypeAst t => t
-tBool = tconst ("Bool", [])
+tBool :: Type' var
+tBool = TConst ("Bool", [])
 
-tBool' :: TConst t
+tBool' :: TConst' var
 tBool' = ("Bool", [])

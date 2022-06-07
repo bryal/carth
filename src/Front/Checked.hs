@@ -2,8 +2,10 @@ module Front.Checked
     ( module Front.Checked
     , TVar(..)
     , TPrim(..)
+    , Type
     , TConst
-    , Type(..)
+    , TConst'
+    , Type'(..)
     , Scheme(..)
     , VariantIx
     , Span
@@ -19,11 +21,10 @@ import Data.Bifunctor
 import qualified Data.Map as Map
 
 import Misc
-import Front.TypeAst hiding (TConst)
 import Front.Inferred
     ( TVar(..)
     , TConst
-    , Type(..)
+    , Type
     , Scheme(..)
     , Const(..)
     , VariantIx
@@ -31,6 +32,7 @@ import Front.Inferred
     , Con(..)
     , Virt(..)
     )
+import Front.TypeAst
 
 data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
@@ -69,10 +71,10 @@ data Expr
 
 builtinExterns :: Map String Type
 builtinExterns = Map.fromList
-    [ ("GC_add_roots", tfun [TBox (TPrim (TNat 8)), TBox (TPrim (TNat 8))] tUnit)
-    , ("GC_malloc", tfun [TPrim TNatSize] (TBox tByte))
-    , ("malloc", tfun [TPrim TNatSize] (TBox tByte))
-    , ("str-eq", tfun [tStr, tStr] tBool)
+    [ ("GC_add_roots", TFun [TBox (TPrim (TNat 8)), TBox (TPrim (TNat 8))] tUnit)
+    , ("GC_malloc", TFun [TPrim TNatSize] (TBox tByte))
+    , ("malloc", TFun [TPrim TNatSize] (TBox tByte))
+    , ("str-eq", TFun [tStr, tStr] tBool)
     ]
 
 type Defs = TopologicalOrder Def

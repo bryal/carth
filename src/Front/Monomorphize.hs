@@ -11,12 +11,13 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Bitraversable
+import Data.Void
 
 import Misc
 import qualified Front.Checked as Checked
 import Front.Checked (TVar(..), Scheme(..))
 import Front.Monomorphic
-import Front.TypeAst hiding (TConst)
+import Front.TypeAst
 
 type Env = Map TVar Type
 
@@ -191,15 +192,15 @@ monoCtion i span' (tdefName, tdefArgs) as = do
 
 bindTvs :: Checked.Type -> Type -> Map TVar Type
 bindTvs a b = case (a, b) of
-    (Checked.TVar v, t) -> Map.singleton v t
-    (Checked.TFun ps0 r0, TFun ps1 r1) -> Map.unions $ bindTvs r0 r1 : zipWith bindTvs ps0 ps1
-    (Checked.TBox t, TBox u) -> bindTvs t u
-    (Checked.TPrim _, TPrim _) -> Map.empty
-    (Checked.TConst (_, ts0), TConst (_, ts1)) -> Map.unions (zipWith bindTvs ts0 ts1)
-    (Checked.TPrim _, _) -> err
-    (Checked.TFun _ _, _) -> err
-    (Checked.TBox _, _) -> err
-    (Checked.TConst _, _) -> err
+    (TVar v, t) -> Map.singleton v t
+    (TFun ps0 r0, TFun ps1 r1) -> Map.unions $ bindTvs r0 r1 : zipWith bindTvs ps0 ps1
+    (TBox t, TBox u) -> bindTvs t u
+    (TPrim _, TPrim _) -> Map.empty
+    (TConst (_, ts0), TConst (_, ts1)) -> Map.unions (zipWith bindTvs ts0 ts1)
+    (TPrim _, _) -> err
+    (TFun _ _, _) -> err
+    (TBox _, _) -> err
+    (TConst _, _) -> err
     where err = ice $ "bindTvs: " ++ show a ++ ", " ++ show b
 
 monotype :: Checked.Type -> Mono Type
@@ -210,6 +211,7 @@ monotype' s t = let t' = subst s t in tell (findTypeInsts t') $> t'
 
 findTypeInsts :: Type -> [TConst]
 findTypeInsts = \case
+    TVar tv -> absurd tv
     TPrim _ -> []
     TFun as b -> concatMap findTypeInsts as ++ findTypeInsts b
     TBox a -> findTypeInsts a

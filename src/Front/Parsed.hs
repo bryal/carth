@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Front.Parsed (module Front.Parsed, Const (..), TPrim(..), TConst) where
+module Front.Parsed (module Front.Parsed, Const (..), TPrim(..), Type' (..), TConst') where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -22,14 +22,8 @@ data TVar
     | TVImplicit String
     deriving (Show, Eq, Ord)
 
-data Type
-    = TVar TVar
-    | TPrim TPrim
-    | TConst (TConst Type)
-    -- TODO: Remove special case for these two? Is it really needed?
-    | TFun [Type] Type
-    | TBox Type
-    deriving (Show, Eq, Ord)
+type TConst = TConst' TVar
+type Type = Type' TVar
 
 type ClassConstraint = (String, [(SrcPos, Type)])
 
@@ -83,16 +77,6 @@ data Extern = Extern (Id 'Small) Type
 data Program = Program [Def] [TypeDef] [Extern]
     deriving (Show, Eq)
 
-
-instance TypeAst Type where
-    tprim = TPrim
-    tconst = TConst
-    tfun = TFun
-    tbox = TBox
-
-    unTconst = \case
-        TConst tc -> Just tc
-        _ -> Nothing
 
 instance Eq Pat where
     (==) = curry $ \case

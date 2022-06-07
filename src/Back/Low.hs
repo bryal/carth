@@ -10,7 +10,7 @@ import qualified Data.Vector as Vec
 import Text.Printf
 
 import Misc
-import Sizeof hiding (sizeof)
+import Sizeof hiding (sizeof, alignmentof)
 import Pretty
 import Front.Monomorphic (VariantIx)
 
@@ -237,8 +237,8 @@ newtype MemberName = MemberId Word deriving (Show, Eq, Ord)
 
 data Struct = Struct
     { structMembers :: [(MemberName, Type)]
-    , structAlignment :: Word
     , structSize :: Word
+    , structAlignment :: Word
     }
     deriving (Show, Eq, Ord)
 
@@ -420,10 +420,10 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             ("enum " ++ name ++ " {")
                 ++ concatMap ((++ ",") . ("\n    " ++)) (Vec.toList vs)
                 ++ "\n}"
-        DStruct (Struct ms a s) ->
+        DStruct (Struct ms s a) ->
             ("struct " ++ name ++ " {")
                 ++ concatMap pMember ms
-                ++ ("\n} // alignment: " ++ show a ++ ", size: " ++ show s)
+                ++ ("\n} // size: " ++ show s ++ ", alignment: " ++ show a)
         DUnion (Union vs gs ga) ->
             ("union " ++ name ++ " {")
                 ++ concatMap

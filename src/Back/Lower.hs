@@ -29,22 +29,23 @@ import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
-import Data.Word
-import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), to)
-import Back.Low (typeof, paramName, paramType, addParamName, dropParamName, Sized (..), fromSized, sizedMaybe, mapSized, sized, catSized, OutParam (..), outParamLocal, MemberName (..), MemberIx, Union (..), pointee, asTConst)
+import Data.Void
+import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), to, assign)
+import Back.Low (typeof, paramName, paramType, addParamName, dropParamName, Sized (..), fromSized, sizedMaybe, mapSized, mapSizedM, sized, catSized, OutParam (..), outParamLocal, MemberName (..), MemberIx, Union (..), pointee, asTConst)
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
 import qualified Front.TypeAst as Ast hiding (TConst)
 import Misc
-import Sizeof hiding (sizeof)
+import Sizeof (tagBits, wordsize, wordsizeBits)
+import qualified Sizeof
 import FreeVars
 
 data TypeEnv = TypeEnv
     { _tids :: Map Ast.TConst (Sized Low.TypeId)
-    , _tdefs :: Seq Low.TypeDef
+    , _tdefs :: Map Low.TypeId Low.TypeDef
     , _tdefIds :: Map Low.TypeDef Low.TypeId -- ^ Use to deduplicate equivalent type defs
-    , _datas :: Ast.Datas -- ^ Available data type definitions from previous stages
+    , _currentTid :: Low.TypeId
     }
 makeLenses ''TypeEnv
 
@@ -245,7 +246,8 @@ lower noGC (Program (Topo defs) datas externs) =
         (gfunDefs, gvarDefs) = partitionGlobDefs
         (funLhss, funRhss) = unzip gfunDefs
         (varLhss, varRhss) = unzip gvarDefs
-        (((externs', externWrappers), varDecls', mainId), st, out) = runLower datas $ do
+        (((externs', externWrappers), varDecls', mainId), st, out) = runLower $ do
+            defineDatas datas
             externs'' <- lowerExterns
             funIds <- mapM (newGName . tvName) funLhss
             varIds <- mapM (newGName . tvName . fst) gvarDefs
@@ -274,7 +276,7 @@ lower noGC (Program (Topo defs) datas externs) =
     in
         Low.Program (externWrappers ++ fs) externs' (cs ++ varDecls') tdefs' names mainId
   where
-    runLower datas la = runRWS la initEnv initSt
+    runLower la = runRWS la initEnv initSt
       where
         initSt = St
             { _strLits = Map.empty
@@ -282,9 +284,9 @@ lower noGC (Program (Topo defs) datas externs) =
             , _localNames = Seq.empty
             , _globalNames = builtinNames
             , _tenv = TypeEnv { _tids = Map.empty
-                              , _tdefs = Seq.fromList builtinTypeDefs
+                              , _tdefs = Map.fromList (zip [0 ..] builtinTypeDefs)
                               , _tdefIds = Map.fromList (zip builtinTypeDefs [0 ..])
-                              , _datas = datas
+                              , _currentTid = fromIntegral (length builtinTypeDefs)
                               }
             }
         initEnv = Env { _localEnv = Map.empty
@@ -1040,7 +1042,7 @@ lowerCtion
     -> TConst
     -> [Expr]
     -> Lower (Low.Block (DestTerm d))
-lowerCtion dest variantIx span tconst xs = queryTConst tconst >>= \case
+lowerCtion dest variantIx span tconst xs = use (tenv . tids . to (Map.! tconst)) >>= \case
     ZeroSized -> do
         blk <- catBlocks_ <$> mapM (lowerExpr Nowhere) xs
         blk `thenBlockM` sizedToDest dest ZeroSized
@@ -1106,6 +1108,130 @@ withVars vs ma = foldl (flip (uncurry withVar)) ma vs
 withVar :: TypedVar -> Low.Operand -> Lower a -> Lower a
 withVar lhs rhs = locally localEnv (Map.insert lhs rhs)
 
+-- | How the different sorts of types are represented in Carth:
+--
+--   Zero sized types are treated like void in C -- you can't have a value of type void, but
+--   void can be used as something like a type in certain contexts, like function returns.
+--
+--   An Enum is represented as the smallest integer type that can fit all variants.
+--
+--   A Data is equivalent to a tagged union, and is represented by a struct that consists of 2
+--   members: an integer that can fit the variant index followed by the second member which is
+--   a union type of structures representing each sized variant.
+defineDatas :: Datas -> Lower ()
+defineDatas datas = do
+    assign (tenv . tids) tids'
+    assign (tenv . currentTid) lastTid
+    let datas' = do
+            (tc, vs) <- Map.toList datas
+            tid <- case tids' Map.! tc of
+                ZeroSized -> []
+                Sized tid -> [tid]
+            pure (tc, tid, vs)
+    forM_ datas' defineData
+  where
+    tids' :: Map TConst (Sized Low.TypeId)
+    (lastTid, tids') = second Map.fromList $ foldl'
+        (\(i, acc) (tc, _) -> case Map.lookup tc dataSizes of
+            Just size | size > 0 -> (i + 1, (tc, Sized i) : acc)
+                      | otherwise -> (i, (tc, ZeroSized) : acc)
+            Nothing -> ice "Lower.defineDatas: TConst not in dataSizes"
+        )
+        (fromIntegral (length builtinTypeDefs), [])
+        (Map.toAscList datas)
+
+    -- | Assumes that the data type is sized
+    defineData :: (TConst, Low.TypeId, [(String, VariantTypes)]) -> Lower ()
+    defineData (lhs, tid, variants) = do
+        tdef <- lowerData lhs variants
+        modifying (tenv . tdefs) (Map.insert tid tdef)
+        modifying (tenv . tdefIds) (Map.insert tdef tid)
+
+    -- | Assumes that the data type is sized
+    lowerData :: TConst -> [(String, VariantTypes)] -> Lower Low.TypeDef
+    lowerData tc@(name, _) variants = fmap (name, ) $ case variants of
+        [(_, ts)] -> pure . fromSized $ structDef ts
+        _ | all (all ((== 0) . sizeof) . snd) variants ->
+            pure (Low.DEnum (Vec.fromList (map fst variants)))
+        _ -> do
+            tidInner <- defineUnion (name ++ "_union") variants
+            let tag = Low.TNat (tagBits (fromIntegral (length variants)))
+            let size = either absurd id $ sizeofConst tc
+                align = either absurd id $ alignofConst tc
+            pure $ Low.DStruct
+                (Low.Struct [(MemberId 0, tag), (MemberId 1, Low.TConst tidInner)] size align)
+
+    -- | Assumes that there are at least two variants, and that at least one variant has at least one
+    --   member.
+    defineUnion :: String -> [(String, [Type])] -> Lower Low.TypeId
+    defineUnion name variants = do
+        variants' <- mapM (\(vname, ts) -> (vname, ) <$> defineStruct vname ts) variants
+        let sMax = maximum $ map (sizeofStruct . snd) variants
+            aMax = maximum $ map (alignofStruct . snd) variants
+        defineTypeDef
+            ( name
+            , Low.DUnion Union { unionVariants = Vec.fromList variants'
+                               , unionGreatestSize = sMax
+                               , unionGreatestAlignment = aMax
+                               }
+            )
+
+    defineStruct :: String -> [Type] -> Lower (Sized Low.TypeId)
+    defineStruct name ts = mapSizedM (defineTypeDef . (name, )) (structDef ts)
+
+    structDef ts =
+        let members = lowerMembers ts
+        in  if null members
+                then ZeroSized
+                else Sized $ Low.DStruct (Low.Struct members (sizeofStruct ts) (alignofStruct ts))
+
+    lowerMembers = catSized . zipWith (\i t -> mapSized (MemberId i, ) (lowerType t)) [0 ..]
+
+    sizeof = either absurd id . Sizeof.sizeof sizeofConst
+
+    dataSizes = sizeofData . map snd <$> datas
+    dataAlignments = alignofData . map snd <$> datas
+
+    sizeofData = either absurd id . Sizeof.sizeofData sizeofConst alignofConst
+    alignofData = either absurd id . Sizeof.alignmentofData alignofConst
+
+    sizeofStruct = either absurd id . Sizeof.sizeofStruct sizeofConst alignofConst
+    alignofStruct = either absurd id . Sizeof.alignmentofStruct alignofConst
+
+    sizeofConst tc = Right
+        $ Map.findWithDefault (ice "Lower.sizeofConst: TConst not in dataSizes") tc dataSizes
+    alignofConst tc = Right $ Map.findWithDefault
+        (ice "Lower.alignofConst: TConst not in dataSizes")
+        tc
+        dataAlignments
+
+    lowerType :: Type -> Sized Low.Type
+    lowerType = \case
+        TVar tv -> absurd tv
+        TPrim tp -> Sized (lowerTPrim tp)
+        TBox t -> Sized $ case lowerType t of
+            ZeroSized -> Low.VoidPtr
+            Sized t' -> Low.TPtr t'
+        TFun tparams tret ->
+            let
+                (outParam, ret) = case lowerType tret of
+                    ZeroSized -> (Nothing, Low.RetVoid)
+                    Sized t -> if passByRef tret
+                        then (Just (OutParam () t), Low.RetVoid)
+                        else (Nothing, Low.RetVal t)
+                params = catMaybes $ flip map tparams $ \t -> case lowerType t of
+                    ZeroSized -> Nothing
+                    Sized t' -> Just $ if passByRef t then Low.ByRef () t' else Low.ByVal () t'
+                captures = Low.ByVal () Low.VoidPtr
+            in
+                Sized (Low.TClosure outParam (captures : params) ret)
+        TConst tc -> mapSized
+            Low.TConst
+            (Map.findWithDefault (ice "Lower.defineDatas.lowerType: TConst not in tids") tc tids')
+
+    passByRef :: Type -> Bool
+    passByRef t = sizeof t > 2 * 8
+
 builtinType :: String -> Low.Type
 builtinType name =
     Low.TConst . fromIntegral . fromJust $ findIndex ((== name) . fst) builtinTypeDefs
@@ -1116,8 +1242,8 @@ builtinTypeDefs =
     [ ( "closure"
       , Low.DStruct Low.Struct
           { Low.structMembers = [(MemberId 0, Low.VoidPtr), (MemberId 1, Low.VoidPtr)]
-          , Low.structAlignment = wordsize
           , Low.structSize = wordsize * 2
+          , Low.structAlignment = wordsize
           }
       )
     ]
@@ -1153,133 +1279,29 @@ toRet genName = \case
 -- | The Low representation of a type in expression-context
 lowerType :: Type -> Lower (Sized Low.Type)
 lowerType = \case
-    TPrim (TNat w) -> pure $ mapSized Low.TNat (intWidthCeil w)
-    TPrim TNatSize -> pure $ mapSized Low.TNat (intWidthCeil wordsizeBits)
-    TPrim (TInt w) -> pure $ mapSized Low.TInt (intWidthCeil w)
-    TPrim TIntSize -> pure $ mapSized Low.TInt (intWidthCeil wordsizeBits)
-    TPrim TF32 -> pure $ Sized Low.TF32
-    TPrim TF64 -> pure $ Sized Low.TF64
-    TFun tparams tret -> do
-        -- Not destructuring the tuple immediately is more lazy, and we need to be lazy since we're
-        -- tying the knot in definedData.
-        ret <- toRet (pure ()) =<< lowerType tret
-        params <- lowerParamTypes tparams
-        let captures = Low.ByVal () Low.VoidPtr
-        pure (Sized (Low.TClosure (fst ret) (captures : params) (snd ret)))
+    TVar tv -> absurd tv
+    TPrim tp -> pure (Sized (lowerTPrim tp))
     TBox t -> lowerType t <&> \case
         ZeroSized -> Sized Low.VoidPtr
         Sized t' -> Sized $ Low.TPtr t'
-    TConst tc -> mapSized Low.TConst <$> queryTConst tc
-  where
-    intWidthCeil :: Word32 -> Sized Word
-    intWidthCeil w = if
-        | w == 0 -> ZeroSized
-        | w <= 8 -> Sized 8
-        | w <= 16 -> Sized 16
-        | w <= 32 -> Sized 32
-        | w <= 64 -> Sized 64
-        | otherwise -> ice "Lower.lowerType: integral type larger than 64-bit"
+    TFun tparams tret -> do
+        (outParam, ret) <- toRet (pure ()) =<< lowerType tret
+        params <- lowerParamTypes tparams
+        let captures = Low.ByVal () Low.VoidPtr
+        pure (Sized (Low.TClosure outParam (captures : params) ret))
+    TConst tc ->
+        mapSized Low.TConst
+            . Map.findWithDefault (ice "Lower.lowerType: TConst not in tids") tc
+            <$> use (tenv . tids)
 
--- TODO: Maybe compute sizes of all datatypes before lowering, working on Inferred, Checked, or
---       Monomorphic AST. Since we already have a Sizeof for that, it wouldn't be too much work,
---       and we wouldn't need to worry about infinite recursion when tying the knot hereabouts.
---
--- | Query the type environment for the Low TypeId of an AST TConst, lowering the associated type
---   definition on-demand and memoizing the result for future queries.
---
---   Assumes that the TConst actually has a corresponding definition in the collection of datatype
---   definitions given from the previous pass.
-queryTConst :: Ast.TConst -> Lower (Sized Low.TypeId)
-queryTConst x = do
-    use (tenv . tids . to (Map.lookup x)) >>= \case
-        Just tid -> pure tid
-        Nothing -> defineDataOf x
-
-  where
-    defineDataOf x = defineData x =<< use (tenv . datas . to (Map.! x))
-
-    -- | How the different sorts of types are represented in Carth:
-    --
-    --   Zero sized types are treated like void in C -- you can't have a value of type void, but
-    --   void can be used as something like a type in certain contexts, like function returns.
-    --
-    --   An Enum is represented as the smallest integer type that can fit all variants.
-    --
-    --   A Data is equivalent to a tagged union, and is represented by a struct that consists of 2
-    --   members: an integer that can fit the variant index followed by the second member which is
-    --   a union type of structures representing each sized variant.
-    defineData :: Ast.TConst -> [(String, VariantTypes)] -> Lower (Sized Low.TypeId)
-    defineData tconst@(name, _) variants = dataIsSized variants >>= \case
-        False -> pure ZeroSized
-        True -> do
-            tid <- fromIntegral . Seq.length <$> use (tenv . tdefs)
-            modifying (tenv . tids) (Map.insert tconst (Sized tid))
-            tdef <- mfix $ \tdef -> do
-                modifying (tenv . tdefs) (Seq.|> tdef)
-                lowerData name variants
-            -- Can't do this in the `mfix` while we're tying the knot. I guess since we lookup in
-            -- tdefIds every time defineTypeDef is called, and its order cannot be decided until
-            -- tdef is fully computed. So we might get a few more duplicates this way, but
-            -- whatever, it's fine.
-            modifying (tenv . tdefIds) (Map.insert tdef tid)
-            pure (Sized tid)
-
-    dataIsSized :: [(String, VariantTypes)] -> Lower Bool
-    dataIsSized = \case
-        [] -> pure False
-        [(_, ts)] -> or <$> mapM isSized ts
-        _ : _ : _ -> pure True
-
-    isSized :: Ast.Type -> Lower Bool
-    isSized = \case
-        TPrim _ -> pure True
-        TFun _ _ -> pure True
-        TBox _ -> pure True
-        TConst x -> dataIsSized =<< use (tenv . datas . to (Map.! x))
-
-    lowerData :: String -> [(String, VariantTypes)] -> Lower Low.TypeDef
-    lowerData name variants = do
-        -- let xs = map fst variants
-        -- tss <- mapM (mapM lowerType . snd) variants
-        variants' <- mapM
-            (secondM $ fmap catMaybes . zipWithM
-                (\i t -> fmap (MemberId i, ) . sizedMaybe <$> lowerType t)
-                [0 ..]
-            )
-            variants
-        case variants' of
-            [] -> unreachable
-            _ | all (null . snd) variants' ->
-                pure (name, Low.DEnum (Vec.fromList (map fst variants')))
-            [(_, members)] -> (name, ) <$> structDef members
-            _ -> do
-                -- tidInner <- defineUnion (name ++ "_union") variants' sMax aMax
-                tidInner <- defineUnion (name ++ "_union") variants'
-                let tag = Low.TNat (tagBits (fromIntegral (length variants')))
-                -- outerStruct <- structDef [tag, Low.TConst tidInner]
-                outerStruct <- structDef [(MemberId 0, tag), (MemberId 1, Low.TConst tidInner)]
-                pure (name, outerStruct)
-
--- | Assumes that there are at least two variants, and that at least one variant has at least one
---   member.
-defineUnion :: String -> [(String, [(MemberName, Low.Type)])] -> Lower Low.TypeId
-defineUnion name variants = do
-    variants' <- mapM
-        (\case
-            (vname, []) -> pure (vname, ZeroSized)
-            (vname, ms) -> (vname, ) . Sized <$> defineStruct vname ms
-        )
-        variants
-    let ts = map Low.TConst (catSized (map snd variants'))
-    sMax <- maximum <$> mapM sizeof ts
-    aMax <- maximum <$> mapM alignmentof ts
-    defineTypeDef
-        ( name
-        , Low.DUnion Union { unionVariants = Vec.fromList variants'
-                           , unionGreatestSize = sMax
-                           , unionGreatestAlignment = aMax
-                           }
-        )
+lowerTPrim :: TPrim -> Low.Type
+lowerTPrim = \case
+    TNat w -> Low.TNat (fromIntegral w)
+    TNatSize -> Low.TNat wordsizeBits
+    TInt w -> Low.TInt (fromIntegral w)
+    TIntSize -> Low.TInt wordsizeBits
+    TF32 -> Low.TF32
+    TF64 -> Low.TF64
 
 -- | Assumes that member list is nonempty
 defineStruct :: String -> [(MemberName, Low.Type)] -> Lower Low.TypeId
@@ -1290,8 +1312,8 @@ defineTypeDef tdef = do
     use (tenv . tdefIds . to (Map.lookup tdef)) >>= \case
         Just tid -> pure tid
         Nothing -> do
-            tid <- fromIntegral . Seq.length <$> use (tenv . tdefs)
-            modifying (tenv . tdefs) (Seq.|> tdef)
+            tid <- (tenv . currentTid) <<+= 1
+            modifying (tenv . tdefs) (Map.insert tid tdef)
             modifying (tenv . tdefIds) (Map.insert tdef tid)
             pure tid
 
@@ -1299,7 +1321,7 @@ defineTypeDef tdef = do
 structDef :: [(MemberName, Low.Type)] -> Lower Low.TypeDef'
 structDef ms =
     let ts = map snd ms
-    in  liftM2 (Low.DStruct .* Low.Struct ms) (alignmentofStruct ts) (sizeofStruct ts)
+    in  liftM2 (Low.DStruct .* Low.Struct ms) (sizeofStruct ts) (alignmentofStruct ts)
 
 sizedMembers :: [Sized Low.Type] -> [(MemberName, Low.Type)]
 sizedMembers = catMaybes . zipWith (\i t -> fmap (MemberId i, ) (sizedMaybe t)) [0 ..]
@@ -1307,7 +1329,8 @@ sizedMembers = catMaybes . zipWith (\i t -> fmap (MemberId i, ) (sizedMaybe t)) 
 -- | Assumes that the given TypeId is live and valid, i.e. that it was first given to you by
 --   `lowerType` or something.
 lookupTypeId :: Low.TypeId -> Lower Low.TypeDef
-lookupTypeId tid = use (tenv . tdefs . to (`Seq.index` fromIntegral tid))
+lookupTypeId tid =
+    use (tenv . tdefs . to (Map.findWithDefault (ice "Lower.lookupTypeId: tid not in tdefs") tid))
 
 asTFun :: Low.Type -> (Maybe (Low.OutParam ()), [Low.Param ()], Low.Ret)
 asTFun = \case
@@ -1361,9 +1384,6 @@ passByRef t = sizeof t <&> (> 2 * 8)
 sizeof :: Low.Type -> Lower Word
 sizeof = tdefsHelper Low.sizeof
 
-alignmentof :: Low.Type -> Lower Word
-alignmentof = tdefsHelper Low.alignmentof
-
 sizeofStruct :: [Low.Type] -> Lower Word
 sizeofStruct = tdefsHelper Low.sizeofStruct
 
@@ -1371,7 +1391,7 @@ alignmentofStruct :: [Low.Type] -> Lower Word
 alignmentofStruct = tdefsHelper Low.alignmentofStruct
 
 tdefsHelper :: ((Low.TypeId -> Low.TypeDef) -> a -> b) -> a -> Lower b
-tdefsHelper f x = use (tenv . tdefs) <&> \tdefs' -> f (Seq.index tdefs' . fromIntegral) x
+tdefsHelper f x = use (tenv . tdefs) <&> \tdefs' -> f (tdefs' Map.!) x
 
 keepOnStack :: Low.Type -> Lower Bool
 keepOnStack = \case
