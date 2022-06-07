@@ -9,4 +9,4 @@ tasks:
   - push_to_github: |
       ssh-keyscan -H github.com >> .ssh/known_hosts
       cd Carth
-      git push --all --force ${remote}
+      git push --mirror ${remote}
