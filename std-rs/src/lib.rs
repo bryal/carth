@@ -45,6 +45,13 @@ where
         unsafe {
             let len = src.len();
             let p = ffi::GC_malloc(len * mem::size_of::<A>()) as *mut A;
+            // let p = std::alloc::alloc(
+            //     std::alloc::Layout::from_size_align(
+            //         len * mem::size_of::<A>(),
+            //         mem::align_of::<A>(),
+            //     )
+            //     .unwrap(),
+            // ) as *mut A;
             let dest = slice::from_raw_parts_mut(p, len);
             dest.clone_from_slice(src);
             Array {

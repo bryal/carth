@@ -572,7 +572,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         EnumVal { enumVariant = v } -> v
         Array _ xs -> "[" ++ intercalate ", " (map pConst xs) ++ "]"
         CharArray cs -> "\"" ++ decodeCharArrayStrLit (printf "\\x%02X") cs ++ "\""
-        Zero _ -> "zeroinitializer"
+        Zero _ -> "zero"
         CBitcast x t -> "(bitcast " ++ pConst x ++ " to " ++ pType t ++ ")"
         CGlobal g -> pGlobal g
         CStruct t ms -> "(" ++ pType t ++ "){ " ++ intercalate ", " (map pConst ms) ++ " }"

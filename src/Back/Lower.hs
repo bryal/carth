@@ -598,9 +598,9 @@ lowerExpr dest = \case
                     $ blk
                     `thenBlock` mapTerm (\c -> ((lhs, c), (freeLocalVars, captures))) closure
         withVars binds $ do
-            forM_ cs (uncurry populateCaptures)
+            Low.Block stms2 () <- catBlocks_ <$> forM cs (uncurry populateCaptures)
             body' <- lowerExpr dest body
-            pure (Low.Block stms1 () `thenBlock` body')
+            pure (Low.Block (stms1 ++ stms2) () `thenBlock` body')
     Match es dt -> lowerMatch dest es dt
     Ction (variantIx, span, tconst, xs) -> lowerCtion dest variantIx span tconst xs
     Sizeof t ->
@@ -647,14 +647,14 @@ lowerExpr dest = \case
     lowerLambda :: Destination d => d -> Fun -> Lower (Low.Block (DestTerm d))
     lowerLambda dest f = do
         (freeLocalVars, captures) <- precaptureFreeLocalVars Set.empty f
-        Low.Block stms1 captures' <-
-            populateCaptures freeLocalVars `bindBlockM` mapTerm snd captures
-        Low.Block stms2 captures'' <- emit
+        let Low.Block stms1 captures' = mapTerm snd captures
+        Low.Block stms2 () <- populateCaptures freeLocalVars captures'
+        Low.Block stms3 captures'' <- emit
             (Low.Expr (Low.Bitcast captures' Low.VoidPtr) Low.VoidPtr)
         name <- newGName "fun"
         fdef <- lowerFunDef freeLocalVars Nothing name f
         scribe outFunDefs [fdef]
-        Low.Block (stms1 ++ stms2) ()
+        Low.Block (stms1 ++ stms2 ++ stms3) ()
             `thenBlockM` wrapInClosure dest (funDefGlobal fdef) captures''
 
 lowerApp :: Destination d => d -> Expr -> [Expr] -> Lower (Low.Block (DestTerm d))
@@ -803,14 +803,14 @@ wrapInClosure dest f@(Low.Global _ t) captures = do
     bindrBlockM fGeneric
         $ \fGeneric' -> populateStruct [captures, fGeneric'] ptr <&> mapTerm (const x)
 
-populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block Low.Operand)
+populateStruct :: [Low.Operand] -> Low.Operand -> Lower (Low.Block ())
 populateStruct vs dst = foldrM
     (\(i, v) blkRest -> do
         (blk1, member) <- separateTerm <$> indexStruct i dst
         let blk2 = Low.Block [Low.Store v member] ()
         pure $ blk1 `thenBlock` blk2 `thenBlock` blkRest
     )
-    (Low.Block [] dst)
+    (Low.Block [] ())
     (zip [0 ..] vs)
 
 lowerExprsInStruct :: [(MemberName, Expr)] -> Low.Operand -> Lower (Low.Block ())
@@ -852,7 +852,7 @@ gcAlloc :: Low.Operand -> Lower Low.Expr
 gcAlloc size = fromLeft (ice "gcAlloc: (GC_)malloc was a void call")
     <$> callBuiltin "GC_malloc" Nothing [size]
 
-populateCaptures :: [TypedVar] -> Low.Operand -> Lower (Low.Block Low.Operand)
+populateCaptures :: [TypedVar] -> Low.Operand -> Lower (Low.Block ())
 populateCaptures freeLocals captures = do
     vs <- mapTerm catSized <$> lowerEmitExprs HereSized emitSized (map (Var NonVirt) freeLocals)
     vs `bindrBlockM` \xs -> populateStruct xs captures
