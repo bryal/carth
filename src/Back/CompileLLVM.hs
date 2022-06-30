@@ -1,12 +1,20 @@
 {-# LANGUAGE DuplicateRecordFields, GADTs, RankNTypes, ScopedTypeVariables #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
-module Back.Codegen (codegen) where
+module Back.CompileLLVM (compile, run) where
 
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Either
+import Data.IORef
+import Data.List
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
+import Data.String
+import Foreign.Ptr
 import LLVM.Prelude hiding (Const)
 import LLVM.AST (Name (..), Named, BasicBlock (..), Module (..), Definition (..), Global (..), Type (..), Instruction, Parameter (..), mkName, Operand (ConstantOperand))
 import qualified LLVM.AST as LL
@@ -24,17 +32,30 @@ import qualified LLVM.AST.Constant as LL (Constant (Undef, Float, Array, Null, A
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.IntegerPredicate as LLIPred
 import qualified LLVM.AST.FloatingPointPredicate as LLFPred
-import Data.Either
-import Data.List
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.String
+import LLVM.Context
+import qualified LLVM.Module as LLMod
+import LLVM.Target
+import LLVM.Target.Options
+import LLVM.Analysis
+import LLVM.OrcJIT
+import LLVM.OrcJIT.CompileLayer as CL
+import LLVM.Linking
+import LLVM.PassManager
+import LLVM.Exception
+import qualified LLVM.Relocation as Reloc
+import qualified LLVM.CodeModel as CodeModel
+import qualified LLVM.CodeGenOpt as CodeGenOpt
+import Prelude hiding (mod)
+import System.Exit
 import System.FilePath
+import System.Process
 import qualified Data.Vector as Vec
 
-import Misc
-import Sizeof (variantsTagBits, toBits)
 import Back.Low as Low
+import Conf
+import Misc
+import Pretty
+import Sizeof (variantsTagBits, toBits)
 
 data St = St
     { currentLabel :: Name
@@ -46,6 +67,174 @@ data St = St
 type Gen = StateT St (Writer [BasicBlock])
 
 data GExpr = GInstr LL.Type LL.Instruction | GOperand LL.Operand
+
+compile :: FilePath -> CompileConfig -> Low.Program -> IO ()
+compile = handleProgram $ \cfg tm mod -> do
+    let exefile = cOutfile cfg
+        ofile = replaceExtension exefile "o"
+    verbose cfg "   Writing object"
+    LLMod.writeObjectToFile tm (LLMod.File ofile) mod
+    verbose cfg "   Linking"
+    callProcess
+        (cCompiler cfg)
+        [ "-o"
+        , exefile
+        , ofile
+        , "-l:libcarth_std_rs.a"
+        , "-lsigsegv"
+        , "-ldl"
+        , "-lpthread"
+        , "-lm"
+        , "-lgc"
+        , "-lssl"
+        , "-lcrypto"
+        ]
+
+run :: FilePath -> RunConfig -> Low.Program -> IO ()
+run = handleProgram $ \cfg tm mod -> do
+    verbose cfg "   Running with OrcJIT"
+    let libs = ["libsigsegv.so", "libcarth_std_rs.so", "libgc.so"]
+    forM_ libs $ \lib -> do
+        verbose cfg $ "   Loading symbols of " ++ lib
+        r <- loadLibraryPermanently (Just lib)
+        when r (putStrLn ("   Error loading " ++ lib) *> exitFailure)
+    resolvers <- newIORef Map.empty
+    let linkingResolver key = fmap (Map.! key) (readIORef resolvers)
+    session <- createExecutionSession
+    linkLay <- newObjectLinkingLayer session linkingResolver
+    compLay <- newIRCompileLayer linkLay tm
+    let resolver' = resolver compLay
+    withSymbolResolver session (SymbolResolver resolver') $ \resolverPtr ->
+        withModuleKey session $ \modKey -> do
+            modifyIORef' resolvers (Map.insert modKey resolverPtr)
+            withModule compLay modKey mod $ do
+                mangleSymbol compLay "main" >>= resolver' >>= \case
+                    Left err -> do
+                        putStrLn "   Error during JIT symbol resolution"
+                        putStrLn ("   error: " ++ show err)
+                        exitFailure
+                    Right (JITSymbol mainAddr _) ->
+                        mkMain (castPtrToFunPtr (wordPtrToPtr mainAddr)) $> ()
+    disposeCompileLayer compLay
+    disposeLinkingLayer linkLay
+    disposeExecutionSession session
+  where
+    -- Following are some useful things to know regarding symbol resolution when it comes to JIT, LLVM,
+    -- and OrcJIT. I'm not sure about all of this, so take it with a grain of salt.
+    --
+    -- - `CompileLayer.findSymbol`: Only looks in the compile-layer, which includes our compiled LLVM
+    --   modules, but not linked object code, or linked shared libraries.
+    --
+    -- - `LinkingLayer.findSymbol`: Looks in the linking-layer, a superset of the compile-layer that
+    --   includes all object code added to the layer with `addObjectFile`.
+    --
+    -- - `Linking.getSymbolAddressInProcess`: Looks in the address-space of the running process, which
+    --   includes all shared object code added with `Linking.loadLibraryPermanently`. Disjoint from the
+    --   compile and linking layer.
+    resolver :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
+    resolver compLay symb =
+        let
+            flags = JITSymbolFlags { jitSymbolWeak = False
+                                   , jitSymbolCommon = False
+                                   , jitSymbolAbsolute = False
+                                   , jitSymbolExported = True
+                                   }
+            err = fromString ("Error resolving symbol: " ++ show symb)
+            findInLlvmModules = CL.findSymbol compLay symb False
+            findInSharedObjects = getSymbolAddressInProcess symb <&> \addr ->
+                if addr == 0 then Left (JITSymbolError err) else Right (JITSymbol addr flags)
+        in
+            findInLlvmModules >>= \case
+                Right js -> pure (Right js)
+                Left _ -> findInSharedObjects
+
+handleProgram
+    :: Config cfg
+    => (cfg -> TargetMachine -> LLMod.Module -> IO ())
+    -> FilePath
+    -> cfg
+    -> Low.Program
+    -> IO ()
+handleProgram f file cfg pgm = withContext $ \ctx ->
+    let
+        -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize by -O2. No point in
+        -- going further to -O3, as those optimizations are expensive and seldom actually improve the
+        -- performance in a statistically significant way.
+        --
+        -- A minimum optimization level of -O1 ensures that all sibling calls are optimized, even if we
+        -- don't use a calling convention like `fastcc` that can optimize any tail call.
+        optLvl = if getDebug cfg then CodeGenOpt.Less else CodeGenOpt.Default
+    in
+        withMyTargetMachine optLvl $ \tm -> do
+            layout <- getTargetMachineDataLayout tm
+            triple <- getProcessTargetTriple
+            verbose cfg "   Generating LLVM"
+            let amod = codegen layout triple (getNoGC cfg) file pgm
+            when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
+            flip
+                    catch
+                    (\case
+                        EncodeException msg -> ice $ "LLVM encode exception:\n" ++ msg
+                    )
+                $ LLMod.withModuleFromAST ctx amod
+                $ \mod -> do
+                      verbose cfg "   Verifying LLVM"
+                      when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                      catch (verify mod) $ \case
+                          VerifyException msg -> ice $ "LLVM verification exception:\n" ++ msg
+                      withPassManager (optPasses optLvl tm) $ \passman -> do
+                          verbose cfg "   Optimizing"
+                          r <- runPassManager passman mod
+                          unless r $ putStrLn "DEBUG: runPassManager returned False"
+                          when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
+                          f cfg tm mod
+  where
+    optPasses level tm =
+        let levelN = case level of
+                CodeGenOpt.None -> 0
+                CodeGenOpt.Less -> 1
+                CodeGenOpt.Default -> 2
+                CodeGenOpt.Aggressive -> 3
+        in  CuratedPassSetSpec { optLevel = Just levelN
+                               , sizeLevel = Nothing
+                               , unitAtATime = Nothing
+                               , simplifyLibCalls = Nothing
+                               , loopVectorize = Nothing
+                               , superwordLevelParallelismVectorize = Nothing
+                               , useInlinerWithThreshold = Nothing
+                               , dataLayout = Nothing
+                               , targetLibraryInfo = Nothing
+                               , targetMachine = Just tm
+                               }
+
+    -- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing, so this is a workaround.
+    writeLLVMAssemblyToFile' :: FilePath -> LLMod.Module -> IO ()
+    writeLLVMAssemblyToFile' f m = do
+        writeFile f ""
+        LLMod.writeLLVMAssemblyToFile (LLMod.File f) m
+
+    withMyTargetMachine :: CodeGenOpt.Level -> (TargetMachine -> IO a) -> IO a
+    withMyTargetMachine codeGenOpt f = do
+        initializeAllTargets
+        triple <- getProcessTargetTriple
+        cpu <- getHostCPUName
+        features <- getHostCPUFeatures
+        (target, _) <- lookupTarget Nothing triple
+        withTargetOptions $ \toptions -> do
+            options <- peekTargetOptions toptions
+            pokeTargetOptions (options { guaranteedTailCallOptimization = True }) toptions
+            withTargetMachine target
+                              triple
+                              cpu
+                              features
+                              toptions
+                              Reloc.PIC
+                              CodeModel.Default
+                              codeGenOpt
+                              f
+
+foreign import ccall "dynamic"
+  mkMain :: FunPtr (IO Int32) -> IO Int32
 
 codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
 codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) = Module

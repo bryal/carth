@@ -9,8 +9,10 @@ import System.Environment
 import System.Exit
 import System.FilePath
 import Data.List
+import Data.Foldable
 import Data.Function
 import Control.Monad
+-- import Control.Monad.Except
 
 import Conf
 import Prebaked
@@ -27,7 +29,7 @@ getConfig = do
         a : _ | a == "-h" || a == "--help" -> do
             putStrLn usageSubs
             exitFailure
-        "help" : [] -> do
+        ["help"] -> do
             putStrLn usageSubs
             exitFailure
         "help" : a : _ | subCompile a -> usageCompile
@@ -64,22 +66,30 @@ compileCfg args = do
             ++ "would be overwritten by the generated executable"
         exitFailure
     let defaultCfg = defaultCompileConfig inf
-        cfg = foldl (&) defaultCfg fs
+    cfg <- case foldlM (&) defaultCfg fs of
+        Left e -> putStrLn e >> usageCompile
+        Right cfg -> pure cfg
     pure (CompileConf cfg)
 
 runCfg :: [String] -> IO Conf
 runCfg args = do
     (fs, inf) <- get args runOpts usageRun
     let defaultCfg = defaultRunConfig inf
-        cfg = foldl (&) defaultCfg fs
+    cfg <- case foldlM (&) defaultCfg fs of
+        Left e -> putStrLn e >> usageRun
+        Right cfg -> pure cfg
     pure (RunConf cfg)
 
-get :: [String] -> [OptDescr (cfg -> cfg)] -> (forall a . IO a) -> IO ([cfg -> cfg], FilePath)
+get
+    :: [String]
+    -> [OptDescr (cfg -> Either String cfg)]
+    -> (forall a . IO a)
+    -> IO ([cfg -> Either String cfg], FilePath)
 get args opts usage = do
     let (fs, extras, errs) = getOpt Permute opts args
-    when (not (null errs)) $ putStrLn (concat errs) *> usage
+    unless (null errs) $ putStrLn (concat errs) *> usage
     inf <- case extras of
-        f : [] -> pure f
+        [f] -> pure f
         _ : es -> do
             putStrLn ("Unexpected extra arguments: " ++ intercalate ", " es)
             usage
@@ -106,28 +116,40 @@ usageRun = do
         ]
     exitFailure
 
-compileOpts :: [OptDescr (CompileConfig -> CompileConfig)]
+compileOpts :: [OptDescr (CompileConfig -> Either String CompileConfig)]
 compileOpts =
     [ Option []
              ["cc"]
-             (ReqArg (\cc' c -> c { cCompiler = cc' }) "PROGRAM")
+             (ReqArg (\cc' c -> Right c { cCompiler = cc' }) "PROGRAM")
              "C compiler to use for linking"
-    , Option ['o'] ["outfile"] (ReqArg (\f c -> c { cOutfile = f }) "FILE") "Output filepath"
-    , Option [] ["debug"] (NoArg (\c -> c { cDebug = True })) "Enable debugging"
-    , Option ['v'] ["verbose"] (NoArg (\c -> c { cVerbose = True })) "Verbose output"
+    , Option
+        []
+        ["backend"]
+        (ReqArg
+            (\bend c -> case bend of
+                "llvm" -> Right c { cBackend = BendLLVM }
+                "c" -> Right c { cBackend = BendC }
+                _ -> Left ("Undefined backend '" ++ bend ++ "'")
+            )
+            "BACKEND"
+        )
+        "Code generator backend (llvm, c)"
+    , Option ['o'] ["outfile"] (ReqArg (\f c -> Right c { cOutfile = f }) "FILE") "Output filepath"
+    , Option [] ["debug"] (NoArg (\c -> Right c { cDebug = True })) "Enable debugging"
+    , Option ['v'] ["verbose"] (NoArg (\c -> Right c { cVerbose = True })) "Verbose output"
     , Option []
              ["no-gc"]
-             (NoArg (\c -> c { cNoGC = True }))
+             (NoArg (\c -> Right c { cNoGC = True }))
              "Disable garbage collection. Leak with malloc instead."
     ]
 
-runOpts :: [OptDescr (RunConfig -> RunConfig)]
+runOpts :: [OptDescr (RunConfig -> Either String RunConfig)]
 runOpts =
-    [ Option [] ["debug"] (NoArg (\c -> c { rDebug = True })) "Enable debugging"
-    , Option ['v'] ["verbose"] (NoArg (\c -> c { rVerbose = True })) "Verbose output"
+    [ Option [] ["debug"] (NoArg (\c -> Right c { rDebug = True })) "Enable debugging"
+    , Option ['v'] ["verbose"] (NoArg (\c -> Right c { rVerbose = True })) "Verbose output"
     , Option []
              ["no-gc"]
-             (NoArg (\c -> c { rNoGC = True }))
+             (NoArg (\c -> Right c { rNoGC = True }))
              "Disable garbage collection. Leak with malloc instead."
     ]
 

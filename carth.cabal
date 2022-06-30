@@ -48,8 +48,8 @@ library
 
       Back.Lower
       Back.Low
-      Back.Codegen
-      Back.Compile
+      Back.CompileLLVM
+      Back.CompileC
   other-modules:
   hs-source-dirs:
       src

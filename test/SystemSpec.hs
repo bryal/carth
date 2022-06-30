@@ -17,7 +17,7 @@ import Front.Macro
 import Front.Parse
 import qualified Front.Parsed as Parsed
 import Front.Check
-import Back.Compile
+import Back.CompileLLVM
 import Front.Monomorphize
 import Back.Lower
 import qualified Back.Low as Low

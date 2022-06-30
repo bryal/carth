@@ -16,7 +16,8 @@ import qualified Front.Checked as Checked
 import Front.Check
 import Conf
 import GetConfig
-import Back.Compile
+import Back.CompileLLVM as CompileLLVM
+import Back.CompileC as CompileC
 import Front.Monomorphize
 import Back.Lower
 import qualified Back.Low as Ast
@@ -39,8 +40,10 @@ compileFile cfg = do
     mp <- modulePaths
     verbose cfg ("       library path = " ++ show lp)
     verbose cfg ("       module paths = " ++ show mp)
-    !mon <- frontend cfg f
-    compile f cfg mon
+    !low <- frontend cfg f
+    case cBackend cfg of
+        BendLLVM -> CompileLLVM.compile f cfg low
+        BendC -> CompileC.compile f cfg low
     putStrLn ""
 
 runFile :: RunConfig -> IO ()
@@ -51,7 +54,7 @@ runFile cfg = do
     mp <- modulePaths
     verbose cfg ("       module paths = " ++ show mp)
     !mon <- frontend cfg f
-    run f cfg mon
+    CompileLLVM.run f cfg mon
     putStrLn ""
 
 frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
