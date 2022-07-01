@@ -252,9 +252,10 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                               ]
     }
   where
+    tdefs' = Vec.fromList (resolveTypeNameConflicts tdefs)
 
     defineTypes :: [Definition]
-    defineTypes = define =<< Vec.toList tdefs
+    defineTypes = define =<< Vec.toList tdefs'
       where
         define :: TypeDef -> [Definition]
         define (name, d) = case d of
@@ -753,7 +754,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     RetVoid -> LL.void
                 out' = maybe [] ((: []) . genOutParam) out
             in  LL.ptr $ LL.FunctionType rt (out' ++ map genParam ps) False
-        TConst i -> case tdefs Vec.! fromIntegral i of
+        TConst i -> case tdefs' Vec.! fromIntegral i of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
             (name, _) -> LL.NamedTypeReference (mkName name)
         TArray t n -> LL.ArrayType (fromIntegral n) (genType t)
@@ -785,7 +786,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 ice
                     $ "Codegen.genMemberName: type is closure, but member name is not MemberId 0 or 1, "
                     ++ show mname
-        TConst tid -> case snd (tdefs Vec.! fromIntegral tid) of
+        TConst tid -> case snd (tdefs' Vec.! fromIntegral tid) of
             DStruct Struct { structMembers = ms } ->
                 fromIntegral (fromJust (findIndex ((== mname) . fst) ms))
             tdef -> ice $ "Codegen.genMemberName: type points to non-struct, " ++ show tdef

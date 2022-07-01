@@ -20,7 +20,6 @@ import Data.Char
 import Data.Either
 import Data.Foldable
 import Data.Functor
-import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -37,7 +36,7 @@ import Front.Monomorphize as Ast
 import Front.Monomorphic as Ast
 import qualified Front.TypeAst as Ast hiding (TConst)
 import Misc
-import Sizeof (tagBits, wordsize, wordsizeBits)
+import Sizeof (tagBits, wordsizeBits)
 import qualified Sizeof
 import FreeVars
 
@@ -266,13 +265,14 @@ lower noGC (Program (Topo defs) datas externs) =
                           , mainId'
                           )
         names = Vec.fromList
-            $ resolveNameConflicts ("main" : externNames) (toList (view globalNames st))
+            $ Low.resolveNameConflicts ("main" : externNames) (toList (view globalNames st))
         fs = view outFunDefs out
         cs = map (\(gid, t, c) -> Low.GlobConstDef gid t c) (view outConstDefs out)
-        tdefs' =
-            Vec.fromList . uncurry zip . first (resolveNameConflicts []) . unzip . toList $ view
-                (tenv . tdefs)
-                st
+        tdefs' = map snd . Map.toAscList $ view (tenv . tdefs) st
+        -- tdefs' =
+        --     Vec.fromList . uncurry zip . first (resolveNameConflicts []) . unzip . toList $ view
+        --         (tenv . tdefs)
+        --         st
     in
         Low.Program (externWrappers ++ fs) externs' (cs ++ varDecls') tdefs' names mainId
   where
@@ -284,9 +284,9 @@ lower noGC (Program (Topo defs) datas externs) =
             , _localNames = Seq.empty
             , _globalNames = builtinNames
             , _tenv = TypeEnv { _tids = Map.empty
-                              , _tdefs = Map.fromList (zip [0 ..] builtinTypeDefs)
-                              , _tdefIds = Map.fromList (zip builtinTypeDefs [0 ..])
-                              , _currentTid = fromIntegral (length builtinTypeDefs)
+                              , _tdefs = Map.fromList (zip [0 ..] Low.builtinTypeDefs)
+                              , _tdefIds = Map.fromList (zip Low.builtinTypeDefs [0 ..])
+                              , _currentTid = fromIntegral (length Low.builtinTypeDefs)
                               }
             }
         initEnv = Env { _localEnv = Map.empty
@@ -376,7 +376,7 @@ lower noGC (Program (Topo defs) datas externs) =
     defineInit varDefs = do
         block <- mapTerm (const Low.TRetVoid) . catBlocks <$> mapM defineGlobVar varDefs
         localNames' <-
-            Vec.fromList . resolveNameConflicts [] . toList <$> replaceLocalNames Seq.empty
+            Vec.fromList . Low.resolveNameConflicts [] . toList <$> replaceLocalNames Seq.empty
         allocs' <- replaceAllocs []
         pure $ Low.FunDef initName Nothing [] Low.RetVoid block allocs' localNames'
 
@@ -454,7 +454,7 @@ lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty
             (Just _, Low.RetVal _) -> unreachable
     let body''' = Low.Block capturesStms () `thenBlock` body''
     localNames' <-
-        Vec.fromList . resolveNameConflicts [] . toList <$> replaceLocalNames oldLocalNames
+        Vec.fromList . Low.resolveNameConflicts [] . toList <$> replaceLocalNames oldLocalNames
     allocs' <- replaceAllocs oldAllocs
     let params' = capturesParam : zipWith addParamName outerParamIds params
     pure $ Low.FunDef name outParam params' ret body''' allocs' localNames'
@@ -549,20 +549,6 @@ lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty
                 (map (second go) cases)
                 (go default')
 
-resolveNameConflicts :: [String] -> [String] -> [String]
-resolveNameConflicts fixedNames names = reverse . snd $ foldl'
-    (\(seen, acc) name ->
-        let n = fromMaybe (0 :: Word) (Map.lookup name seen)
-            (n', name') = incrementUntilUnseen seen n name
-        in  (Map.insert name (n' + 1) seen, name' : acc)
-    )
-    (Map.fromList (zip fixedNames (repeat 1)), [])
-    names
-  where
-    incrementUntilUnseen seen n name =
-        let name' = if n == 0 then name else name ++ "_" ++ show n
-        in  if Map.member name' seen then incrementUntilUnseen seen (n + 1) name else (n, name')
-
 lowerExpr :: Destination d => d -> Expr -> Lower (Low.Block (DestTerm d))
 lowerExpr dest = \case
     Lit c -> lowerConst dest c
@@ -610,7 +596,7 @@ lowerExpr dest = \case
             . Low.mkEOperand
             . Low.OConst
             . litI64
-            =<< sized (fmap fromIntegral . sizeof) (pure 0)
+            =<< sized (pure 0) (fmap fromIntegral . sizeof)
             =<< lowerType t
     Absurd _ -> sizedToDest dest ZeroSized
   where
@@ -1016,7 +1002,7 @@ lowerMatch dest matchees decisionTree = do
     selectVarBindings selections = fmap fst . foldlM
         (\(block1, selections) (x, access) -> do
             (block2, ss') <- select access selections
-            pure (block1 <> mapTerm (sized ((: []) . (x, )) []) block2, ss')
+            pure (block1 <> mapTerm (sized [] ((: []) . (x, ))) block2, ss')
         )
         (Low.Block [] [], selections)
 
@@ -1099,7 +1085,7 @@ getTypeStruct = \case
     Low.TConst tid -> lookupTypeId tid <&> \case
         (_, Low.DStruct struct) -> struct
         tdef -> ice $ "Low.getTypeStruct: TypeDef in tenv is not DStruct: " ++ show tdef
-    Low.TClosure{} -> getTypeStruct (builtinType "closure")
+    Low.TClosure{} -> getTypeStruct (Low.builtinType "closure")
     t -> ice $ "Low.getTypeStruct: type is not a TConst: " ++ show t
 
 withVars :: [(TypedVar, Low.Operand)] -> Lower a -> Lower a
@@ -1137,7 +1123,7 @@ defineDatas datas = do
                       | otherwise -> (i, (tc, ZeroSized) : acc)
             Nothing -> ice "Lower.defineDatas: TConst not in dataSizes"
         )
-        (fromIntegral (length builtinTypeDefs), [])
+        (fromIntegral (length Low.builtinTypeDefs), [])
         (Map.toAscList datas)
 
     -- | Assumes that the data type is sized
@@ -1231,22 +1217,6 @@ defineDatas datas = do
 
     passByRef :: Type -> Bool
     passByRef t = sizeof t > 2 * 8
-
-builtinType :: String -> Low.Type
-builtinType name =
-    Low.TConst . fromIntegral . fromJust $ findIndex ((== name) . fst) builtinTypeDefs
-
-builtinTypeDefs :: [Low.TypeDef]
-builtinTypeDefs =
-    -- closure: pointer to captures struct & function pointer, genericized
-    [ ( "closure"
-      , Low.DStruct Low.Struct
-          { Low.structMembers = [(MemberId 0, Low.VoidPtr), (MemberId 1, Low.VoidPtr)]
-          , Low.structSize = wordsize * 2
-          , Low.structAlignment = wordsize
-          }
-      )
-    ]
 
 lowerParamTypes :: [Type] -> Lower [Low.Param ()]
 lowerParamTypes pts = catMaybes <$> mapM (sizedToParam () <=< lowerType) pts

@@ -1,7 +1,9 @@
 module Back.Low (module Back.Low) where
 
+import Data.Bifunctor
 import Data.Char
-import Data.List (intercalate)
+import Data.List
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import Data.Word
@@ -25,8 +27,8 @@ mapSizedM f = \case
     Sized a -> fmap Sized (f a)
     ZeroSized -> pure ZeroSized
 
-sized :: (a -> b) -> b -> Sized a -> b
-sized f b = \case
+sized :: b -> (a -> b) -> Sized a -> b
+sized b f = \case
     ZeroSized -> b
     Sized a -> f a
 
@@ -260,14 +262,14 @@ data TypeDef'
 
 type TypeDef = (String, TypeDef')
 
-type TypeDefs = Vector TypeDef
-
 type MainRef = Global
 
-data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames MainRef
+-- The `TypeDef`s are not yet resolved for name conflicts. You should apply
+-- `Lower.resolveTypeNameConflicts` after replacing any backend-specific invalid ident chars.
+data Program = Program [FunDef] [ExternDecl] [GlobDef] [TypeDef] VarNames MainRef
     deriving Show
 
-typeName :: TypeDefs -> Word -> String
+typeName :: Vector TypeDef -> Word -> String
 typeName ds i = fst (ds Vec.! fromIntegral i)
 
 integralWidth :: Type -> Maybe Word
@@ -354,6 +356,37 @@ decodeCharArrayStrLit escapeInvisible cs = do
     c <- cs
     if 0x20 <= c && c <= 0x7E then [chr (fromIntegral c)] else escapeInvisible c
 
+resolveTypeNameConflicts :: [TypeDef] -> [TypeDef]
+resolveTypeNameConflicts = uncurry zip . first (resolveNameConflicts []) . unzip
+
+resolveNameConflicts :: [String] -> [String] -> [String]
+resolveNameConflicts fixedNames names = reverse . snd $ foldl'
+    (\(seen, acc) name ->
+        let n = fromMaybe (0 :: Word) (Map.lookup name seen)
+            (n', name') = incrementUntilUnseen seen n name
+        in  (Map.insert name (n' + 1) seen, name' : acc)
+    )
+    (Map.fromList (zip fixedNames (repeat 1)), [])
+    names
+  where
+    incrementUntilUnseen seen n name =
+        let name' = if n == 0 then name else name ++ "_" ++ show n
+        in  if Map.member name' seen then incrementUntilUnseen seen (n + 1) name else (n, name')
+
+builtinType :: String -> Type
+builtinType name = TConst . fromIntegral . fromJust $ findIndex ((== name) . fst) builtinTypeDefs
+
+builtinTypeDefs :: [TypeDef]
+builtinTypeDefs =
+    -- closure: pointer to captures struct & function pointer, genericized
+    [ ( "closure"
+      , DStruct Struct { structMembers = [(MemberId 0, VoidPtr), (MemberId 1, VoidPtr)]
+                       , structSize = wordsize * 2
+                       , structAlignment = wordsize
+                       }
+      )
+    ]
+
 class TypeOf a where
     typeof :: a -> Type
 
@@ -406,7 +439,7 @@ instance Pretty Program where
 
 prettyProgram :: Program -> String
 prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
-    intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs))
+    intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs'))
         ++ "\n\n"
         ++ intercalate "\n" (map pEdecl edecls)
         ++ "\n\n"
@@ -415,6 +448,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         ++ intercalate "\n\n" (map pFdef fdefs)
         ++ ("\n\n; Main: " ++ pGlobal main)
   where
+    tdefs' = Vec.fromList (resolveTypeNameConflicts tdefs)
     pTdef name = \case
         DEnum vs ->
             ("enum " ++ name ++ " {")
@@ -427,7 +461,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         DUnion (Union vs gs ga) ->
             ("union " ++ name ++ " {")
                 ++ concatMap
-                       (\(x, ti) -> "\n    " ++ x ++ ": " ++ sized typeName "void" ti ++ ",")
+                       (\(x, ti) -> "\n    " ++ x ++ ": " ++ sized "void" typeName ti ++ ",")
                        (Vec.toList vs)
                 ++ ("\n} // greatest size: " ++ show gs)
                 ++ (", greatest alignment: " ++ show ga)
@@ -458,7 +492,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                        (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
                 ++ ") -> "
                 ++ pRet ret
-    typeName ti = fst $ tdefs Vec.! fromIntegral ti
+    typeName ti = fst $ tdefs' Vec.! fromIntegral ti
     pEdecl (ExternDecl name outParam params ret) =
         ("extern @" ++ name ++ "(")
             ++ intercalate ", " (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
