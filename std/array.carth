@@ -78,14 +78,6 @@
 (define (array/modify-multiple! arr ifs)
   (foldl (fun (arr [i f]) (array/mutate i (f (array/lookup! i arr)) arr)) (array/clone arr) ifs))
 
-(extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
-
-(define: (memcpy' dest src count)
-    (forall (a) (Fun (Box a) (Box a) Nat (Box a)))
-  (transmute (memcpy (transmute dest)
-                     (transmute src)
-                     (* count (sizeof a)))))
-
 (define: (array/append (Array px nx) (Array py ny))
     (forall (a) (Fun (Array a) (Array a) (Array a)))
   (let1 (Array pz nz) (array/unsafe-uninit (nat/nowrap+ nx ny))

@@ -74,7 +74,7 @@ builtinExterns = Map.fromList
     [ ("GC_add_roots", TFun [TBox (TPrim (TNat 8)), TBox (TPrim (TNat 8))] tUnit)
     , ("GC_malloc", TFun [TPrim TNatSize] (TBox tByte))
     , ("malloc", TFun [TPrim TNatSize] (TBox tByte))
-    , ("str-eq", TFun [tStr, tStr] tBool)
+    , ("str_eq", TFun [tStr, tStr] tBool)
     ]
 
 type Defs = TopologicalOrder Def

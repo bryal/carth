@@ -13,3 +13,12 @@
 
 (define: mem/unsafe-null (forall (a) (Box a))
   (transmute 0))
+
+(extern memcpy (Fun (Box Unit) (Box Unit) Nat
+                    (Box Unit)))
+
+(define: (memcpy' dest src count)
+    (forall (a) (Fun (Box a) (Box a) Nat (Box a)))
+  (transmute (memcpy (transmute dest)
+                     (transmute src)
+                     (* count (sizeof a)))))

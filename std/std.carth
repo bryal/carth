@@ -60,9 +60,9 @@
     (forall (a) (Fun Unit a))
   (panic "undefined"))
 
-(extern -panic (Fun Str Unit))
+(extern _panic (Fun Str Unit))
 (define (panic msg)
-  (seq (-panic msg) (undefined Unit)))
+  (seq (_panic msg) (undefined Unit)))
 
 (data Cmp
   Lt Eq Gt)
@@ -111,13 +111,17 @@
 
 ;;; Strings
 
-(extern show-int (Fun Int Str))
-(extern show-nat (Fun Nat Str))
-(extern show-f64 (Fun F64 Str))
+(extern show_int (Fun Int Str))
+(define show-int show_int)
+(extern show_nat (Fun Nat Str))
+(define show-nat show_nat)
+(extern show_f64 (Fun F64 Str))
+(define show-f64 show_f64)
 
 (define show-bool (fun* (case [True] "True") (case [False] "False")))
 
-(extern str-append (Fun Str Str Str))
+(extern str_append (Fun Str Str Str))
+(define str-append str_append)
 
 ;;; Function
 
