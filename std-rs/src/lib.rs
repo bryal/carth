@@ -134,10 +134,12 @@ fn heap_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
+#[no_mangle]
 pub extern "C" fn str_eq(s1: Str, s2: Str) -> bool {
     let (s1, s2) = (s1.as_str(), s2.as_str());
     s1 == s2
 }
+#[no_mangle]
 pub extern "C" fn str_cmp(s1: Str, s2: Str) -> Cmp {
     use std::cmp::Ordering::*;
     let (s1, s2) = (s1.as_str(), s2.as_str());
@@ -148,43 +150,52 @@ pub extern "C" fn str_cmp(s1: Str, s2: Str) -> Cmp {
     }
 }
 
+#[no_mangle]
 pub extern "C" fn str_show(s: Str) -> Str {
     let s = s.as_str();
     Str::new(&format!("{:?}", s))
 }
 
+#[no_mangle]
 pub extern "C" fn unsafe_display_inline(s: Str) {
     let s = s.as_str();
     print!("{}", s);
     std::io::stdout().flush().ok();
 }
 
+#[no_mangle]
 pub extern "C" fn str_append(s1: Str, s2: Str) -> Str {
     let (s1, s2) = (s1.as_str(), s2.as_str());
     Str::new(&(s1.to_string() + s2))
 }
 
+#[no_mangle]
 pub extern "C" fn show_int(n: i64) -> Str {
     Str::new(&n.to_string())
 }
 
+#[no_mangle]
 pub extern "C" fn show_nat(n: u64) -> Str {
     Str::new(&n.to_string())
 }
 
+#[no_mangle]
 pub extern "C" fn show_f64(n: f64) -> Str {
     Str::new(&n.to_string())
 }
 
+#[no_mangle]
 pub extern "C" fn _print_int(n: i64) {
     println!("_print_int: {}", n);
 }
 
+#[no_mangle]
 pub extern "C" fn _panic(s: Str) {
     eprintln!("*** Panic: {}", s.as_str());
     std::process::abort()
 }
 
+#[no_mangle]
 pub extern "C" fn _get_contents() -> Str {
     let mut s = String::new();
     std::io::stdin()
@@ -193,6 +204,7 @@ pub extern "C" fn _get_contents() -> Str {
     Str::new(&s)
 }
 
+#[no_mangle]
 pub extern "C" fn unsafe_read_file(fp: Str) -> Maybe<Str> {
     let fp = fp.as_str();
     File::open(fp)
@@ -209,10 +221,10 @@ pub extern "C" fn unsafe_read_file(fp: Str) -> Maybe<Str> {
 
 // NOTE: This is a hack to ensure that Rust links in libm.
 //
-//       It seems that if no non-dead code makes use of functions from libm, then rustc or
-//       cargo won't link with libm. However, we need that to happen, as when running a
-//       Carth program with the JIT, there is no shared library for libm to load, so we
-//       need the libm functionality to be included in the .so.
+//       It seems that if no non-dead code makes use of functions from libm, then rustc or cargo
+//       won't link with libm. However, we need that to happen, as when running a Carth program with
+//       the JIT, there is no shared library for libm to load, so we need the libm functionality to
+//       be included in the .so.
 //
 // TODO: Find some other way of ensuring libm is linked with when creating the shared lib.
 #[no_mangle]
