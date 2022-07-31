@@ -30,7 +30,12 @@ toplevels = fmap concat . mapM toplevel
 toplevel :: TokenTree -> Expand [TokenTree]
 toplevel = \case
     WithPos mpos (Parens (WithPos _ (Keyword Kdefmacro) : tts)) -> do
-        (name, lits, rules) <- lift $ lift $ runParser pdefmacro mpos tts
+        (name, lits, rules) <- case runParser pdefmacro mpos tts of
+            (result, []) -> (lift . lift . liftEither) result
+            (_, messages) ->
+                ice
+                    $ "Macro.toplevel: There were messages when running the pdefmacro parser: "
+                    ++ show messages
         modify (Map.insert name (lits, rules))
         pure []
     tt -> expand tt

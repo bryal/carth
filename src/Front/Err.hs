@@ -22,7 +22,7 @@ printParseErr (p, msg) = posd p msg
 
 printTypeErr :: TypeErr -> IO ()
 printTypeErr = \case
-    MainNotDefined -> putStrLn "Error: main not defined"
+    MainNotDefined -> putStrLn "error: main not defined"
     InvalidUserTypeSig p s1 s2 ->
         posd p $ ("Invalid user type signature " ++ pretty s1) ++ (", expected " ++ pretty s2)
     CtorArityMismatch p c arity nArgs ->
@@ -93,7 +93,7 @@ printTypeErr = \case
 
 
 posd :: SrcPos -> Message -> IO ()
-posd = posd' "Error"
+posd = posd' "error"
 
 posd' :: String -> SrcPos -> Message -> IO ()
 posd' kind pos@(SrcPos f lineN colN inExp) msg = do
@@ -124,4 +124,4 @@ posd' kind pos@(SrcPos f lineN colN inExp) msg = do
         Nothing -> printMsg kind msg
         Just inner -> do
             posd' kind inner msg
-            printMsg "Note" "In expansion of macro."
+            printMsg "note" "In expansion of macro."

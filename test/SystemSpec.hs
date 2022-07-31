@@ -83,4 +83,4 @@ lexAndParse f = fmap rightToMaybe (runExceptT (lex' f >>= expandMacros' >>= pars
   where
     lex' = withExceptT (const ()) . lex
     expandMacros' = withExceptT (const ()) . liftEither . runExcept . expandMacros
-    parse'' = withExceptT (const ()) . liftEither . runExcept . parse
+    parse'' = withExceptT (const ()) . liftEither . fst . parse

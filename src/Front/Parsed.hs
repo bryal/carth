@@ -12,6 +12,9 @@ import FreeVars
 import Front.TypeAst
 import Front.Lexd (Const (..))
 
+data Message = Warning SrcPos String
+    deriving Show
+
 data IdCase = Big | Small
 
 newtype Id (case' :: IdCase) = Id (WithPos String)

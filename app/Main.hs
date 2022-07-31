@@ -91,9 +91,13 @@ expandMacros f tts = case runExcept (Macro.expandMacros tts) of
     Right p -> pure p
 
 parse :: FilePath -> [Lexd.TokenTree] -> IO Parsed.Program
-parse f tts = case runExcept (Parse.parse tts) of
-    Left e -> Err.printParseErr e >> abort f
-    Right p -> pure p
+parse f tts = do
+    let (result, messages) = Parse.parse tts
+    forM_ messages $ \case
+        Parsed.Warning pos msg -> Err.posd' "warning" pos msg
+    case result of
+        Left e -> Err.printParseErr e >> abort f
+        Right p -> pure p
 
 typecheck' :: FilePath -> Parsed.Program -> IO Checked.Program
 typecheck' f p = case typecheck p of
