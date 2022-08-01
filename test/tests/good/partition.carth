@@ -14,7 +14,7 @@
 
 (define main
   (let1 [xs ys] (partition (list (Left 1) (Left 3) (Right 2) (Right 4) (Left 5)))
-    (display-inline (show_int (- (sum xs) (sum ys))))))
+    (display (show_int (- (sum xs) (sum ys))))))
 
 (define: partition
     (forall (a b) (Fun (List (Either a b)) [(List a) (List b)]))
@@ -29,10 +29,12 @@
     (forall (a) (Fun a (Box a)))
   (store x (transmute (id@"GC_malloc" (sizeof a)))))
 
+(define (display s)
+  (display-inline (str_append s "\n")))
 (define (display-inline s)
   (IO (fun (real-world) [(unsafe_display_inline s) real-world])))
-
 (extern unsafe_display_inline (Fun Str Unit))
+(extern str_append (Fun Str Str Str))
 
 (extern show_int (Fun Int Str))
 
