@@ -269,10 +269,6 @@ lower noGC (Program (Topo defs) datas externs) =
         fs = view outFunDefs out
         cs = map (\(gid, t, c) -> Low.GlobConstDef gid t c) (view outConstDefs out)
         tdefs' = map snd . Map.toAscList $ view (tenv . tdefs) st
-        -- tdefs' =
-        --     Vec.fromList . uncurry zip . first (resolveNameConflicts []) . unzip . toList $ view
-        --         (tenv . tdefs)
-        --         st
     in
         Low.Program (externWrappers ++ fs) externs' (cs ++ varDecls') tdefs' names mainId
   where
@@ -728,9 +724,12 @@ lowerApp dest f as = case f of
                     ta' <- fromSized <$> lowerType ta
                     stackCast_a <- keepOnStack ta'
                     stackCast_r <- keepOnStack tr'
+                    -- Cast floats on the stack as well to make codegen of C simpler. That is an
+                    -- uncommon operation, so who cares if performance is not 100% optimal for each
+                    -- backend.
                     if
                         | ta' == tr' -> lowerExpr dest a
-                        | stackCast_a || stackCast_r -> do
+                        | stackCast_a || Low.isFloat ta' || stackCast_r || Low.isFloat tr' -> do
                             (ptrTo, retVal) <- allocationAtDest dest Nothing tr'
                             Low.Block stms1 ptrFrom <- emit
                                 $ Low.Expr (Low.Bitcast ptrTo (Low.TPtr tr')) (Low.TPtr tr')
@@ -1057,7 +1056,7 @@ lowerCtion dest variantIx span tconst xs = use (tenv . tids . to (Map.! tconst))
                     Sized tidVariant -> do
                         Low.Block stms'1 unionPtr <- indexStruct 1 ptr
                         Low.Block stms'2 variantPtr <- emit $ Low.Expr
-                            (Low.EAsVariant unionPtr (fromIntegral tidVariant))
+                            (Low.EAsVariant unionPtr variantIx)
                             (Low.TPtr (Low.TConst tidVariant))
                         Low.Block stms'3 () <- lowerExprsInStruct memberXs variantPtr
                         pure $ Low.Block (stms'1 ++ stms'2 ++ stms'3) ()

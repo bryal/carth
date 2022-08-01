@@ -197,7 +197,10 @@ data Expr'
     -- Given a pointer to an untagged union, get it as a specific variant
     | EAsVariant Operand VariantIx
     | EBranch (Branch Expr)
-    | Cast Operand Type -- C-style cast
+    | Cast Operand Type -- ^ C-style cast
+    -- | Bitwise cast of {int,pointer}-to-{int,pointer}. Structs are by nature bitwisely cast by
+    --   putting them on the stack and casting the pointer. Floats are cast to and from other types
+    --   via the stack as well, just to make codegen of C simpler.
     | Bitcast Operand Type
     deriving Show
 
@@ -356,15 +359,16 @@ decodeCharArrayStrLit escapeInvisible cs = do
     c <- cs
     if 0x20 <= c && c <= 0x7E then [chr (fromIntegral c)] else escapeInvisible c
 
-resolveTypeNameConflicts :: [TypeDef] -> [TypeDef]
-resolveTypeNameConflicts = uncurry zip . first (resolveNameConflicts []) . unzip
+resolveTypeNameConflicts :: [String] -> [TypeDef] -> [TypeDef]
+resolveTypeNameConflicts alreadyDefined =
+    uncurry zip . first (resolveNameConflicts alreadyDefined) . unzip
 
 resolveNameConflicts :: [String] -> [String] -> [String]
 resolveNameConflicts fixedNames names = reverse . snd $ foldl'
     (\(seen, acc) name ->
         let n = fromMaybe (0 :: Word) (Map.lookup name seen)
             (n', name') = incrementUntilUnseen seen n name
-        in  (Map.insert name (n' + 1) seen, name' : acc)
+        in  (Map.insert name' 1 (Map.insert name (n' + 1) seen), name' : acc)
     )
     (Map.fromList (zip fixedNames (repeat 1)), [])
     names
@@ -448,7 +452,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         ++ intercalate "\n\n" (map pFdef fdefs)
         ++ ("\n\n; Main: " ++ pGlobal main)
   where
-    tdefs' = Vec.fromList (resolveTypeNameConflicts tdefs)
+    tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
     pTdef name = \case
         DEnum vs ->
             ("enum " ++ name ++ " {")

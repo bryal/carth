@@ -2,6 +2,7 @@
 module Back.CompileC (compile) where
 
 import Control.Arrow
+import Data.Either
 import Data.Graph (flattenSCCs, stronglyConnComp)
 import Data.Maybe
 import Data.List
@@ -10,10 +11,13 @@ import Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import System.FilePath
 import System.Process
+import Text.Printf
 
 import Back.Low
 import Conf
 import Misc
+import Sizeof
+import Front.Parse (c_validIdentFirst, c_validIdentRest, c_keywords)
 
 compile :: FilePath -> CompileConfig -> Program -> IO ()
 compile f cfg pgm = do
@@ -40,20 +44,45 @@ compile f cfg pgm = do
     abort f
 
 codegen :: Program -> String
-codegen (Program _fdefs _edecls _gdefs tdefs _gnames _main) = unlines
+codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = unlines
     [ "#include <stdint.h>"
-    , ""
+    , "#include <stddef.h>"
+    , "#include <stdbool.h>"
+    , "\n\n/**** Type Declarations ****/\n"
     , declareTypes
-    , ""
+    , "\n\n/**** Type Definitions ****/\n"
     , defineTypes
+    , "\n\n/**** Global Variable Declarations & Constant Definitions ****/\n"
+    , declareGlobs
+    , "\n\n/**** Extern Declarations ****/\n"
+    , "extern void install_stackoverflow_handler(void);"
+    , declareExterns
+    , "\n\n/**** Function Declarations ****/\n"
+    , fst declareAndDefineFuns
+    , "\n\n/**** Function Definitions ****/\n"
+    , snd declareAndDefineFuns
+    , "\n\n/**** Main ****/\n"
+    , defineMain
     ]
   where
-    tdefs' = Vec.fromList (resolveTypeNameConflicts (map (first replaceInvalidIdentChars) tdefs))
+    reserved = "install_stackoverflow_handler" : c_keywords
 
-    replaceInvalidIdentChars =
-        map $ \c -> if ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9')
-            then c
-            else '_'
+    tdefs = Vec.fromList $ resolveTypeNameConflicts
+        reserved
+        (map (first replaceInvalidIdentChars) tdefs_unreplaced)
+    tdefsNames = Vec.map fst tdefs
+
+    enames = Vec.fromList (map (\(ExternDecl name _ _ _) -> name) edecls)
+
+    gnames = Vec.fromList $ resolveNameConflicts
+        (reserved ++ Vec.toList (tdefsNames Vec.++ enames))
+        (Vec.toList (Vec.map replaceInvalidIdentChars gnames_unreplaced))
+
+    replaceInvalidIdentChars = \case
+        [] -> ice "empty identifier"
+        (c : cs) ->
+            (if c_validIdentFirst c then c else '_')
+                : map (\c' -> if c_validIdentRest c' then c' else '_') cs
 
     declareTypes = intercalate "\n" (map (uncurry declareType) orderedTypes)
 
@@ -92,9 +121,9 @@ codegen (Program _fdefs _edecls _gdefs tdefs _gnames _main) = unlines
                 ++ "\n};"
       where
         genEnumVariant v = v ++ ","
-        genStructMember (x, t) = genType tdefs' t (genMember x) ++ ";"
+        genStructMember (x, t) = genType t (genMember x) ++ ";"
         genUnionVariant = \case
-            (x, Sized ti) -> Just (typeName tdefs' ti ++ " " ++ x ++ ";")
+            (x, Sized ti) -> Just (typeName tdefs ti ++ " " ++ x ++ ";")
             _ -> Nothing
 
     -- We have to declare & define types in C in a certain order, depending on when they are
@@ -105,7 +134,7 @@ codegen (Program _fdefs _edecls _gdefs tdefs _gnames _main) = unlines
       where
         graph = zipWith (\tid def -> (def, tid, Set.toList (directTypeDeps (snd def))))
                         [0 :: Word ..]
-                        (Vec.toList tdefs')
+                        (Vec.toList tdefs)
         directTypeDeps = \case
             DEnum _ -> Set.empty
             DStruct struct -> Set.unions
@@ -122,26 +151,289 @@ codegen (Program _fdefs _edecls _gdefs tdefs _gnames _main) = unlines
 
     genMember (MemberId i) = "m" ++ show i
 
-genType :: Vector TypeDef -> Type -> String -> String
-genType tdefs t x = case t of
-    TInt width -> "int" ++ show width ++ "_t " ++ x
-    TNat width -> "uint" ++ show width ++ "_t " ++ x
-    TF32 -> "float " ++ x
-    TF64 -> "double " ++ x
-    TPtr t -> genType tdefs t ("(*" ++ x ++ ")")
+    declareGlobs = intercalate "\n" (map declareGlob gdefs)
+
+    declareGlob :: GlobDef -> String
+    declareGlob = \case
+        GlobVarDecl gid t -> genType t (gname gid) ++ ";"
+        GlobConstDef gid t c ->
+            genType t ("const " ++ gname gid) ++ either (const "") (" = " ++) (genConst c) ++ ";"
+
+    -- Left on uninitialized (with a zero-value bundled, for when you can't leave things empty),
+    -- and Right for defined value.
+    genConst = \case
+        Undef t -> Left $ genZero t
+        CInt { intVal = n, intWidth = w } -> Right $ genInt n w
+        CNat { natVal = n, natWidth = w } -> Right $ genNat n w
+        F32 x -> Right $ show x ++ "f"
+        F64 x -> Right $ show x
+        EnumVal { enumVariant = v } -> Right v
+        Array t xs -> Right $ printf "{%s}"
+                                     (genType (TArray t (fromIntegral (length xs))) "")
+                                     (intercalate ", " $ map (either id id . genConst) xs)
+        CharArray cs -> Right $ "\"" ++ decodeCharArrayStrLit (printf "\\x%02X") cs ++ "\""
+        Zero t -> Right $ genZero t
+        CBitcast x t -> Right $ printf "(%s)%s" (genType t "") (either id id (genConst x))
+        CGlobal g -> Right $ genGlobal g
+        CStruct _t ms ->
+            Right $ "{" ++ intercalate ", " (map (either id id . genConst) ms) ++ " }"
+        CPtrIndex p i -> Right $ "(" ++ either id id (genConst p) ++ ") + " ++ show i
+    genInt n w = printf "INT%d_C(%d)" (ceilIntWidth w) n
+    genNat n w = printf "UINT%d_C(%d)" (ceilIntWidth w) n
+    genZero = \case
+        TInt w -> genInt (0 :: Int) w
+        TNat w -> genNat (0 :: Word) w
+        TF32 -> "0.0f"
+        TF64 -> "0.0"
+        TPtr _ -> "NULL"
+        VoidPtr -> "NULL"
+        TFun{} -> "NULL"
+        TConst _ -> "{0}"
+        TArray _ _ -> "{0}"
+        TClosure{} -> "{0}"
+
+    declareExterns = intercalate "\n" (map declareExtern edecls)
+
+    declareExtern :: ExternDecl -> String
+    declareExtern (ExternDecl name outParam params ret) = -- (ExternDecl String (Maybe (OutParam ())) [Param ()] Ret) =
+        maybe (genRet tdefs ret)
+              (genType . outParamType)
+              outParam
+              (name ++ "(" ++ intercalate ", " (map (genAnonParam tdefs) params) ++ ")")
+            ++ ";"
+
+    declareAndDefineFuns =
+        let (decs, defs) = unzip (map defineFun fdefs)
+        in  (intercalate "\n" decs, intercalate "\n\n" defs)
+
+    -- Returns both declaration & definition
+    defineFun (FunDef name out params ret body allocs' lnames_unreplaced) =
+        let lhs = maybe
+                (genRet tdefs ret)
+                (genType . outParamType)
+                out
+                (gname name ++ "(" ++ intercalate ", " (map (genParam lnames) params) ++ ")")
+            rhs =
+                " {"
+                    ++ precalate "\n    " (map genAlloc allocs)
+                    ++ (if null allocs then "" else "\n    ")
+                    ++ genBlock' 4 genTerm body
+                    ++ "\n}"
+        in  (lhs ++ ";", lhs ++ rhs)
+      where
+        allocs = maybe id (\(OutParam x t) -> ((x, t) :)) out allocs'
+
+        localIsAlloc lid = Set.member lid localAllocs
+        localAllocs = Set.fromList (map fst allocs)
+
+        genAlloc (lid, t) = genType t (lname' lid) ++ ";"
+
+        lname' = lname lnames
+
+        lnames = Vec.fromList $ resolveNameConflicts
+            (reserved ++ Vec.toList (tdefsNames Vec.++ enames Vec.++ gnames))
+            (Vec.toList (Vec.map replaceInvalidIdentChars lnames_unreplaced))
+
+        genBlock :: Int -> (Int -> term -> String) -> Block term -> String
+        genBlock d genTerm' blk = "{" ++ genBlock' (d + 4) genTerm' blk ++ "\n" ++ indent d ++ "}"
+
+        genBlock' :: Int -> (Int -> term -> String) -> Block term -> String
+        genBlock' d genTerm' (Block stms term) =
+            precalate ("\n" ++ indent d) (map (genStm d) stms) ++ case genTerm' d term of
+                "" -> ""
+                s -> "\n" ++ indent d ++ s
+
+        genTerm d = \case
+            TRetVal e -> genExpr d (\val -> "return " ++ val ++ ";") e
+            TRetVoid | Just (OutParam x _) <- out -> "return " ++ lname' x ++ ";"
+                     | otherwise -> "return;"
+
+        genStm d = \case
+            Let (Local x t) e ->
+                let e' = genExpr (d + 4) (\val -> lname' x ++ " = " ++ val ++ ";") e
+                in  genType t (lname' x)
+                        ++ if (lname' x ++ " = ") `isPrefixOf` e' && length (lines e') == 1
+                               then drop (length (lname' x)) e'
+                               else ";\n" ++ indent d ++ e'
+            Store x dst ->
+                ("*" ++ fromRight (ice "lhs of store was uninit") (genOp dst))
+                    ++ (" = " ++ either id id (genOp x) ++ ";")
+            VoidCall f out' as ->
+                maybe "" (\o -> "*" ++ either id id (genOp o) ++ " = ") out'
+                    ++ fromRight (ice "uninit callee") (genOp f)
+                    ++ "("
+                    ++ intercalate ", " (map (either id id . genOp) as)
+                    ++ ");"
+            SLoop lp -> genLoop d (\_ () -> "break;") lp
+            SBranch br -> genBranch d (\_ () -> "") br
+        genBranch :: Int -> (Int -> term -> String) -> Branch term -> String
+        genBranch d genTerm' = \case
+            BIf p c a ->
+                ("if (" ++ either id id (genOp p) ++ ") ")
+                    ++ genBlock d genTerm' c
+                    ++ (" else " ++ genBlock d genTerm' a)
+            BSwitch m cs def ->
+                ("switch (" ++ either id id (genOp m) ++ ") {")
+                    ++ precalate ("\n" ++ indent d) (map (genCase d genTerm') cs)
+                    ++ ("\n" ++ indent d ++ "default: " ++ genBlock d genTerm' def)
+                    ++ ("\n" ++ indent d ++ "}")
+        genCase :: Int -> (Int -> term -> String) -> (Const, Block term) -> String
+        genCase d genTerm' (c, blk) =
+            "case "
+                ++ fromRight (ice "uninit case") (genConst c)
+                ++ ": "
+                ++ genBlock d genTerm' blk
+                ++ " break;"
+        genLoop :: Int -> (Int -> a -> String) -> Loop a -> String
+        genLoop d genTerm' (Loop args body) =
+            intercalate ("\n" ++ indent d) (map genLoopArg args)
+                ++ ("\n" ++ indent d)
+                ++ "while (true) "
+                ++ genBlock d (genLoopTerm (map fst args) genTerm') body
+        genLoopArg (Local x t, rhs) = genType t (lname' x) ++ case genOp rhs of
+            Left _ -> ";" -- uninit
+            Right v -> " = " ++ v ++ ";"
+        genLoopTerm :: [Local] -> (Int -> term -> String) -> Int -> LoopTerminator term -> String
+        genLoopTerm params genTerm' d = \case
+            Continue args ->
+                intercalate
+                        ("\n" ++ indent d)
+                        (catMaybes $ zipWith
+                            (\param ->
+                                either (const Nothing)
+                                       (\arg -> Just (genLocal param ++ " = " ++ arg ++ ";"))
+                                    . genOp
+                            )
+                            params
+                            args
+                        )
+                    ++ ("\n" ++ indent d ++ "continue;")
+            Break a ->
+                let s = genTerm' d a
+                in  if "return " `isPrefixOf` s || "return;" `isPrefixOf` s
+                        then s
+                        else s ++ "\n" ++ indent d ++ "break;"
+            LBranch br -> genBranch d (genLoopTerm params genTerm') br
+        genExpr d genTerm' (Expr e _t) = case e of
+            EOperand op -> genTerm' (either id id (genOp op))
+            Add a b -> binop "+" a b
+            Sub a b -> binop "-" a b
+            Mul a b -> binop "*" a b
+            Div a b -> binop "/" a b
+            Rem a b -> binop "%" a b
+            Shl a b -> binop "<<" a b
+            LShr a b -> binop ">>" a b -- FIXME: cast params to ensure logical shift or something?
+            AShr a b -> binop ">>" a b -- FIXME: cast params to ensure arithmetic shift or something?
+            BAnd a b -> binop "&" a b
+            BOr a b -> binop "|" a b
+            BXor a b -> binop "^" a b
+            Eq a b -> binop "==" a b
+            Ne a b -> binop "!=" a b
+            Gt a b -> binop ">" a b
+            GtEq a b -> binop ">=" a b
+            Lt a b -> binop "<" a b
+            LtEq a b -> binop "<=" a b
+            Load addr -> genTerm' $ "*" ++ fromRight (ice "deref of uninit") (genOp addr)
+            Call f as ->
+                genTerm'
+                    $ fromRight (ice "uninit callee") (genOp f)
+                    ++ "("
+                    ++ intercalate ", " (map (either id id . genOp) as)
+                    ++ ")"
+            ELoop loop -> genLoop d (flip genExpr genTerm') loop
+            EGetMember i struct ->
+                genTerm' $ "&" ++ either id id (genOp struct) ++ "->" ++ genMember i
+            EAsVariant x vi ->
+                genTerm'
+                    $ ("&" ++ either id id (genOp x) ++ "->")
+                    ++ let tid = asTConst (pointee (typeof x))
+                       in
+                           case tdefs Vec.!? fromIntegral tid of
+                               Just (_, DUnion Union { unionVariants = vs }) -> fst $ fromMaybe
+                                   (ice
+                                   $ ("Variant Index " ++ show vi)
+                                   ++ (" out of range, n variants = " ++ show (Vec.length vs))
+                                   )
+                                   (vs Vec.!? fromIntegral vi)
+                               Just tdef ->
+                                   ice $ "EAsVariant of non pointer to union " ++ show tdef
+                               Nothing -> ice
+                                   ("Type ID " ++ show tid ++ " out of range, n tdefs = " ++ show
+                                       (Vec.length tdefs)
+                                   )
+            EBranch br -> genBranch d (flip genExpr genTerm') br
+            Cast x t -> genTerm' $ "(" ++ genType t "" ++ ")" ++ either id id (genOp x)
+            Bitcast x t -> genTerm' $ "(" ++ genType t "" ++ ")" ++ either id id (genOp x)
+          where
+            binop op a b =
+                genTerm' (either id id (genOp a) ++ " " ++ op ++ " " ++ either id id (genOp b))
+        -- returns Left on uninitialized
+        genOp = \case
+            OLocal l -> Right $ genLocal l
+            OGlobal g -> Right (genGlobal g)
+            OConst c -> genConst c
+            OExtern (Extern x _ _ _) -> Right x
+        genLocal (Local x _) =
+            let x' = lname lnames x in if localIsAlloc x then "(&" ++ x' ++ ")" else x'
+
+    defineMain =
+        let (Global mainId _) = main
+            main' = gname mainId
+        in  unlines
+                [ "int main(void) {"
+                , "    install_stackoverflow_handler();"
+                , "    carth_init();"
+                , "    ((void(*)(void*))" ++ main' ++ ".m0.m1)(" ++ main' ++ ".m0.m0);"
+                , "    return 0;"
+                , "}"
+                ]
+
+    genParam lnames p = genType (paramType p) (lname lnames (paramName p))
+    lname lnames lid = fromMaybe
+        (ice "Local ID " ++ show lid ++ " out of range, total len = " ++ show (Vec.length lnames))
+        (lnames Vec.!? fromIntegral lid)
+
+    genGlobal (Global x t) = case t of
+        TFun{} -> gname x
+        VoidPtr -> gname x
+        _ -> "(&" ++ gname x ++ ")"
+    gname gid = fromMaybe
+        (ice $ "Global ID " ++ show gid ++ " out of range, total len = " ++ show
+            (Vec.length gnames)
+        )
+        (gnames Vec.!? fromIntegral gid)
+
+    genType = genType' tdefs
+
+genType' :: Vector TypeDef -> Type -> String -> String
+genType' tdefs t x = case t of
+    TInt width -> "int" ++ show width ++ "_t" ++ pad x
+    TNat width -> "uint" ++ show width ++ "_t" ++ pad x
+    TF32 -> "float" ++ pad x
+    TF64 -> "double" ++ pad x
+    TPtr t -> genType' tdefs t $ case t of
+        TArray _ _ -> "(*" ++ x ++ ")"
+        _ -> "*" ++ x
     VoidPtr -> "void *" ++ x
     TFun outParam params ret ->
-        maybe (genRet ret) (genType tdefs . outParamType) outParam
+        maybe (genRet tdefs ret) (genType' tdefs . outParamType) outParam
             $ "(*"
             ++ x
             ++ ")("
-            ++ intercalate ", " (map genAnonParam params)
+            ++ intercalate ", " (map (genAnonParam tdefs) params)
             ++ ")"
-    TConst ti -> typeName tdefs ti ++ " " ++ x
-    TArray t n -> genType tdefs t (x ++ "[" ++ show n ++ "]")
-    TClosure{} -> genType tdefs (builtinType "closure") x
+    TConst ti -> typeName tdefs ti ++ pad x
+    TArray t n -> genType' tdefs t (x ++ "[" ++ show n ++ "]")
+    TClosure{} -> genType' tdefs (builtinType "closure") x
   where
-    genAnonParam p = genType tdefs (paramType p) ""
-    genRet = \case
-        RetVal t -> genType tdefs t
-        RetVoid -> ("void " ++)
+    pad = \case
+        "" -> ""
+        x -> " " ++ x
+
+genRet :: Vector TypeDef -> Ret -> String -> String
+genRet tdefs = \case
+    RetVal t -> genType' tdefs t
+    RetVoid -> ("void " ++)
+
+genAnonParam :: Vector TypeDef -> Param () -> String
+genAnonParam tdefs p = genType' tdefs (paramType p) ""

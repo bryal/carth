@@ -121,7 +121,7 @@
 (define show-bool (fun* (case [True] "True") (case [False] "False")))
 
 (extern str_append (Fun Str Str Str))
-(define str-append str_append)
+(define (str-append s1 s2) (str_append s1 s2))
 
 ;;; Function
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 
-module Front.Parse (parse) where
+module Front.Parse (parse, c_validIdent, c_validIdentFirst, c_validIdentRest, c_keywords) where
 
 import Control.Arrow
 import Control.Applicative hiding (many, some)
@@ -37,7 +37,7 @@ extern :: Parser Extern
 extern = do
     reserved Kextern
     x@(Id (WithPos pos x')) <- small
-    unless (validIdentC x') $ tell
+    unless (c_validIdent x') $ tell
         [ Warning
               pos
               "This identifier is not guaranteed to be compatible with any C compiler, according to the C11 standard.\nThis is likely to cause issues if you use the C backend when compiling this Carth program, or if you want to link to the symbol later on in C."
@@ -233,63 +233,19 @@ isWord s = isJust (readMaybe s :: Maybe Word)
 --
 --   As an ~extern~ is not necessarely used in conjunction with C, however, we don't want to impose
 --   a hard limit their names being C compatible, wherefore it's a warning and not an error.
-validIdentC :: String -> Bool
-validIdentC s =
-    let (cs, c) = fromJust (unsnoc s)
-    in  not (cKeyword s)
-            && ((null cs && identNondigit c)
-               || (validIdentC cs && identNondigit c)
-               || (validIdentC cs && isDigit c)
-               )
+c_validIdent :: String -> Bool
+c_validIdent s =
+    c_validIdentFirst (head s) && all c_validIdentRest (tail s) && notElem s c_keywords
+
+c_validIdentFirst :: Char -> Bool
+c_validIdentFirst = c_identNondigit
+
+c_validIdentRest :: Char -> Bool
+c_validIdentRest c = c_identNondigit c || isDigit c
+
+c_identNondigit :: Char -> Bool
+c_identNondigit c = nondigit c || universalCharacterName c
   where
-    cKeyword = flip
-        elem
-        [ "auto"
-        , "break"
-        , "case"
-        , "char"
-        , "const"
-        , "continue"
-        , "default"
-        , "do"
-        , "double"
-        , "else"
-        , "enum"
-        , "extern"
-        , "float"
-        , "for"
-        , "goto"
-        , "if"
-        , "inline"
-        , "int"
-        , "long"
-        , "register"
-        , "restrict"
-        , "return"
-        , "short"
-        , "signed"
-        , "sizeof"
-        , "static"
-        , "struct"
-        , "switch"
-        , "typedef"
-        , "union"
-        , "unsigned"
-        , "void"
-        , "volatile"
-        , "while"
-        , "_Alignas"
-        , "_Alignof"
-        , "_Atomic"
-        , "_Bool"
-        , "_Complex"
-        , "_Generic"
-        , "_Imaginary"
-        , "_Noreturn"
-        , "_Static_assert"
-        , "_Thread_local"
-        ]
-    identNondigit c = nondigit c || universalCharacterName c
     nondigit c = c == '_' || isAsciiUpper c || isAsciiLower c
     universalCharacterName = ord >>> \c ->
         (c == 0x00A8)
@@ -337,3 +293,51 @@ validIdentC s =
             || (c >= 0xC0000 && c <= 0xCFFFD)
             || (c >= 0xD0000 && c <= 0xDFFFD)
             || (c >= 0xE0000 && c <= 0xEFFFD)
+
+c_keywords :: [String]
+c_keywords =
+    [ "auto"
+    , "break"
+    , "case"
+    , "char"
+    , "const"
+    , "continue"
+    , "default"
+    , "do"
+    , "double"
+    , "else"
+    , "enum"
+    , "extern"
+    , "float"
+    , "for"
+    , "goto"
+    , "if"
+    , "inline"
+    , "int"
+    , "long"
+    , "register"
+    , "restrict"
+    , "return"
+    , "short"
+    , "signed"
+    , "sizeof"
+    , "static"
+    , "struct"
+    , "switch"
+    , "typedef"
+    , "union"
+    , "unsigned"
+    , "void"
+    , "volatile"
+    , "while"
+    , "_Alignas"
+    , "_Alignof"
+    , "_Atomic"
+    , "_Bool"
+    , "_Complex"
+    , "_Generic"
+    , "_Imaginary"
+    , "_Noreturn"
+    , "_Static_assert"
+    , "_Thread_local"
+    ]

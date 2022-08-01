@@ -252,7 +252,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                               ]
     }
   where
-    tdefs' = Vec.fromList (resolveTypeNameConflicts tdefs)
+    tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
 
     defineTypes :: [Definition]
     defineTypes = define =<< Vec.toList tdefs'
