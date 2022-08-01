@@ -391,9 +391,14 @@ lower noGC (Program (Topo defs) datas externs) =
         gcAddRoot globRef = if noGC
             then pure (Low.Block [] ())
             else do
-                let p0 = Low.CBitcast (Low.CGlobal globRef) (Low.TPtr (Low.TNat 8))
+                let p0 = Low.CBitcast (Low.CGlobal globRef) Low.VoidPtr
                     ptrSize = 8
-                    p1 = Low.CPtrIndex p0 ptrSize
+                    p1 = Low.CBitcast
+                        (Low.CPtrIndex
+                            (Low.CBitcast (Low.CGlobal globRef) (Low.TPtr (Low.TNat 8)))
+                            ptrSize
+                        )
+                        Low.VoidPtr
                 stm <- fromRight (ice "GC_add_roots, not a void call")
                     <$> callBuiltin "GC_add_roots" Nothing [Low.OConst p0, Low.OConst p1]
                 pure (Low.Block [stm] ())
