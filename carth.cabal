@@ -50,6 +50,7 @@ library
       Back.Low
       Back.CompileLLVM
       Back.CompileC
+      Back.Link
   other-modules:
   hs-source-dirs:
       src

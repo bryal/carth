@@ -121,7 +121,11 @@ compileOpts =
     [ Option []
              ["cc"]
              (ReqArg (\cc' c -> Right c { cCompiler = cc' }) "PROGRAM")
-             "C compiler to use for linking"
+             "C compiler to use when compiling C source & linking objects"
+    , Option []
+             ["ld"]
+             (ReqArg (\ld' c -> Right c { cLinker = ld' }) "PROGRAM")
+             "Linker to use when linking objects, passed to C compiler via -fuse-ld=..."
     , Option
         []
         ["backend"]

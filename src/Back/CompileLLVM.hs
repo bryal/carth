@@ -48,7 +48,6 @@ import qualified LLVM.CodeGenOpt as CodeGenOpt
 import Prelude hiding (mod)
 import System.Exit
 import System.FilePath
-import System.Process
 import qualified Data.Vector as Vec
 
 import Back.Low as Low
@@ -74,21 +73,6 @@ compile = handleProgram $ \cfg tm mod -> do
         ofile = replaceExtension exefile "o"
     verbose cfg "   Writing object"
     LLMod.writeObjectToFile tm (LLMod.File ofile) mod
-    verbose cfg "   Linking"
-    callProcess
-        (cCompiler cfg)
-        [ "-o"
-        , exefile
-        , ofile
-        , "-l:libcarth_std_rs.a"
-        , "-lsigsegv"
-        , "-ldl"
-        , "-lpthread"
-        , "-lm"
-        , "-lgc"
-        , "-lssl"
-        , "-lcrypto"
-        ]
 
 run :: FilePath -> RunConfig -> Low.Program -> IO ()
 run = handleProgram $ \cfg tm mod -> do

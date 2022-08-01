@@ -19,29 +19,21 @@ import Misc
 import Sizeof
 import Front.Parse (c_validIdentFirst, c_validIdentRest, c_keywords)
 
-compile :: FilePath -> CompileConfig -> Program -> IO ()
-compile f cfg pgm = do
+compile :: CompileConfig -> Program -> IO ()
+compile cfg pgm = do
     let exefile = cOutfile cfg
         cfile = replaceExtension exefile "c"
+        ofile = replaceExtension exefile "o"
     let cSrc = codegen pgm
-    putStrLn ("\n\n" ++ cSrc ++ "\n")
     writeFile cfile cSrc
-    callProcess
-        (cCompiler cfg)
-        [ "-o"
-        , exefile
-        , cfile
-        , "-l:libcarth_std_rs.a"
-        , "-lsigsegv"
-        , "-ldl"
-        , "-lpthread"
-        , "-lm"
-        , "-lgc"
-        , "-lssl"
-        , "-lcrypto"
-        ]
-    putStrLn "C backend not yet complete"
-    abort f
+    verbose cfg "   Compiling Object"
+    callProcess (cCompiler cfg)
+        . concat
+        $ [ if getDebug cfg then ["-g", "-Og", "-Wall", "-Wextra", "-Wno-unused-parameter"] else []
+          , ["-c"]
+          , ["-o", ofile]
+          , [cfile]
+          ]
 
 codegen :: Program -> String
 codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = unlines

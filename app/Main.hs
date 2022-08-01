@@ -18,6 +18,7 @@ import Conf
 import GetConfig
 import Back.CompileLLVM as CompileLLVM
 import Back.CompileC as CompileC
+import Back.Link as Link
 import Front.Monomorphize
 import Back.Lower
 import qualified Back.Low as Ast
@@ -43,7 +44,8 @@ compileFile cfg = do
     !low <- frontend cfg f
     case cBackend cfg of
         BendLLVM -> CompileLLVM.compile f cfg low
-        BendC -> CompileC.compile f cfg low
+        BendC -> CompileC.compile cfg low
+    Link.link cfg
     putStrLn ""
 
 runFile :: RunConfig -> IO ()
