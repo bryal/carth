@@ -5,6 +5,12 @@ Features and other stuff to do/implement in/around Carth.
 * TODO Migrate TODO to some kind of Kanban board or the like
 Self hosted? Does Sourcehut have anything? Base it on mailing lists (no... or maybe?)
 
+---
+Update <2022-07-02 lör>:
+yes, sourcehut /does/ have something! https://todo.sr.ht/~jojo/Carth
+looks like it might be good enough. Let's go with that? At least try it out.
+---
+
 But I need something other than this file. It only pollutes the Git
 history for no real good. It's also less useful now that I've had to
 disable magit-todos.
@@ -13,71 +19,6 @@ Another reason is that this file doesn't scale at all. Not that I
 expect or particularly desire to have contributors, but I also don't
 want to scare anyone away xd.
 
-* INACTIVE Package system
-  We will need some kind of package-management solution, or we will
-  end up like C where using dependencies is a chore.
-
-  I kind of want to just use Guix somehow, but it should ideally be
-  possible to use whatever package management solution on other
-  distros as well...
-
-  I'm thinking: the package manager shouldn't make too many
-  assumptions about the system and get in the way in unorthodox
-  scenarios. Consider how Guix and Nix have to use some hacks to get
-  packages to play nice with the store, not make assumptions about the
-  dir tree structure (like there being a /usr/lib, a /bin/bash) and
-  stuff like that.
-  
-  See: https://drewdevault.com/2021/09/27/Let-distros-do-their-job.html
-** Carth + Guix = 💜?
-   Använd guix som pakethanterare + virtualenv för Carth, typ som Stack
-   för Haskell och Cargo för rust.
-
-   Tänk att carth antingen drar in guix som bibliotek, eller på något
-   annat vis kräver guix från systemet.
-
-   Tänk:
-     carth init
-   Skulle kunna köra
-     guix environment
-   och lite mer.
-
-   Update <2021-10-20 ons>: I think pulling in guix as a dependency
-   would not work well. That's not how it's designed to be used. Would
-   also work weirdly when actually using Guix as the OS package
-   manager on top as well. Also, asking users to install Guix and add
-   our channel would not be ergonomic enough to be the simplest way to
-   do things.
-
-   Instead, I think we should do something like what this comment
-   proposes: https://news.ycombinator.com/item?id=24847060, i.e.,
-   imitate cargo. Cargo is fairly primitive, and maybe allows "too
-   much" when it comes to using different versions, but it's fairly
-   simple and does its job well. Then we can "bless" Guix as a package
-   manager to use on top of our primitive cargo-clone for more
-   advanced features, like releases with compatible packages,
-   environments, etc etc. Basically, we don't put too much
-   responsibility on our own shoulders, and let OS distributions do
-   what they do best. Make sure that cargo-clone never gets in the way
-   of Guix and other distributions. For example, overriding dependency
-   config to use local files and other versions should have first
-   class support.
-
-   Maybe help maintain the Guix (& Nix?) packages myself.
-   
-*** Extra säkert?
-    "guix environment allows you to run any application in an isolated
-     container that restricts network access, hides the filesystem (no
-     risk that the closed-source program steals any of your files, say
-     your Bitcoin wallet or your PGP keys) and even system-level
-     information such as your user name. This is essential to run any
-     non-trusted, closed-source program."
-
-    Skulle kanske förhindra vissa av problemen man sett i NPM, typ "event-stream" debaklet.
-
-*** Läs mer
-    https://www.gnu.org/software/guix/manual/en/guix.html#Channels
-  
 * NEXT Module system
   Postfix syntax for module paths? A bit like web-domains -
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
@@ -86,6 +27,10 @@ want to scare anyone away xd.
 
   Look at ML modules.
 
+See https://www.microsoft.com/en-us/research/publication/first-class-modules-for-haskell/
+(First class modules for Haskell, Mark Shields & Simon Peyton Jones)
+
+  
 ** INACTIVE Allow conflicting imports if unambiguous?
    I'm thinking something that would allow the following. It would be
    less annoying than having to qualify everything. Also, gotta think
@@ -649,6 +594,14 @@ it’s something that does come up now and then.
 
 https://gankra.github.io/blah/deinitialize-me-maybe/
 
+*Update <2022-07-31 sön>*
+
+See another HN thread: https://news.ycombinator.com/item?id=32276580.
+And a supposedly good paper on current state of high perf RC systems: https://users.cecs.anu.edu.au/~steveb/pubs/papers/lxr-pldi-2022.pdf.
+(Low-Latency, High-Throughput Garbage Collection, Wenyu Zhao et al.).
+"A paper I quite enjoyed on automatic reference counting for pure, immutable functional programming: https://arxiv.org/abs/1908.05647".
+Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/en-us/research/uploads/prod/2021/11/flreuse-tr-v1.pdf, about Perceus in Koka.
+
 * CANCELLED Custom GC
   Update <2022-05-24 tis>: I've actually changed my mind about
   refcounting. With some ownership analysys, which we'd need anyways
@@ -780,19 +733,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
 * INACTIVE Hoogle equivalent
   https://wiki.haskell.org/Hoogle
 
-* INACTIVE Playground
-  Like play.rustlang.org
-
-  https://play.rust-lang.org/help
-  https://github.com/google/nsjail
-
-  Might actually be pretty easy by making use of Guix
-  containers. Sandboxes the filesystem, and doesn't give network
-  access unless `--network` is provided.
-
-  #+BEGIN_EXAMPLE
-  guix environment --container --ad-hoc coreutils clang carth
-  #+END_EXAMPLE
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
@@ -1334,88 +1274,6 @@ https://gankra.github.io/blah/deinitialize-me-maybe/
 
    Could enable us to use pattern matching more?
    
-* TODO Move from LLVM to alternative backend (MIR/QBE)
-  LLVM is kind of not great in some ways. It's often not trivial to
-  debug errors stemming from displeasing LLVM. It updates frequently,
-  but the Haskell bindings lag behind, so I have to use an older
-  version or start maintainin llvm-hs myself. The project is
-  *massive*, and most of the stuff I don't need. Sure, it's nice being
-  able to target practically any backend, but I don't *actually* care
-  about most of them. And there exists *so many* optimization passes,
-  but most of them actually improve the performance of the binary very
-  little, while bumping the compiletime a not insignificant bit.
-
-  I want to use something simpler.
-
-  To make the transition smooth, and to allow for easier debugging of
-  codegen in the future, I think it would be a good idea to add an
-  interpreter, like the one we had before, but now supporting FFI
-  calls so that std-rs can be used as well. Really, the amount of code
-  would not be huge, and it would be incredibly nice to have something
-  to compare to when debugging low-level stuff. Also, I want to get
-  rid of LLVM right away, but I'm not sure about what to replace it
-  with just yet, so an interpreter is needed in the meantime.
-
-So we're done implementing Lower and Low, so the next step is simply
-to add additional backends and remove LLVM!
-
-Investigate QBE, Cranelift, GNU Lightning, libgccjit, GCC, MIR.
-
-#+BEGIN_QUOTE Candidates
-- C :: I.e., spit out C source and call out to ~cc~. Very portable
-  (every platform has a C compiler). Not very elegant. Does not
-  natively support tail call elimination, so would have to do that
-  myself (true for pretty much everything except llvm though). Used
-  by respectable languages like Nim and Haskell (sort of).
-- C-- :: Similar to C, but even more "portable assembly
-  language". Created by SPJ and friend, specifically for being
-  generated by compilers. Fork called Cmm used by GHC.
-- LLVM :: Approx 5 million LOC. Many targets, OK usability, but
-  breaking changes sometimes and big and scary.
-- GCC :: Even bigger than LLVM. Also many targets. Not very good
-  usability. Probably quite stable. GPL.
-- libgccjit :: Despite the name, also AOT. Basically an easier to
-  use frontend for GCC with additional functionality to leverage GCC
-  for JITting. Most points of GCC apply, but easier to use, and JIT
-  included.
-- GNU Lightning :: JIT (only). Used by some schemes. Disjoint from
-  GCC.
-- Cranelift :: Small-ish atm, but not sure it has any goals to stay
-  that way. Seems more like an effort to replace LLVM, including
-  much of its "bloat". Written in Rust. Maybe not all that
-  standalone? Seems to be meant to be called from Rust. Performance
-  of generated code seems bad atm, but should be improved.
-- QBE :: Small! 10k LOC. Goals to be 70% as fast as
-  GCC/LLVM. Generates ASM instead of machine code for some
-  reason. Seems like it hasn't seen much update this last
-  year. However, one [[https://github.com/michaelforney/qbe][Michael Forney is actively maintaining a fork]],
-  for his own language I think, so that might be interesting.
-- [[https://github.com/vnmakarov/mir][MIR]] :: This one looks the most interesting! Similarly to QBE, very
-  small at 15k LOC and 70% the performance of GCC. Primarily a
-  JIT(?), but seems to be able to to AOT as well. Has a 4 backends
-  atm, including AMD64 and Aarch64, and it seems relatively easy to
-  add a new one. I've found 2 languages that make use of MIR to
-  study: [[https://github.com/grame-cncm/faust][Faust]] and [[https://github.com/dibyendumajumdar/ravi][Ravi]].
-#+END_QUOTE
-
-In the end, I most like the look of MIR. It seems to make good
-tradeoffs.
-
-Compiling to C comes at second place. Incredibly portable, and .c
-files would be a lot more readable than .ll files. Would lose the
-GDB source-line from DWARF stuff though, but that shit kinda sucked
-anyways. Function names would work as well, if not better than in
-LLVM, since the names would be kept in the C, and C compilers
-probable output much better dwarf than I ever could.
-
-Maybe I'll do both? If I just a low-level IR that's just above the
-level of the union of C and MIR it ought to be quite simple to
-translate from that to whatever backendest backend.
-
-Ravi, a language using MIR: https://github.com/dibyendumajumdar/ravi
-
-** References
-   - [[https://gist.github.com/zeux/3ce4fcc3a43072b4315abde95319ecb6][How does clang 2.7 hold up in 2021?]]
 * TODO `tail` keyword to ensure tail call or compiler error
   Sometimes you want to be sure that tail calls are optimized. To be
   able to assert this at compile time, so as to not accidentally
