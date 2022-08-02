@@ -51,13 +51,12 @@ compileFile cfg = do
 runFile :: RunConfig -> IO ()
 runFile cfg = do
     let f = rInfile cfg
-    putStrLn ("   Running " ++ f ++ "")
+    verbose cfg ("   Running " ++ f ++ "")
     verbose cfg "     Environment variables:"
     mp <- modulePaths
     verbose cfg ("       module paths = " ++ show mp)
     !mon <- frontend cfg f
     CompileLLVM.run f cfg mon
-    putStrLn ""
 
 frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
