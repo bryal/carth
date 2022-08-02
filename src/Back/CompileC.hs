@@ -223,7 +223,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
                 maybe "" (\o -> snd (preop "*" (genOp' o)) ++ " = ") out'
                     ++ snd (binop_call (genOp' f) (map (snd . genOp') as))
                     ++ ";"
-            SLoop lp -> genLoop d (\_ () -> "break;") lp
+            SLoop lp -> genLoop d (\_ () -> "") lp
             SBranch br -> genBranch d (\_ () -> "") br
         genBranch :: Int -> (Int -> term -> String) -> Branch term -> String
         genBranch d genTerm' = \case
@@ -247,8 +247,15 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
         genLoop d genTerm' (Loop args body) =
             intercalate ("\n" ++ indent d) (map genLoopArg args)
                 ++ ("\n" ++ indent d)
-                ++ "while (true) "
-                ++ genBlock d (genLoopTerm (map fst args) genTerm') body
+                ++ "while (true) {"
+                ++ genBlock' (d + 4) (genLoopTerm (map fst args) genTerm') body
+                -- Typically in C loops, you `break` explicitly and `continue` implicitly. We
+                -- basically flip this formula around to work around the issue of `break`ing from a
+                -- loop within a nested `switch` statement. The hack is to unconditionally `break`
+                -- at the end of the loop body, unless a `continue` was issued earlier. This works
+                -- since `continue` doesn't interfere with `switch`, unlike `break`.
+                ++ ("\n" ++ indent (d + 4) ++ "break;\n")
+                ++ (indent d ++ "}")
         genLoopArg (Local x t, rhs) = genType t (lname' x) ++ case snd (genOp rhs) of
             Left _ -> ";" -- uninit
             Right v -> " = " ++ v ++ ";"
@@ -270,11 +277,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
                             args
                         )
                     ++ ("\n" ++ indent d ++ "continue;")
-            Break a ->
-                let s = genTerm' d a
-                in  if "return " `isPrefixOf` s || "return;" `isPrefixOf` s
-                        then s
-                        else s ++ "\n" ++ indent d ++ "break;"
+            Break a -> genTerm' d a
             LBranch br -> genBranch d (genLoopTerm params genTerm') br
         genExpr d genTerm' (Expr e _t) = case e of
             Call f as -> genTerm' . snd $ binop_call (genOp' f) (map (snd . genOp') as)
