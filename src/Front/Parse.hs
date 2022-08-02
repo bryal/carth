@@ -66,6 +66,9 @@ defTyped pos = reserved KdefineColon *> def' (fmap Just scheme) pos
 def' :: Parser (Maybe Scheme) -> SrcPos -> Parser Def
 def' schemeParser topPos = varDef <|> funDef
   where
+    -- FIXME: Don't `try` the whole def. If we find a define keyword in the beginning of the
+    --        parens, we know it's supposed to be a definition. Don't backtrack and try to parse it
+    --        as an expression if some later part of the definition is invalid.
     parenDef = try (parens' def)
     body = do
         ds <- many parenDef

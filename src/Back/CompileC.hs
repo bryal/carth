@@ -211,7 +211,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
 
         genStm d = \case
             Let (Local x t) e ->
-                let e' = genExpr (d + 4) (\val -> lname' x ++ " = " ++ val ++ ";") e
+                let e' = genExpr d (\val -> lname' x ++ " = " ++ val ++ ";") e
                 in  genType t (lname' x)
                         ++ if (lname' x ++ " = ") `isPrefixOf` e' && length (lines e') == 1
                                then drop (length (lname' x)) e'

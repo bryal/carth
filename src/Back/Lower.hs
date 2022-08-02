@@ -258,7 +258,10 @@ lower noGC (Program (Topo defs) datas externs) =
                       fs' <- zipWith3M (lowerFunDef [] . Just) funLhss funIds funRhss
                       init <- defineInit (zip varDecls varRhss)
                       scribe outFunDefs (fs' ++ [init])
-                      mainId' <- view (globalEnv . to (Map.! TypedVar "main" Ast.mainType))
+                      mainId' <- view $ globalEnv . to
+                          (Map.findWithDefault (ice "main not found when lowering")
+                                               (TypedVar "main" Ast.mainType)
+                          )
                       pure
                           ( unzip (map snd externs'')
                           , mapMaybe (fmap (uncurry Low.GlobVarDecl) . sizedMaybe) varDecls
@@ -874,13 +877,26 @@ internStr s = do
 
 lowerStrEq :: Low.Operand -> Low.Operand -> Lower Low.Expr
 lowerStrEq s1 s2 =
-    fromLeft (ice "lowerStrEq: str-eq was a void call") <$> callBuiltin "str-eq" Nothing [s1, s2]
+    fromLeft (ice "lowerStrEq: str_eq was a void call") <$> callBuiltin "str_eq" Nothing [s1, s2]
 
 callBuiltin
     :: String -> Maybe Low.Operand -> [Low.Operand] -> Lower (Either Low.Expr Low.Statement)
 callBuiltin fname out args = do
     es <- view externEnv
-    let f = Low.OExtern . fst $ es Map.! TypedVar fname (Ast.builtinExterns Map.! fname)
+    let fvar = TypedVar
+            fname
+            (Map.findWithDefault
+                (ice $ "Lower.callBuiltin: " ++ fname ++ " was found not in builtinExterns")
+                fname
+                Ast.builtinExterns
+            )
+    let f = Low.OExtern . fst $ Map.findWithDefault
+            (ice
+            $ ("Lower.callBuiltin: " ++ show fvar)
+            ++ " found in builtinExterns, but not in externEnv"
+            )
+            fvar
+            es
     pure $ case returnee (typeof f) of
         Low.RetVal t -> Left (Low.Expr (Low.Call f args) t)
         Low.RetVoid -> Right (Low.VoidCall f out args)
@@ -927,20 +943,21 @@ lowerMatch dest matchees decisionTree = do
                     let result = branchToDest dest (Low.BSwitch tag cases' default_')
                     pure $ blk' `thenBlock` result
         DSwitchStr access cases default_ -> do
-            ((block, matchee), selections') <- first separateTerm <$> select access selections
-            let matchee' = fromSized matchee -- We're accessing a string, which is a sized type
+            ((blk1, matchee), selections') <- first separateTerm <$> select access selections
+            (blk2, matchee') <- separateTerm <$> load (fromSized matchee) -- We're accessing a string, which is a sized type
             let
                 lowerCases = \case
                     [] -> lowerDecisionTree selections' default_
                     (s, dt) : cs -> do
                         s' <- internStr s
-                        (block, isMatch) <- fmap separateTerm . emit =<< lowerStrEq
-                            matchee'
-                            (Low.OGlobal s')
+                        (blk'1, s'') <- separateTerm <$> load (Low.OGlobal s')
+                        (blk'2, isMatch) <- fmap separateTerm . emit =<< lowerStrEq matchee' s''
                         conseq <- lowerDecisionTree selections' dt
                         alt <- lowerCases cs
-                        pure $ block `thenBlock` branchToDest dest (Low.BIf isMatch conseq alt)
-            block `thenBlockM` lowerCases (Map.toAscList cases)
+                        pure $ blk'1 `thenBlock` blk'2 `thenBlock` branchToDest
+                            dest
+                            (Low.BIf isMatch conseq alt)
+            blk1 `thenBlock` blk2 `thenBlockM` lowerCases (Map.toAscList cases)
 
     select
         :: Access
@@ -1032,40 +1049,47 @@ lowerCtion
     -> TConst
     -> [Expr]
     -> Lower (Low.Block (DestTerm d))
-lowerCtion dest variantIx span tconst xs = use (tenv . tids . to (Map.! tconst)) >>= \case
-    ZeroSized -> do
-        blk <- catBlocks_ <$> mapM (lowerExpr Nowhere) xs
-        blk `thenBlockM` sizedToDest dest ZeroSized
-    Sized tidOuter -> do
-        tdef <- lookupTypeId tidOuter
-        let memberXs = zip (map MemberId [0 ..]) xs
-        case snd tdef of
-            Low.DUnion _ -> ice "lowerExpr Ction: outermost TypeDef was a union"
-            Low.DEnum variants ->
-                let operand = Low.OConst $ Low.EnumVal
-                        { Low.enumType = tidOuter
-                        , Low.enumVariant = variants Vec.! fromIntegral variantIx
-                        , Low.enumWidth = tagBits span
-                        , Low.enumVal = fromIntegral variantIx
-                        }
-                in  toDest dest $ Low.Expr (Low.EOperand operand) (typeof operand)
-            Low.DStruct _ | span == 1 -> do
-                (ptr, retVal) <- allocationAtDest dest Nothing (Low.TConst tidOuter)
-                lowerExprsInStruct memberXs ptr <&> mapTerm (const retVal)
-            Low.DStruct _ | otherwise -> do
-                (ptr, retVal) <- allocationAtDest dest Nothing (Low.TConst tidOuter)
-                Low.Block stms1 tagPtr <- indexStruct 0 ptr
-                let stm2 = Low.Store (Low.OConst (lowerTag span variantIx)) tagPtr
-                Low.Block stms3 () <- variantTypeId tidOuter variantIx >>= \case
-                    ZeroSized -> catBlocks_ <$> mapM (lowerExpr Nowhere) xs
-                    Sized tidVariant -> do
-                        Low.Block stms'1 unionPtr <- indexStruct 1 ptr
-                        Low.Block stms'2 variantPtr <- emit $ Low.Expr
-                            (Low.EAsVariant unionPtr variantIx)
-                            (Low.TPtr (Low.TConst tidVariant))
-                        Low.Block stms'3 () <- lowerExprsInStruct memberXs variantPtr
-                        pure $ Low.Block (stms'1 ++ stms'2 ++ stms'3) ()
-                pure $ Low.Block (stms1 ++ stm2 : stms3) retVal
+lowerCtion dest variantIx span tconst xs = do
+    tidOuter <- use
+        (tenv . tids . to
+            (Map.findWithDefault (ice $ "lowerCtion: " ++ show tconst ++ " not found in tids")
+                                 tconst
+            )
+        )
+    case tidOuter of
+        ZeroSized -> do
+            blk <- catBlocks_ <$> mapM (lowerExpr Nowhere) xs
+            blk `thenBlockM` sizedToDest dest ZeroSized
+        Sized tidOuter -> do
+            tdef <- lookupTypeId tidOuter
+            let memberXs = zip (map MemberId [0 ..]) xs
+            case snd tdef of
+                Low.DUnion _ -> ice "lowerExpr Ction: outermost TypeDef was a union"
+                Low.DEnum variants ->
+                    let operand = Low.OConst $ Low.EnumVal
+                            { Low.enumType = tidOuter
+                            , Low.enumVariant = variants Vec.! fromIntegral variantIx
+                            , Low.enumWidth = tagBits span
+                            , Low.enumVal = fromIntegral variantIx
+                            }
+                    in  toDest dest $ Low.Expr (Low.EOperand operand) (typeof operand)
+                Low.DStruct _ | span == 1 -> do
+                    (ptr, retVal) <- allocationAtDest dest Nothing (Low.TConst tidOuter)
+                    lowerExprsInStruct memberXs ptr <&> mapTerm (const retVal)
+                Low.DStruct _ | otherwise -> do
+                    (ptr, retVal) <- allocationAtDest dest Nothing (Low.TConst tidOuter)
+                    Low.Block stms1 tagPtr <- indexStruct 0 ptr
+                    let stm2 = Low.Store (Low.OConst (lowerTag span variantIx)) tagPtr
+                    Low.Block stms3 () <- variantTypeId tidOuter variantIx >>= \case
+                        ZeroSized -> catBlocks_ <$> mapM (lowerExpr Nowhere) xs
+                        Sized tidVariant -> do
+                            Low.Block stms'1 unionPtr <- indexStruct 1 ptr
+                            Low.Block stms'2 variantPtr <- emit $ Low.Expr
+                                (Low.EAsVariant unionPtr variantIx)
+                                (Low.TPtr (Low.TConst tidVariant))
+                            Low.Block stms'3 () <- lowerExprsInStruct memberXs variantPtr
+                            pure $ Low.Block (stms'1 ++ stms'2 ++ stms'3) ()
+                    pure $ Low.Block (stms1 ++ stm2 : stms3) retVal
 
 lowerTag :: Span -> VariantIx -> Low.Const
 lowerTag span variantIx =
@@ -1114,9 +1138,10 @@ defineDatas datas = do
     assign (tenv . currentTid) lastTid
     let datas' = do
             (tc, vs) <- Map.toList datas
-            tid <- case tids' Map.! tc of
-                ZeroSized -> []
-                Sized tid -> [tid]
+            tid <- case Map.lookup tc tids' of
+                Just ZeroSized -> []
+                Just (Sized tid) -> [tid]
+                Nothing -> ice $ "Lower.defineDatas: " ++ show tc ++ " not found in tids'"
             pure (tc, tid, vs)
     forM_ datas' defineData
   where
@@ -1365,7 +1390,13 @@ alignmentofStruct :: [Low.Type] -> Lower Word
 alignmentofStruct = tdefsHelper Low.alignmentofStruct
 
 tdefsHelper :: ((Low.TypeId -> Low.TypeDef) -> a -> b) -> a -> Lower b
-tdefsHelper f x = use (tenv . tdefs) <&> \tdefs' -> f (tdefs' Map.!) x
+tdefsHelper f x = use (tenv . tdefs) <&> \tdefs' -> f
+    (\tid -> Map.findWithDefault
+        (ice $ "Lower.tdefsHelper: " ++ show tid ++ " not found in tdefs'")
+        tid
+        tdefs'
+    )
+    x
 
 keepOnStack :: Low.Type -> Lower Bool
 keepOnStack = \case
