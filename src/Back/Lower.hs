@@ -618,7 +618,7 @@ lowerExpr dest = \case
         lowerType (tvType x) >>= \case
             ZeroSized -> sizedToDest dest ZeroSized
             Sized target -> do
-                let toDest' e = if not (Low.isPtr target) && Low.isPtr (typeof e)
+                let toDest' e = if typeof e == Low.TPtr target
                         then indirectToDest dest e
                         else toDest dest e
                 maybeLocal <- view (localEnv . to (Map.lookup x))
