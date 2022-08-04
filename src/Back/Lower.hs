@@ -52,6 +52,7 @@ data St = St
     { _strLits :: Map String Low.GlobalId
     , _allocs :: [(Low.LocalId, Low.Type)]
     , _localNames :: Seq String
+    -- | Mapping from Global ID to the unmangled symbol of the global variable / constant / function
     , _globalNames :: Seq String
     , _tenv :: TypeEnv
     }
@@ -245,7 +246,7 @@ lower noGC (Program (Topo defs) datas externs) =
         (gfunDefs, gvarDefs) = partitionGlobDefs
         (funLhss, funRhss) = unzip gfunDefs
         (varLhss, varRhss) = unzip gvarDefs
-        (((externs', externWrappers), varDecls', mainId), st, out) = runLower $ do
+        (((externs', externWrappers), varDecls', mainRef), st, out) = runLower $ do
             defineDatas datas
             externs'' <- lowerExterns
             funIds <- mapM (newGName . tvName) funLhss
@@ -258,22 +259,27 @@ lower noGC (Program (Topo defs) datas externs) =
                       fs' <- zipWith3M (lowerFunDef [] . Just) funLhss funIds funRhss
                       init <- defineInit (zip varDecls varRhss)
                       scribe outFunDefs (fs' ++ [init])
-                      mainId' <- view $ globalEnv . to
+                      mainRef' <- view $ globalEnv . to
                           (Map.findWithDefault (ice "main not found when lowering")
                                                (TypedVar "main" Ast.mainType)
                           )
                       pure
                           ( unzip (map snd externs'')
                           , mapMaybe (fmap (uncurry Low.GlobVarDecl) . sizedMaybe) varDecls
-                          , mainId'
+                          , mainRef'
                           )
-        names = Vec.fromList
-            $ Low.resolveNameConflicts ("main" : externNames) (toList (view globalNames st))
+        mangleGlobalName s = "_C" ++ show (length s) ++ "H" ++ s
+        names =
+            Vec.map mangleGlobalName
+                . Vec.fromList
+                . Low.resolveNameConflicts externNames
+                . toList
+                $ view globalNames st
         fs = view outFunDefs out
         cs = map (\(gid, t, c) -> Low.GlobConstDef gid t c) (view outConstDefs out)
         tdefs' = map snd . Map.toAscList $ view (tenv . tdefs) st
     in
-        Low.Program (externWrappers ++ fs) externs' (cs ++ varDecls') tdefs' names mainId
+        Low.Program (externWrappers ++ fs) externs' (cs ++ varDecls') tdefs' names mainRef initRef
   where
     runLower la = runRWS la initEnv initSt
       where
@@ -297,7 +303,8 @@ lower noGC (Program (Topo defs) datas externs) =
     builtinNames :: Seq String
     builtinNames = Seq.fromList ["carth_init"]
 
-    initName = fromIntegral (fromJust (Seq.elemIndexL "carth_init" builtinNames))
+    initRef = Low.Global initName (Low.TFun Nothing [] Low.RetVoid)
+    initName = Low.GID $ fromIntegral (fromJust (Seq.elemIndexL "carth_init" builtinNames))
 
     partitionGlobDefs :: ([(TypedVar, Fun)], [(TypedVar, Expr)])
     partitionGlobDefs =
@@ -1432,7 +1439,7 @@ newGName :: String -> Lower Low.GlobalId
 newGName x = do
     globalId <- Seq.length <$> use globalNames
     modifying globalNames (Seq.|> x)
-    pure (fromIntegral globalId)
+    pure (Low.GID (fromIntegral globalId))
 
 mapTerm :: (a -> b) -> Low.Block a -> Low.Block b
 mapTerm f b = b { Low.blockTerm = f (Low.blockTerm b) }

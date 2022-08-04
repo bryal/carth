@@ -221,20 +221,21 @@ foreign import ccall "dynamic"
   mkMain :: FunPtr (IO Int32) -> IO Int32
 
 codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
-codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) = Module
-    { moduleName = fromString (takeBaseName moduleFilePath)
-    , moduleSourceFileName = fromString moduleFilePath
-    , moduleDataLayout = Just layout
-    , moduleTargetTriple = Just triple
-    , moduleDefinitions = concat
-                              [ defineTypes
-                              , defineBuiltinsHidden
-                              , declareExterns
-                              , declareGlobals
-                              , map defineFun funs
-                              , [defineMain]
-                              ]
-    }
+codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main init) =
+    Module
+        { moduleName = fromString (takeBaseName moduleFilePath)
+        , moduleSourceFileName = fromString moduleFilePath
+        , moduleDataLayout = Just layout
+        , moduleTargetTriple = Just triple
+        , moduleDefinitions = concat
+                                  [ defineTypes
+                                  , defineBuiltinsHidden
+                                  , declareExterns
+                                  , declareGlobals
+                                  , map defineFun funs
+                                  , [defineMain]
+                                  ]
+        }
   where
     tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
 
@@ -361,7 +362,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
         (mkName "entry")
         [ LL.Do (callNamed "install_stackoverflow_handler" Nothing [] LL.void)
-        , LL.Do (callNamed "carth_init" Nothing [] LL.void)
+        , LL.Do (call (LL.ConstantOperand (genGlobal init)) Nothing [])
         , mkName "mainc_tmp" LL.:= LL.GetElementPtr
             { inBounds = False
             , address = LL.ConstantOperand (genGlobal main)
@@ -749,11 +750,14 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             ByVal () pt -> genType pt
             ByRef () pt -> LL.ptr (genType pt)
 
-    getGName = getName $ if noGC'
-        then flip Vec.map gnames $ \case
-            "GC_malloc" -> "malloc"
-            s -> s
-        else gnames
+    getGName (GID gid) = getName
+        (if noGC'
+            then flip Vec.map gnames $ \case
+                "GC_malloc" -> "malloc"
+                s -> s
+            else gnames
+        )
+        gid
 
     litI64 :: Integral a => a -> LL.Operand
     litI64 = LL.ConstantOperand . LL.Int 64 . toInteger

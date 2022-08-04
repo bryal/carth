@@ -124,8 +124,11 @@ data Const
     deriving Show
 
 type LocalId = Word
-type GlobalId = Word
+newtype GlobalId = GID Word deriving (Show, Ord, Eq)
 type TypeId = Word
+
+unGid :: GlobalId -> Word
+unGid (GID gid) = gid
 
 data Local = Local LocalId Type
     deriving Show
@@ -269,10 +272,11 @@ data TypeDef'
 type TypeDef = (String, TypeDef')
 
 type MainRef = Global
+type InitRef = Global
 
 -- The `TypeDef`s are not yet resolved for name conflicts. You should apply
 -- `Lower.resolveTypeNameConflicts` after replacing any backend-specific invalid ident chars.
-data Program = Program [FunDef] [ExternDecl] [GlobDef] [TypeDef] VarNames MainRef
+data Program = Program [FunDef] [ExternDecl] [GlobDef] [TypeDef] VarNames MainRef InitRef
     deriving Show
 
 typeName :: Vector TypeDef -> Word -> String
@@ -446,7 +450,7 @@ instance Pretty Program where
     pretty' _ = prettyProgram
 
 prettyProgram :: Program -> String
-prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
+prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
     intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs'))
         ++ "\n\n"
         ++ intercalate "\n" (map pEdecl edecls)
@@ -455,6 +459,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         ++ "\n\n"
         ++ intercalate "\n\n" (map pFdef fdefs)
         ++ ("\n\n; Main: " ++ pGlobal main)
+        ++ ("\n\n; Init: " ++ pGlobal init)
   where
     tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
     pTdef name = \case
@@ -621,4 +626,4 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         CStruct t ms -> "(" ++ pType t ++ "){ " ++ intercalate ", " (map pConst ms) ++ " }"
         CPtrIndex p i -> pConst p ++ "[" ++ show i ++ "]"
     pGlobal (Global x _) = "@" ++ gname x
-    gname gid = gnames Vec.! fromIntegral gid
+    gname (GID gid) = gnames Vec.! fromIntegral gid

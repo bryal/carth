@@ -36,7 +36,7 @@ compile cfg pgm = do
           ]
 
 codegen :: Program -> String
-codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = unlines
+codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init) = unlines
     [ "#include <stdint.h>"
     , "#include <stddef.h>"
     , "#include <stdbool.h>"
@@ -345,7 +345,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
         in  unlines
                 [ "int main(void) {"
                 , "    install_stackoverflow_handler();"
-                , "    carth_init();"
+                , "    " ++ let Global gid _ = init in gname gid ++ "();"
                 , "    ((void(*)(void*))" ++ main' ++ ".m0.function)(" ++ main' ++ ".m0.captures);"
                 , "    return 0;"
                 , "}"
@@ -426,7 +426,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
         TFun{} -> (0, gname x)
         VoidPtr -> (0, gname x)
         _ -> preop "&" (0, gname x)
-    gname gid = fromMaybe
+    gname (GID gid) = fromMaybe
         (ice $ "Global ID " ++ show gid ++ " out of range, total len = " ++ show
             (Vec.length gnames)
         )
