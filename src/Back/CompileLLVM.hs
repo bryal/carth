@@ -764,11 +764,11 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     genMemberName :: MemberName -> Low.Type -> MemberIx
     genMemberName mname = \case
         TClosure{} -> case mname of
-            MemberId 0 -> 0
-            MemberId 1 -> 1
+            MemberName "captures" -> 0
+            MemberName "function" -> 1
             _ ->
                 ice
-                    $ "Codegen.genMemberName: type is closure, but member name is not MemberId 0 or 1, "
+                    $ "Codegen.genMemberName: type is closure, but member name is not MemberName \"captures\" or \"function\""
                     ++ show mname
         TConst tid -> case snd (tdefs' Vec.! fromIntegral tid) of
             DStruct Struct { structMembers = ms } ->

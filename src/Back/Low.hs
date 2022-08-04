@@ -238,7 +238,10 @@ data GlobDef
     | GlobConstDef GlobalId Type Const
     deriving Show
 
-newtype MemberName = MemberId Word deriving (Show, Eq, Ord)
+data MemberName
+    = MemberId Word
+    | MemberName String
+    deriving (Show, Eq, Ord)
 
 data Struct = Struct
     { structMembers :: [(MemberName, Type)]
@@ -384,10 +387,11 @@ builtinTypeDefs :: [TypeDef]
 builtinTypeDefs =
     -- closure: pointer to captures struct & function pointer, genericized
     [ ( "closure"
-      , DStruct Struct { structMembers = [(MemberId 0, VoidPtr), (MemberId 1, VoidPtr)]
-                       , structSize = wordsize * 2
-                       , structAlignment = wordsize
-                       }
+      , DStruct Struct
+          { structMembers = [(MemberName "captures", VoidPtr), (MemberName "function", VoidPtr)]
+          , structSize = wordsize * 2
+          , structAlignment = wordsize
+          }
       )
     ]
 
@@ -472,6 +476,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
     pMember (x, t) =
         let sx = case x of
                 MemberId i -> show i
+                MemberName s -> s
         in  "\n    " ++ sx ++ ": " ++ pType t ++ ","
     pType = \case
         TInt width -> "i" ++ show width

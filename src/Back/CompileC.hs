@@ -141,7 +141,9 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
             DUnion union -> Set.unions
                 (map (sized Set.empty Set.singleton . snd) (Vec.toList (unionVariants union)))
 
-    genMember (MemberId i) = "m" ++ show i
+    genMember = \case
+        MemberId i -> "m" ++ show i
+        MemberName s -> s
 
     declareGlobs = intercalate "\n" (map declareGlob gdefs)
 
@@ -344,7 +346,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main) = u
                 [ "int main(void) {"
                 , "    install_stackoverflow_handler();"
                 , "    carth_init();"
-                , "    ((void(*)(void*))" ++ main' ++ ".m0.m1)(" ++ main' ++ ".m0.m0);"
+                , "    ((void(*)(void*))" ++ main' ++ ".m0.function)(" ++ main' ++ ".m0.captures);"
                 , "    return 0;"
                 , "}"
                 ]

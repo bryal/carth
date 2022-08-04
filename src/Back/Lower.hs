@@ -1174,7 +1174,10 @@ defineDatas datas = do
             let size = either absurd id $ sizeofConst tc
                 align = either absurd id $ alignofConst tc
             pure $ Low.DStruct
-                (Low.Struct [(MemberId 0, tag), (MemberId 1, Low.TConst tidInner)] size align)
+                (Low.Struct [(MemberName "tag", tag), (MemberName "uni", Low.TConst tidInner)]
+                            size
+                            align
+                )
 
     -- | Assumes that there are at least two variants, and that at least one variant has at least one
     --   member.
