@@ -16,7 +16,9 @@ import qualified Front.Checked as Checked
 import Front.Check
 import Conf
 import GetConfig
-import Back.Compile
+import Back.CompileLLVM as CompileLLVM
+import Back.CompileC as CompileC
+import Back.Link as Link
 import Front.Monomorphize
 import Back.Lower
 import qualified Back.Low as Ast
@@ -39,20 +41,22 @@ compileFile cfg = do
     mp <- modulePaths
     verbose cfg ("       library path = " ++ show lp)
     verbose cfg ("       module paths = " ++ show mp)
-    !mon <- frontend cfg f
-    compile f cfg mon
+    !low <- frontend cfg f
+    case cBackend cfg of
+        BendLLVM -> CompileLLVM.compile f cfg low
+        BendC -> CompileC.compile cfg low
+    Link.link cfg
     putStrLn ""
 
 runFile :: RunConfig -> IO ()
 runFile cfg = do
     let f = rInfile cfg
-    putStrLn ("   Running " ++ f ++ "")
+    verbose cfg ("   Running " ++ f ++ "")
     verbose cfg "     Environment variables:"
     mp <- modulePaths
     verbose cfg ("       module paths = " ++ show mp)
     !mon <- frontend cfg f
-    run f cfg mon
-    putStrLn ""
+    CompileLLVM.run f cfg mon
 
 frontend :: Config cfg => cfg -> FilePath -> IO Ast.Program
 frontend cfg f = do
@@ -88,9 +92,13 @@ expandMacros f tts = case runExcept (Macro.expandMacros tts) of
     Right p -> pure p
 
 parse :: FilePath -> [Lexd.TokenTree] -> IO Parsed.Program
-parse f tts = case runExcept (Parse.parse tts) of
-    Left e -> Err.printParseErr e >> abort f
-    Right p -> pure p
+parse f tts = do
+    let (result, messages) = Parse.parse tts
+    forM_ messages $ \case
+        Parsed.Warning pos msg -> Err.posd' "warning" pos msg
+    case result of
+        Left e -> Err.printParseErr e >> abort f
+        Right p -> pure p
 
 typecheck' :: FilePath -> Parsed.Program -> IO Checked.Program
 typecheck' f p = case typecheck p of

@@ -1,12 +1,20 @@
 {-# LANGUAGE DuplicateRecordFields, GADTs, RankNTypes, ScopedTypeVariables #-}
 
 -- | Generation of LLVM IR code from our monomorphic AST.
-module Back.Codegen (codegen) where
+module Back.CompileLLVM (compile, run) where
 
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
+import Data.Either
+import Data.IORef
+import Data.List
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe
+import Data.String
+import Foreign.Ptr
 import LLVM.Prelude hiding (Const)
 import LLVM.AST (Name (..), Named, BasicBlock (..), Module (..), Definition (..), Global (..), Type (..), Instruction, Parameter (..), mkName, Operand (ConstantOperand))
 import qualified LLVM.AST as LL
@@ -24,17 +32,29 @@ import qualified LLVM.AST.Constant as LL (Constant (Undef, Float, Array, Null, A
 import qualified LLVM.AST.Constant as LLConst
 import qualified LLVM.AST.IntegerPredicate as LLIPred
 import qualified LLVM.AST.FloatingPointPredicate as LLFPred
-import Data.Either
-import Data.List
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.String
+import LLVM.Context
+import qualified LLVM.Module as LLMod
+import LLVM.Target
+import LLVM.Target.Options
+import LLVM.Analysis
+import LLVM.OrcJIT
+import LLVM.OrcJIT.CompileLayer as CL
+import LLVM.Linking
+import LLVM.PassManager
+import LLVM.Exception
+import qualified LLVM.Relocation as Reloc
+import qualified LLVM.CodeModel as CodeModel
+import qualified LLVM.CodeGenOpt as CodeGenOpt
+import Prelude hiding (mod)
+import System.Exit
 import System.FilePath
 import qualified Data.Vector as Vec
 
-import Misc
-import Sizeof (variantsTagBits, toBits)
 import Back.Low as Low
+import Conf
+import Misc
+import Pretty
+import Sizeof (variantsTagBits, toBits)
 
 data St = St
     { currentLabel :: Name
@@ -47,25 +67,180 @@ type Gen = StateT St (Writer [BasicBlock])
 
 data GExpr = GInstr LL.Type LL.Instruction | GOperand LL.Operand
 
-codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
-codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main) = Module
-    { moduleName = fromString (takeBaseName moduleFilePath)
-    , moduleSourceFileName = fromString moduleFilePath
-    , moduleDataLayout = Just layout
-    , moduleTargetTriple = Just triple
-    , moduleDefinitions = concat
-                              [ defineTypes
-                              , defineBuiltinsHidden
-                              , declareExterns
-                              , declareGlobals
-                              , map defineFun funs
-                              , [defineMain]
-                              ]
-    }
+compile :: FilePath -> CompileConfig -> Low.Program -> IO ()
+compile = handleProgram $ \cfg tm mod -> do
+    let exefile = cOutfile cfg
+        ofile = replaceExtension exefile "o"
+    verbose cfg "   Writing object"
+    LLMod.writeObjectToFile tm (LLMod.File ofile) mod
+
+run :: FilePath -> RunConfig -> Low.Program -> IO ()
+run = handleProgram $ \cfg tm mod -> do
+    verbose cfg "   Running with OrcJIT"
+    let libs = ["libsigsegv.so", "libcarth_std_rs.so", "libgc.so"]
+    forM_ libs $ \lib -> do
+        verbose cfg $ "   Loading symbols of " ++ lib
+        r <- loadLibraryPermanently (Just lib)
+        when r (putStrLn ("   Error loading " ++ lib) *> exitFailure)
+    resolvers <- newIORef Map.empty
+    let linkingResolver key = fmap (Map.! key) (readIORef resolvers)
+    session <- createExecutionSession
+    linkLay <- newObjectLinkingLayer session linkingResolver
+    compLay <- newIRCompileLayer linkLay tm
+    let resolver' = resolver compLay
+    withSymbolResolver session (SymbolResolver resolver') $ \resolverPtr ->
+        withModuleKey session $ \modKey -> do
+            modifyIORef' resolvers (Map.insert modKey resolverPtr)
+            withModule compLay modKey mod $ do
+                mangleSymbol compLay "main" >>= resolver' >>= \case
+                    Left err -> do
+                        putStrLn "   Error during JIT symbol resolution"
+                        putStrLn ("   error: " ++ show err)
+                        exitFailure
+                    Right (JITSymbol mainAddr _) ->
+                        mkMain (castPtrToFunPtr (wordPtrToPtr mainAddr)) $> ()
+    disposeCompileLayer compLay
+    disposeLinkingLayer linkLay
+    disposeExecutionSession session
   where
+    -- Following are some useful things to know regarding symbol resolution when it comes to JIT, LLVM,
+    -- and OrcJIT. I'm not sure about all of this, so take it with a grain of salt.
+    --
+    -- - `CompileLayer.findSymbol`: Only looks in the compile-layer, which includes our compiled LLVM
+    --   modules, but not linked object code, or linked shared libraries.
+    --
+    -- - `LinkingLayer.findSymbol`: Looks in the linking-layer, a superset of the compile-layer that
+    --   includes all object code added to the layer with `addObjectFile`.
+    --
+    -- - `Linking.getSymbolAddressInProcess`: Looks in the address-space of the running process, which
+    --   includes all shared object code added with `Linking.loadLibraryPermanently`. Disjoint from the
+    --   compile and linking layer.
+    resolver :: CompileLayer cl => cl -> MangledSymbol -> IO (Either JITSymbolError JITSymbol)
+    resolver compLay symb =
+        let
+            flags = JITSymbolFlags { jitSymbolWeak = False
+                                   , jitSymbolCommon = False
+                                   , jitSymbolAbsolute = False
+                                   , jitSymbolExported = True
+                                   }
+            err = fromString ("Error resolving symbol: " ++ show symb)
+            findInLlvmModules = CL.findSymbol compLay symb False
+            findInSharedObjects = getSymbolAddressInProcess symb <&> \addr ->
+                if addr == 0 then Left (JITSymbolError err) else Right (JITSymbol addr flags)
+        in
+            findInLlvmModules >>= \case
+                Right js -> pure (Right js)
+                Left _ -> findInSharedObjects
+
+handleProgram
+    :: Config cfg
+    => (cfg -> TargetMachine -> LLMod.Module -> IO ())
+    -> FilePath
+    -> cfg
+    -> Low.Program
+    -> IO ()
+handleProgram f file cfg pgm = withContext $ \ctx ->
+    let
+        -- When `--debug` is given, only -O1 optimize the code. Otherwise, optimize by -O2. No point in
+        -- going further to -O3, as those optimizations are expensive and seldom actually improve the
+        -- performance in a statistically significant way.
+        --
+        -- A minimum optimization level of -O1 ensures that all sibling calls are optimized, even if we
+        -- don't use a calling convention like `fastcc` that can optimize any tail call.
+        optLvl = if getDebug cfg then CodeGenOpt.Less else CodeGenOpt.Default
+    in
+        withMyTargetMachine optLvl $ \tm -> do
+            layout <- getTargetMachineDataLayout tm
+            triple <- getProcessTargetTriple
+            verbose cfg "   Generating LLVM"
+            let amod = codegen layout triple (getNoGC cfg) file pgm
+            when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
+            flip
+                    catch
+                    (\case
+                        EncodeException msg -> ice $ "LLVM encode exception:\n" ++ msg
+                    )
+                $ LLMod.withModuleFromAST ctx amod
+                $ \mod -> do
+                      verbose cfg "   Verifying LLVM"
+                      when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.ll" mod
+                      catch (verify mod) $ \case
+                          VerifyException msg -> ice $ "LLVM verification exception:\n" ++ msg
+                      withPassManager (optPasses optLvl tm) $ \passman -> do
+                          verbose cfg "   Optimizing"
+                          r <- runPassManager passman mod
+                          unless r $ putStrLn "DEBUG: runPassManager returned False"
+                          when (getDebug cfg) $ writeLLVMAssemblyToFile' ".dbg.opt.ll" mod
+                          f cfg tm mod
+  where
+    optPasses level tm =
+        let levelN = case level of
+                CodeGenOpt.None -> 0
+                CodeGenOpt.Less -> 1
+                CodeGenOpt.Default -> 2
+                CodeGenOpt.Aggressive -> 3
+        in  CuratedPassSetSpec { optLevel = Just levelN
+                               , sizeLevel = Nothing
+                               , unitAtATime = Nothing
+                               , simplifyLibCalls = Nothing
+                               , loopVectorize = Nothing
+                               , superwordLevelParallelismVectorize = Nothing
+                               , useInlinerWithThreshold = Nothing
+                               , dataLayout = Nothing
+                               , targetLibraryInfo = Nothing
+                               , targetMachine = Just tm
+                               }
+
+    -- | `writeLLVMAssemblyToFile` doesn't clear file contents before writing, so this is a workaround.
+    writeLLVMAssemblyToFile' :: FilePath -> LLMod.Module -> IO ()
+    writeLLVMAssemblyToFile' f m = do
+        writeFile f ""
+        LLMod.writeLLVMAssemblyToFile (LLMod.File f) m
+
+    withMyTargetMachine :: CodeGenOpt.Level -> (TargetMachine -> IO a) -> IO a
+    withMyTargetMachine codeGenOpt f = do
+        initializeAllTargets
+        triple <- getProcessTargetTriple
+        cpu <- getHostCPUName
+        features <- getHostCPUFeatures
+        (target, _) <- lookupTarget Nothing triple
+        withTargetOptions $ \toptions -> do
+            options <- peekTargetOptions toptions
+            pokeTargetOptions (options { guaranteedTailCallOptimization = True }) toptions
+            withTargetMachine target
+                              triple
+                              cpu
+                              features
+                              toptions
+                              Reloc.PIC
+                              CodeModel.Default
+                              codeGenOpt
+                              f
+
+foreign import ccall "dynamic"
+  mkMain :: FunPtr (IO Int32) -> IO Int32
+
+codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
+codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main init) =
+    Module
+        { moduleName = fromString (takeBaseName moduleFilePath)
+        , moduleSourceFileName = fromString moduleFilePath
+        , moduleDataLayout = Just layout
+        , moduleTargetTriple = Just triple
+        , moduleDefinitions = concat
+                                  [ defineTypes
+                                  , defineBuiltinsHidden
+                                  , declareExterns
+                                  , declareGlobals
+                                  , map defineFun funs
+                                  , [defineMain]
+                                  ]
+        }
+  where
+    tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
 
     defineTypes :: [Definition]
-    defineTypes = define =<< Vec.toList tdefs
+    defineTypes = define =<< Vec.toList tdefs'
       where
         define :: TypeDef -> [Definition]
         define (name, d) = case d of
@@ -111,8 +286,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     Nothing -> []
                     Just (OutParam _ t) -> [Parameter (LL.ptr (genType t)) anon [LL.SRet]]
                 ps' = flip map ps $ \case
-                    ByVal () t -> Parameter (genType t) anon []
-                    ByRef () t -> Parameter (LL.ptr (genType t)) anon []
+                    InReg t -> Parameter (genType t) anon []
+                    OnStack t -> Parameter (LL.ptr (genType t)) anon [LL.ByVal]
             in  simpleFun LL.External name (out' ++ ps') rt []
 
     declareGlobals :: [Definition]
@@ -173,8 +348,9 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                 Just (OutParam x t) ->
                     [Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.SRet]]
             ps' = flip map ps $ \case
-                ByVal x t -> Parameter (genType t) (mkName (getName lnames x)) []
-                ByRef x t -> Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) []
+                (x, InReg t) -> Parameter (genType t) (mkName (getName lnames x)) []
+                (x, OnStack t) ->
+                    Parameter (LL.ptr (genType t)) (mkName (getName lnames x)) [LL.ByVal]
         in  simpleFun LL.Internal
                       (getGName ident)
                       (out' ++ ps')
@@ -187,7 +363,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     defineMain = simpleFun LL.External "main" [] LL.i32 $ pure $ BasicBlock
         (mkName "entry")
         [ LL.Do (callNamed "install_stackoverflow_handler" Nothing [] LL.void)
-        , LL.Do (callNamed "carth_init" Nothing [] LL.void)
+        , LL.Do (call (LL.ConstantOperand (genGlobal init)) Nothing [])
         , mkName "mainc_tmp" LL.:= LL.GetElementPtr
             { inBounds = False
             , address = LL.ConstantOperand (genGlobal main)
@@ -224,7 +400,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                    (mkName "mainf")
                 )
                 Nothing
-                [LL.LocalReference (LL.ptr LL.i8) (mkName "mainc")]
+                [InReg (LL.LocalReference (LL.ptr LL.i8) (mkName "mainc"))]
             )
         ]
         (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))
@@ -314,9 +490,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             Let lhs rhs -> genExpr rhs >>= \rhs' -> emitLocal lhs rhs' $> ()
             Store v dst -> bindM2 store (genOperand v) (genOperand dst)
             SBranch br -> genSBranch br
-            VoidCall f out as -> emitDo
-                =<< liftM3 call (genOperand f) (mapM genOperand out) (mapM genOperand as)
+            VoidCall f out as ->
+                emitDo =<< liftM3 call (genOperand f) (mapM genOperand out) (mapM genArg as)
             SLoop loop -> genLoop loop pure (const (pure ()))
+
+        genArg = \case
+            InReg a -> InReg <$> genOperand a
+            OnStack a -> OnStack <$> genOperand a
 
         genTerminator :: Terminator -> Gen ()
         genTerminator = \case
@@ -396,7 +576,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                                 , metadata = []
                                 }
                 Call f as ->
-                    liftM3 (GInstr t' .** call) (genOperand f) (pure Nothing) (mapM genOperand as)
+                    liftM3 (GInstr t' .** call) (genOperand f) (pure Nothing) (mapM genArg as)
                 EBranch br -> genEBranch br
                 EGetMember m x ->
                     let i = genMemberName m (pointee (typeof x))
@@ -451,6 +631,8 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                             y <- emit (GInstr LL.i64 (LL.PtrToInt x' LL.i64 []))
                             pure (GInstr t' (LL.BitCast y t' []))
                         (_, _) -> pure (GInstr t' (LL.BitCast x' t' []))
+                OnStackAsIndirect x t -> GOperand <$> genOperand (OLocal (Local x (TPtr t)))
+                OnStackAsDirect x t -> genExpr (Expr (Load (OLocal (Local x (TPtr t)))) t)
 
         genLoop :: forall t a b . Loop t -> (t -> Gen a) -> ([(a, Name)] -> Gen b) -> Gen b
         genLoop (Loop params (Block stms term)) genTerm joinBreaks = do
@@ -522,9 +704,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
         emit :: GExpr -> Gen LL.Operand
         emit (GOperand x) = pure x
         emit e = do
-            n <- gets tmpCount
-            modify (\st -> st { tmpCount = n + 1 })
-            let name = "tmp" ++ show n
+            name <- newTmp
             emitNamed name e
 
         emitLocal :: Local -> GExpr -> Gen LL.Operand
@@ -540,6 +720,12 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
 
         emitDo :: LL.Instruction -> Gen ()
         emitDo instr = modify (\st -> st { currentInstrs = LL.Do instr : currentInstrs st })
+
+        newTmp :: Gen String
+        newTmp = do
+            n <- gets tmpCount
+            modify (\st -> st { tmpCount = n + 1 })
+            pure $ "tmp" ++ show n
 
         label :: String -> Gen Name
         label s = do
@@ -564,7 +750,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
                     RetVoid -> LL.void
                 out' = maybe [] ((: []) . genOutParam) out
             in  LL.ptr $ LL.FunctionType rt (out' ++ map genParam ps) False
-        TConst i -> case tdefs Vec.! fromIntegral i of
+        TConst i -> case tdefs' Vec.! fromIntegral i of
             (_, DEnum vs) -> LL.IntegerType (variantsTagBits vs)
             (name, _) -> LL.NamedTypeReference (mkName name)
         TArray t n -> LL.ArrayType (fromIntegral n) (genType t)
@@ -572,14 +758,17 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
       where
         genOutParam (OutParam () pt) = LL.ptr (genType pt)
         genParam = \case
-            ByVal () pt -> genType pt
-            ByRef () pt -> LL.ptr (genType pt)
+            InReg pt -> genType pt
+            OnStack pt -> LL.ptr (genType pt)
 
-    getGName = getName $ if noGC'
-        then flip Vec.map gnames $ \case
-            "GC_malloc" -> "malloc"
-            s -> s
-        else gnames
+    getGName (GID gid) = getName
+        (if noGC'
+            then flip Vec.map gnames $ \case
+                "GC_malloc" -> "malloc"
+                s -> s
+            else gnames
+        )
+        gid
 
     litI64 :: Integral a => a -> LL.Operand
     litI64 = LL.ConstantOperand . LL.Int 64 . toInteger
@@ -590,13 +779,13 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
     genMemberName :: MemberName -> Low.Type -> MemberIx
     genMemberName mname = \case
         TClosure{} -> case mname of
-            MemberId 0 -> 0
-            MemberId 1 -> 1
+            MemberName "captures" -> 0
+            MemberName "function" -> 1
             _ ->
                 ice
-                    $ "Codegen.genMemberName: type is closure, but member name is not MemberId 0 or 1, "
+                    $ "Codegen.genMemberName: type is closure, but member name is not MemberName \"captures\" or \"function\""
                     ++ show mname
-        TConst tid -> case snd (tdefs Vec.! fromIntegral tid) of
+        TConst tid -> case snd (tdefs' Vec.! fromIntegral tid) of
             DStruct Struct { structMembers = ms } ->
                 fromIntegral (fromJust (findIndex ((== mname) . fst) ms))
             tdef -> ice $ "Codegen.genMemberName: type points to non-struct, " ++ show tdef
@@ -620,22 +809,33 @@ getName names i = names Vec.! fromIntegral i
 structType :: [LL.Type] -> LL.Type
 structType ts = StructureType { isPacked = False, elementTypes = ts }
 
-callNamed :: String -> Maybe LL.Operand -> [LL.Operand] -> LL.Type -> Instruction
+callNamed :: String -> Maybe LL.Operand -> [Pass LL.Operand] -> LL.Type -> Instruction
 callNamed f out as rt =
     let f' = ConstantOperand $ LL.GlobalReference
-            (LL.ptr $ FunctionType rt (maybe id ((:) . LL.typeOf) out $ map LL.typeOf as) False)
+            (LL.ptr $ FunctionType
+                rt
+                (maybe id ((:) . LL.typeOf) out $ map (LL.typeOf . passed) as)
+                False
+            )
             (mkName f)
     in  call f' out as
 
-call :: LL.Operand -> Maybe LL.Operand -> [LL.Operand] -> Instruction
-call f out as = LL.Call { tailCallKind = Just LL.NoTail
-                        , callingConvention = LL.C
-                        , returnAttributes = []
-                        , function = Right f
-                        , arguments = maybe [] ((: []) . (, [LL.SRet])) out ++ map (, []) as
-                        , functionAttributes = []
-                        , metadata = []
-                        }
+call :: LL.Operand -> Maybe LL.Operand -> [Pass LL.Operand] -> Instruction
+call f out as = LL.Call
+    { tailCallKind = Just LL.NoTail
+    , callingConvention = LL.C
+    , returnAttributes = []
+    , function = Right f
+    , arguments = maybe [] ((: []) . (, [LL.SRet])) out
+                      ++ map
+                             (\case
+                                 InReg a -> (a, [])
+                                 OnStack a -> (a, [LL.ByVal])
+                             )
+                             as
+    , functionAttributes = []
+    , metadata = []
+    }
 
 simpleFun :: LL.Linkage -> String -> [Parameter] -> LL.Type -> [BasicBlock] -> Definition
 simpleFun link n ps rt bs = GlobalDefinition $ Function { LLGlob.linkage = link

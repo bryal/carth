@@ -134,12 +134,12 @@ fn heap_alloc(size: u64) -> *mut u8 {
     unsafe { alloc::alloc(alloc::Layout::from_size_align(size as usize, MAX_ALIGN).unwrap()) }
 }
 
-#[export_name = "str-eq"]
-pub extern "C" fn carth_str_eq(s1: Str, s2: Str) -> bool {
+#[no_mangle]
+pub extern "C" fn str_eq(s1: Str, s2: Str) -> bool {
     let (s1, s2) = (s1.as_str(), s2.as_str());
     s1 == s2
 }
-#[export_name = "str-cmp"]
+#[no_mangle]
 pub extern "C" fn str_cmp(s1: Str, s2: Str) -> Cmp {
     use std::cmp::Ordering::*;
     let (s1, s2) = (s1.as_str(), s2.as_str());
@@ -150,53 +150,53 @@ pub extern "C" fn str_cmp(s1: Str, s2: Str) -> Cmp {
     }
 }
 
-#[export_name = "str-show"]
+#[no_mangle]
 pub extern "C" fn str_show(s: Str) -> Str {
     let s = s.as_str();
     Str::new(&format!("{:?}", s))
 }
 
-#[export_name = "unsafe-display-inline"]
-pub extern "C" fn display_inline(s: Str) {
+#[no_mangle]
+pub extern "C" fn unsafe_display_inline(s: Str) {
     let s = s.as_str();
     print!("{}", s);
     std::io::stdout().flush().ok();
 }
 
-#[export_name = "str-append"]
+#[no_mangle]
 pub extern "C" fn str_append(s1: Str, s2: Str) -> Str {
     let (s1, s2) = (s1.as_str(), s2.as_str());
     Str::new(&(s1.to_string() + s2))
 }
 
-#[export_name = "show-int"]
+#[no_mangle]
 pub extern "C" fn show_int(n: i64) -> Str {
     Str::new(&n.to_string())
 }
 
-#[export_name = "show-nat"]
+#[no_mangle]
 pub extern "C" fn show_nat(n: u64) -> Str {
     Str::new(&n.to_string())
 }
 
-#[export_name = "show-f64"]
+#[no_mangle]
 pub extern "C" fn show_f64(n: f64) -> Str {
     Str::new(&n.to_string())
 }
 
-#[export_name = "-print-int"]
-pub extern "C" fn print_int(n: i64) {
-    println!("-print-int: {}", n);
+#[no_mangle]
+pub extern "C" fn _print_int(n: i64) {
+    println!("_print_int: {}", n);
 }
 
-#[export_name = "-panic"]
-pub extern "C" fn panic(s: Str) {
+#[no_mangle]
+pub extern "C" fn _panic(s: Str) {
     eprintln!("*** Panic: {}", s.as_str());
     std::process::abort()
 }
 
-#[export_name = "-get-contents"]
-pub extern "C" fn get_contents() -> Str {
+#[no_mangle]
+pub extern "C" fn _get_contents() -> Str {
     let mut s = String::new();
     std::io::stdin()
         .read_to_string(&mut s)
@@ -204,8 +204,8 @@ pub extern "C" fn get_contents() -> Str {
     Str::new(&s)
 }
 
-#[export_name = "unsafe-read-file"]
-pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
+#[no_mangle]
+pub extern "C" fn unsafe_read_file(fp: Str) -> Maybe<Str> {
     let fp = fp.as_str();
     File::open(fp)
         .ok()
@@ -221,10 +221,10 @@ pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
 
 // NOTE: This is a hack to ensure that Rust links in libm.
 //
-//       It seems that if no non-dead code makes use of functions from libm, then rustc or
-//       cargo won't link with libm. However, we need that to happen, as when running a
-//       Carth program with the JIT, there is no shared library for libm to load, so we
-//       need the libm functionality to be included in the .so.
+//       It seems that if no non-dead code makes use of functions from libm, then rustc or cargo
+//       won't link with libm. However, we need that to happen, as when running a Carth program with
+//       the JIT, there is no shared library for libm to load, so we need the libm functionality to
+//       be included in the .so.
 //
 // TODO: Find some other way of ensuring libm is linked with when creating the shared lib.
 #[no_mangle]

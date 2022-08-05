@@ -225,7 +225,9 @@
 
 (define (string/singleton-byte b) (Str (array/singleton b)))
 
-(extern str-cmp (Fun Str Str Cmp))
-(extern str-show (Fun Str Str))
+(extern str_cmp (Fun Str Str Cmp))
+(define str-cmp str_cmp)
+(extern str_show (Fun Str Str))
+(define str-show str_show)
 
 (define (string/nth-byte! i (Str a)) (array/lookup! i a))

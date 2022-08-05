@@ -32,18 +32,19 @@
     (forall (a) (Fun (IO a) (Fun RealWorld [a RealWorld])))
   ma)
 
-(extern unsafe-display-inline (Fun Str Unit))
+(extern unsafe_display_inline (Fun Str Unit))
 
 (define (display-inline s)
-  (IO (fun (real-world) [(unsafe-display-inline s) real-world])))
+  (IO (fun (real-world) [(unsafe_display_inline s) real-world])))
 
 (define (display s)
   (display-inline (str-append s "\n")))
 
-(extern -get-contents (Fun RealWorld [Str RealWorld]))
-(define get-contents (IO -get-contents))
+(extern _get_contents (Fun RealWorld [Str RealWorld]))
+(define get-contents (IO _get_contents))
 
-(extern unsafe-read-file (Fun Str (Maybe Str)))
+(extern unsafe_read_file (Fun Str (Maybe Str)))
+(define unsafe-read-file unsafe_read_file)
 (define (read-file f) (IO (fun (real-world) [(unsafe-read-file f) real-world])))
 
 (define (io/write-ref x ptr)

@@ -3,10 +3,10 @@
 
 (define (array/length (Array _ n)) n)
 
-(define: (array/iter (Array ptr len))
+(define: (array/iter arr)
     (forall (a) (Fun (Array a) (Iter a)))
-  (map (<o deref (<o (partial-2 ptr/+ ptr) cast))
-       (xrange 0 (cast len))))
+  (map (fun (i) (array/lookup! i arr))
+       (xrange (to-nat 0) (array/length arr))))
 
 (define: (array/iter-rev (Array ptr len))
     (forall (a) (Fun (Array a) (Iter a)))
@@ -38,7 +38,7 @@
 (define: (array/mutate i x (Array ptr n))
     (forall (a) (Fun Nat a (Array a) (Array a)))
   (if (>= i n)
-      (panic "array/mutate after end of array")
+      (panic (apps str-append "array/mutate after end of array. i = " (show-nat i) ", len = " (show-nat n)))
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
 
@@ -78,14 +78,6 @@
 (define (array/modify-multiple! arr ifs)
   (foldl (fun (arr [i f]) (array/mutate i (f (array/lookup! i arr)) arr)) (array/clone arr) ifs))
 
-(extern memcpy (Fun (Box Nat8) (Box Nat8) Nat (Box Nat8)))
-
-(define: (memcpy' dest src count)
-    (forall (a) (Fun (Box a) (Box a) Nat (Box a)))
-  (transmute (memcpy (transmute dest)
-                     (transmute src)
-                     (* count (sizeof a)))))
-
 (define: (array/append (Array px nx) (Array py ny))
     (forall (a) (Fun (Array a) (Array a) (Array a)))
   (let1 (Array pz nz) (array/unsafe-uninit (nat/nowrap+ nx ny))
@@ -102,7 +94,7 @@
 (define (array/lookup! i a)
   (if (< i (array/length a))
       (array/unsafe-lookup-unchecked i a)
-    (panic "array/lookup!: index out of bounds")))
+    (panic (apps str-append "array/lookup!: index (" (show-nat i) ") out of bounds (length = " (show-nat (array/length a)) ")"))))
 
 (define (array/unsafe-lookup-unchecked i (Array ptr _))
   (deref (ptr/+ ptr i)))

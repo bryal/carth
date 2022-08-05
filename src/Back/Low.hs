@@ -1,7 +1,9 @@
 module Back.Low (module Back.Low) where
 
+import Data.Bifunctor
 import Data.Char
-import Data.List (intercalate)
+import Data.List
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import Data.Word
@@ -25,8 +27,8 @@ mapSizedM f = \case
     Sized a -> fmap Sized (f a)
     ZeroSized -> pure ZeroSized
 
-sized :: (a -> b) -> b -> Sized a -> b
-sized f b = \case
+sized :: b -> (a -> b) -> Sized a -> b
+sized b f = \case
     ZeroSized -> b
     Sized a -> f a
 
@@ -43,33 +45,20 @@ fromSized = \case
 catSized :: [Sized a] -> [a]
 catSized = mapMaybe sizedMaybe
 
-data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
+data Pass a
+    = InReg a
+    | OnStack a
+    deriving (Eq, Ord, Show)
 
-mapParamName :: (nameA -> nameB) -> Param nameA -> Param nameB
-mapParamName f = \case
-    ByVal x t -> ByVal (f x) t
-    ByRef x t -> ByRef (f x) t
+passed :: Pass a -> a
+passed = \case
+    InReg a -> a
+    OnStack a -> a
 
-dropParamName :: Param name -> Param ()
-dropParamName = mapParamName (const ())
-
-addParamName :: name -> Param oldName -> Param name
-addParamName x = mapParamName (const x)
-
-paramName :: Param name -> name
-paramName = \case
-    ByVal x _ -> x
-    ByRef x _ -> x
-
-paramType :: Param _name -> Type
-paramType = \case
-    ByVal _ t -> t
-    ByRef _ t -> TPtr t
-
-paramDirectType :: Param _name -> Type
-paramDirectType = \case
-    ByVal _ t -> t
-    ByRef _ t -> t
+passLike :: Pass _a -> b -> Pass b
+passLike = \case
+    InReg _ -> InReg
+    OnStack _ -> OnStack
 
 data OutParam name = OutParam
     { outParamName :: name
@@ -94,13 +83,13 @@ data Type
     | TPtr Type
     | VoidPtr
     -- Really a function pointer, like `fn` in rust
-    | TFun (Maybe (OutParam ())) [Param ()] Ret
+    | TFun (Maybe (OutParam ())) [Pass Type] Ret
     | TConst TypeId
     | TArray Type Word
     -- Closures are represented as a builtin struct named "closure", with a generic pointer to
     -- captures and a void-pointer representing the function. During lowering, we still need to
     -- remember the "real" type of the function.
-    | TClosure (Maybe (OutParam ())) [Param ()] Ret
+    | TClosure (Maybe (OutParam ())) [Pass Type] Ret
   deriving (Eq, Ord, Show)
 
 type MemberIx = Word
@@ -111,7 +100,7 @@ data Const
     | CNat { natWidth :: Word, natVal :: Natural }
     | F32 Float
     | F64 Double
-    | EnumVal { enumType :: TypeId, enumVariant :: String, enumWidth :: Word, enumVal :: Natural}
+    | EnumVal { enumType :: TypeId, enumVariant :: GlobalId, enumWidth :: Word, enumVal :: Natural}
     | Array Type [Const]
     | CharArray [Word8]
     | Zero Type
@@ -122,14 +111,17 @@ data Const
     deriving Show
 
 type LocalId = Word
-type GlobalId = Word
+newtype GlobalId = GID Word deriving (Show, Ord, Eq)
 type TypeId = Word
+
+unGid :: GlobalId -> Word
+unGid (GID gid) = gid
 
 data Local = Local LocalId Type
     deriving Show
 data Global = Global GlobalId Type -- Type including the pointer
     deriving (Show, Eq)
-data Extern = Extern String (Maybe (OutParam ())) [Param ()] Ret
+data Extern = Extern String (Maybe (OutParam ())) [Pass Type] Ret
     deriving (Show, Eq)
 
 data Operand
@@ -147,7 +139,7 @@ data Branch a
 data Statement
     = Let Local Expr
     | Store Operand Operand -- value -> destination
-    | VoidCall Operand (Maybe Operand) [Operand]
+    | VoidCall Operand (Maybe Operand) [Pass Operand]
     | SLoop (Loop ())
     | SBranch (Branch ())
     deriving Show
@@ -188,15 +180,23 @@ data Expr'
     | Lt Operand Operand
     | LtEq Operand Operand
     | Load Operand
-    | Call Operand [Operand]
+    | Call Operand [Pass Operand]
     | ELoop (Loop Expr)
     -- Given a pointer to a struct, get a pointer to the Nth member of that struct
     | EGetMember MemberName Operand
     -- Given a pointer to an untagged union, get it as a specific variant
     | EAsVariant Operand VariantIx
     | EBranch (Branch Expr)
-    | Cast Operand Type -- C-style cast
+    | Cast Operand Type -- ^ C-style cast
+    -- | Bitwise cast of {int,pointer}-to-{int,pointer}. Structs are by nature bitwisely cast by
+    --   putting them on the stack and casting the pointer. Floats are cast to and from other types
+    --   via the stack as well, just to make codegen of C simpler.
     | Bitcast Operand Type
+    -- | In the body of a function, given one of its parameters that was passed on the stack, get a
+    --   pointer to the structure. Different backends diverge in how they represent stack-passing,
+    --   and this is how we converge.
+    | OnStackAsIndirect LocalId Type
+    | OnStackAsDirect LocalId Type
     deriving Show
 
 data Expr = Expr
@@ -215,17 +215,19 @@ type VarNames = Vector String
 
 type Allocs = [(LocalId, Type)]
 
+type FunDefParams = [(LocalId, Pass Type)]
+
 data FunDef = FunDef
     { funDefName :: GlobalId
     , funDefOutParam :: Maybe (OutParam LocalId)
-    , funDefParams :: [Param LocalId]
+    , funDefParams :: FunDefParams
     , funDefRet :: Ret
     , funDefBody :: Block Terminator
     , funDefAllocs :: Allocs
     , funDefLocalNames :: VarNames
     }
     deriving Show
-data ExternDecl = ExternDecl String (Maybe (OutParam ())) [Param ()] Ret
+data ExternDecl = ExternDecl String (Maybe (OutParam ())) [Pass Type] Ret
     deriving Show
 
 data GlobDef
@@ -233,7 +235,10 @@ data GlobDef
     | GlobConstDef GlobalId Type Const
     deriving Show
 
-newtype MemberName = MemberId Word deriving (Show, Eq, Ord)
+data MemberName
+    = MemberId Word
+    | MemberName String
+    deriving (Show, Eq, Ord)
 
 data Struct = Struct
     { structMembers :: [(MemberName, Type)]
@@ -253,21 +258,22 @@ data Union = Union
     deriving (Show, Eq, Ord)
 
 data TypeDef'
-    = DEnum (Vector String)
+    = DEnum (Vector GlobalId)
     | DStruct Struct
     | DUnion Union
     deriving (Show, Eq, Ord)
 
 type TypeDef = (String, TypeDef')
 
-type TypeDefs = Vector TypeDef
-
 type MainRef = Global
+type InitRef = Global
 
-data Program = Program [FunDef] [ExternDecl] [GlobDef] TypeDefs VarNames MainRef
+-- The `TypeDef`s are not yet resolved for name conflicts. You should apply
+-- `Lower.resolveTypeNameConflicts` after replacing any backend-specific invalid ident chars.
+data Program = Program [FunDef] [ExternDecl] [GlobDef] [TypeDef] VarNames MainRef InitRef
     deriving Show
 
-typeName :: TypeDefs -> Word -> String
+typeName :: Vector TypeDef -> Word -> String
 typeName ds i = fst (ds Vec.! fromIntegral i)
 
 integralWidth :: Type -> Maybe Word
@@ -354,6 +360,39 @@ decodeCharArrayStrLit escapeInvisible cs = do
     c <- cs
     if 0x20 <= c && c <= 0x7E then [chr (fromIntegral c)] else escapeInvisible c
 
+resolveTypeNameConflicts :: [String] -> [TypeDef] -> [TypeDef]
+resolveTypeNameConflicts alreadyDefined =
+    uncurry zip . first (resolveNameConflicts alreadyDefined) . unzip
+
+resolveNameConflicts :: [String] -> [String] -> [String]
+resolveNameConflicts fixedNames names = reverse . snd $ foldl'
+    (\(seen, acc) name ->
+        let n = fromMaybe (0 :: Word) (Map.lookup name seen)
+            (n', name') = incrementUntilUnseen seen n name
+        in  (Map.insert name' 1 (Map.insert name (n' + 1) seen), name' : acc)
+    )
+    (Map.fromList (zip fixedNames (repeat 1)), [])
+    names
+  where
+    incrementUntilUnseen seen n name =
+        let name' = if n == 0 then name else name ++ "_" ++ show n
+        in  if Map.member name' seen then incrementUntilUnseen seen (n + 1) name else (n, name')
+
+builtinType :: String -> Type
+builtinType name = TConst . fromIntegral . fromJust $ findIndex ((== name) . fst) builtinTypeDefs
+
+builtinTypeDefs :: [TypeDef]
+builtinTypeDefs =
+    -- closure: pointer to captures struct & function pointer, genericized
+    [ ( "closure"
+      , DStruct Struct
+          { structMembers = [(MemberName "captures", VoidPtr), (MemberName "function", VoidPtr)]
+          , structSize = wordsize * 2
+          , structAlignment = wordsize
+          }
+      )
+    ]
+
 class TypeOf a where
     typeof :: a -> Type
 
@@ -405,8 +444,8 @@ instance Pretty Program where
     pretty' _ = prettyProgram
 
 prettyProgram :: Program -> String
-prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
-    intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs))
+prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
+    intercalate "\n\n" (map (uncurry pTdef) (Vec.toList tdefs'))
         ++ "\n\n"
         ++ intercalate "\n" (map pEdecl edecls)
         ++ "\n\n"
@@ -414,11 +453,13 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         ++ "\n\n"
         ++ intercalate "\n\n" (map pFdef fdefs)
         ++ ("\n\n; Main: " ++ pGlobal main)
+        ++ ("\n\n; Init: " ++ pGlobal init)
   where
+    tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
     pTdef name = \case
         DEnum vs ->
             ("enum " ++ name ++ " {")
-                ++ concatMap ((++ ",") . ("\n    " ++)) (Vec.toList vs)
+                ++ concatMap (\x -> "\n    " ++ gname x ++ ",") (Vec.toList vs)
                 ++ "\n}"
         DStruct (Struct ms s a) ->
             ("struct " ++ name ++ " {")
@@ -427,13 +468,14 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         DUnion (Union vs gs ga) ->
             ("union " ++ name ++ " {")
                 ++ concatMap
-                       (\(x, ti) -> "\n    " ++ x ++ ": " ++ sized typeName "void" ti ++ ",")
+                       (\(x, ti) -> "\n    " ++ x ++ ": " ++ sized "void" typeName ti ++ ",")
                        (Vec.toList vs)
                 ++ ("\n} // greatest size: " ++ show gs)
                 ++ (", greatest alignment: " ++ show ga)
     pMember (x, t) =
         let sx = case x of
                 MemberId i -> show i
+                MemberName s -> s
         in  "\n    " ++ sx ++ ": " ++ pType t ++ ","
     pType = \case
         TInt width -> "i" ++ show width
@@ -458,13 +500,15 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                        (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
                 ++ ") -> "
                 ++ pRet ret
-    typeName ti = fst $ tdefs Vec.! fromIntegral ti
+    typeName ti = fst $ tdefs' Vec.! fromIntegral ti
     pEdecl (ExternDecl name outParam params ret) =
         ("extern @" ++ name ++ "(")
             ++ intercalate ", " (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
             ++ (") -> " ++ pRet ret ++ ";")
     pAnonOutParam (OutParam _ t) = "out " ++ pType (TPtr t)
-    pAnonParam = pType . paramType
+    pAnonParam = \case
+        InReg t -> pType t
+        OnStack t -> "onstack " ++ pType t
     pRet = \case
         RetVal t -> pType t
         RetVoid -> "void"
@@ -478,7 +522,9 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             ++ "\n}"
       where
         pOutParam (OutParam x t) = "out " ++ lname x ++ ": " ++ pType t
-        pParam p = lname (paramName p) ++ ": " ++ pType (paramType p)
+        pParam (x, pass) = case pass of
+            InReg t -> lname x ++ ": " ++ pType t
+            OnStack t -> "onstack " ++ lname x ++ ": " ++ pType t
         pAlloc (lid, t) = "var %" ++ lname lid ++ ": " ++ pType t ++ ";"
         pBlock :: Int -> (Int -> term -> String) -> Block term -> String
         pBlock d pTerm' blk = "{" ++ pBlock' (d + 4) pTerm' blk ++ ("\n" ++ indent d ++ "}")
@@ -500,10 +546,13 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
                 "call "
                     ++ pOp f
                     ++ "("
-                    ++ intercalate ", " (maybe id ((:) . pOutArg) out $ map pOp as)
+                    ++ intercalate ", " (maybe id ((:) . pOutArg) out $ map pArg as)
                     ++ ");"
             SLoop lp -> pLoop d (\_ () -> "") lp
             SBranch br -> pBranch d (\_ () -> "") br
+        pArg = \case
+            InReg x -> pOp x
+            OnStack x -> "onstack " ++ pOp x
         pOutArg x = "out " ++ pOp x
         pBranch :: Int -> (Int -> term -> String) -> Branch term -> String
         pBranch d pTerm' = \case
@@ -545,13 +594,15 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
             Lt a b -> pOp a ++ " < " ++ pOp b
             LtEq a b -> pOp a ++ " <= " ++ pOp b
             Load addr -> "load " ++ pOp addr
-            Call f as -> pOp f ++ "(" ++ intercalate ", " (map pOp as) ++ ")"
+            Call f as -> pOp f ++ "(" ++ intercalate ", " (map pArg as) ++ ")"
             ELoop loop -> pLoop d pExpr loop
             EGetMember i struct -> pOp struct ++ "->" ++ show i
             EAsVariant x _vi -> pOp x ++ " as " ++ pType t
             EBranch br -> pBranch d pExpr br
             Cast x t -> "cast " ++ pOp x ++ " to " ++ pType t
             Bitcast x t -> "bitcast " ++ pOp x ++ " to " ++ pType t
+            OnStackAsDirect x t -> "onstack-as-direct " ++ pLocal (Local x (TPtr t))
+            OnStackAsIndirect x t -> "onstack-as-indirect " ++ pLocal (Local x (TPtr t))
         pOp = \case
             OLocal l -> pLocal l
             OGlobal g -> pGlobal g
@@ -569,7 +620,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         CNat { natVal = n } -> show n
         F32 x -> show x
         F64 x -> show x
-        EnumVal { enumVariant = v } -> v
+        EnumVal { enumVariant = v } -> gname v
         Array _ xs -> "[" ++ intercalate ", " (map pConst xs) ++ "]"
         CharArray cs -> "\"" ++ decodeCharArrayStrLit (printf "\\x%02X") cs ++ "\""
         Zero _ -> "zero"
@@ -578,4 +629,4 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main) =
         CStruct t ms -> "(" ++ pType t ++ "){ " ++ intercalate ", " (map pConst ms) ++ " }"
         CPtrIndex p i -> pConst p ++ "[" ++ show i ++ "]"
     pGlobal (Global x _) = "@" ++ gname x
-    gname gid = gnames Vec.! fromIntegral gid
+    gname (GID gid) = gnames Vec.! fromIntegral gid

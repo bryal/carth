@@ -12,6 +12,8 @@ data CompileConfig = CompileConfig
     , cOutfile :: FilePath
     -- | Path to C compiler to use for linking and compiling ".c" files
     , cCompiler :: FilePath
+    , cLinker :: FilePath
+    , cBackend :: Backend
     , cDebug :: Bool
     , cVerbose :: Bool
     , cNoGC :: Bool
@@ -23,6 +25,8 @@ data RunConfig = RunConfig
     , rVerbose :: Bool
     , rNoGC :: Bool
     }
+
+data Backend = BendLLVM | BendC
 
 class Config cfg where
     getDebug :: cfg -> Bool
@@ -41,6 +45,8 @@ defaultCompileConfig :: FilePath -> CompileConfig
 defaultCompileConfig inf = CompileConfig { cInfile = inf
                                          , cOutfile = replaceExtension inf "bin"
                                          , cCompiler = "cc"
+                                         , cLinker = "mold"
+                                         , cBackend = BendLLVM
                                          , cDebug = False
                                          , cVerbose = False
                                          , cNoGC = False

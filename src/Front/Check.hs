@@ -134,7 +134,10 @@ assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
     assertNoRecType cpos = \case
         Inferred.TConst (y, ts) -> do
             when (x == y) $ throwError (RecTypeDef x cpos)
-            let (tvs, cs) = tdefs' Map.! y
+            let (tvs, cs) = Map.findWithDefault
+                    (ice $ "assertNoRec: type id " ++ show y ++ " not in tdefs")
+                    y
+                    tdefs'
             let substs = Map.fromList (zip tvs ts)
             assertNoRec' cs substs
         _ -> pure ()

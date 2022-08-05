@@ -1,13 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 
-module Front.Parse (parse) where
+module Front.Parse (parse, c_validIdent, c_validIdentFirst, c_validIdentRest, c_keywords) where
 
+import Control.Arrow
 import Control.Applicative hiding (many, some)
 import Control.Monad
 import Control.Monad.State.Strict
-import Control.Monad.Except
+import Control.Monad.Writer
 import Control.Monad.Combinators
-import Data.Bifunctor
+import Data.Char
 import Data.Maybe
 import qualified Data.Set as Set
 import Text.Read (readMaybe)
@@ -20,8 +21,8 @@ import Front.Parser
 import Front.Parsed hiding (Lit)
 import qualified Front.Parsed as Parsed
 
-parse :: [TokenTree] -> Except (SrcPos, String) Program
-parse tts = fmap (\(ds, ts, es) -> Program ds ts es) (runParser' toplevels tts)
+parse :: [TokenTree] -> (Either (SrcPos, String) Program, [Message])
+parse = runParser' (fmap (\(ds, ts, es) -> Program ds ts es) toplevels)
 
 toplevels :: Parser ([Def], [TypeDef], [Extern])
 toplevels = fmap mconcat (manyTill toplevel end)
@@ -33,7 +34,15 @@ toplevels = fmap mconcat (manyTill toplevel end)
         ]
 
 extern :: Parser Extern
-extern = reserved Kextern *> liftA2 Extern small type_
+extern = do
+    reserved Kextern
+    x@(Id (WithPos pos x')) <- small
+    unless (c_validIdent x') $ tell
+        [ Warning
+              pos
+              "This identifier is not guaranteed to be compatible with any C compiler, according to the C11 standard.\nThis is likely to cause issues if you use the C backend when compiling this Carth program, or if you want to link to the symbol later on in C."
+        ]
+    Extern x <$> type_
 
 typedef :: Parser TypeDef
 typedef = do
@@ -57,6 +66,9 @@ defTyped pos = reserved KdefineColon *> def' (fmap Just scheme) pos
 def' :: Parser (Maybe Scheme) -> SrcPos -> Parser Def
 def' schemeParser topPos = varDef <|> funDef
   where
+    -- FIXME: Don't `try` the whole def. If we find a define keyword in the beginning of the
+    --        parens, we know it's supposed to be a definition. Don't backtrack and try to parse it
+    --        as an expression if some later part of the definition is invalid.
     parenDef = try (parens' def)
     body = do
         ds <- many parenDef
@@ -212,3 +224,123 @@ tvar = fmap TVExplicit small
 
 isWord :: String -> Bool
 isWord s = isJust (readMaybe s :: Maybe Word)
+
+-- | Valid identifiers in the C language according to the C11 standard "ISO/IEC 9899:2011",
+--   excluding "other implementation-defined characters".
+--
+--   Carth is in some ways more liberal with what characters are allowed in an identifier, like the
+--   plain old dash (-). As one often wants to link with C or C-compatible languages when using
+--   ~extern~, it's a good idea to warn the user if she attempts to import or export a symbol
+--   externally that has a name incompatible with C. Such a name would also prevent codegen with
+--   the C backend completely.
+--
+--   As an ~extern~ is not necessarely used in conjunction with C, however, we don't want to impose
+--   a hard limit their names being C compatible, wherefore it's a warning and not an error.
+c_validIdent :: String -> Bool
+c_validIdent s =
+    c_validIdentFirst (head s) && all c_validIdentRest (tail s) && notElem s c_keywords
+
+c_validIdentFirst :: Char -> Bool
+c_validIdentFirst = c_identNondigit
+
+c_validIdentRest :: Char -> Bool
+c_validIdentRest c = c_identNondigit c || isDigit c
+
+c_identNondigit :: Char -> Bool
+c_identNondigit c = nondigit c || universalCharacterName c
+  where
+    nondigit c = c == '_' || isAsciiUpper c || isAsciiLower c
+    universalCharacterName = ord >>> \c ->
+        (c == 0x00A8)
+            || (c == 0x00AA)
+            || (c == 0x00AD)
+            || (c == 0x00AF)
+            || (c >= 0x00B2 && c <= 0x00B5)
+            || (c >= 0x00B7 && c <= 0x00BA)
+            || (c >= 0x00BC && c <= 0x00BE)
+            || (c >= 0x00C0 && c <= 0x00D6)
+            || (c >= 0x00D8 && c <= 0x00F6)
+            || (c >= 0x00F8 && c <= 0x00FF)
+            || (c >= 0x0100 && c <= 0x167F)
+            || (c >= 0x1681 && c <= 0x180D)
+            || (c >= 0x180F && c <= 0x1FFF)
+            || (c >= 0x200B && c <= 0x200D)
+            || (c >= 0x202A && c <= 0x202E)
+            || (c >= 0x203F && c <= 0x2040)
+            || (c == 0x2054)
+            || (c >= 0x2060 && c <= 0x206F)
+            || (c >= 0x2070 && c <= 0x218F)
+            || (c >= 0x2460 && c <= 0x24FF)
+            || (c >= 0x2776 && c <= 0x2793)
+            || (c >= 0x2C00 && c <= 0x2DFF)
+            || (c >= 0x2E80 && c <= 0x2FFF)
+            || (c >= 0x3004 && c <= 0x3007)
+            || (c >= 0x3021 && c <= 0x302F)
+            || (c >= 0x3031 && c <= 0x303F)
+            || (c >= 0x3040 && c <= 0xD7FF)
+            || (c >= 0xF900 && c <= 0xFD3D)
+            || (c >= 0xFD40 && c <= 0xFDCF)
+            || (c >= 0xFDF0 && c <= 0xFE44)
+            || (c >= 0xFE47 && c <= 0xFFFD)
+            || (c >= 0x10000 && c <= 0x1FFFD)
+            || (c >= 0x20000 && c <= 0x2FFFD)
+            || (c >= 0x30000 && c <= 0x3FFFD)
+            || (c >= 0x40000 && c <= 0x4FFFD)
+            || (c >= 0x50000 && c <= 0x5FFFD)
+            || (c >= 0x60000 && c <= 0x6FFFD)
+            || (c >= 0x70000 && c <= 0x7FFFD)
+            || (c >= 0x80000 && c <= 0x8FFFD)
+            || (c >= 0x90000 && c <= 0x9FFFD)
+            || (c >= 0xA0000 && c <= 0xAFFFD)
+            || (c >= 0xB0000 && c <= 0xBFFFD)
+            || (c >= 0xC0000 && c <= 0xCFFFD)
+            || (c >= 0xD0000 && c <= 0xDFFFD)
+            || (c >= 0xE0000 && c <= 0xEFFFD)
+
+c_keywords :: [String]
+c_keywords =
+    [ "auto"
+    , "break"
+    , "case"
+    , "char"
+    , "const"
+    , "continue"
+    , "default"
+    , "do"
+    , "double"
+    , "else"
+    , "enum"
+    , "extern"
+    , "float"
+    , "for"
+    , "goto"
+    , "if"
+    , "inline"
+    , "int"
+    , "long"
+    , "register"
+    , "restrict"
+    , "return"
+    , "short"
+    , "signed"
+    , "sizeof"
+    , "static"
+    , "struct"
+    , "switch"
+    , "typedef"
+    , "union"
+    , "unsigned"
+    , "void"
+    , "volatile"
+    , "while"
+    , "_Alignas"
+    , "_Alignof"
+    , "_Atomic"
+    , "_Bool"
+    , "_Complex"
+    , "_Generic"
+    , "_Imaginary"
+    , "_Noreturn"
+    , "_Static_assert"
+    , "_Thread_local"
+    ]

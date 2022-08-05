@@ -103,4 +103,11 @@ tagBits span | span <= 2 ^ (0 :: Integer) = 0
              | span <= 2 ^ (16 :: Integer) = 16
              | span <= 2 ^ (32 :: Integer) = 32
              | span <= 2 ^ (64 :: Integer) = 64
-             | otherwise = ice $ "tagBits: span = " ++ show span
+             | otherwise = nyi $ "tagBits: span = " ++ show span
+
+ceilIntWidth :: (Show n, Integral n) => n -> n
+ceilIntWidth n | n <= 8 = 8
+               | n <= 16 = 16
+               | n <= 32 = 32
+               | n <= 64 = 64
+               | otherwise = nyi $ "ceilIntWidth of " ++ show n ++ " > 64"

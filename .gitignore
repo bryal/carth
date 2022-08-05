@@ -10,7 +10,9 @@ examples/*.bin
 examples/*.ll
 test/**/*.bin
 test/**/*.ll
+/test/**/*.c
 
 .stack-work/
 /dist-newstyle/
 /dist/
+/conflicts/

@@ -5,7 +5,9 @@ module Front.Parser where
 import Control.Applicative hiding (many, some)
 import Control.Monad
 import Control.Monad.State.Strict
+import Control.Monad.Writer
 import Control.Monad.Except
+import Data.Bifunctor
 import Data.Functor
 import Data.List
 import Data.Set (Set)
@@ -42,8 +44,8 @@ data St = St
     , stInput :: [TokenTree]
     }
 
-newtype Parser a = Parser (StateT St (Except Err) a)
-    deriving (Functor, Applicative, MonadPlus, Monad, MonadError Err, MonadState St)
+newtype Parser a = Parser (StateT St (ExceptT Err (Writer [Message])) a)
+    deriving (Functor, Applicative, MonadPlus, Monad, MonadError Err, MonadState St, MonadWriter [Message])
 
 instance Alternative Parser where
     empty = Parser (throwError mempty)
@@ -52,17 +54,25 @@ instance Alternative Parser where
         catchError ma $ \e ->
             if errLength e > n then throwError e else catchError mb (throwError . (e <>))
 
-runParser' :: Parser a -> [TokenTree] -> Except (SrcPos, String) a
+runParser' :: Parser a -> [TokenTree] -> (Either (SrcPos, String) a, [Message])
 runParser' ma = runParser ma (ice "read SrcPos in parser state at top level")
 
-runParser :: Parser a -> SrcPos -> [TokenTree] -> Except (SrcPos, String) a
+runParser :: Parser a -> SrcPos -> [TokenTree] -> (Either (SrcPos, String) a, [Message])
 runParser (Parser ma) surroundingPos tts =
     let initSt = St 0 surroundingPos tts
         formatExpecteds es = case Set.toList es of
             [] -> ice "empty list of expecteds in formatExpecteds"
             [e] -> "Expected " ++ e
             es' -> "Expected one of: " ++ intercalate ", " es'
-    in  withExcept (\(Err _ pos es) -> (pos, formatExpecteds es)) (evalStateT ma initSt)
+    in  first
+            liftEither
+            (runWriter
+                (runExceptT
+                    (withExceptT (\(Err _ pos es) -> (pos, formatExpecteds es))
+                                 (evalStateT ma initSt)
+                    )
+                )
+            )
 
 token :: String -> (SrcPos -> TokenTree' -> Maybe a) -> Parser a
 token exp f = do

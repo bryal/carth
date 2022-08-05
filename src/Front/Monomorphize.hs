@@ -145,7 +145,14 @@ monoLetRecs ds monoBody = do
                 then pure (Map.toList defs')
                 else do
                     let genInst' (TypedVar x t) =
-                            let (scm, f) = defs Map.! x
+                            let (scm, f) = Map.findWithDefault
+                                    (ice
+                                    $ "monoLetRecs.genInst': generating/instantiating "
+                                    ++ (x ++ " as " ++ show t)
+                                    ++ ", but that name is not in defs"
+                                    )
+                                    x
+                                    defs
                             in  fmap (TypedVar x t, ) (genInst scm (monoFun f) t)
                     (newDefs, DefInsts newInsts) <- lift (runWriterT (mapM genInst' insts''))
                     monoLetRecs' (Map.union (Map.fromList newDefs) defs') newInsts
