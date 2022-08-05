@@ -1098,10 +1098,14 @@ lowerMatch dest matchees decisionTree = do
                 ++ ", x = "
                 ++ show x
         asVariant _ vi x = do
-            let tidData = case typeof x of
-                    Low.TPtr (Low.TConst tid) -> tid
+            let
+                tidData = case typeof x of
+                    Low.TPtr (Low.TConst tid) -> tid -- Structs are kept on the stack
+                    Low.TConst tid -> tid -- A TConst-typed value not on the stack? It has to be an enum.
                     t ->
-                        ice $ "Lower.asVariant: type of matchee is not TPtr to TConst, " ++ show t
+                        ice
+                            $ "Lower.asVariant: type of matchee is not TPtr to TConst (tagged union) or TConst (enum), t = "
+                            ++ show t
             variantTypeId tidData vi >>= \case
                 ZeroSized -> pure (Low.Block [] ZeroSized)
                 Sized vtid -> do
