@@ -38,7 +38,7 @@
 (define: (array/mutate i x (Array ptr n))
     (forall (a) (Fun Nat a (Array a) (Array a)))
   (if (>= i n)
-      (panic "array/mutate after end of array")
+      (panic (apps str-append "array/mutate after end of array. i = " (show-nat i) ", len = " (show-nat n)))
     (seq (store x (ptr/+ ptr i))
          (Array ptr n))))
 
@@ -94,7 +94,7 @@
 (define (array/lookup! i a)
   (if (< i (array/length a))
       (array/unsafe-lookup-unchecked i a)
-    (panic "array/lookup!: index out of bounds")))
+    (panic (apps str-append "array/lookup!: index (" (show-nat i) ") out of bounds (length = " (show-nat (array/length a)) ")"))))
 
 (define (array/unsafe-lookup-unchecked i (Array ptr _))
   (deref (ptr/+ ptr i)))
