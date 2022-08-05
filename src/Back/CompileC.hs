@@ -223,7 +223,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
                                   (snd (genOp x))
             VoidCall f out' as ->
                 maybe "" (\o -> snd (preop "*" (genOp' o)) ++ " = ") out'
-                    ++ snd (binop_call (genOp' f) (map (snd . genOp') as))
+                    ++ snd (binop_call (genOp' f) (map (snd . genArg) as))
                     ++ ";"
             SLoop lp -> genLoop d (\_ () -> "") lp
             SBranch br -> genBranch d (\_ () -> "") br
@@ -282,7 +282,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
             Break a -> genTerm' d a
             LBranch br -> genBranch d (genLoopTerm params genTerm') br
         genExpr d genTerm' (Expr e _t) = case e of
-            Call f as -> genTerm' . snd $ binop_call (genOp' f) (map (snd . genOp') as)
+            Call f as -> genTerm' . snd $ binop_call (genOp' f) (map (snd . genArg) as)
             Load addr -> genTerm' . snd $ preop "*" (genOp' addr)
             Mul a b -> binop' "*" a b
             Div a b -> binop' "/" a b
@@ -326,7 +326,12 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
             EBranch br -> genBranch d (flip genExpr genTerm') br
             Cast x t -> genTerm' . snd $ preop_cast (genType t "") (genOp' x)
             Bitcast x t -> genTerm' . snd $ preop_cast (genType t "") (genOp' x)
+            OnStackAsIndirect x t -> genTerm' . snd $ preop "&" (genLocal (Local x t))
+            OnStackAsDirect x t -> genTerm' . snd $ genLocal (Local x t)
             where binop' op a b = genTerm' . snd $ binop op (genOp' a) (genOp' b)
+        genArg = \case
+            InReg a -> genOp' a
+            OnStack a -> preop "*" (genOp' a)
         genOp' = second (either id id) . genOp
         -- Returns "precedence" of the operand, and the operand as a string. The string is in a
         -- Left if the operand is uninitialized.
@@ -417,7 +422,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
         in  (prec, precParen prec source ++ op ++ target)
     precParen op_prec (a_prec, a_s) = if op_prec < a_prec then "(" ++ a_s ++ ")" else a_s
 
-    genParam lnames p = genType (paramType p) (lname lnames (paramName p))
+    genParam lnames (name, pass) = genType (passed pass) (lname lnames name)
     lname lnames lid = fromMaybe
         (ice "Local ID " ++ show lid ++ " out of range, total len = " ++ show (Vec.length lnames))
         (lnames Vec.!? fromIntegral lid)
@@ -464,5 +469,10 @@ genRet tdefs = \case
     RetVal t -> genType' tdefs t
     RetVoid -> ("void " ++)
 
-genAnonParam :: Vector TypeDef -> Param () -> String
-genAnonParam tdefs p = genType' tdefs (paramType p) ""
+genAnonParam :: Vector TypeDef -> Pass Type -> String
+genAnonParam tdefs p =
+    (case p of
+            OnStack _ -> "/*onstack*/ "
+            _ -> ""
+        )
+        ++ genType' tdefs (passed p) ""

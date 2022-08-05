@@ -45,33 +45,20 @@ fromSized = \case
 catSized :: [Sized a] -> [a]
 catSized = mapMaybe sizedMaybe
 
-data Param name = ByVal name Type | ByRef name Type deriving (Eq, Ord, Show)
+data Pass a
+    = InReg a
+    | OnStack a
+    deriving (Eq, Ord, Show)
 
-mapParamName :: (nameA -> nameB) -> Param nameA -> Param nameB
-mapParamName f = \case
-    ByVal x t -> ByVal (f x) t
-    ByRef x t -> ByRef (f x) t
+passed :: Pass a -> a
+passed = \case
+    InReg a -> a
+    OnStack a -> a
 
-dropParamName :: Param name -> Param ()
-dropParamName = mapParamName (const ())
-
-addParamName :: name -> Param oldName -> Param name
-addParamName x = mapParamName (const x)
-
-paramName :: Param name -> name
-paramName = \case
-    ByVal x _ -> x
-    ByRef x _ -> x
-
-paramType :: Param _name -> Type
-paramType = \case
-    ByVal _ t -> t
-    ByRef _ t -> TPtr t
-
-paramDirectType :: Param _name -> Type
-paramDirectType = \case
-    ByVal _ t -> t
-    ByRef _ t -> t
+passLike :: Pass _a -> b -> Pass b
+passLike = \case
+    InReg _ -> InReg
+    OnStack _ -> OnStack
 
 data OutParam name = OutParam
     { outParamName :: name
@@ -96,13 +83,13 @@ data Type
     | TPtr Type
     | VoidPtr
     -- Really a function pointer, like `fn` in rust
-    | TFun (Maybe (OutParam ())) [Param ()] Ret
+    | TFun (Maybe (OutParam ())) [Pass Type] Ret
     | TConst TypeId
     | TArray Type Word
     -- Closures are represented as a builtin struct named "closure", with a generic pointer to
     -- captures and a void-pointer representing the function. During lowering, we still need to
     -- remember the "real" type of the function.
-    | TClosure (Maybe (OutParam ())) [Param ()] Ret
+    | TClosure (Maybe (OutParam ())) [Pass Type] Ret
   deriving (Eq, Ord, Show)
 
 type MemberIx = Word
@@ -134,7 +121,7 @@ data Local = Local LocalId Type
     deriving Show
 data Global = Global GlobalId Type -- Type including the pointer
     deriving (Show, Eq)
-data Extern = Extern String (Maybe (OutParam ())) [Param ()] Ret
+data Extern = Extern String (Maybe (OutParam ())) [Pass Type] Ret
     deriving (Show, Eq)
 
 data Operand
@@ -152,7 +139,7 @@ data Branch a
 data Statement
     = Let Local Expr
     | Store Operand Operand -- value -> destination
-    | VoidCall Operand (Maybe Operand) [Operand]
+    | VoidCall Operand (Maybe Operand) [Pass Operand]
     | SLoop (Loop ())
     | SBranch (Branch ())
     deriving Show
@@ -193,7 +180,7 @@ data Expr'
     | Lt Operand Operand
     | LtEq Operand Operand
     | Load Operand
-    | Call Operand [Operand]
+    | Call Operand [Pass Operand]
     | ELoop (Loop Expr)
     -- Given a pointer to a struct, get a pointer to the Nth member of that struct
     | EGetMember MemberName Operand
@@ -205,6 +192,11 @@ data Expr'
     --   putting them on the stack and casting the pointer. Floats are cast to and from other types
     --   via the stack as well, just to make codegen of C simpler.
     | Bitcast Operand Type
+    -- | In the body of a function, given one of its parameters that was passed on the stack, get a
+    --   pointer to the structure. Different backends diverge in how they represent stack-passing,
+    --   and this is how we converge.
+    | OnStackAsIndirect LocalId Type
+    | OnStackAsDirect LocalId Type
     deriving Show
 
 data Expr = Expr
@@ -223,17 +215,19 @@ type VarNames = Vector String
 
 type Allocs = [(LocalId, Type)]
 
+type FunDefParams = [(LocalId, Pass Type)]
+
 data FunDef = FunDef
     { funDefName :: GlobalId
     , funDefOutParam :: Maybe (OutParam LocalId)
-    , funDefParams :: [Param LocalId]
+    , funDefParams :: FunDefParams
     , funDefRet :: Ret
     , funDefBody :: Block Terminator
     , funDefAllocs :: Allocs
     , funDefLocalNames :: VarNames
     }
     deriving Show
-data ExternDecl = ExternDecl String (Maybe (OutParam ())) [Param ()] Ret
+data ExternDecl = ExternDecl String (Maybe (OutParam ())) [Pass Type] Ret
     deriving Show
 
 data GlobDef
@@ -512,7 +506,9 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
             ++ intercalate ", " (maybe id ((:) . pAnonOutParam) outParam $ map pAnonParam params)
             ++ (") -> " ++ pRet ret ++ ";")
     pAnonOutParam (OutParam _ t) = "out " ++ pType (TPtr t)
-    pAnonParam = pType . paramType
+    pAnonParam = \case
+        InReg t -> pType t
+        OnStack t -> "onstack " ++ pType t
     pRet = \case
         RetVal t -> pType t
         RetVoid -> "void"
@@ -526,7 +522,9 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
             ++ "\n}"
       where
         pOutParam (OutParam x t) = "out " ++ lname x ++ ": " ++ pType t
-        pParam p = lname (paramName p) ++ ": " ++ pType (paramType p)
+        pParam (x, pass) = case pass of
+            InReg t -> lname x ++ ": " ++ pType t
+            OnStack t -> "onstack " ++ lname x ++ ": " ++ pType t
         pAlloc (lid, t) = "var %" ++ lname lid ++ ": " ++ pType t ++ ";"
         pBlock :: Int -> (Int -> term -> String) -> Block term -> String
         pBlock d pTerm' blk = "{" ++ pBlock' (d + 4) pTerm' blk ++ ("\n" ++ indent d ++ "}")
@@ -548,10 +546,13 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
                 "call "
                     ++ pOp f
                     ++ "("
-                    ++ intercalate ", " (maybe id ((:) . pOutArg) out $ map pOp as)
+                    ++ intercalate ", " (maybe id ((:) . pOutArg) out $ map pArg as)
                     ++ ");"
             SLoop lp -> pLoop d (\_ () -> "") lp
             SBranch br -> pBranch d (\_ () -> "") br
+        pArg = \case
+            InReg x -> pOp x
+            OnStack x -> "onstack " ++ pOp x
         pOutArg x = "out " ++ pOp x
         pBranch :: Int -> (Int -> term -> String) -> Branch term -> String
         pBranch d pTerm' = \case
@@ -593,13 +594,15 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
             Lt a b -> pOp a ++ " < " ++ pOp b
             LtEq a b -> pOp a ++ " <= " ++ pOp b
             Load addr -> "load " ++ pOp addr
-            Call f as -> pOp f ++ "(" ++ intercalate ", " (map pOp as) ++ ")"
+            Call f as -> pOp f ++ "(" ++ intercalate ", " (map pArg as) ++ ")"
             ELoop loop -> pLoop d pExpr loop
             EGetMember i struct -> pOp struct ++ "->" ++ show i
             EAsVariant x _vi -> pOp x ++ " as " ++ pType t
             EBranch br -> pBranch d pExpr br
             Cast x t -> "cast " ++ pOp x ++ " to " ++ pType t
             Bitcast x t -> "bitcast " ++ pOp x ++ " to " ++ pType t
+            OnStackAsDirect x t -> "onstack-as-direct " ++ pLocal (Local x (TPtr t))
+            OnStackAsIndirect x t -> "onstack-as-indirect " ++ pLocal (Local x (TPtr t))
         pOp = \case
             OLocal l -> pLocal l
             OGlobal g -> pGlobal g
