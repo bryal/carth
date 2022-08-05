@@ -100,7 +100,7 @@ data Const
     | CNat { natWidth :: Word, natVal :: Natural }
     | F32 Float
     | F64 Double
-    | EnumVal { enumType :: TypeId, enumVariant :: String, enumWidth :: Word, enumVal :: Natural}
+    | EnumVal { enumType :: TypeId, enumVariant :: GlobalId, enumWidth :: Word, enumVal :: Natural}
     | Array Type [Const]
     | CharArray [Word8]
     | Zero Type
@@ -258,7 +258,7 @@ data Union = Union
     deriving (Show, Eq, Ord)
 
 data TypeDef'
-    = DEnum (Vector String)
+    = DEnum (Vector GlobalId)
     | DStruct Struct
     | DUnion Union
     deriving (Show, Eq, Ord)
@@ -459,7 +459,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
     pTdef name = \case
         DEnum vs ->
             ("enum " ++ name ++ " {")
-                ++ concatMap ((++ ",") . ("\n    " ++)) (Vec.toList vs)
+                ++ concatMap (\x -> "\n    " ++ gname x ++ ",") (Vec.toList vs)
                 ++ "\n}"
         DStruct (Struct ms s a) ->
             ("struct " ++ name ++ " {")
@@ -620,7 +620,7 @@ prettyProgram (Program fdefs edecls gdefs tdefs gnames main init) =
         CNat { natVal = n } -> show n
         F32 x -> show x
         F64 x -> show x
-        EnumVal { enumVariant = v } -> v
+        EnumVal { enumVariant = v } -> gname v
         Array _ xs -> "[" ++ intercalate ", " (map pConst xs) ++ "]"
         CharArray cs -> "\"" ++ decodeCharArrayStrLit (printf "\\x%02X") cs ++ "\""
         Zero _ -> "zero"

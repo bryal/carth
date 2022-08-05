@@ -1268,7 +1268,7 @@ defineDatas datas = do
     lowerData tc@(name, _) variants = fmap (name, ) $ case variants of
         [(_, ts)] -> pure . fromSized $ structDef ts
         _ | all (all ((== 0) . sizeof) . snd) variants ->
-            pure (Low.DEnum (Vec.fromList (map fst variants)))
+            Low.DEnum . Vec.fromList <$> mapM (newGName . fst) variants
         _ -> do
             tidInner <- defineUnion (name ++ "_union") variants
             let tag = Low.TNat (tagBits (fromIntegral (length variants)))

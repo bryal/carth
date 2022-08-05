@@ -112,7 +112,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
                 ++ precalate "\n    " (mapMaybe genUnionVariant (Vec.toList (unionVariants union)))
                 ++ "\n};"
       where
-        genEnumVariant v = v ++ ","
+        genEnumVariant v = gname v ++ ","
         genStructMember (x, t) = genType t (genMember x) ++ ";"
         genUnionVariant = \case
             (x, Sized ti) -> Just (typeName tdefs ti ++ " " ++ x ++ ";")
@@ -365,7 +365,7 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
         CNat { natVal = n, natWidth = w } -> (0, Right (genNat n w))
         F32 x -> (0, Right (show x ++ "f"))
         F64 x -> (0, Right (show x))
-        EnumVal { enumVariant = v } -> (0, Right v)
+        EnumVal { enumVariant = v } -> (0, Right (gname v))
         Array t xs ->
             ( 0
             , Right $ printf "{%s}"
