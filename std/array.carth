@@ -3,10 +3,10 @@
 
 (define (array/length (Array _ n)) n)
 
-(define: (array/iter (Array ptr len))
+(define: (array/iter arr)
     (forall (a) (Fun (Array a) (Iter a)))
-  (map (<o deref (<o (partial-2 ptr/+ ptr) cast))
-       (xrange 0 (cast len))))
+  (map (fun (i) (array/lookup! i arr))
+       (xrange (to-nat 0) (array/length arr))))
 
 (define: (array/iter-rev (Array ptr len))
     (forall (a) (Fun (Array a) (Iter a)))
