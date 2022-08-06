@@ -39,12 +39,12 @@ printTypeErr = \case
             $ "Infinite type: "
             ++ (pretty a ++ " ~ " ++ pretty t)
             ++ ("\nExpected type: " ++ pretty t1)
-            ++ ("\nFound type: " ++ pretty t2)
+            ++ ("\nFound type   : " ++ pretty t2)
     UnificationFailed p t1 t2 t'1 t'2 ->
         posd p
             $ ("Couldn't match type " ++ pretty t'2 ++ " with " ++ pretty t'1)
             ++ (".\nExpected type: " ++ pretty t1)
-            ++ (".\nFound type: " ++ pretty t2 ++ ".")
+            ++ (".\nFound type   : " ++ pretty t2 ++ ".")
     ConflictingTypeDef p x -> posd p $ "Conflicting definitions for type `" ++ x ++ "`."
     ConflictingCtorDef p x -> posd p $ "Conflicting definitions for constructor `" ++ x ++ "`."
     RedundantCase p -> posd p "Redundant case in pattern match."
@@ -66,7 +66,7 @@ printTypeErr = \case
         posd p
             $ "Incorrect type of `main`.\n"
             ++ ("Expected: " ++ pretty (mainType :: Type))
-            ++ ("\nFound: " ++ pretty s)
+            ++ ("\nFound   : " ++ pretty s)
     RecursiveVarDef (WithPos p x) ->
         posd p ("Non-function variable definition `" ++ x ++ "` is recursive.")
     TypeInstArityMismatch p t expected found ->
