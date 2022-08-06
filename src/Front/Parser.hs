@@ -43,16 +43,18 @@ data St = St
     , stOuterPos :: SrcPos
     , stInput :: [TokenTree]
     }
+    deriving Show
 
-newtype Parser a = Parser (StateT St (ExceptT Err (Writer [Message])) a)
+newtype Parser a = Parser (ExceptT Err (StateT St (Writer [Message])) a)
     deriving (Functor, Applicative, MonadPlus, Monad, MonadError Err, MonadState St, MonadWriter [Message])
 
 instance Alternative Parser where
     empty = Parser (throwError mempty)
     (<|>) ma mb = do
-        n <- gets stCount
-        catchError ma $ \e ->
-            if errLength e > n then throwError e else catchError mb (throwError . (e <>))
+        st@(St n _ _) <- get
+        catchError ma $ \e -> do
+            m <- gets stCount
+            if m > n then throwError e else put st *> catchError mb (throwError . (e <>))
 
 runParser' :: Parser a -> [TokenTree] -> (Either (SrcPos, String) a, [Message])
 runParser' ma = runParser ma (ice "read SrcPos in parser state at top level")
@@ -67,10 +69,9 @@ runParser (Parser ma) surroundingPos tts =
     in  first
             liftEither
             (runWriter
-                (runExceptT
-                    (withExceptT (\(Err _ pos es) -> (pos, formatExpecteds es))
-                                 (evalStateT ma initSt)
-                    )
+                (evalStateT
+                    (runExceptT (withExceptT (\(Err _ pos es) -> (pos, formatExpecteds es)) ma))
+                    initSt
                 )
             )
 
@@ -101,7 +102,7 @@ try ma = do
     s <- get
     catchError ma $ \e -> do
         put s
-        throwError (e { errLength = stCount s })
+        throwError e
 
 getSrcPos :: Parser SrcPos
 getSrcPos = lookAhead (token "token" (Just .* const))
@@ -120,6 +121,14 @@ parens' = sexpr "`(`" $ \case
     Parens tts -> Just tts
     _ -> Nothing
 
+tryParens :: Parser a -> Parser a
+tryParens ma = tryParens' (const ma)
+
+tryParens' :: (SrcPos -> Parser a) -> Parser a
+tryParens' = trySexpr "`(`" $ \case
+    Parens tts -> Just tts
+    _ -> Nothing
+
 brackets :: Parser a -> Parser a
 brackets ma = brackets' (const ma)
 
@@ -135,6 +144,19 @@ sexpr expected extract f = do
     modify (\st -> st { stOuterPos = p, stInput = tts })
     a <- f p
     end
+    modify (\st -> st { stOuterPos = pOld, stInput = ttsOld })
+    pure a
+
+trySexpr :: String -> (TokenTree' -> Maybe [TokenTree]) -> (SrcPos -> Parser a) -> Parser a
+trySexpr expected extract f = do
+    stOldest <- get
+    (p, tts) <- token expected $ \p' -> fmap (p', ) . extract
+    St cOld pOld ttsOld <- get
+    modify (\st -> st { stOuterPos = p, stInput = tts })
+    a <- catchError (f p <* end) $ \e -> do
+        cNew <- gets stCount
+        when (cOld == cNew) (put stOldest)
+        throwError e
     modify (\st -> st { stOuterPos = pOld, stInput = ttsOld })
     pure a
 

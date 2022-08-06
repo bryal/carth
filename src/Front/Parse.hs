@@ -66,19 +66,15 @@ defTyped pos = reserved KdefineColon *> def' (fmap Just scheme) pos
 def' :: Parser (Maybe Scheme) -> SrcPos -> Parser Def
 def' schemeParser topPos = varDef <|> funDef
   where
-    -- FIXME: Don't `try` the whole def. If we find a define keyword in the beginning of the
-    --        parens, we know it's supposed to be a definition. Don't backtrack and try to parse it
-    --        as an expression if some later part of the definition is invalid.
-    parenDef = try (parens' def)
     body = do
-        ds <- many parenDef
+        ds <- many (tryParens' def)
         if null ds then expr else fmap (\b -> WithPos (getPos b) (LetRec ds b)) expr
     varDef = do
         name <- small
         scm <- schemeParser
         VarDef topPos name scm <$> body
     funDef = do
-        pos <- getSrcPos -- FIXME: This should be a pos surrounding only the params
+        pos <- getSrcPos
         (name, params) <- parens (liftM2 (,) small (some pat))
         scm <- schemeParser
         FunDef topPos name scm (WithPos pos params) <$> body
@@ -119,7 +115,7 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
         params <- withPos $ parens (some pat)
         body <- expr
         pure $ FunMatch [(params, body)]
-    let1 p = reserved Klet1 *> (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
+    let1 p = reserved Klet1 *> (varLhs <|> funLhs <|> caseVarLhs) >>= \case
         VarLhs lhs -> liftA2 (Let1 . Def) (varBinding p lhs) expr
         FunLhs name params -> liftA2 (Let1 . Def) (funBinding p name params) expr
         CaseVarLhs lhs -> liftA2 Let1 (fmap (Deconstr lhs) expr) expr
@@ -129,7 +125,7 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
         Let bs <$> expr
       where
         pbinding = parens' binding
-        binding p = (varLhs <|> try funLhs <|> caseVarLhs) >>= \case
+        binding p = (varLhs <|> funLhs <|> caseVarLhs) >>= \case
             VarLhs lhs -> fmap Def (varBinding p lhs)
             FunLhs name params -> fmap Def (funBinding p name params)
             CaseVarLhs lhs -> fmap (Deconstr lhs) expr
@@ -141,7 +137,7 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
             FunLhs name params -> funBinding p name params
             CaseVarLhs _ -> ice "letrec binding: CaseVarLhs"
     varLhs = fmap VarLhs small
-    funLhs = parens' (\pos -> liftA2 FunLhs small (fmap (WithPos pos) (some pat)))
+    funLhs = tryParens' (\pos -> liftA2 FunLhs small (fmap (WithPos pos) (some pat)))
     caseVarLhs = fmap CaseVarLhs pat
     varBinding pos lhs = VarDef pos lhs Nothing <$> expr
     funBinding pos name params = FunDef pos name Nothing params <$> expr
