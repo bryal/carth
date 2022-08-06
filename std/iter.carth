@@ -164,7 +164,7 @@
   (not (iter/nil? (filter f xs))))
 
 (define (iter/cartesian xs ys)
-  (flat-map (fun (x) (map (fun (y) [x . y]) ys)) xs))
+  (flat-map (fun (x) (map (fun (y) [x y]) ys)) xs))
 
 (define (repeat x)
   (Iter (fun (Unit) (Some [x (repeat x)]))))
