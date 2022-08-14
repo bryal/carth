@@ -1,7 +1,6 @@
 ;; RedundantCase
 
-(define foo
-  (fun*
-    (case [True] 0)
-    (case [True] 1)
-    (case [False] 2)))
+(defun foo
+  (case [True] 0)
+  (case [True] 1)
+  (case [False] 2))

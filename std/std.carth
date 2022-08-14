@@ -56,10 +56,10 @@
 
 (defun swap [[a b]] [b a])
 
-(defun undefined [x] :of (forall (a) (Fun Unit a))
+(defun undefined [x] :of (forall (a) (Fun [Unit] a))
   (panic "undefined"))
 
-(extern _panic (Fun Str Unit))
+(extern _panic (Fun [Str] Unit))
 (defun panic [msg]
   (seq (_panic msg) (undefined Unit)))
 
@@ -110,16 +110,16 @@
 
 ;;; Strings
 
-(extern show_int (Fun Int Str))
+(extern show_int (Fun [Int] Str))
 (defvar show-int show_int)
-(extern show_nat (Fun Nat Str))
+(extern show_nat (Fun [Nat] Str))
 (defvar show-nat show_nat)
-(extern show_f64 (Fun F64 Str))
+(extern show_f64 (Fun [F64] Str))
 (defvar show-f64 show_f64)
 
 (defun show-bool (case [True] "True") (case [False] "False"))
 
-(extern str_append (Fun Str Str Str))
+(extern str_append (Fun [Str Str] Str))
 (defun str-append [s1 s2] (str_append s1 s2))
 
 ;;; Function
@@ -154,7 +154,7 @@
 
 (data Void)
 
-(defun void-elim [void] :of (forall (a) (Fun Void a))
+(defun void-elim [void] :of (forall (a) (Fun [Void] a))
   (match void))
 
 (defun to-nat [x] (: (cast x) Nat))

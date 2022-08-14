@@ -2,6 +2,6 @@
 
 (data IntPair (IntPair Int Int))
 
-(define conflicting-defs-in-pat
+(defvar conflicting-defs-in-pat
   (match (IntPair 1 2)
     (case (IntPair a a) a)))

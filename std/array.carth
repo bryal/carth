@@ -3,11 +3,11 @@
 
 (defun array/length [(Array _ n)] n)
 
-(defun array/iter [arr] :of (forall (a) (Fun (Array a) (Iter a)))
+(defun array/iter [arr] :of (forall (a) (Fun [(Array a)] (Iter a)))
   (map (fun [i] (array/lookup! i arr))
        (xrange (to-nat 0) (array/length arr))))
 
-(defun array/iter-rev [(Array ptr len)] :of (forall (a) (Fun (Array a) (Iter a)))
+(defun array/iter-rev [(Array ptr len)] :of (forall (a) (Fun [(Array a)] (Iter a)))
   (map (fun [i] (deref (ptr/+ ptr (- len (cast i)))))
        (xrange 1 (+ 1 (cast len)))))
 
@@ -15,7 +15,7 @@
 
 (defun array/nil? [a] (= (cast 0) (array/length a)))
 
-(defun array/unsafe-uninit [n] :of (forall (a) (Fun Nat (Array a)))
+(defun array/unsafe-uninit [n] :of (forall (a) (Fun [Nat] (Array a)))
   (Array (cast-ptr (id@"GC_malloc" (* (sizeof a) n)))
          n))
 
@@ -25,7 +25,7 @@
 ;; TODO: This is inefficient. Do something similar to Rust's Vec instead. Start array at
 ;; reserved size 1, and everytime space is full, increase the reserved size
 ;; exponentially. At the end, do a final reallocation to shrink to the now known size.
-(defun array/collect [xs] :of (forall (a) (Fun (Iter a) (Array a)))
+(defun array/collect [xs] :of (forall (a) (Fun [(Iter a)] (Array a)))
   (array/collect-list (list/collect xs)))
 
 (defun array/collect-list [xs]
@@ -33,7 +33,7 @@
          (array/unsafe-uninit (list/count xs))
          (enumerate (list/iter xs))))
 
-(defun array/mutate [i x (Array ptr n)] :of (forall (a) (Fun Nat a (Array a) (Array a)))
+(defun array/mutate [i x (Array ptr n)] :of (forall (a) (Fun [Nat a (Array a)] (Array a)))
   (if (>= i n)
       (panic (apps str-append "array/mutate after end of array. i = " (show-nat i) ", len = " (show-nat n)))
     (seq (store x (ptr/+ ptr i))
@@ -75,7 +75,7 @@
 (defun array/modify-multiple! [arr ifs]
   (foldl (fun [arr [i f]] (array/mutate i (f (array/lookup! i arr)) arr)) (array/clone arr) ifs))
 
-(defun array/append [(Array px nx) (Array py ny)] :of (forall (a) (Fun (Array a) (Array a) (Array a)))
+(defun array/append [(Array px nx) (Array py ny)] :of (forall (a) (Fun [(Array a) (Array a)] (Array a)))
   (let1 (Array pz nz) (array/unsafe-uninit (nat/nowrap+ nx ny))
     (apps seq
           (memcpy' pz px nx)
@@ -132,11 +132,11 @@
         (Some (- (array/length xs) i))
       None)))
 
-(defun array/find-slice-by [f xs] :of (forall (a b) (Fun (Fun (Array a) (Maybe b)) (Array a) (Maybe [Nat b])))
+(defun array/find-slice-by [f xs] :of (forall (a b) (Fun [(Fun [(Array a)] (Maybe b)) (Array a)] (Maybe [Nat b])))
   (iter/first (filter-map (fun [[i ys]] (maybe/map (partial-2 cons' i) (f ys)))
                           (enumerate (array/suffixes xs)))))
 
-(defun array/find-slice-by' [f xs] :of (forall (a) (Fun (Fun (Array a) Bool) (Array a) (Maybe Nat)))
+(defun array/find-slice-by' [f xs] :of (forall (a) (Fun [(Fun [(Array a)] Bool) (Array a)] (Maybe Nat)))
   (iter/first (filter-map (fun [[i ys]] (if (f ys) (Some i) None))
                           (enumerate (array/suffixes xs)))))
 
@@ -146,14 +146,14 @@
     (iter/cons xs (map (fun [i] (array/slice-from i xs)) (xrange 1 (cast (array/length xs)))))))
 
 ;;? Supports negative `m` for python like range indexing
-(defun array/slice-from [i (Array ptr len)] :of (forall (a) (Fun Int (Array a) (Array a)))
+(defun array/slice-from [i (Array ptr len)] :of (forall (a) (Fun [Int (Array a)] (Array a)))
   (let1 i (if (< i 0)
               (cast (max 0 (+ (cast len) i)))
             (min len (cast i)))
     (Array (ptr/+ ptr i) (- len i))))
 
 ;;? Supports negative `m` for python-like range indexing
-(defun array/slice-to [i (Array ptr len)] :of (forall (a) (Fun Int (Array a) (Array a)))
+(defun array/slice-to [i (Array ptr len)] :of (forall (a) (Fun [Int (Array a)] (Array a)))
   (let1 i (if (< i 0)
               (cast (max 0 (+ (cast len) i)))
             (min len (cast i)))
@@ -169,7 +169,7 @@
 ;;? Binary search
 ;;?
 ;;? If there are multiple matches, the index of any of them may be returned.
-(defun array/search [cmp-x ys] :of (forall (a) (Fun (Fun a Cmp) (Array a) (Either Nat Nat)))
+(defun array/search [cmp-x ys] :of (forall (a) (Fun [(Fun [a] Cmp) (Array a)] (Either Nat Nat)))
   (defun go [[start end]]
     (if (= start end)
         (Left start)
@@ -220,7 +220,7 @@
          [acc (array/unsafe-uninit n)]
          (map to-nat (xrange 0 (to-int n)))))
 
-(defun merge-sort [cmp xs] :of (forall (a) (Fun (Fun a a Cmp) (Array a) (Array a)))
+(defun merge-sort [cmp xs] :of (forall (a) (Fun [(Fun [a a] Cmp) (Array a)] (Array a)))
   (defun merge [a i [y ys] zs]
     (match (next zs)
       (case (Some [z zs'])
@@ -248,7 +248,7 @@
         (panic "array/last! of empty array")
       (array/lookup! (- n (to-nat 1)) a))))
 
-(defun array/concat [as] :of (forall (a) (Fun (Iter (Array a)) (Array a)))
+(defun array/concat [as] :of (forall (a) (Fun [(Iter (Array a))] (Array a)))
   (let1 len (sum (map array/length as))
     (cadr (foldl (fun [[i (Array pacc nacc)] (Array p n)]
                    (seq (memcpy' (ptr/+ pacc i) p n)
@@ -258,21 +258,21 @@
 
 (defun array/concat-list [as] (array/concat (list/iter as)))
 
-(defun array/insert-grow! [i x xs] :of (forall (a) (Fun Nat a (Array a) (Array a)))
+(defun array/insert-grow! [i x xs] :of (forall (a) (Fun [Nat a (Array a)] (Array a)))
   (let1 [ys zs] (unwrap! (array/split i xs))
     (array/concat-list (list ys (array/singleton x) zs))))
 
-(defun array/insert-displace-left! [i x xs] :of (forall (a) (Fun Nat a (Array a) [a (Array a)]))
+(defun array/insert-displace-left! [i x xs] :of (forall (a) (Fun [Nat a (Array a)] [a (Array a)]))
   (let (([ys zs] (unwrap! (array/split (+ i (to-nat 1)) xs)))
         ([y ys] (unwrap! (array/split-first ys))))
     [y (array/concat-list (list ys (array/singleton x) zs))]))
 
-(defun array/insert-displace! [i x xs] :of (forall (a) (Fun Nat a (Array a) [(Array a) a]))
+(defun array/insert-displace! [i x xs] :of (forall (a) (Fun [Nat a (Array a)] [(Array a) a]))
   (let (([ys zs] (unwrap! (array/split i xs)))
         ([zs z] (unwrap! (array/split-last zs))))
     [(array/concat-list (list ys (array/singleton x) zs)) z]))
 
-(defun array/map [f xs] :of (forall (a b) (Fun (Fun a b) (Array a) (Array b)))
+(defun array/map [f xs] :of (forall (a b) (Fun [(Fun [a] b) (Array a)] (Array b)))
   (cadr (array/build (fun [Unit i] [Unit (f (array/lookup! i xs))]) Unit (array/length xs))))
 
 ;;? Iterate over contiguous chunks of the underlying array
@@ -282,7 +282,7 @@
 ;;? For a sorted array, this is the median
 (defun array/middle [xs] (array/lookup (/ (array/length xs) (to-nat 2)) xs))
 
-(defun array/windows [n arr] :of (forall (a) (Fun Nat (Array a) (Iter (Array a))))
+(defun array/windows [n arr] :of (forall (a) (Fun [Nat (Array a)] (Iter (Array a))))
   (unfoldr (fun [xs]
              (let1 window (array/slice-to (to-int n) xs)
                (if (< (array/length window) n)  ; At the end

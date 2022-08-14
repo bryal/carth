@@ -5,6 +5,6 @@
 (defvar tr transmute)
 
 (defvar main
-  (display (show-int ((: tr (Fun Nat Int))
-                      ((: tr (Fun Int Nat))
+  (display (show-int ((: tr (Fun [Nat] Int))
+                      ((: tr (Fun [Int] Nat))
                        123456)))))

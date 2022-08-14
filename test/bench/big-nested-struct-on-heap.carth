@@ -1,9 +1,9 @@
 (import std)
 
-(define main
+(defvar main
   (io/for (range-from 0) big-allocation))
 
-(define (big-allocation n)
+(defun big-allocation [n]
   (let ((a (A n n n n))
         (b (B a a a a))
         (c (C b b b b))

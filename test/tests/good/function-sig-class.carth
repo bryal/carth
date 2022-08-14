@@ -3,10 +3,10 @@
 (import std)
 
 (defvar tr :of (forall (a b) (where (SameSize a b))
-                       (Fun a b))
+                       (Fun [a] b))
   transmute)
 
 (defvar main
-  (display (show-int ((: tr (Fun Nat Int))
-                      ((: tr (Fun Int Nat))
+  (display (show-int ((: tr (Fun [Nat] Int))
+                      ((: tr (Fun [Int] Nat))
                        123456)))))

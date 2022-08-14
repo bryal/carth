@@ -20,17 +20,17 @@
   (Left a)
   (Right [Int8 Int]))
 
-(defun seq [a b] :of (Fun (Either Unit) (IO Unit) (IO Unit))
+(defun seq [a b] :of (Fun [(Either Unit) (IO Unit)] (IO Unit))
   b)
-(defun foo [f] :of (Fun (Fun Unit Unit) Unit)
+(defun foo [f] :of (Fun [(Fun [Unit] Unit)] Unit)
   (f Unit))
-(defun <o [f g] :of (Fun (Fun Unit Unit) (Fun Unit Unit) (Fun Unit Unit))
+(defun <o [f g] :of (Fun [(Fun [Unit] Unit) (Fun [Unit] Unit)] (Fun [Unit] Unit))
   (fun [a] (f (g a))))
-(defun id [x] :of (Fun Unit Unit)
+(defun id [x] :of (Fun [Unit] Unit)
   x)
 
-(defun either/map-left :of (Fun (Fun (Fun Unit Unit) Unit)
-                                (Either (Fun Unit Unit))
+(defun either/map-left :of (Fun [(Fun [(Fun [Unit] Unit)] Unit)
+                                 (Either (Fun [Unit] Unit))]
                                 (Either Unit))
   (case [f (Left a)] (Left (f a)))
   (case [_ (Right b)] (Right b)))

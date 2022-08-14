@@ -1,5 +1,4 @@
 ;; NoClassInstance
 
-(define: (foo a)
-    (forall (a b) (Fun a b))
+(defun foo [a] :of (forall (a b) (Fun [a] b))
   (transmute a))

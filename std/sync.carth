@@ -7,11 +7,11 @@
 
 (data Mutex (Mutex (Box Unit)))
 
-(extern pthread_mutex_init (Fun Mutex (Box Unit) Int32))
-(extern pthread_mutex_destroy (Fun Mutex Int32))
-(extern pthread_mutex_lock (Fun Mutex Int32))
-(extern pthread_mutex_trylock (Fun Mutex Int32))
-(extern pthread_mutex_unlock (Fun Mutex Int32))
+(extern pthread_mutex_init (Fun [Mutex (Box Unit)] Int32))
+(extern pthread_mutex_destroy (Fun [Mutex] Int32))
+(extern pthread_mutex_lock (Fun [Mutex] Int32))
+(extern pthread_mutex_trylock (Fun [Mutex] Int32))
+(extern pthread_mutex_unlock (Fun [Mutex] Int32))
 
 (defvar mutex/new :of
   (IO Mutex)
@@ -20,11 +20,11 @@
              (seq (pthread_mutex_init mx attrs)
                   mx))))
 
-(defun mutex/lock [mx] :of (Fun Mutex (IO Unit))
+(defun mutex/lock [mx] :of (Fun [Mutex] (IO Unit))
   (io/wrap (seq (pthread_mutex_lock mx) Unit)))
 
-(defun mutex/try-lock [mx] :of (Fun Mutex (IO Bool))
+(defun mutex/try-lock [mx] :of (Fun [Mutex] (IO Bool))
   (io/wrap (= (pthread_mutex_trylock mx) (cast 0))))
 
-(defun mutex/release [mx] :of (Fun Mutex (IO Unit))
+(defun mutex/release [mx] :of (Fun [Mutex] (IO Unit))
   (io/wrap (seq (pthread_mutex_unlock mx) Unit)))

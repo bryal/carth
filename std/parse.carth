@@ -5,15 +5,15 @@
 (data ParseErr (ParseErr ParseInp Str))
 
 (data (Parser a)
-  (Parser (Fun ParseInp (Either ParseErr [ParseInp a]))))
+  (Parser (Fun [ParseInp] (Either ParseErr [ParseInp a]))))
 
-(defun parse! [(Parser p) input] :of (forall (a) (Fun (Parser a) Str a))
+(defun parse! [(Parser p) input] :of (forall (a) (Fun [(Parser a) Str] a))
   (match (p (ParseInp input))
     (case (Left (ParseErr (ParseInp remaining) msg))
           (panic (str-append "parse!:\n" (parse/format-error input remaining msg))))
     (case (Right [_ x]) x)))
 
-(defun parse [(Parser p) input] :of (forall (a) (Fun (Parser a) Str (Either ParseErr a)))
+(defun parse [(Parser p) input] :of (forall (a) (Fun [(Parser a) Str] (Either ParseErr a)))
   (either/map cadr (p (ParseInp input))))
 
 (defun parse/format-error [input remaining msg]
@@ -25,7 +25,7 @@
            (string/substr-to 30 remaining)
            "\n"))))
 
-(defun parse/between [left right middle] :of (forall (a b c) (Fun (Parser a) (Parser b) (Parser c) (Parser c)))
+(defun parse/between [left right middle] :of (forall (a b c) (Fun [(Parser a) (Parser b) (Parser c)] (Parser c)))
   (parse/thenr left (parse/thenl middle right)))
 
 ;; The return-string is the equivalent slice in the input string of the given
@@ -72,10 +72,10 @@
               (case None (Left (ParseErr (ParseInp inp) (apps str-append "Tried to take " (show-nat n) " bytes, but fewer remaining."))))
               (case (Some [s rest]) (Right [(ParseInp rest) s]))))))
 
-(defun parse/thenr [(Parser pa) (Parser pb)] :of (forall (a b) (Fun (Parser a) (Parser b) (Parser b)))
+(defun parse/thenr [(Parser pa) (Parser pb)] :of (forall (a b) (Fun [(Parser a) (Parser b)] (Parser b)))
   (Parser (fun [inp] (either/bindr (pa inp) (fun [[inp _a]] (pb inp))))))
 
-(defun parse/thenl [(Parser pa) (Parser pb)] :of (forall (a b) (Fun (Parser a) (Parser b) (Parser a)))
+(defun parse/thenl [(Parser pa) (Parser pb)] :of (forall (a b) (Fun [(Parser a) (Parser b)] (Parser a)))
   (Parser (fun [inp]
             (do either/bind
                 (<- [inp a] (pa inp))
@@ -85,7 +85,7 @@
 (defvar parse/bindr
   (flip parse/bind))
 
-(defun parse/bind [f (Parser pa)] :of (forall (a b) (Fun (Fun a (Parser b)) (Parser a) (Parser b)))
+(defun parse/bind [f (Parser pa)] :of (forall (a b) (Fun [(Fun [a] (Parser b)) (Parser a)] (Parser b)))
   (Parser (fun [inp] (either/bind (fun [[inp a]] (let1 (Parser pb) (f a) (pb inp))) (pa inp)))))
 
 (defun parse/lift2 [f pa pb]
@@ -97,7 +97,7 @@
 (defun parse/map [f (Parser pa)]
   (Parser (fun [inp] (either/map (partial-2 map-cadr f) (pa inp)))))
 
-(defun parse/pure [x] :of (forall (a) (Fun a (Parser a)))
+(defun parse/pure [x] :of (forall (a) (Fun [a] (Parser a)))
   (Parser (fun [inp] (Right [inp x]))))
 
 (defvar parse/nat :of (Parser Nat)
@@ -109,7 +109,7 @@
             (parse/map to-int parse/nat)))
 
 ;; TODO: If both fail, pick the error of the longest partial match
-(defun parse/or [(Parser pa) (Parser pb)] :of (forall (a) (Fun (Parser a) (Parser a) (Parser a)))
+(defun parse/or [(Parser pa) (Parser pb)] :of (forall (a) (Fun [(Parser a) (Parser a)] (Parser a)))
   (Parser (fun [inp] (match (pa inp)
                        (case (Right res) (Right res))
                        (case (Left (ParseErr (ParseInp rem1) msg1))

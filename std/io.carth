@@ -1,6 +1,7 @@
 (import std)
 
-(defun io/for [xs f] :of (forall (a) (Fun (Iter a) (Fun a (IO Unit)) (IO Unit)))
+(defun io/for [xs f] :of (forall (a) (Fun [(Iter a) (Fun [a] (IO Unit))]
+                                          (IO Unit)))
   (IO (fun [real-world]
         [Unit (foldl (fun [real-world a] (cadr ((perform-io (f a)) real-world)))
                      real-world
@@ -8,10 +9,10 @@
 
 (defun io/pure [a] (IO (fun [real-world] [a real-world])))
 
-(defun io/map [f (IO ma)] :of (forall (a b) (Fun (Fun a b) (IO a) (IO b)))
+(defun io/map [f (IO ma)] :of (forall (a b) (Fun [(Fun [a] b) (IO a)] (IO b)))
   (IO (o> ma (partial-2 map-car f))))
 
-(defun io/bind [f (IO ma)] :of (forall (a b) (Fun (Fun a (IO b)) (IO a) (IO b)))
+(defun io/bind [f (IO ma)] :of (forall (a b) (Fun [(Fun [a] (IO b)) (IO a)] (IO b)))
   (IO (fun [real-world]
         (let1 [a real-world] (ma real-world)
           ((perform-io (f a)) real-world)))))
@@ -21,13 +22,13 @@
 (defun io/thenl [mb ma] (io/bind (const mb) ma))
 (defun io/thenr [ma mb] (io/bindr ma (const mb)))
 
-(defun unsafe-perform-io [ma] :of (forall (a) (Fun (IO a) a))
+(defun unsafe-perform-io [ma] :of (forall (a) (Fun [(IO a)] a))
   (car ((perform-io ma) UnsafeRealWorld)))
 
-(defun perform-io [(IO ma)] :of (forall (a) (Fun (IO a) (Fun RealWorld [a RealWorld])))
+(defun perform-io [(IO ma)] :of (forall (a) (Fun [(IO a)] (Fun [RealWorld] [a RealWorld])))
   ma)
 
-(extern unsafe_display_inline (Fun Str Unit))
+(extern unsafe_display_inline (Fun [Str] Unit))
 
 (defun display-inline [s]
   (IO (fun [real-world] [(unsafe_display_inline s) real-world])))
@@ -35,10 +36,10 @@
 (defun display [s]
   (display-inline (str-append s "\n")))
 
-(extern _get_contents (Fun RealWorld [Str RealWorld]))
+(extern _get_contents (Fun [RealWorld] [Str RealWorld]))
 (defvar get-contents (IO _get_contents))
 
-(extern unsafe_read_file (Fun Str (Maybe Str)))
+(extern unsafe_read_file (Fun [Str] (Maybe Str)))
 (defvar unsafe-read-file unsafe_read_file)
 (defun read-file [f] (IO (fun [real-world] [(unsafe-read-file f) real-world])))
 
@@ -49,9 +50,9 @@
 
 (defun handle/new [h'] (Handle h' array/nil))
 
-(extern stdrs_close_handle (Fun Handle' Unit))
-(extern stdrs_read_handle  (Fun Handle' (Array Nat8) (Maybe (Cons (Array Nat8) Nat))))
-(extern stdrs_write_handle (Fun Handle' (Array Nat8) (Maybe Nat)))
+(extern stdrs_close_handle (Fun [Handle'] Unit))
+(extern stdrs_read_handle  (Fun [Handle' (Array Nat8)] (Maybe (Cons (Array Nat8) Nat))))
+(extern stdrs_write_handle (Fun [Handle' (Array Nat8)] (Maybe Nat)))
 
 (defun close-handle' [h] (io/wrap (stdrs_close_handle h)))
 (defun read-handle' [h buf] (io/wrap (stdrs_read_handle h buf)))
@@ -61,13 +62,13 @@
 
 (defun handle/close [(Handle h _)] (close-handle' h))
 
-(defun handle/write [buf (Handle h _)] :of (Fun (Array Nat8) Handle (IO (Maybe Nat)))
+(defun handle/write [buf (Handle h _)] :of (Fun [(Array Nat8) Handle] (IO (Maybe Nat)))
   (write-handle' h buf))
 
 (defun handle/read-byte [h]
   (io/map (partial-2 maybe/bind (fun [[h xs]] (maybe/map (partial-2 cons' h) (array/lookup (cast 0) xs)))) (handle/read-max (cast 1) h)))
 
-(defun handle/read-max [n (Handle h buf)] :of (Fun Nat Handle (IO (Maybe [Handle (Array Nat8)])))
+(defun handle/read-max [n (Handle h buf)] :of (Fun [Nat Handle] (IO (Maybe [Handle (Array Nat8)])))
   (if (not (array/nil? buf))
       (let1 [out buf] (array/take-split n buf)
         (io/pure (Some [(Handle h buf) out])))
@@ -90,7 +91,7 @@
 
 (defun handle/write-str [(Str a) h] (handle/write a h))
 
-(extern stdrs_stdin_handle (Fun Unit Handle'))
+(extern stdrs_stdin_handle (Fun [Unit] Handle'))
 (defvar handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))
 
 (defun trace-show [show x]

@@ -1,3 +1,3 @@
 ;; UndefCtor
 
-(define undef-ctor ThisCtorIsUndefined)
+(defvar undef-ctor ThisCtorIsUndefined)

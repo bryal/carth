@@ -6,7 +6,8 @@
 
 ;; TODO: Boxing is workaround for when the type of the accumulation is too big/complex and breaks
 ;;       TCO. Must be fixed in compiler and indirection can then be removed here.
-(defun partition-eithers [es] :of (forall (a b) (Fun (Iter (Either a b)) [(List a) (List b)]))
+(defun partition-eithers [es] :of (forall (a b) (Fun [(Iter (Either a b))]
+                                                     [(List a) (List b)]))
   (let1 (Box [as . bs]) (foldl (fun [(Box [as . bs]) e]
                                  (match e
                                    (case (Left a)  (box [(list/cons a as) . bs]))

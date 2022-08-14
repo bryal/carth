@@ -191,11 +191,7 @@ tuple p unit f = brackets $ do
 ptype :: Parser Type
 ptype = choice [tfun, tbox, fmap (TConst . second (map snd)) tapp]
   where
-    tfun = do
-        reserved RFun
-        ts <- some type_
-        let (ps, r) = fromJust $ unsnoc ts
-        pure (TFun ps r)
+    tfun = reserved RFun *> liftA2 TFun (brackets (some type_)) type_
     tbox = reserved RBox *> fmap TBox type_
 
 tapp :: Parser (String, [(SrcPos, Type)])

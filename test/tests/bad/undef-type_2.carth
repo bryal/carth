@@ -1,3 +1,3 @@
 ;; UndefType
 
-(define: (foo x) (Fun Int Foo) (foo x))
+(defun foo [x] :of (Fun [Int] Foo) (foo x))

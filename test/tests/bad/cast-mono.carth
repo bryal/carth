@@ -1,5 +1,4 @@
 ;; NoClassInstance
 
-(define: (foo a)
-    (Fun Int (Box Nat8))
+(defun foo [a] :of (Fun [Int] (Box Nat8))
   (cast a))

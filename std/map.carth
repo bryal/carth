@@ -17,7 +17,7 @@
 (defun map/insert [cmp k v m] (map/adjust-or-insert cmp (const v) k v m))
 (defun map/insert-with [cmp f k v2 m] (map/adjust-or-insert cmp (fun [v1] (f v1 v2)) k v2 m))
 
-(defun map/adjust-or-insert [cmp f k v m] :of (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k v (Map k v) (Map k v)))
+(defun map/adjust-or-insert [cmp f k v m] :of (forall (k v) (Fun [(Fun [k k] Cmp) (Fun [v] v) k v (Map k v)] (Map k v)))
   (defun go [m]
     (match m
       (case MLeaf [(map/singleton k v) True])
@@ -87,7 +87,7 @@
     (case [(MTree (Box [k v n l r]))]
           (MTree (box [k v n l (f r)])))))
 
-(defun map/adjust [cmp f k m] :of (forall (k v) (Fun (Fun k k Cmp) (Fun v v) k (Map k v) (Map k v)))
+(defun map/adjust [cmp f k m] :of (forall (k v) (Fun [(Fun [k k] Cmp) (Fun [v] v) k (Map k v)] (Map k v)))
   (defun go
     (case [MLeaf] MLeaf)
     (case [(MTree (Box [k' v n l r]))]
@@ -167,7 +167,7 @@
 (defun map/empty? (case [MLeaf] True) (case [_] False))
 
 ;; Wiki says maintenance after deleting is extraneous
-(defun map/remove-min :of (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
+(defun map/remove-min :of (forall (k v) (Fun [(Map k v)] (Maybe [[k v] (Map k v)])))
   (case [MLeaf] None)
   (case [(MTree (Box [k v n l r]))]
         (match (map/remove-min l)
@@ -175,7 +175,7 @@
           (case None (Some [[k v] r])))))
 
 ;; Wiki says maintenance after deleting is extraneous
-(defun map/remove-max :of (forall (k v) (Fun (Map k v) (Maybe [[k v] (Map k v)])))
+(defun map/remove-max :of (forall (k v) (Fun [(Map k v)] (Maybe [[k v] (Map k v)])))
   (case [MLeaf] None)
   (case [(MTree (Box [k v n l r]))]
         (match (map/remove-max r)

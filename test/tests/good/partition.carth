@@ -16,7 +16,7 @@
   (let1 [xs ys] (partition (list (Left 1) (Left 3) (Right 2) (Right 4) (Left 5)))
     (display (show_int (- (sum xs) (sum ys))))))
 
-(defun partition :of (forall (a b) (Fun (List (Either a b)) [(List a) (List b)]))
+(defun partition :of (forall (a b) (Fun [(List (Either a b))] [(List a) (List b)]))
   (case [LNil]  [LNil LNil])
   (case [(LCons (Box [e es]))]
         (let1 [ls rs] (partition es)
@@ -24,16 +24,16 @@
             (case (Left l)  [(LCons (box [l ls])) rs])
             (case (Right r) [ls (LCons (box [r rs]))])))))
 
-(defun box [x] :of (forall (a) (Fun a (Box a)))
+(defun box [x] :of (forall (a) (Fun [a] (Box a)))
   (store x (transmute (id@"GC_malloc" (sizeof a)))))
 
 (defun display [s]
   (display-inline (str_append s "\n")))
 (defun display-inline [s]
   (IO (fun [real-world] [(unsafe_display_inline s) real-world])))
-(extern unsafe_display_inline (Fun Str Unit))
-(extern str_append (Fun Str Str Str))
+(extern unsafe_display_inline (Fun [Str] Unit))
+(extern str_append (Fun [Str Str] Str))
 
-(extern show_int (Fun Int Str))
+(extern show_int (Fun [Int] Str))
 
 (defun sum (case [LNil] 0) (case [(LCons (Box [x xs]))] (+ x (sum xs))))

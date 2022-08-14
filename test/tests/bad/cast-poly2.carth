@@ -2,9 +2,8 @@
 
 (import std)
 
-(define (foo a)
+(defun foo [a]
   (cast a))
 
-(define: (bar Unit)
-    (Fun Unit Int)
+(defun bar [Unit] :of (Fun [Unit] Int)
   (foo (Some 5)))

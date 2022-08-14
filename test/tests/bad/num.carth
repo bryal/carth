@@ -1,5 +1,4 @@
 ;; NoClassInstance
 
-(define: (foo Unit)
-    (Fun Unit Unit)
+(defun foo [Unit] :of (Fun [Unit] Unit)
   (+ Unit Unit))

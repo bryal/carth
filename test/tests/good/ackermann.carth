@@ -5,7 +5,7 @@
 (defvar main
   (display (show-nat (ackermann (cast 3) (cast 10)))))
 
-(defun ackermann [m n] :of (Fun Nat Nat Nat)
+(defun ackermann [m n] :of (Fun [Nat Nat] Nat)
   (if (= m (cast 0))
       (+ n (cast 1))
     (if (= n (cast 0))

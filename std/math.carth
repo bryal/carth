@@ -3,14 +3,14 @@
 (defvar pi :of F64 3.14159265358979323846264338327950288)
 (defvar inv-pi :of F64 0.318309886183790671537767526745028724)
 
-(extern sin (Fun F64 F64))
-(extern cos (Fun F64 F64))
-(extern tan (Fun F64 F64))
+(extern sin (Fun [F64] F64))
+(extern cos (Fun [F64] F64))
+(extern tan (Fun [F64] F64))
 
-(extern sqrt (Fun F64 F64))
+(extern sqrt (Fun [F64] F64))
 
 (defun inc [n] :of (forall (a) (where (Num a) (Cast Int a))
-                           (Fun a a))
+                           (Fun [a] a))
   (+ n (cast 1)))
 
 (defun dec [n] (- n (cast 1)))
@@ -44,7 +44,7 @@
 
 (defvar nat/maxval :of Nat (cast -1))
 
-(defun nat/checked+ [x y] :of (Fun Nat Nat (Maybe Nat))
+(defun nat/checked+ [x y] :of (Fun [Nat Nat] (Maybe Nat))
   (let1 z (+ x y)
     (if (< z x)
         None

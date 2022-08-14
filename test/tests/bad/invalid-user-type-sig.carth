@@ -1,5 +1,4 @@
 ;; InvalidUserTypeSig
 
-(define: (invalid-user-type-signature x)
-    (forall (a b c) (Fun a a))
+(defun invalid-user-type-signature [x] :of (forall (a b c) (Fun [a] a))
   x)

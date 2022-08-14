@@ -8,14 +8,14 @@
 ;;?
 ;;? Note that a code point may not match your idea of what a character
 ;;? is. Iteration over grapheme clusters may instead be what you really want.
-(defun string/codepoints [s] :of (Fun Str (Iter Nat32))
+(defun string/codepoints [s] :of (Fun [Str] (Iter Nat32))
   (defun go [bs]
     (Iter (fun [_] (maybe/map (partial-2 map-cadr (fun [n] (go (skip (cast n) bs))))
                               (string/next-codepoint bs)))))
   (go (string/bytes s)))
 
-(defun string/next-codepoint [bytes] :of (Fun (Iter Nat8) (Maybe [Nat32 Nat]))
-  (defun init-byte [b] :of (Fun Nat8 [Nat8 Nat])
+(defun string/next-codepoint [bytes] :of (Fun [(Iter Nat8)] (Maybe [Nat32 Nat]))
+  (defun init-byte [b] :of (Fun [Nat8] [Nat8 Nat])
     (if (= (cast 0) (bit-and b (cast 0b10000000)))
         [b (cast 0)]
       (if (= (cast 0) (bit-and b (cast 0b00100000)))
@@ -26,8 +26,8 @@
              (cast 2)]
           [(bit-and b (cast 0b00000111))
            (cast 3)]))))
-  (defvar cont-byte :of (Fun Nat8 Nat8) (partial-2 bit-and (cast 0b00111111)))
-  (defun join [a b] :of (Fun Nat32 Nat8 Nat32)
+  (defvar cont-byte :of (Fun [Nat8] Nat8) (partial-2 bit-and (cast 0b00111111)))
+  (defun join [a b] :of (Fun [Nat32 Nat8] Nat32)
     (+ (shift-l (cast a) (cast 6))
        (cast (cont-byte b))))
   (maybe/map (fun [[b0 bytes']]
@@ -52,8 +52,8 @@
   (array/length bs))
 
 ;;? Show an integer in hexadecimal notation
-(defun show-hex [n] :of (Fun Int Str)
-  (defun it [n] :of (Fun Int (Iter Nat8))
+(defun show-hex [n] :of (Fun [Int] Str)
+  (defun it [n] :of (Fun [Int] (Iter Nat8))
     (if (= n 0)
         iter/nil
       (let ((x (bit-and 0b1111 n))
@@ -65,7 +65,7 @@
       "0x0"
     (str-append "0x" (Str (array/collect (reverse (it n)))))))
 
-(defun lines [s] :of (Fun Str (Iter Str))
+(defun lines [s] :of (Fun [Str] (Iter Str))
   (defun lines' [s]
     (Iter (fun [Unit]
             (if (string/empty? s)
@@ -94,13 +94,13 @@
                                        None))
                             s)))
 
-(defun string/splits-on [sep s] :of (Fun Str Str (Iter Str))
+(defun string/splits-on [sep s] :of (Fun [Str Str] (Iter Str))
   (string/splits-by (fun [s'] (if (string/prefix? sep s')
                                   (Some (string/length-bytes sep))
                                 None))
                     s))
 
-(defun string/splits-by [f (Str bs)] :of (Fun (Fun Str (Maybe Nat)) Str (Iter Str))
+(defun string/splits-by [f (Str bs)] :of (Fun [(Fun [Str] (Maybe Nat)) Str] (Iter Str))
   (unfoldr (fun [bs]
              (if (array/nil? bs)
                  None
@@ -110,7 +110,7 @@
                  (case None (Some [(Str bs) array/nil])))))
            bs))
 
-(defun string/split-by [f (Str bs)] :of (Fun (Fun Str Bool) Str (Maybe [Str Str]))
+(defun string/split-by [f (Str bs)] :of (Fun [(Fun [Str] Bool) Str] (Maybe [Str Str]))
   (maybe/map (fun [i] [(Str (array/slice 0 (cast i) bs))
                        (Str (array/slice-from (cast i) bs))])
              (array/find-slice-by' (<o f Str) bs)))
@@ -166,7 +166,7 @@
 
 (defun parse-nat [s] (parse-nat' (string/bytes s)))
 (defun parse-nat' [cs]
-  (defun parse-nat'' [[c cs]] :of (Fun [Nat8 (Iter Nat8)] (Maybe Nat))
+  (defun parse-nat'' [[c cs]] :of (Fun [[Nat8 (Iter Nat8)]] (Maybe Nat))
     (maybe/bindr (parse-digit c)
                  (fun [x]
                    (match (next cs)
@@ -183,7 +183,7 @@
 (defun parse-binary [s] :of (forall (a) (where (Cast Int a)
                                                (Cast Nat a)
                                                (Bitwise a))
-                                    (Fun Str a))
+                                    (Fun [Str] a))
   (foldl (fun [acc [i b]] (bit-or acc (cast (shift-l (cast (- b ascii-0)) i))))
          (cast 0)
          (enumerate (string/bytes-rev s))))
@@ -216,9 +216,9 @@
 
 (defun string/singleton-byte [b] (Str (array/singleton b)))
 
-(extern str_cmp (Fun Str Str Cmp))
+(extern str_cmp (Fun [Str Str] Cmp))
 (defvar str-cmp str_cmp)
-(extern str_show (Fun Str Str))
+(extern str_show (Fun [Str] Str))
 (defvar str-show str_show)
 
 (defun string/nth-byte! [i (Str a)] (array/lookup! i a))
