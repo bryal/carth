@@ -42,6 +42,7 @@ data TypeErr
     | NoClassInstance SrcPos ClassConstraint
     | FunCaseArityMismatch SrcPos Int Int
     | FunArityMismatch SrcPos Int Int
+    | DeBruijnIndexOutOfRange SrcPos Word
     deriving (Show)
 
 type ClassConstraint = (String, [Type])

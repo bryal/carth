@@ -90,6 +90,9 @@ printTypeErr = \case
             ++ (", but " ++ show found)
             ++ (if found == 1 then " was" else " were")
             ++ " given."
+    DeBruijnIndexOutOfRange p _ix -> posd
+        p
+        "This De Bruijn index does not refer to any implicit function argument in the current context."
 
 
 posd :: SrcPos -> Message -> IO ()

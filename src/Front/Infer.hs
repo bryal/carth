@@ -321,10 +321,7 @@ infer (WithPos pos e) = case e of
         args <- view envDeBruijn
         if fromIntegral ix < length args
             then let tv@(TypedVar _ t) = args !! fromIntegral ix in pure (t, Var (NonVirt, tv))
-            else
-                ice
-                $ ("De Bruijn index " ++ show ix)
-                ++ (" out of range for current context, " ++ show args)
+            else throwError (DeBruijnIndexOutOfRange pos ix)
     Parsed.FunMatch cases -> fmap (second Fun) (inferFunMatch pos cases)
     Parsed.Match matchee cases -> inferMatch pos matchee cases
     Parsed.Ctor c -> do
