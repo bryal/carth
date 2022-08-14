@@ -1,0 +1,32 @@
+;; 1337
+
+(import std)
+
+(defvar main
+
+  (defun twice [f]
+    (fun [x] (f (f x))))
+
+  (defvar magic 13)
+
+  (defun remove-magic [x] (- x 13))
+
+  (let1 probably-add (fun [a b] (maybe-add a (Some b)))
+    (display (apps str-append
+                   (show-int (probably-add (Some 2) ((twice \(+ # 4)) 3)))
+                   (show-int (probably-add None     ((twice (fun [x] (+ x 1))) 1)))
+                   (show-int (/ (beans \[# #]) 2))))))
+
+(defun beans [f]
+  (let1 [x y] (f 7)
+    (+ x y)))
+
+(defun maybe-add
+  (case [(Some a) (Some b)]
+        (+ a b))
+  (case [(Some a) None]
+        a)
+  (case [None (Some b)]
+        b)
+  (case [None None]
+        0))

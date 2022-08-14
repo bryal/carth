@@ -42,6 +42,9 @@ data TokenTree'
     | Parens [TokenTree]
     | Brackets [TokenTree]
     | Braces [TokenTree]
+    | Backslashed TokenTree
+    | Octothorped TokenTree
+    | Octothorpe
     | Ellipsis TokenTree
     deriving (Eq, Show)
 

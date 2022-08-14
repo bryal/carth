@@ -64,6 +64,9 @@ expand (WithPos tpos tt') = do
         Big _ -> pure [tt]
         Reserved _ -> pure [tt]
         Keyword _ -> pure [tt]
+        Backslashed tt' -> map (WithPos tpos' . Backslashed) <$> expand tt'
+        Octothorped tt' -> map (WithPos tpos' . Octothorped) <$> expand tt'
+        Octothorpe -> pure [tt]
         Parens (WithPos _ (Small x) : tts1) | Just m <- Map.lookup x ms -> do
             tts2 <- expands tts1
             local (second (const (Just tpos'))) $ do

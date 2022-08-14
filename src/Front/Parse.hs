@@ -6,12 +6,13 @@ import Control.Arrow
 import Control.Applicative hiding (many, some)
 import Control.Monad
 import Control.Monad.State.Strict
-import Control.Monad.Writer
 import Control.Monad.Combinators
+import Control.Monad.Writer
 import Data.Char
 import Data.Maybe
 import qualified Data.Set as Set
 import Text.Read (readMaybe)
+import Lens.Micro.Platform (set, view)
 
 import Misc
 import Front.SrcPos
@@ -37,7 +38,8 @@ extern :: Parser Extern
 extern = do
     reserved Rextern
     x@(Id (WithPos pos x')) <- small
-    unless (c_validIdent x') $ tell
+    unless (c_validIdent x') $ scribe
+        messages
         [ Warning
               pos
               "This identifier is not guaranteed to be compatible with any C compiler, according to the C11 standard.\nThis is likely to cause issues if you use the C backend when compiling this Carth program, or if you want to link to the symbol later on in C."
@@ -86,7 +88,7 @@ data BindingLhs
     | CaseVarLhs Pat
 
 expr' :: Parser Expr'
-expr' = choice [var, lit, eConstructor, etuple, pexpr]
+expr' = choice [var, lit, eConstructor, etuple, deBruijnFun, deBruijnIndex, pexpr]
   where
     lit = token "constant literal" $ const $ \case
         Lit c -> Just (Parsed.Lit c)
@@ -106,6 +108,19 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
         (FunMatch
         <$> some (parens (reserved Rcase *> liftA2 (,) (withPos (brackets (some pat))) expr))
         )
+    deBruijnFun = do
+        (body, indices) <-
+            censor (set deBruijnIndices []) $ listens (view deBruijnIndices) $ backslashed'
+                (const expr)
+        let n = maximumOr 0 (map (+ 1) indices)
+        pure (DeBruijnFun n body)
+    deBruijnIndex = do
+        i <- (0 <$ octothorpe) <|> octothorped' (const index)
+        scribe deBruijnIndices [i]
+        pure (DeBruijnIndex i)
+    index = token "integral index" $ const $ \case
+        Lit (Int n) | n >= 0 -> Just (fromIntegral n :: Word)
+        _ -> Nothing
     let1 p = reserved Rlet1 *> (varLhs <|> caseVarLhs) >>= \case
         VarLhs lhs -> liftA2 (Let1 . Def) (varBinding p lhs) expr
         CaseVarLhs lhs -> liftA2 Let1 (fmap (Deconstr lhs) expr) expr
@@ -199,6 +214,21 @@ tapp = liftA2 ((,) . idstr) big (some (liftA2 (,) getSrcPos type_))
 
 tvar :: Parser TVar
 tvar = fmap TVExplicit small
+
+backslashed' :: (SrcPos -> Parser a) -> Parser a
+backslashed' = sexpr "`\\`" $ \case
+    Backslashed tt -> Just [tt]
+    _ -> Nothing
+
+octothorped' :: (SrcPos -> Parser a) -> Parser a
+octothorped' = sexpr "`#...`" $ \case
+    Octothorped tt -> Just [tt]
+    _ -> Nothing
+
+octothorpe :: Parser ()
+octothorpe = token "`#`" $ const $ \case
+    Octothorpe -> Just ()
+    _ -> Nothing
 
 isWord :: String -> Bool
 isWord s = isJust (readMaybe s :: Maybe Word)

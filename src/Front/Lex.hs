@@ -100,6 +100,8 @@ tokentree = do
         [ fmap Parens (parens (many tokentree))
         , fmap Brackets (brackets (many tokentree))
         , fmap Braces (braces (many tokentree))
+        , fmap Backslashed (string "\\" *> tokentree)
+        , string "#" *> ((Octothorped <$> tokentree) <|> (Octothorpe <$ space))
         , fmap Reserved reserved
         , fmap Keyword (string ":" *> small)
         , fmap Small smallSpecial

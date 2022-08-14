@@ -100,7 +100,7 @@ prettyTBox :: Pretty t => t -> String
 prettyTBox t = "(Box " ++ pretty t ++ ")"
 
 prettyTFun :: Pretty var => [Type' var] -> Type' var -> String
-prettyTFun as b = concat ["(Fun ", spcPretty as, " ", pretty b, ")"]
+prettyTFun as b = concat ["(Fun [", spcPretty as, "] ", pretty b, ")"]
 
 prettyTPrim :: Parsed.TPrim -> String
 prettyTPrim = \case

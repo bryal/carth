@@ -52,6 +52,8 @@ data Env = Env
     --   signature/left-hand-side of the type definition, the types of its parameters, and the span
     --   (number of constructors) of the datatype
     , _envCtors :: Map String (VariantIx, (String, [TVar]), [Type], Span)
+    , _freshParams :: [String]
+    , _envDeBruijn :: [TypedVar]
     }
 makeLenses ''Env
 
@@ -66,12 +68,15 @@ inferTopDefs tdefs ctors externs defs =
                       , _envGlobDefs = fmap (Forall Set.empty Set.empty) externs
                       , _envLocalDefs = Map.empty
                       , _envCtors = ctors
+                      , _freshParams = freshParams
+                      , _envDeBruijn = []
                       }
         freshTvs =
             let ls = "abcdehjkpqrstuvxyz"
                 ns = map show [1 :: Word .. 99]
                 vs = [ l : n | l <- ls, n <- ns ] ++ [ l : v | l <- ls, v <- vs ]
             in  vs
+        freshParams = map (("generated/param" ++) . show) [0 :: Word ..]
     in  evalStateT (runReaderT (fmap fst (runWriterT (inferDefs envGlobDefs defs))) initEnv)
                    freshTvs
   where
@@ -311,6 +316,15 @@ infer (WithPos pos e) = case e of
         unify (Expected t') (Found (getPos x) tx)
         pure (t', x')
     Parsed.Fun param body -> fmap (second Fun) (inferFun pos param body)
+    Parsed.DeBruijnFun nparams body -> fmap (second Fun) (inferDeBruijnFun nparams body)
+    Parsed.DeBruijnIndex ix -> do
+        args <- view envDeBruijn
+        if fromIntegral ix < length args
+            then let tv@(TypedVar _ t) = args !! fromIntegral ix in pure (t, Var (NonVirt, tv))
+            else
+                ice
+                $ ("De Bruijn index " ++ show ix)
+                ++ (" out of range for current context, " ++ show args)
     Parsed.FunMatch cases -> fmap (second Fun) (inferFunMatch pos cases)
     Parsed.Match matchee cases -> inferMatch pos matchee cases
     Parsed.Ctor c -> do
@@ -342,6 +356,15 @@ inferFun pos pats body = do
     let tpats' = map unFound tpats
     funMatchToFun pos [case'] tpats' (unFound tbody)
 
+inferDeBruijnFun :: Word -> Parsed.Expr -> Infer (Type, Fun)
+inferDeBruijnFun nparams body = genParams nparams $ \paramNames -> do
+    tparams <- replicateM (fromIntegral nparams) fresh
+    let params = zip paramNames tparams
+        paramSigs = map (second (Forall Set.empty Set.empty)) params
+        args = map (uncurry TypedVar) params
+    (tbody, body') <- locallySet envDeBruijn args $ withLocals paramSigs (infer body)
+    pure (TFun tparams tbody, (params, (body', tbody)))
+
 inferFunMatch :: SrcPos -> [(Parsed.FunPats, Parsed.Expr)] -> Infer (Type, Fun)
 inferFunMatch pos cases = do
     arity <- checkCasePatternsArity
@@ -359,17 +382,13 @@ inferFunMatch pos cases = do
             pure arity
 
 funMatchToFun :: SrcPos -> Cases -> [Type] -> Type -> Infer (Type, Fun)
-funMatchToFun pos cases' tpats tbody = do
-    let paramNames =
-            zipWith fromMaybe (map (("#x" ++) . show) [0 .. length tpats - 1]) $ case cases' of
-                [(WithPos _ ps, _)] -> map
-                    (\(Pat _ _ p) -> case p of
-                        PVar (TypedVar x _) -> Just x
-                        _ -> Nothing
-                    )
-                    ps
-                _ -> repeat Nothing
-        params = zip paramNames tpats
+funMatchToFun pos cases' tpats tbody = genParams (length tpats) $ \paramNames -> do
+    let paramNames' = zipWith fromMaybe paramNames $ case cases' of
+            [(WithPos _ ps, _)] -> flip map ps $ \(Pat _ _ p) -> case p of
+                PVar (TypedVar x _) -> Just x
+                _ -> Nothing
+            _ -> repeat Nothing
+        params = zip paramNames' tpats
         args = map (Var . (NonVirt, ) . uncurry TypedVar) params
     pure (TFun tpats tbody, (params, (Match (WithPos pos (args, cases', tpats, tbody)), tbody)))
 
@@ -466,6 +485,11 @@ lookupVar (Id (WithPos pos x)) = do
     case fmap (NonVirt, ) (local <|> glob) <|> fmap (Virt, ) virt of
         Just (virt, scm) -> instantiate pos scm <&> \t -> (t, (virt, TypedVar x t))
         Nothing -> throwError (UndefVar pos x)
+
+genParams :: Integral n => n -> ([String] -> Infer a) -> Infer a
+genParams n f = do
+    ps <- view (freshParams . to (take (fromIntegral n)))
+    locally freshParams (drop (fromIntegral n)) (f ps)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
 withLocals = augment envLocalDefs . Map.fromList

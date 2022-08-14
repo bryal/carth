@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TemplateHaskell, DataKinds #-}
 
 module Front.Parser where
 
@@ -12,6 +12,7 @@ import Data.Functor
 import Data.List
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Lens.Micro.Platform (makeLenses, view)
 
 import Misc
 import Front.SrcPos
@@ -45,8 +46,20 @@ data St = St
     }
     deriving Show
 
-newtype Parser a = Parser (ExceptT Err (StateT St (Writer [Message])) a)
-    deriving (Functor, Applicative, MonadPlus, Monad, MonadError Err, MonadState St, MonadWriter [Message])
+data Out = Out
+    { _deBruijnIndices :: [Word]
+    , _messages :: [Message]
+    }
+makeLenses ''Out
+
+instance Semigroup Out where
+    (<>) (Out xs1 ys1) (Out xs2 ys2) = Out (xs1 ++ xs2) (ys1 ++ ys2)
+
+instance Monoid Out where
+    mempty = Out mempty mempty
+
+newtype Parser a = Parser (ExceptT Err (StateT St (Writer Out)) a)
+    deriving (Functor, Applicative, MonadPlus, Monad, MonadError Err, MonadState St, MonadWriter Out)
 
 instance Alternative Parser where
     empty = Parser (throwError mempty)
@@ -66,8 +79,9 @@ runParser (Parser ma) surroundingPos tts =
             [] -> ice "empty list of expecteds in formatExpecteds"
             [e] -> "Expected " ++ e
             es' -> "Expected one of: " ++ intercalate ", " es'
-    in  first
+    in  bimap
             liftEither
+            (view messages)
             (runWriter
                 (evalStateT
                     (runExceptT (withExceptT (\(Err _ pos es) -> (pos, formatExpecteds es)) ma))

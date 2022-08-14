@@ -55,6 +55,8 @@ data Expr'
     | TypeAscr Expr Type
     | Match Expr [(Pat, Expr)]
     | Fun FunPats Expr
+    | DeBruijnFun Word Expr
+    | DeBruijnIndex Word
     | FunMatch [(FunPats, Expr)]
     | Ctor (Id 'Big)
     | Sizeof Type
@@ -133,6 +135,8 @@ fvExpr = unpos >>> fvExpr'
         TypeAscr e _t -> freeVars e
         Match e cs -> fvMatch e cs
         Fun (WithPos _ pats) e -> Set.difference (freeVars e) (Set.unions (map bvPat pats))
+        DeBruijnFun _ body -> freeVars body
+        DeBruijnIndex _ -> Set.empty
         FunMatch cs -> fvCases (map (first unpos) cs)
         Ctor _ -> Set.empty
         Sizeof _t -> Set.empty
