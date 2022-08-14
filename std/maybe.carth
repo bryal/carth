@@ -4,62 +4,63 @@
   None
   (Some a))
 
-(define maybe
-  (fun* (case [_ f (Some a)] (f a))
-        (case [b _ None]     (b Unit))))
+(defun maybe
+  (case [_ f (Some a)] (f a))
+  (case [b _ None]     (b Unit)))
 
 ;; Version of `maybe` that is strict in `b`
-(define maybe'
-  (fun* (case [_ f (Some a)] (f a))
-        (case [b _ None]     b)))
+(defun maybe'
+  (case [_ f (Some a)] (f a))
+  (case [b _ None]     b))
 
-(define (maybe/or ma f)
+(defun maybe/or [ma f]
   (if (some? ma) ma (f Unit)))
 
-(define unwrap!
-  (fun* (case [(Some x)] x)
-        (case [None] (panic "unwrap! of None"))))
+(defun unwrap!
+  (case [(Some x)] x)
+  (case [None] (panic "unwrap! of None")))
 
-(define unwrap-or
-  (fun* (case [_ (Some a)] a)
-        (case [b None] b)))
+(defun unwrap-or
+  (case [_ (Some a)] a)
+  (case [b None] b))
 
-(define unwrap-or-else
-  (fun* (case [f (Some x)] x)
-        (case [f None] (f Unit))))
+(defun unwrap-or-else
+  (case [f (Some x)] x)
+  (case [f None] (f Unit)))
 
-(define maybe/map
-  (fun* (case [f (Some x)] (Some (f x)))
-        (case [_ None] None)))
+(defun maybe/map
+  (case [f (Some x)] (Some (f x)))
+  (case [_ None] None))
 
-(define (maybe/map2 f ma mb) (maybe/lift2 (<oo Some f) ma mb))
+(defun maybe/map2 [f ma mb] (maybe/lift2 (<oo Some f) ma mb))
 
-(define (maybe/lift2 f ma mb)
-  (maybe/bindr ma (fun (a) (maybe/bindr mb (partial-2 f a)))))
+(defun maybe/lift2 [f ma mb]
+  (maybe/bindr ma (fun [a] (maybe/bindr mb (partial-2 f a)))))
 
-(define: maybe/bind
-    (forall (a b) (Fun (Fun a (Maybe b)) (Maybe a) (Maybe b)))
-  (fun*
-    (case [f (Some a)] (f a))
-    (case [f None] None)))
+(defun maybe/bind :of (forall (a b) (Fun (Fun a (Maybe b)) (Maybe a) (Maybe b)))
+  (case [f (Some a)] (f a))
+  (case [f None] None))
 
-(define maybe/bindl maybe/bind)
-(define maybe/bindr (flip maybe/bind))
+(defvar maybe/bindl maybe/bind)
+(defvar maybe/bindr (flip maybe/bind))
 
-(define (maybe/iter x) (maybe' iter/nil iter/once x))
+(defun maybe/iter [x] (maybe' iter/nil iter/once x))
 
-(define some? (fun* (case [(Some _)] True)
-                    (case [None] False)))
-(define none? (fun* (case [(Some _)] False)
-                    (case [None] True)))
+(defun some?
+  (case [(Some _)] True)
+  (case [None] False))
+(defun none?
+  (case [(Some _)] False)
+  (case [None] True))
 
-(define (maybe/show show-a)
-  (fun* (case [(Some a)] (apps str-append "(Some " (show-a a) ")"))
-        (case [None]     "None")))
+(defun maybe/show [show-a]
+  (fun
+    (case [(Some a)] (apps str-append "(Some " (show-a a) ")"))
+    (case [None]     "None")))
 
-(define (maybe/= inner= ma mb)
+(defun maybe/= [inner= ma mb]
   (match [ma mb]
     (case [(Some a) (Some b)] (inner= a b))
     (case _                   False)))
 
-(define cat-maybes (partial-2 filter-map id))
+(defvar cat-maybes (partial-2 filter-map id))

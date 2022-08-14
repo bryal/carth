@@ -54,6 +54,7 @@ data Expr'
     | LetRec [Def] Expr
     | TypeAscr Expr Type
     | Match Expr [(Pat, Expr)]
+    | Fun FunPats Expr
     | FunMatch [(FunPats, Expr)]
     | Ctor (Id 'Big)
     | Sizeof Type
@@ -63,6 +64,7 @@ type Expr = WithPos Expr'
 
 data Def = VarDef SrcPos (Id 'Small) (Maybe Scheme) Expr
          | FunDef SrcPos (Id 'Small) (Maybe Scheme) FunPats Expr
+         | FunMatchDef SrcPos (Id 'Small) (Maybe Scheme) [(FunPats, Expr)]
     deriving (Show, Eq)
 
 data DefLike = Def Def | Deconstr Pat Expr
@@ -92,6 +94,7 @@ instance FreeVars Def (Id 'Small) where
         VarDef _ _ _ rhs -> freeVars rhs
         FunDef _ _ _ pats rhs ->
             Set.difference (freeVars rhs) (Set.unions (map bvPat (unpos pats)))
+        FunMatchDef _ _ _ cs -> fvCases (map (first unpos) cs)
 
 instance FreeVars DefLike (Id 'Small) where
     freeVars = \case
@@ -129,6 +132,7 @@ fvExpr = unpos >>> fvExpr'
         LetRec ds e -> fvLet (unzip (map (\d -> (defLhs d, d)) ds)) e
         TypeAscr e _t -> freeVars e
         Match e cs -> fvMatch e cs
+        Fun (WithPos _ pats) e -> Set.difference (freeVars e) (Set.unions (map bvPat pats))
         FunMatch cs -> fvCases (map (first unpos) cs)
         Ctor _ -> Set.empty
         Sizeof _t -> Set.empty
@@ -140,6 +144,7 @@ defLhs :: Def -> Id 'Small
 defLhs = \case
     VarDef _ lhs _ _ -> lhs
     FunDef _ lhs _ _ _ -> lhs
+    FunMatchDef _ lhs _ _ -> lhs
 
 fvMatch :: Expr -> [(Pat, Expr)] -> Set (Id 'Small)
 fvMatch e cs = Set.union (freeVars e) (fvCases (map (first pure) cs))

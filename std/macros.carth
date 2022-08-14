@@ -15,14 +15,14 @@
   (case (=s-x =s-xs ...) (all (partial-2 = =s-x) (list/iter (list =s-xs ...)))))
 
 (defmacro io/wrap ()
-  (case (computation) (IO (fun (real-world) [computation real-world]))))
+  (case (computation) (IO (fun [real-world] [computation real-world]))))
 
 (defmacro lazy ()
   (case (computation) (Lazy [(unsafe-perform-io mutex/new)
-                             (box (Left (fun (Unit) computation)))])))
+                             (box (Left (fun [Unit] computation)))])))
 
 (defmacro nonstrict ()
-  (case (computation) (fun (Unit) computation)))
+  (case (computation) (fun [Unit] computation)))
 
 ;; TODO: Fix macro case lhs name to be unique and not collide with user names. Example
 ;;       when `do-a` was called `a`:
@@ -37,13 +37,13 @@
 (defmacro do (<-)
   (case (do-bind do-ma) do-ma)
   (case (do-bind (<- do-a do-ma) do-mbs ...)
-        (do-bind (fun (do-a) (do do-bind do-mbs ...)) do-ma))
+        (do-bind (fun [do-a] (do do-bind do-mbs ...)) do-ma))
   (case (do-bind (let1 do-x do-a) do-mbs ...)
         (let1 do-x do-a (do do-bind do-mbs ...)))
   (case (do-bind (let do-bs) do-mbs ...)
         (let do-bs (do do-bind do-mbs ...)))
   (case (do-bind do-ma do-mbs ...)
-        (do-bind (fun (_) (do do-bind do-mbs ...)) do-ma)))
+        (do-bind (fun [_] (do do-bind do-mbs ...)) do-ma)))
 
 (defmacro cond (else)
   (case ((else cond-else))

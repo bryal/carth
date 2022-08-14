@@ -131,7 +131,7 @@ disjunct descr = \case
 
 match :: Access -> Descr -> Ctx -> Work -> Rhs -> [(FunPats, Rhs)] -> Pat -> Match DecisionTree'
 match obj descr ctx work rhs rules (Pat _ _ pat) = case pat of
-    PVar (Inferred.TypedVar (Inferred.WithPos _ x) tx) ->
+    PVar (Inferred.TypedVar x tx) ->
         let x' = TypedVar x tx in conjunct (augment descr ctx) (addBind x' obj rhs) rules work
     PWild -> conjunct (augment descr ctx) rhs rules work
     PBox p -> match (ADeref obj) descr ctx work rhs rules p

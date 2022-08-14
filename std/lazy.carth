@@ -5,8 +5,7 @@
 (data (Lazy a)
   (Lazy [Mutex (Box (Either (Fun Unit a) a))]))
 
-(define: (strict (Lazy [mx ptr]))
-    (forall (a) (Fun (Lazy a) a))
+(defun strict [(Lazy [mx ptr])] :of (forall (a) (Fun (Lazy a) a))
   (unsafe-perform-io
    (io/thenr
     (mutex/lock mx)

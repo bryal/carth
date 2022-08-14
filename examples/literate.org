@@ -12,7 +12,7 @@ First we import the standard library.
 explicitly won't hurt.
 
 #+BEGIN_SRC carth :tangle yes
-(define main
+(defvar main
   (display (identity "Literate programming rules!")))
 #+END_SRC
 
@@ -20,7 +20,7 @@ explicitly won't hurt.
   The ~identity~ function returns its argument unchanged.
 
   #+BEGIN_SRC carth
-  (define (identity x) x)
+  (defun identity [x] x)
   #+END_SRC
 
 * How not to use ~identity~

@@ -2,5 +2,5 @@
 
 (import std)
 
-(define main
+(defvar main
   (display (show-int ((: transmute (Fun Nat Int)) (cast 18446744073709550279)))))

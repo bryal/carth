@@ -2,11 +2,11 @@
 
 (import std)
 
-(define: tr (forall (a b) (where (SameSize a b))
-                    (Fun a b))
+(defvar tr :of (forall (a b) (where (SameSize a b))
+                       (Fun a b))
   transmute)
 
-(define main
+(defvar main
   (display (show-int ((: tr (Fun Nat Int))
                       ((: tr (Fun Int Nat))
                        123456)))))

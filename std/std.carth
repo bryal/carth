@@ -16,95 +16,94 @@
 (import set)
 (import priority-queue)
 
-(define (cons x xs) [x . xs])
-(define (cons' x y) [x y])
+(defun cons [x xs] [x . xs])
+(defun cons' [x y] [x y])
 
-(define (car      [x . _])           x)
-(define (cadr     [_ x . _])         x)
-(define (caddr    [_ _ x . _])       x)
-(define (cadddr   [_ _ _ x . _])     x)
-(define (caddddr  [_ _ _ _ x . _])   x)
+(defun car      [[x . _]]           x)
+(defun cadr     [[_ x . _]]         x)
+(defun caddr    [[_ _ x . _]]       x)
+(defun cadddr   [[_ _ _ x . _]]     x)
+(defun caddddr  [[_ _ _ _ x . _]]   x)
 
-(define (cdr      [_ . x])           x)
-(define (cddr     [_ _ . x])         x)
-(define (cdddr    [_ _ _ . x])       x)
-(define (cddddr   [_ _ _ _ . x])     x)
-(define (cdddddr  [_ _ _ _ _ . x])   x)
+(defun cdr      [[_ . x]]           x)
+(defun cddr     [[_ _ . x]]         x)
+(defun cdddr    [[_ _ _ . x]]       x)
+(defun cddddr   [[_ _ _ _ . x]]     x)
+(defun cdddddr  [[_ _ _ _ _ . x]]   x)
 
-(define (map-car     f [a . b]) [(f a) . b])
-(define (map-cadr    f [a . b]) [a . (map-car f b)])
-(define (map-caddr   f [a . b]) [a . (map-cadr f b)])
-(define (map-cadddr  f [a . b]) [a . (map-caddr f b)])
-(define (map-caddddr f [a . b]) [a . (map-cadddr f b)])
+(defun map-car     [f [a . b]] [(f a) . b])
+(defun map-cadr    [f [a . b]] [a . (map-car f b)])
+(defun map-caddr   [f [a . b]] [a . (map-cadr f b)])
+(defun map-cadddr  [f [a . b]] [a . (map-caddr f b)])
+(defun map-caddddr [f [a . b]] [a . (map-cadddr f b)])
 
-(define (map-cdr     f [a . b]) [a . (f b)])
-(define (map-cddr    f [a . b]) [a . (map-cdr f b)])
-(define (map-cdddr   f [a . b]) [a . (map-cddr f b)])
-(define (map-cddddr  f [a . b]) [a . (map-cdddr f b)])
-(define (map-cdddddr f [a . b]) [a . (map-cddddr f b)])
+(defun map-cdr     [f [a . b]] [a . (f b)])
+(defun map-cddr    [f [a . b]] [a . (map-cdr f b)])
+(defun map-cdddr   [f [a . b]] [a . (map-cddr f b)])
+(defun map-cddddr  [f [a . b]] [a . (map-cdddr f b)])
+(defun map-cdddddr [f [a . b]] [a . (map-cddddr f b)])
 
-(define (map-cons f g [a . b]) [(f a) . (g b)])
+(defun map-cons [f g [a . b]] [(f a) . (g b)])
 
-(define (map-two f g [a b]) [(f a) (g b)])
-(define (map-three f g h [a b c]) [(f a) (g b) (h c)])
+(defun map-two [f g [a b]] [(f a) (g b)])
+(defun map-three [f g h [a b c]] [(f a) (g b) (h c)])
 
-(define (map-both f [a1 a2]) [(f a1) (f a2)])
+(defun map-both [f [a1 a2]] [(f a1) (f a2)])
 
-(define (show-two show-a show-b [a b]) (apps str-append "[" (show-a a) " " (show-b b) "]"))
-(define (show-three show-a show-b show-c [a b c])
+(defun show-two [show-a show-b [a b]] (apps str-append "[" (show-a a) " " (show-b b) "]"))
+(defun show-three [show-a show-b show-c [a b c]]
   (apps str-append "[" (show-a a) " " (show-b b) " " (show-c c) "]"))
 
-(define (swap [a b]) [b a])
+(defun swap [[a b]] [b a])
 
-(define: (undefined x)
-    (forall (a) (Fun Unit a))
+(defun undefined [x] :of (forall (a) (Fun Unit a))
   (panic "undefined"))
 
 (extern _panic (Fun Str Unit))
-(define (panic msg)
+(defun panic [msg]
   (seq (_panic msg) (undefined Unit)))
 
 (data Cmp
   Lt Eq Gt)
 
-(define (num/cmp a b)
+(defun num/cmp [a b]
   (if (< a b) Lt
     (if (= a b) Eq
       Gt)))
 
-(define (cmp/< cmp a b)
+(defun cmp/< [cmp a b]
   (match (cmp a b)
     (case Lt True)
     (case _  False)))
 
-(define (cmp/= cmp a b)
+(defun cmp/= [cmp a b]
   (match (cmp a b)
     (case Eq True)
     (case _  False)))
 
-(define (cmp/min cmp a b)
+(defun cmp/min [cmp a b]
   (match (cmp a b)
     (case Gt b)
     (case _ a)))
 
-(define (cmp/max cmp a b)
+(defun cmp/max [cmp a b]
   (match (cmp a b)
     (case Lt b)
     (case _ a)))
 
-(define (cmp-two cmp-a cmp-b [a1 b1] [a2 b2])
+(defun cmp-two [cmp-a cmp-b [a1 b1] [a2 b2]]
   (match (cmp-a a1 a2)
     (case Eq (cmp-b b1 b2))
     (case c c)))
-(define (cmp-three cmp-a cmp-b cmp-c [a1 . rest1] [a2 . rest2])
+(defun cmp-three [cmp-a cmp-b cmp-c [a1 . rest1] [a2 . rest2]]
   (match (cmp-a a1 a2)
     (case Eq (cmp-two cmp-b cmp-c rest1 rest2))
     (case c c)))
-(define (cmp-four cmp-a cmp-b cmp-c cmp-d [a1 . rest1] [a2 . rest2])
+(defun cmp-four [cmp-a cmp-b cmp-c cmp-d [a1 . rest1] [a2 . rest2]]
   (match (cmp-a a1 a2)
     (case Eq (cmp-three cmp-b cmp-c cmp-d rest1 rest2))
     (case c c)))
-(define (cmp-five cmp-a cmp-b cmp-c cmp-d cmp-e [a1 . rest1] [a2 . rest2])
+(defun cmp-five [cmp-a cmp-b cmp-c cmp-d cmp-e [a1 . rest1] [a2 . rest2]]
   (match (cmp-a a1 a2)
     (case Eq (cmp-four cmp-b cmp-c cmp-d cmp-e rest1 rest2))
     (case c c)))
@@ -112,54 +111,53 @@
 ;;; Strings
 
 (extern show_int (Fun Int Str))
-(define show-int show_int)
+(defvar show-int show_int)
 (extern show_nat (Fun Nat Str))
-(define show-nat show_nat)
+(defvar show-nat show_nat)
 (extern show_f64 (Fun F64 Str))
-(define show-f64 show_f64)
+(defvar show-f64 show_f64)
 
-(define show-bool (fun* (case [True] "True") (case [False] "False")))
+(defun show-bool (case [True] "True") (case [False] "False"))
 
 (extern str_append (Fun Str Str Str))
-(define (str-append s1 s2) (str_append s1 s2))
+(defun str-append [s1 s2] (str_append s1 s2))
 
 ;;; Function
 
 ;; (define (uncurry f [a b]) (f a b))
 ;; (define (curry f a b) (f [a b]))
 
-(define (partial-2 f a) (fun (b) (f a b)))
+(defun partial-2 [f a] (fun [b] (f a b)))
 
-(define (apply2 f [a b]) (f a b))
-(define (apply3 f [a b c]) (f a b c))
+(defun apply2 [f [a b]] (f a b))
+(defun apply3 [f [a b c]] (f a b c))
 
-(define (app f a) (f a))
-(define (rapp a f) (f a))
+(defun app [f a] (f a))
+(defun rapp [a f] (f a))
 
-(define (const a) (fun (b) a))
-(define (seq a b) b)
+(defun const [a] (fun [b] a))
+(defun seq [a b] b)
 
-(define (<o f g) (fun (a) (f (g a))))
-(define (<oo f g) (fun (a b) (f (g a b))))
-(define (<ooo f g) (fun (a b c) (f (g a b c))))
-(define (o> f g) (fun (a) (g (f a))))
-(define (oo> f g) (fun (a b) (g (f a b))))
-(define (ooo> f g) (fun (a b c) (g (f a b c))))
+(defun <o [f g] (fun [a] (f (g a))))
+(defun <oo [f g] (fun [a b] (f (g a b))))
+(defun <ooo [f g] (fun [a b c] (f (g a b c))))
+(defun o> [f g] (fun [a] (g (f a))))
+(defun oo> [f g] (fun [a b] (g (f a b))))
+(defun ooo> [f g] (fun [a b c] (g (f a b c))))
 
-(define (<| f a) (f a))
-(define (|> a f) (f a))
+(defun <| [f a] (f a))
+(defun |> [a f] (f a))
 
-(define (flip f) (fun (a b) (f b a)))
+(defun flip [f] (fun [a b] (f b a)))
 
-(define (id x) x)
+(defun id [x] x)
 
 (data Void)
 
-(define: (void-elim void)
-    (forall (a) (Fun Void a))
+(defun void-elim [void] :of (forall (a) (Fun Void a))
   (match void))
 
-(define (to-nat x) (: (cast x) Nat))
-(define (to-int x) (: (cast x) Int))
-(define (to-n16 x) (: (cast x) Nat16))
-(define (to-n8 x) (: (cast x) Nat8))
+(defun to-nat [x] (: (cast x) Nat))
+(defun to-int [x] (: (cast x) Int))
+(defun to-n16 [x] (: (cast x) Nat16))
+(defun to-n8 [x] (: (cast x) Nat8))

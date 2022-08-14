@@ -32,31 +32,28 @@ spcPretty = unwords . map pretty
 instance Pretty a => Pretty (WithPos a) where
     pretty' d = pretty' d . unpos
 
-instance Pretty Lexd.Keyword where
+instance Pretty Lexd.Reserved where
     pretty' _ = \case
-        Lexd.Kcolon -> ":"
-        Lexd.Kdot -> "."
-        Lexd.Kforall -> "forall"
-        Lexd.Kwhere -> "where"
-        Lexd.KFun -> "Fun"
-        Lexd.KBox -> "Box"
-        Lexd.Kdefine -> "define"
-        Lexd.KdefineColon -> "define:"
-        Lexd.Kimport -> "import"
-        Lexd.Kextern -> "extern"
-        Lexd.Kdata -> "data"
-        Lexd.KfunStar -> "fun*"
-        Lexd.Kmatch -> "match"
-        Lexd.Kcase -> "case"
-        Lexd.Kif -> "if"
-        Lexd.Kfun -> "fun"
-        Lexd.Klet1 -> "let1"
-        Lexd.Klet -> "let"
-        Lexd.Kletrec -> "letrec"
-        Lexd.Ksizeof -> "sizeof"
-        Lexd.KidAt -> "id@"
-        Lexd.KIdAt -> "Id@"
-        Lexd.Kdefmacro -> "defmacro"
+        Lexd.Rcolon -> ":"
+        Lexd.Rdot -> "."
+        Lexd.Rforall -> "forall"
+        Lexd.Rwhere -> "where"
+        Lexd.RFun -> "Fun"
+        Lexd.RBox -> "Box"
+        Lexd.Rdefun -> "defun"
+        Lexd.Rdefvar -> "defvar"
+        Lexd.Rimport -> "import"
+        Lexd.Rextern -> "extern"
+        Lexd.Rdata -> "data"
+        Lexd.Rmatch -> "match"
+        Lexd.Rcase -> "case"
+        Lexd.Rif -> "if"
+        Lexd.Rfun -> "fun"
+        Lexd.Rlet1 -> "let1"
+        Lexd.Rlet -> "let"
+        Lexd.Rletrec -> "letrec"
+        Lexd.Rsizeof -> "sizeof"
+        Lexd.Rdefmacro -> "defmacro"
 
 instance Pretty var => Pretty (Type' var) where
     pretty' _ = prettyType

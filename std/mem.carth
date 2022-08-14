@@ -1,24 +1,21 @@
 (import std)
 
-(define: (box x)
-    (forall (a) (Fun a (Box a)))
+(defun box [x] :of (forall (a) (Fun a (Box a)))
   (store x (cast-ptr (id@"GC_malloc" (sizeof a)))))
 
-(define: cast-ptr
-    (forall (a b) (Fun (Box a) (Box b)))
+(defvar cast-ptr :of (forall (a b) (Fun (Box a) (Box b)))
   transmute)
 
-(define: (ptr/+ ptr x) (forall (a) (Fun (Box a) Nat (Box a)))
+(defun ptr/+ [ptr x] :of (forall (a) (Fun (Box a) Nat (Box a)))
   (transmute (+ (transmute ptr) (* x (cast (sizeof a))))))
 
-(define: mem/unsafe-null (forall (a) (Box a))
+(defvar mem/unsafe-null :of (forall (a) (Box a))
   (transmute 0))
 
 (extern memcpy (Fun (Box Unit) (Box Unit) Nat
                     (Box Unit)))
 
-(define: (memcpy' dest src count)
-    (forall (a) (Fun (Box a) (Box a) Nat (Box a)))
+(defun memcpy' [dest src count] :of (forall (a) (Fun (Box a) (Box a) Nat (Box a)))
   (transmute (memcpy (transmute dest)
                      (transmute src)
                      (* count (sizeof a)))))

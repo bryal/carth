@@ -2,5 +2,5 @@
 
 (import std)
 
-(define main
+(defvar main
   (display (show-int (cast (: (* 13.37 100.0) F64)))))

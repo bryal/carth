@@ -173,7 +173,12 @@ small = token "small identifier" $ \p -> \case
     Front.Lexd.Small x -> Just (Id (WithPos p x))
     _ -> Nothing
 
-reserved :: Keyword -> Parser ()
-reserved k = token ("keyword " ++ pretty k) $ const $ \case
+reserved :: Reserved -> Parser ()
+reserved k = token (pretty k) $ const $ \case
+    Reserved k' | k == k' -> Just ()
+    _ -> Nothing
+
+keyword :: String -> Parser ()
+keyword k = token k $ const $ \case
     Keyword k' | k == k' -> Just ()
     _ -> Nothing

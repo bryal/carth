@@ -29,7 +29,7 @@ toplevels = fmap concat . mapM toplevel
 
 toplevel :: TokenTree -> Expand [TokenTree]
 toplevel = \case
-    WithPos mpos (Parens (WithPos _ (Keyword Kdefmacro) : tts)) -> do
+    WithPos mpos (Parens (WithPos _ (Reserved Rdefmacro) : tts)) -> do
         (name, lits, rules) <- case runParser pdefmacro mpos tts of
             (result, []) -> (lift . lift . liftEither) result
             (_, messages) ->
@@ -44,7 +44,7 @@ pdefmacro :: Parser (String, Literals, Rules)
 pdefmacro = liftA3 (,,) small' (fmap Set.fromList (parens (many small'))) (some prule)
   where
     prule = parens $ do
-        reserved Kcase
+        reserved Rcase
         params <- parens (many anyToken)
         template <- many anyToken
         pure (params, template)
@@ -62,6 +62,7 @@ expand (WithPos tpos tt') = do
             Just xtt -> pure [WithPos tpos' xtt]
             Nothing -> pure [tt]
         Big _ -> pure [tt]
+        Reserved _ -> pure [tt]
         Keyword _ -> pure [tt]
         Parens (WithPos _ (Small x) : tts1) | Just m <- Map.lookup x ms -> do
             tts2 <- expands tts1

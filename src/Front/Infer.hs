@@ -28,12 +28,15 @@ import Front.Subst
 import qualified Front.Parsed as Parsed
 import Front.Parsed (Id(..), IdCase(..), idstr, defLhs)
 import Front.Err
-import Front.Inferred hiding (Id)
+import Front.Inferred
 import Front.TypeAst hiding (TConst)
 
 
 newtype ExpectedType = Expected Type
 data FoundType = Found SrcPos Type
+
+unFound :: FoundType -> Type
+unFound (Found _ t) = t
 
 type EqConstraint = (ExpectedType, FoundType)
 type Constraints = ([EqConstraint], [(SrcPos, ClassConstraint)])
@@ -180,81 +183,95 @@ inferComponent = \case
     CyclicSCC verts -> fmap RecDefs (inferRecDefs verts)
 
 inferNonrecDef :: Parsed.Def -> Infer VarDef
-inferRecDefs :: [Parsed.Def] -> Infer RecDefs
-(inferNonrecDef, inferRecDefs) = (inferNonrecDef', inferRecDefs')
-  where
-    inferNonrecDef' (Parsed.FunDef dpos lhs mayscm params body) =
-        -- FIXME: Just wanted to get things working, but this isn't really better than doing the
-        --        fold in the parser. Handle this such that we don't have to assign the definition
-        --        position to the nested lambdas.
-        inferNonrecDef' $ Parsed.VarDef dpos lhs mayscm $ WithPos dpos $ Parsed.FunMatch
-            [(params, body)]
-    inferNonrecDef' (Parsed.VarDef _ lhs mayscm body) = do
+inferNonrecDef = \case
+    Parsed.FunDef dpos lhs mayscm params body -> do
         t <- fresh
         mayscm' <- checkScheme (idstr lhs) mayscm
-        (body', cs) <- listen $ inferDef t mayscm' (getPos body) (infer body)
+        (fun, cs) <- listen $ inferDef t mayscm' dpos (inferFun dpos params body)
+        (sub, ccs) <- solve cs
+        env <- view envLocalDefs
+        scm <- generalize (substEnv sub env) (fmap _scmConstraints mayscm') ccs (subst sub t)
+        let fun' = substFun sub fun
+        pure (idstr lhs, (scm, Fun fun'))
+    Parsed.FunMatchDef dpos lhs mayscm cases -> do
+        t <- fresh
+        mayscm' <- checkScheme (idstr lhs) mayscm
+        (fun, cs) <- listen $ inferDef t mayscm' dpos (inferFunMatch dpos cases)
+        (sub, ccs) <- solve cs
+        env <- view envLocalDefs
+        scm <- generalize (substEnv sub env) (fmap _scmConstraints mayscm') ccs (subst sub t)
+        let fun' = substFun sub fun
+        pure (idstr lhs, (scm, Fun fun'))
+    Parsed.VarDef dpos lhs mayscm body -> do
+        t <- fresh
+        mayscm' <- checkScheme (idstr lhs) mayscm
+        (body', cs) <- listen $ inferDef t mayscm' dpos (infer body)
         -- TODO: Can't we get rid of this somehow? It makes our solution more complex and expensive
         --       if we have to do nested solves. Also re-solves many constraints in vain.
+        --
+        --       I think we should switch to bidirectional type checking. This will be fixed then.
         (sub, ccs) <- solve cs
         env <- view envLocalDefs
         scm <- generalize (substEnv sub env) (fmap _scmConstraints mayscm') ccs (subst sub t)
         let body'' = substExpr sub body'
         pure (idstr lhs, (scm, body''))
 
-    inferRecDefs' ds = do
-        (names, mayscms', ts) <- fmap unzip3 $ forM ds $ \d -> do
-            let (name, mayscm) = case d of
-                    Parsed.FunDef _ x s _ _ -> (idstr x, s)
-                    Parsed.VarDef _ x s _ -> (idstr x, s)
-            t <- fresh
-            mayscm' <- checkScheme name mayscm
-            pure (name, mayscm', t)
-        let dummyDefs = Map.fromList $ zip names (map (Forall Set.empty Set.empty) ts)
-        (fs, ucs) <- listen $ augment envLocalDefs dummyDefs $ mapM (uncurry3 inferRecDef)
-                                                                    (zip3 mayscms' ts ds)
-        (sub, cs) <- solve ucs
-        env <- view envLocalDefs
-        scms <- zipWithM
-            (\s -> generalize (substEnv sub env) (fmap _scmConstraints s) cs . subst sub)
-            mayscms'
-            ts
-        let fs' = map (mapPosd (substFunMatch sub)) fs
-        pure (zip names (zip scms fs'))
-
-    inferRecDef :: Maybe Scheme -> Type -> Parsed.Def -> Infer (WithPos FunMatch)
+inferRecDefs :: [Parsed.Def] -> Infer RecDefs
+inferRecDefs ds = do
+    (names, mayscms', ts) <- fmap unzip3 $ forM ds $ \d -> do
+        let (name, mayscm) = first idstr $ case d of
+                Parsed.FunDef _ x s _ _ -> (x, s)
+                Parsed.FunMatchDef _ x s _ -> (x, s)
+                Parsed.VarDef _ x s _ -> (x, s)
+        t <- fresh
+        mayscm' <- checkScheme name mayscm
+        pure (name, mayscm', t)
+    let dummyDefs = Map.fromList $ zip names (map (Forall Set.empty Set.empty) ts)
+    (fs, ucs) <- listen $ augment envLocalDefs dummyDefs $ mapM (uncurry3 inferRecDef)
+                                                                (zip3 mayscms' ts ds)
+    (sub, cs) <- solve ucs
+    env <- view envLocalDefs
+    scms <- zipWithM
+        (\s -> generalize (substEnv sub env) (fmap _scmConstraints s) cs . subst sub)
+        mayscms'
+        ts
+    let fs' = map (substFun sub) fs
+    pure (zip names (zip scms fs'))
+  where
+    inferRecDef :: Maybe Scheme -> Type -> Parsed.Def -> Infer Fun
     inferRecDef mayscm t = \case
-        Parsed.FunDef fpos _ _ params body ->
-            fmap (WithPos fpos) $ inferDef t mayscm fpos $ inferFunMatch [(params, body)]
-        Parsed.VarDef fpos _ _ (WithPos _ (Parsed.FunMatch cs)) ->
-            WithPos fpos <$> inferDef t mayscm fpos (inferFunMatch cs)
+        Parsed.FunDef fpos _ _ params body -> inferDef t mayscm fpos $ inferFun fpos params body
+        Parsed.FunMatchDef fpos _ _ cases -> inferDef t mayscm fpos $ inferFunMatch fpos cases
+        Parsed.VarDef fpos _ _ (WithPos pos (Parsed.Fun params body)) ->
+            inferDef t mayscm fpos (inferFun pos params body)
+        Parsed.VarDef fpos _ _ (WithPos pos (Parsed.FunMatch cs)) ->
+            inferDef t mayscm fpos (inferFunMatch pos cs)
         Parsed.VarDef _ (Id lhs) _ _ -> throwError (RecursiveVarDef lhs)
 
-    inferDef t mayscm bodyPos inferBody = do
-        whenJust mayscm $ \(Forall _ _ scmt) -> unify (Expected scmt) (Found bodyPos t)
-        (t', body') <- inferBody
-        unify (Expected t) (Found bodyPos t')
-        pure body'
+inferDef :: Type -> Maybe Scheme -> SrcPos -> Infer (Type, body) -> Infer body
+inferDef t mayscm bodyPos inferBody = do
+    whenJust mayscm $ \(Forall _ _ scmt) -> unify (Expected scmt) (Found bodyPos t)
+    (t', body') <- inferBody
+    unify (Expected t) (Found bodyPos t')
+    pure body'
 
-    -- | Verify that user-provided type signature schemes are valid
-    checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
-    checkScheme = curry $ \case
-        ("main", Nothing) -> pure (Just (Forall Set.empty Set.empty mainType))
-        ("main", Just s@(Parsed.Forall pos vs cs t))
-            | Set.size vs /= 0 || Set.size cs /= 0 || t /= mainType -> throwError
-                (WrongMainType pos s)
-        (_, Nothing) -> pure Nothing
-        (_, Just (Parsed.Forall pos vs cs t)) -> do
-            t' <- checkType pos t
-            cs' <- mapM (secondM (mapM (uncurry checkType))) (Set.toList cs)
-            let s1 = Forall vs (Set.fromList cs') t'
-            env <- view envLocalDefs
-            s2@(Forall vs2 _ t2) <- generalize env (Just (_scmConstraints s1)) Map.empty t'
-            if (vs, t') == (vs2, t2)
-                then pure (Just s1)
-                else throwError (InvalidUserTypeSig pos s1 s2)
+-- | Verify that user-provided type signature schemes are valid
+checkScheme :: String -> Maybe Parsed.Scheme -> Infer (Maybe Scheme)
+checkScheme = curry $ \case
+    ("main", Nothing) -> pure (Just (Forall Set.empty Set.empty mainType))
+    ("main", Just s@(Parsed.Forall pos vs cs t))
+        | Set.size vs /= 0 || Set.size cs /= 0 || t /= mainType -> throwError (WrongMainType pos s)
+    (_, Nothing) -> pure Nothing
+    (_, Just (Parsed.Forall pos vs cs t)) -> do
+        t' <- checkType pos t
+        cs' <- mapM (secondM (mapM (uncurry checkType))) (Set.toList cs)
+        let s1 = Forall vs (Set.fromList cs') t'
+        env <- view envLocalDefs
+        s2@(Forall vs2 _ t2) <- generalize env (Just (_scmConstraints s1)) Map.empty t'
+        if (vs, t') == (vs2, t2) then pure (Just s1) else throwError (InvalidUserTypeSig pos s1 s2)
 
 infer :: Parsed.Expr -> Infer (Type, Expr)
-infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
+infer (WithPos pos e) = case e of
     Parsed.Lit l -> pure (litType l, Lit l)
     Parsed.Var (Id (WithPos p "_")) -> throwError (FoundHole p)
     Parsed.Var x -> fmap (second Var) (lookupVar x)
@@ -286,15 +303,16 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         Topo defs' <- inferDefs envLocalDefs defs
         let withDef def inferX = do
                 (tx, x') <- withLocals (defSigs def) inferX
-                pure (tx, WithPos pos (Let def x'))
-        fmap (second unpos) (foldr withDef (infer b) defs')
+                pure (tx, Let def x')
+        foldr withDef (infer b) defs'
     Parsed.TypeAscr x t -> do
-        (tx, WithPos _ x') <- infer x
+        (tx, x') <- infer x
         t' <- checkType pos t
         unify (Expected t') (Found (getPos x) tx)
         pure (t', x')
+    Parsed.Fun param body -> fmap (second Fun) (inferFun pos param body)
+    Parsed.FunMatch cases -> fmap (second Fun) (inferFunMatch pos cases)
     Parsed.Match matchee cases -> inferMatch pos matchee cases
-    Parsed.FunMatch cases -> fmap (second FunMatch) (inferFunMatch cases)
     Parsed.Ctor c -> do
         (variantIx, tdefLhs, cParams, cSpan) <- lookupEnvConstructor c
         (tdefInst, cParams') <- instantiateConstructorOfTypeDef tdefLhs cParams
@@ -303,7 +321,7 @@ infer (WithPos pos e) = fmap (second (WithPos pos)) $ case e of
         pure (t, Ctor variantIx cSpan tdefInst cParams')
     Parsed.Sizeof t -> fmap ((TPrim TNatSize, ) . Sizeof) (checkType pos t)
 
-inferLet1 :: SrcPos -> Parsed.DefLike -> Parsed.Expr -> Infer (Type, Expr')
+inferLet1 :: SrcPos -> Parsed.DefLike -> Parsed.Expr -> Infer (Type, Expr)
 inferLet1 pos defl body = case defl of
     Parsed.Def def -> do
         def' <- inferNonrecDef def
@@ -311,20 +329,25 @@ inferLet1 pos defl body = case defl of
         pure (t, Let (VarDef def') body')
     Parsed.Deconstr pat matchee -> inferMatch pos matchee [(pat, body)]
 
-inferMatch :: SrcPos -> Parsed.Expr -> [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr')
+inferMatch :: SrcPos -> Parsed.Expr -> [(Parsed.Pat, Parsed.Expr)] -> Infer (Type, Expr)
 inferMatch pos matchee cases = do
     (tmatchee, matchee') <- infer matchee
     (tbody, cases') <- inferCases [tmatchee]
                                   (map (first (\pat -> WithPos (getPos pat) [pat])) cases)
-    let f = WithPos pos (FunMatch (cases', [tmatchee], tbody))
-    pure (tbody, App f [matchee'] tbody)
+    pure (tbody, Match (WithPos pos ([matchee'], cases', [tmatchee], tbody)))
 
-inferFunMatch :: [(Parsed.FunPats, Parsed.Expr)] -> Infer (Type, FunMatch)
-inferFunMatch cases = do
+inferFun :: SrcPos -> Parsed.FunPats -> Parsed.Expr -> Infer (Type, Fun)
+inferFun pos pats body = do
+    (tpats, tbody, case') <- inferCase pats body
+    let tpats' = map unFound tpats
+    funMatchToFun pos [case'] tpats' (unFound tbody)
+
+inferFunMatch :: SrcPos -> [(Parsed.FunPats, Parsed.Expr)] -> Infer (Type, Fun)
+inferFunMatch pos cases = do
     arity <- checkCasePatternsArity
-    tpats <- nFresh arity
+    tpats <- replicateM arity fresh
     (tbody, cases') <- inferCases tpats cases
-    pure (TFun tpats tbody, (cases', tpats, tbody))
+    funMatchToFun pos cases' tpats tbody
   where
     checkCasePatternsArity = case cases of
         [] -> ice "inferFunMatch: checkCasePatternsArity: fun* has no cases, arity 0"
@@ -335,28 +358,42 @@ inferFunMatch cases = do
                 (throwError (FunCaseArityMismatch pos arity (length pats)))
             pure arity
 
+funMatchToFun :: SrcPos -> Cases -> [Type] -> Type -> Infer (Type, Fun)
+funMatchToFun pos cases' tpats tbody = do
+    let paramNames =
+            zipWith fromMaybe (map (("#x" ++) . show) [0 .. length tpats - 1]) $ case cases' of
+                [(WithPos _ ps, _)] -> map
+                    (\(Pat _ _ p) -> case p of
+                        PVar (TypedVar x _) -> Just x
+                        _ -> Nothing
+                    )
+                    ps
+                _ -> repeat Nothing
+        params = zip paramNames tpats
+        args = map (Var . (NonVirt, ) . uncurry TypedVar) params
+    pure (TFun tpats tbody, (params, (Match (WithPos pos (args, cases', tpats, tbody)), tbody)))
+
 -- | All the patterns must be of the same types, and all the bodies must be of the same type.
 inferCases
     :: [Type] -- Type of matchee(s). Expected type(s) of pattern(s).
     -> [(WithPos [Parsed.Pat], Parsed.Expr)]
     -> Infer (Type, Cases)
 inferCases tmatchees cases = do
-    (tpatss, tbodies, cases') <- fmap unzip3 (mapM inferCase cases)
+    (tpatss, tbodies, cases') <- fmap unzip3 (mapM (uncurry inferCase) cases)
     forM_ tpatss $ zipWithM (unify . Expected) tmatchees
     tbody <- fresh
     forM_ tbodies (unify (Expected tbody))
     pure (tbody, cases')
-  where
-    inferCase
-        :: (WithPos [Parsed.Pat], Parsed.Expr)
-        -> Infer ([FoundType], FoundType, (WithPos [Pat], Expr))
-    inferCase (WithPos pos ps, b) = do
-        (tps, ps', pvss) <- fmap unzip3 (mapM inferPat ps)
-        let pvs' = map (bimap Parsed.idstr (Forall Set.empty Set.empty . TVar))
-                       (Map.toList (Map.unions pvss))
-        (tb, b') <- withLocals pvs' (infer b)
-        let tps' = zipWith Found (map getPos ps) tps
-        pure (tps', Found (getPos b) tb, (WithPos pos ps', b'))
+
+inferCase
+    :: WithPos [Parsed.Pat] -> Parsed.Expr -> Infer ([FoundType], FoundType, (WithPos [Pat], Expr))
+inferCase (WithPos pos ps) b = do
+    (tps, ps', pvss) <- fmap unzip3 (mapM inferPat ps)
+    let pvs' = map (bimap Parsed.idstr (Forall Set.empty Set.empty . TVar))
+                   (Map.toList (Map.unions pvss))
+    (tb, b') <- withLocals pvs' (infer b)
+    let tps' = zipWith Found (map getPos ps) tps
+    pure (tps', Found (getPos b) tb, (WithPos pos ps', b'))
 
 -- | Returns the type of the pattern; the pattern in the Pat format that the Match module wants,
 --   and a Map from the variables bound in the pattern to fresh schemes.
@@ -373,7 +410,7 @@ inferPat pat = fmap (\(t, p, ss) -> (t, Pat (getPos pat) t p, ss)) (inferPat' pa
         Parsed.PVar (Id (WithPos _ "_")) -> do
             tv <- fresh
             pure (tv, PWild, Map.empty)
-        Parsed.PVar x@(Id x') -> do
+        Parsed.PVar x@(Id (WithPos _ x')) -> do
             tv <- fresh'
             pure (TVar tv, PVar (TypedVar x' (TVar tv)), Map.singleton x tv)
         Parsed.PBox _ p -> do
@@ -422,12 +459,12 @@ litType = \case
     Str _ -> tStr
 
 lookupVar :: Id 'Small -> Infer (Type, Var)
-lookupVar (Id x'@(WithPos pos x)) = do
+lookupVar (Id (WithPos pos x)) = do
     virt <- fmap (Map.lookup x) (view envVirtuals)
     glob <- fmap (Map.lookup x) (view envGlobDefs)
     local <- fmap (Map.lookup x) (view envLocalDefs)
     case fmap (NonVirt, ) (local <|> glob) <|> fmap (Virt, ) virt of
-        Just (virt, scm) -> instantiate pos scm <&> \t -> (t, (virt, TypedVar x' t))
+        Just (virt, scm) -> instantiate pos scm <&> \t -> (t, (virt, TypedVar x t))
         Nothing -> throwError (UndefVar pos x)
 
 withLocals :: [(String, Scheme)] -> Infer a -> Infer a
@@ -478,9 +515,6 @@ ftvClassConstraint = mconcat . map ftv . snd
 
 substClassConstraint :: Subst' -> ClassConstraint -> ClassConstraint
 substClassConstraint sub = second (map (subst sub))
-
-nFresh :: Int -> Infer [Type]
-nFresh n = replicateM n fresh
 
 fresh :: Infer Type
 fresh = fmap TVar fresh'

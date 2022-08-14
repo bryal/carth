@@ -7,18 +7,16 @@
 (data (Parser a)
   (Parser (Fun ParseInp (Either ParseErr [ParseInp a]))))
 
-(define: (parse! (Parser p) input)
-    (forall (a) (Fun (Parser a) Str a))
+(defun parse! [(Parser p) input] :of (forall (a) (Fun (Parser a) Str a))
   (match (p (ParseInp input))
     (case (Left (ParseErr (ParseInp remaining) msg))
           (panic (str-append "parse!:\n" (parse/format-error input remaining msg))))
     (case (Right [_ x]) x)))
 
-(define: (parse (Parser p) input)
-    (forall (a) (Fun (Parser a) Str (Either ParseErr a)))
+(defun parse [(Parser p) input] :of (forall (a) (Fun (Parser a) Str (Either ParseErr a)))
   (either/map cadr (p (ParseInp input))))
 
-(define (parse/format-error input remaining msg)
+(defun parse/format-error [input remaining msg]
   (let1 i (- (string/length-bytes input) (string/length-bytes remaining))
     (string/concat-list
      (list msg "\n"
@@ -27,96 +25,92 @@
            (string/substr-to 30 remaining)
            "\n"))))
 
-(define: (parse/between left right middle)
-    (forall (a b c) (Fun (Parser a) (Parser b) (Parser c) (Parser c)))
+(defun parse/between [left right middle] :of (forall (a b c) (Fun (Parser a) (Parser b) (Parser c) (Parser c)))
   (parse/thenr left (parse/thenl middle right)))
 
 ;; The return-string is the equivalent slice in the input string of the given
 ;; literal. Might be good for reducing memory usage?
-(define (parse/string lit)
-  (Parser (fun ((ParseInp inp))
+(defun parse/string [lit]
+  (Parser (fun [(ParseInp inp)]
             (if (string/prefix? lit inp)
                 (let1 n (string/length-bytes lit)
                   (Right [(ParseInp (string/substr-from (to-int n) inp))
                           (string/substr-to (to-int n) inp)]))
               (Left (ParseErr (ParseInp inp) (str-append "Failed to match literally " (str-show lit))))))))
 
-(define parse/take-rest
-  (Parser (fun ((ParseInp inp)) (Right [(ParseInp "") inp]))))
+(defvar parse/take-rest
+  (Parser (fun [(ParseInp inp)] (Right [(ParseInp "") inp]))))
 
-(define (parse/take-bytes-while f)
-  (Parser (fun ((ParseInp inp))
+(defun parse/take-bytes-while [f]
+  (Parser (fun [(ParseInp inp)]
             (Right (map-car ParseInp
                             (match (string/find-byte-by (<o not f) inp)
                               (case None ["" inp])
                               (case (Some i) (swap (unwrap! (string/split-at-byte i inp))))))))))
 
-(define (parse/take-bytes-while1 f)
-  (Parser (fun (inp)
+(defun parse/take-bytes-while1 [f]
+  (Parser (fun [inp]
             (let1 (Parser p) (parse/take-bytes-while f)
-              (either/bind (fun* (case [[_ ""]] (Left (ParseErr inp "Expected at least one byte to match predicate")))
-                                 (case [res] (Right res)))
+              (either/bind (fun (case [[_ ""]] (Left (ParseErr inp "Expected at least one byte to match predicate")))
+                             (case [res] (Right res)))
                            (p inp))))))
 
-(define (parse/take-codepoints-while f)
-  (define (go s)
+(defun parse/take-codepoints-while [f]
+  (defun go [s]
     (match (string/split-first-codepoint s)
       (case None s)
       (case (Some [c s']) (if (f c)
                               (go s')
                             s))))
-  (Parser (fun ((ParseInp inp))
+  (Parser (fun [(ParseInp inp)]
             (let1 i (- (string/length-bytes inp) (string/length-bytes (go inp)))
               (Right (map-car ParseInp (swap (unwrap! (string/split-at-byte i inp)))))))))
 
-(define (parse/take-bytes n)
-  (Parser (fun ((ParseInp inp))
+(defun parse/take-bytes [n]
+  (Parser (fun [(ParseInp inp)]
             (match (string/split-at-byte n inp)
               (case None (Left (ParseErr (ParseInp inp) (apps str-append "Tried to take " (show-nat n) " bytes, but fewer remaining."))))
               (case (Some [s rest]) (Right [(ParseInp rest) s]))))))
 
-(define: (parse/thenr (Parser pa) (Parser pb))
-    (forall (a b) (Fun (Parser a) (Parser b) (Parser b)))
-  (Parser (fun (inp) (either/bindr (pa inp) (fun ([inp _a]) (pb inp))))))
+(defun parse/thenr [(Parser pa) (Parser pb)] :of (forall (a b) (Fun (Parser a) (Parser b) (Parser b)))
+  (Parser (fun [inp] (either/bindr (pa inp) (fun [[inp _a]] (pb inp))))))
 
-(define: (parse/thenl (Parser pa) (Parser pb))
-    (forall (a b) (Fun (Parser a) (Parser b) (Parser a)))
-  (Parser (fun (inp)
+(defun parse/thenl [(Parser pa) (Parser pb)] :of (forall (a b) (Fun (Parser a) (Parser b) (Parser a)))
+  (Parser (fun [inp]
             (do either/bind
                 (<- [inp a] (pa inp))
                 (<- [inp _b] (pb inp))
                 (Right [inp a])))))
 
-(define parse/bindr
+(defvar parse/bindr
   (flip parse/bind))
 
-(define: (parse/bind f (Parser pa))
-    (forall (a b) (Fun (Fun a (Parser b)) (Parser a) (Parser b)))
-  (Parser (fun (inp) (either/bind (fun ([inp a]) (let1 (Parser pb) (f a) (pb inp))) (pa inp)))))
+(defun parse/bind [f (Parser pa)] :of (forall (a b) (Fun (Fun a (Parser b)) (Parser a) (Parser b)))
+  (Parser (fun [inp] (either/bind (fun [[inp a]] (let1 (Parser pb) (f a) (pb inp))) (pa inp)))))
 
-(define (parse/lift2 f pa pb)
-  (parse/bindr pa (fun (a) (parse/map (f a) pb))))
+(defun parse/lift2 [f pa pb]
+  (parse/bindr pa (fun [a] (parse/map (f a) pb))))
 
-(define (parse/binary-digit? b)
+(defun parse/binary-digit? [b]
   (or (= b ascii-0) (= b ascii-1)))
 
-(define (parse/map f (Parser pa))
-  (Parser (fun (inp) (either/map (partial-2 map-cadr f) (pa inp)))))
+(defun parse/map [f (Parser pa)]
+  (Parser (fun [inp] (either/map (partial-2 map-cadr f) (pa inp)))))
 
-(define: (parse/pure x) (forall (a) (Fun a (Parser a)))
-  (Parser (fun (inp) (Right [inp x]))))
+(defun parse/pure [x] :of (forall (a) (Fun a (Parser a)))
+  (Parser (fun [inp] (Right [inp x]))))
 
-(define: parse/nat (Parser Nat)
-  (parse/map (fun (s) (unwrap-or-else (fun (_) (panic (str-append "parse/nat: digits not a nat, " (str-show s)))) (parse-nat s)))
+(defvar parse/nat :of (Parser Nat)
+  (parse/map (fun [s] (unwrap-or-else (fun [_] (panic (str-append "parse/nat: digits not a nat, " (str-show s)))) (parse-nat s)))
              (parse/take-bytes-while1 digit?)))
 
-(define: parse/int (Parser Int)
+(defvar parse/int :of (Parser Int)
   (parse/or (parse/map (<o neg to-int) (parse/thenr (parse/string "-") parse/nat))
             (parse/map to-int parse/nat)))
 
 ;; TODO: If both fail, pick the error of the longest partial match
-(define: (parse/or (Parser pa) (Parser pb)) (forall (a) (Fun (Parser a) (Parser a) (Parser a)))
-  (Parser (fun (inp) (match (pa inp)
+(defun parse/or [(Parser pa) (Parser pb)] :of (forall (a) (Fun (Parser a) (Parser a) (Parser a)))
+  (Parser (fun [inp] (match (pa inp)
                        (case (Right res) (Right res))
                        (case (Left (ParseErr (ParseInp rem1) msg1))
                              (match (pb inp)
@@ -130,21 +124,21 @@
                                                  (ParseErr (ParseInp rem1) msg1)
                                                (ParseErr (ParseInp rem2) msg2)))))))))))
 
-(define (parse/n-times n pa)
-  (foldl (fun (pacc i) (do parse/bind
+(defun parse/n-times [n pa]
+  (foldl (fun [pacc i] (do parse/bind
                            (<- acc pacc)
                            (<- a pa)
                            (parse/pure (array/mutate (to-nat i) a acc))))
          (parse/pure (array/unsafe-uninit n))
          (xrange 0 (to-int n))))
 
-(define parse/space (parse/map (const Unit) (parse/take-bytes-while whitespace-byte?)))
-(define parse/space1 (parse/map (const Unit) (parse/take-bytes-while1 whitespace-byte?)))
+(defvar parse/space (parse/map (const Unit) (parse/take-bytes-while whitespace-byte?)))
+(defvar parse/space1 (parse/map (const Unit) (parse/take-bytes-while1 whitespace-byte?)))
 
-(define (parse/many (Parser pa))
-  (Parser (fun (inp) (Right (swap (unfoldr' (apps <o (partial-2 maybe/map swap) right-to-maybe pa) inp))))))
+(defun parse/many [(Parser pa)]
+  (Parser (fun [inp] (Right (swap (unfoldr' (apps <o (partial-2 maybe/map swap) right-to-maybe pa) inp))))))
 
-(define (parse/sep-by1 psep pa)
+(defun parse/sep-by1 [psep pa]
   (do parse/bind
       (<- a pa)
       (<- as (parse/many (parse/thenr psep pa)))

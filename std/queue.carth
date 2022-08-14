@@ -4,17 +4,17 @@
 (data (Queue a)
   (Queue (List a) (List a)))
 
-(define queue/empty
+(defvar queue/empty
   (Queue LNil LNil))
 
-(define (queue/push x (Queue in out))
+(defun queue/push [x (Queue in out)]
   (Queue (list/cons x in) out))
 
-(define queue/pop
-  (fun* (case [(Queue LNil LNil)]
-              None)
-        (case [(Queue in LNil)]
-              (let1 [x out] (unwrap! (list/uncons (list/reverse in)))
-                (Some [(Queue LNil out) x])))
-        (case [(Queue in (LCons (Box [x out'])))]
-              (Some [(Queue in out') x]))))
+(defun queue/pop
+  (case [(Queue LNil LNil)]
+        None)
+  (case [(Queue in LNil)]
+        (let1 [x out] (unwrap! (list/uncons (list/reverse in)))
+          (Some [(Queue LNil out) x])))
+  (case [(Queue in (LCons (Box [x out'])))]
+        (Some [(Queue in out') x])))

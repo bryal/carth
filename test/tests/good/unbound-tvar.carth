@@ -2,10 +2,10 @@
 
 (import std)
 
-(define (foo p)
+(defun foo [p]
   (if p
       (seq (undefined Unit) 123)
     456))
 
-(define main
+(defvar main
   (display (show-int (foo False))))

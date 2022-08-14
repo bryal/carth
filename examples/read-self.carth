@@ -1,6 +1,6 @@
 (import std)
 
-(define main
+(defvar main
   (do io/bind
       (<- s (io/map unwrap! (read-file "read-self.carth")))
       (display "Printing ourselves...")

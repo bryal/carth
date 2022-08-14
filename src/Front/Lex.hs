@@ -15,7 +15,7 @@ import Data.Char (isMark, isPunctuation, isSymbol)
 import Data.Functor
 import Data.Maybe
 import Control.Applicative (liftA2)
-import Text.Megaparsec hiding (parse, match)
+import Text.Megaparsec hiding (parse, match, token, Token)
 import Text.Megaparsec.Char hiding (space, space1)
 import qualified Text.Megaparsec.Char as Char
 import qualified Text.Megaparsec.Char.Lexer as Lexer
@@ -87,7 +87,7 @@ toplevels = do
 toplevel :: Lexer TopLevel
 toplevel = getSrcPos >>= \p ->
     parens (fmap TImport import' <|> fmap (TTokenTree . WithPos p . Parens) (many tokentree))
-    where import' = keyword' "import" *> small
+    where import' = andSkipSpaceAfter (string "import") *> small
 
 tokentree :: Lexer TokenTree
 tokentree = do
@@ -97,15 +97,16 @@ tokentree = do
     pure (WithPos p tt')
   where
     tokentree' = choice
-        [ fmap Small smallSpecial
+        [ fmap Parens (parens (many tokentree))
+        , fmap Brackets (brackets (many tokentree))
+        , fmap Braces (braces (many tokentree))
+        , fmap Reserved reserved
+        , fmap Keyword (string ":" *> small)
+        , fmap Small smallSpecial
         , fmap Big bigSpecial
-        , fmap Keyword (try keyword)
         , fmap Small smallNormal
         , fmap Big bigNormal
         , fmap Lit lit
-        , fmap Parens (parens (many tokentree))
-        , fmap Brackets (brackets (many tokentree))
-        , fmap Braces (braces (many tokentree))
         ]
     ellipsis = try (string "..." *> notFollowedBy identLetter *> space)
     lit = try num <|> fmap Str strlit
@@ -123,48 +124,41 @@ strlit :: Lexer String
 strlit = andSkipSpaceAfter ns_strlit
     where ns_strlit = char '"' >> manyTill Lexer.charLiteral (char '"')
 
-keyword :: Lexer Keyword
-keyword = andSkipSpaceAfter $ choice $ (++)
-    (map
-        (\p -> try (p <* notFollowedBy identLetter))
-        [ string ":" $> Kcolon
-        , string "." $> Kdot
-        , string "Fun" $> KFun
-        , string "Box" $> KBox
-        , string "define" $> Kdefine
-        , string "define:" $> KdefineColon
-        , string "extern" $> Kextern
-        , string "forall" $> Kforall
-        , string "where" $> Kwhere
-        , string "fun*" $> KfunStar
-        , string "match" $> Kmatch
-        , string "if" $> Kif
-        , string "fun" $> Kfun
-        , string "let1" $> Klet1
-        , string "let" $> Klet
-        , string "letrec" $> Kletrec
-        , string "data" $> Kdata
-        , string "sizeof" $> Ksizeof
-        , string "import" $> Kimport
-        , string "case" $> Kcase
-        , string "defmacro" $> Kdefmacro
-        ]
-    )
-    [string "id@" $> KidAt, string "Id@" $> KIdAt]
-
-keyword' :: String -> Lexer ()
-keyword' x = andSkipSpaceAfter $ label ("keyword " ++ x) (string x) $> ()
+reserved :: Lexer Reserved
+reserved = andSkipSpaceAfter . choice $ map
+    (\p -> try (p <* notFollowedBy identLetter))
+    [ string ":" $> Rcolon
+    , string "." $> Rdot
+    , string "Fun" $> RFun
+    , string "Box" $> RBox
+    , string "defun" $> Rdefun
+    , string "defvar" $> Rdefvar
+    , string "extern" $> Rextern
+    , string "forall" $> Rforall
+    , string "where" $> Rwhere
+    , string "match" $> Rmatch
+    , string "if" $> Rif
+    , string "fun" $> Rfun
+    , string "let1" $> Rlet1
+    , string "let" $> Rlet
+    , string "letrec" $> Rletrec
+    , string "data" $> Rdata
+    , string "sizeof" $> Rsizeof
+    , string "import" $> Rimport
+    , string "case" $> Rcase
+    , string "defmacro" $> Rdefmacro
+    ]
 
 small, smallSpecial, smallNormal :: Lexer String
 small = smallSpecial <|> smallNormal
-smallSpecial = keyword' "id@" *> strlit
+smallSpecial = string "id@" *> strlit
 smallNormal = andSkipSpaceAfter $ liftA2 (:) smallStart identRest
   where
     smallStart =
         lowerChar <|> otherChar <|> try (oneOf ("-+" :: String) <* notFollowedBy digitChar)
 
 bigSpecial, bigNormal :: Lexer String
-bigSpecial = keyword' "id@" *> strlit
+bigSpecial = string "id@" *> strlit
 bigNormal = andSkipSpaceAfter $ liftA2 (:) bigStart identRest
     where bigStart = upperChar <|> char ':'
 

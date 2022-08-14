@@ -1,20 +1,19 @@
 (import std)
 
-(define main fizzbuzz)
+(defvar main fizzbuzz)
 
-(define fizzbuzz
+(defvar fizzbuzz
   (io/for (range 1 100)
           (<o display fizzbuzz')))
 
-(define (fizzbuzz' n)
+(defun fizzbuzz' [n]
   (match [(divisible? n 3) (divisible? n 5)]
     (case [False False] (my-show-int n))
     (case [True  False] "Fizz")
     (case [False True ] "Buzz")
     (case [True  True ] "Fizzbuzz")))
 
-(define my-show-int
-  (fun*
-    (case [1] "one")
-    (case [2] "two")
-    (case [n] (show-int n))))
+(defun my-show-int
+  (case [1] "one")
+  (case [2] "two")
+  (case [n] (show-int n)))

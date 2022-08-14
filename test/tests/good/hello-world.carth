@@ -2,4 +2,4 @@
 
 (import std)
 
-(define main (display "Hello, World!"))
+(defvar main (display "Hello, World!"))

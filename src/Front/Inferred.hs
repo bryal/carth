@@ -54,9 +54,7 @@ data Scheme = Forall
     deriving (Show, Eq)
 makeLenses ''Scheme
 
-type Id = WithPos String
-
-data TypedVar = TypedVar Id Type
+data TypedVar = TypedVar String Type
     deriving (Show, Eq, Ord)
 
 type VariantIx = Integer
@@ -83,8 +81,10 @@ data Pat'
 data Pat = Pat SrcPos Type Pat'
     deriving Show
 
+type Fun = ([(String, Type)], (Expr, Type))
+
 type Cases = [(WithPos [Pat], Expr)]
-type FunMatch = (Cases, [Type], Type)
+type Match = WithPos ([Expr], Cases, [Type], Type)
 
 -- | Whether a Var refers to a builtin virtual, or a global/local definition. So we don't
 --   have to keep as much state about environment definitions in later passes.
@@ -92,24 +92,23 @@ data Virt = Virt | NonVirt deriving (Show, Eq)
 
 type Var = (Virt, TypedVar)
 
-data Expr'
+data Expr
     = Lit Const
     | Var Var
     | App Expr [Expr] Type
     | If Expr Expr Expr
     | Let Def Expr
-    | FunMatch FunMatch
+    | Fun Fun
+    | Match Match
     | Ctor VariantIx Span TConst [Type]
     | Sizeof Type
     deriving Show
 
-type Expr = WithPos Expr'
-
 type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (String, (Scheme, Expr))
-type RecDefs = [(String, (Scheme, WithPos FunMatch))]
-type TypeDefs = Map String ([TVar], [(Id, [Type])])
+type RecDefs = [(String, (Scheme, Fun))]
+type TypeDefs = Map String ([TVar], [(WithPos String, [Type])])
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type
 
@@ -136,11 +135,3 @@ defSigs = \case
 
 defSig :: (String, (Scheme, a)) -> (String, Scheme)
 defSig = second fst
-
-flattenDefs :: Defs -> [(String, (Scheme, Expr))]
-flattenDefs (Topo defs) = defToVarDefs =<< defs
-
-defToVarDefs :: Def -> [(String, (Scheme, Expr))]
-defToVarDefs = \case
-    VarDef d -> [d]
-    RecDefs ds -> map (second (second (mapPosd FunMatch))) ds

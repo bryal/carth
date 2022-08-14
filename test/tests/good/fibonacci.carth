@@ -2,11 +2,11 @@
 
 (import std)
 
-(define main
+(defvar main
   (display (show-int (fib 92))))
 
-(define (fib n)
-  (define (fib' a b n)
+(defun fib [n]
+  (defun fib' [a b n]
     (if (= n 0)
         a
       (fib' b (+ a b) (dec n))))

@@ -6,9 +6,8 @@
 
 ;; TODO: Boxing is workaround for when the type of the accumulation is too big/complex and breaks
 ;;       TCO. Must be fixed in compiler and indirection can then be removed here.
-(define: (partition-eithers es)
-    (forall (a b) (Fun (Iter (Either a b)) [(List a) (List b)]))
-  (let1 (Box [as . bs]) (foldl (fun ((Box [as . bs]) e)
+(defun partition-eithers [es] :of (forall (a b) (Fun (Iter (Either a b)) [(List a) (List b)]))
+  (let1 (Box [as . bs]) (foldl (fun [(Box [as . bs]) e]
                                  (match e
                                    (case (Left a)  (box [(list/cons a as) . bs]))
                                    (case (Right b) (box [as . (list/cons b bs)]))))
@@ -16,35 +15,35 @@
                                es)
     [(list/reverse as) (list/reverse bs)]))
 
-(define either/show
-  (fun* (case [show-a _ (Left a)] (apps str-append "(Left " (show-a a) ")"))
-        (case [_ show-b (Right b)] (apps str-append "(Right " (show-b b) ")"))))
+(defun either/show
+  (case [show-a _ (Left a)] (apps str-append "(Left " (show-a a) ")"))
+  (case [_ show-b (Right b)] (apps str-append "(Right " (show-b b) ")")))
 
-(define either/bimap
-  (fun* (case [f _ (Left a)]  (Left (f a)))
-        (case [_ g (Right b)] (Right (g b)))))
+(defun either/bimap
+  (case [f _ (Left a)]  (Left (f a)))
+  (case [_ g (Right b)] (Right (g b))))
 
-(define either/map-left
-  (fun* (case [f (Left a)]  (Left (f a)))
-        (case [_ (Right b)] (Right b))))
+(defun either/map-left
+  (case [f (Left a)]  (Left (f a)))
+  (case [_ (Right b)] (Right b)))
 
-(define either/map
-  (fun* (case [_ (Left a)]  (Left a))
-        (case [f (Right b)] (Right (f b)))))
+(defun either/map
+  (case [_ (Left a)]  (Left a))
+  (case [f (Right b)] (Right (f b))))
 
-(define either/bind
-  (fun* (case [_ (Left a)] (Left a))
-        (case [f (Right b)] (f b))))
+(defun either/bind
+  (case [_ (Left a)] (Left a))
+  (case [f (Right b)] (f b)))
 
-(define (either/bindr e f)
+(defun either/bindr [e f]
   (match e
     (case (Left a) (Left a))
     (case (Right b) (f b))))
 
-(define left-to-maybe
-  (fun* (case [(Left x)] (Some x))
-        (case [(Right _)] None)))
+(defun left-to-maybe
+  (case [(Left x)] (Some x))
+  (case [(Right _)] None))
 
-(define right-to-maybe
-  (fun* (case [(Left _)] None)
-        (case [(Right x)] (Some x))))
+(defun right-to-maybe
+  (case [(Left _)] None)
+  (case [(Right x)] (Some x)))

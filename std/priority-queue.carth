@@ -5,22 +5,22 @@
 (data (PQTree a) (PQTree (List (PQTree a)) a Nat8)) ; Children, element, rank
 (data (PQHeap a) (PQHeap (List (PQTree a))))
 
-(define (pq/empty? (PQHeap ts)) (list/nil? ts))
+(defun pq/empty? [(PQHeap ts)] (list/nil? ts))
 ;; (define (pq/cons t (PQHeap ts)) (PQHeap (list/cons t ts)))
-(define (pq/rank (PQTree _ _ r)) r)
-(define (pq/root (PQTree _ x _)) x)
-(define (pq/trees (PQHeap ts)) ts)
-(define pq/empty (PQHeap LNil))
-(define (pq/singleton x) (PQHeap (list/singleton (PQTree LNil x (cast 0)))))
+(defun pq/rank [(PQTree _ _ r)] r)
+(defun pq/root [(PQTree _ x _)] x)
+(defun pq/trees [(PQHeap ts)] ts)
+(defvar pq/empty (PQHeap LNil))
+(defun pq/singleton [x] (PQHeap (list/singleton (PQTree LNil x (cast 0)))))
 
-(define (pq/link cmp t1 t2)
+(defun pq/link [cmp t1 t2]
   (let (((PQTree cs1 x1 r) t1)
         ((PQTree cs2 x2 _) t2))
     (match (cmp x1 x2)
       (case Gt (PQTree (list/cons t1 cs2) x2 (inc r)))
       (case _  (PQTree (list/cons t2 cs1) x1 (inc r))))))
 
-(define (pq/ins-tree cmp t1 ts)
+(defun pq/ins-tree [cmp t1 ts]
   (match ts
     (case LNil (list/singleton t1))
     (case (LCons (Box [t2 rest]))
@@ -28,10 +28,10 @@
               (list/cons t1 ts)
             (pq/ins-tree cmp (pq/link cmp t1 t2) rest)))))
 
-(define (pq/insert cmp x (PQHeap ts)) (PQHeap (pq/ins-tree cmp (PQTree LNil x (cast 0)) ts)))
+(defun pq/insert [cmp x (PQHeap ts)] (PQHeap (pq/ins-tree cmp (PQTree LNil x (cast 0)) ts)))
 
-(define (pq/merge cmp (PQHeap ts1) (PQHeap ts2))
-  (define (go ts1 ts2)
+(defun pq/merge [cmp (PQHeap ts1) (PQHeap ts2)]
+  (defun go [ts1 ts2]
     (match [ts1 ts2]
       (case [_ LNil] ts1)
       (case [LNil _] ts2)
@@ -42,7 +42,7 @@
               (case Eq (pq/ins-tree cmp (pq/link cmp t1 t2) (go ts1' ts2')))))))
   (PQHeap (go ts1 ts2)))
 
-(define (pq/find-min cmp (PQHeap ts))
+(defun pq/find-min [cmp (PQHeap ts)]
   (match (list/uncons ts)
     (case None None)
     (case (Some [(PQTree _ x _) ts])
@@ -50,26 +50,25 @@
                   (case None x)
                   (case (Some y) (match (cmp x y) (case Gt y) (case _ x))))))))
 
-(define (pq/delete-min cmp (PQHeap ts))
-  (define get-min
-    (fun*
-      (case [LNil] None)
-      (case [(LCons (Box [t ts]))]
-            (Some (match (get-min ts)
-                    (case None [t LNil])
-                    (case (Some [t' ts'])
-                          (match (cmp (pq/root t) (pq/root t'))
-                            (case Gt [t' (list/cons t ts')])
-                            (case _  [t ts]))))))))
+(defun pq/delete-min [cmp (PQHeap ts)]
+  (defun get-min
+    (case [LNil] None)
+    (case [(LCons (Box [t ts]))]
+          (Some (match (get-min ts)
+                  (case None [t LNil])
+                  (case (Some [t' ts'])
+                        (match (cmp (pq/root t) (pq/root t'))
+                          (case Gt [t' (list/cons t ts')])
+                          (case _  [t ts])))))))
   (match (get-min ts)
     (case None None)
     (case (Some [(PQTree ts1 x _) ts2])
           (Some [x (pq/merge cmp (PQHeap (list/reverse ts1)) (PQHeap ts2))]))))
 
-(define (pq/delete-min! cmp ts) (unwrap! (pq/delete-min cmp ts)))
+(defun pq/delete-min! [cmp ts] (unwrap! (pq/delete-min cmp ts)))
 
-(define (pq/iter cmp heap)
-  (Iter (fun (Unit)
+(defun pq/iter [cmp heap]
+  (Iter (fun [Unit]
           (maybe/map (partial-2 map-cadr (partial-2 pq/iter cmp)) (pq/delete-min cmp heap)))))
 
 ;; (define main

@@ -10,7 +10,6 @@ import Data.Bifunctor
 import Data.Bitraversable
 import Data.Foldable
 import Data.Functor
-import Data.Maybe
 import Control.Applicative
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -67,7 +66,9 @@ checkTypeDef (Parsed.TypeDef (Parsed.Id (WithPos xpos x)) ps cs) = do
     modify (first (Map.insert x (ps', cs')))
 
 checkCtors
-    :: (String, [TVar]) -> Parsed.ConstructorDefs -> CheckTypeDefs [(Inferred.Id, [Inferred.Type])]
+    :: (String, [TVar])
+    -> Parsed.ConstructorDefs
+    -> CheckTypeDefs [(WithPos String, [Inferred.Type])]
 checkCtors parent (Parsed.ConstructorDefs cs) =
     let cspan = fromIntegral (length cs) in mapM (checkCtor cspan) (zip [0 ..] cs)
   where
@@ -125,7 +126,7 @@ builtinDataTypes' =
 
 assertNoRec
     :: Inferred.TypeDefs
-    -> (String, ([TVar], [(Inferred.Id, [Inferred.Type])]))
+    -> (String, ([TVar], [(WithPos String, [Inferred.Type])]))
     -> Except TypeErr ()
 assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
   where
@@ -159,23 +160,30 @@ unboundTypeVarsToUnit (Topo defs) = Topo $ runReader (mapM goDef defs) Set.empty
     goDef :: Inferred.Def -> Reader (Set TVar) Inferred.Def
     goDef = \case
         Inferred.VarDef d -> Inferred.VarDef <$> secondM (goDefRhs goExpr) d
-        Inferred.RecDefs ds ->
-            Inferred.RecDefs <$> mapM (secondM (goDefRhs (mapPosdM goFunMatch))) ds
+        Inferred.RecDefs ds -> Inferred.RecDefs <$> mapM (secondM (goDefRhs goFun)) ds
 
     goDefRhs f (scm, x) = (scm, ) <$> local (Set.union (Inferred._scmParams scm)) (f x)
 
-    goFunMatch :: Inferred.FunMatch -> Reader (Set TVar) Inferred.FunMatch
-    goFunMatch (cs, tps, tb) =
-        liftA3 (,,) (mapM (bimapM (mapPosdM (mapM goPat)) goExpr) cs) (mapM subst tps) (subst tb)
+    goMatch :: Inferred.Match -> Reader (Set TVar) Inferred.Match
+    goMatch (WithPos pos (ms, cs, tps, tb)) = do
+        ms' <- mapM goExpr ms
+        cs' <- mapM (bimapM (mapPosdM (mapM goPat)) goExpr) cs
+        tps' <- mapM subst tps
+        tb' <- subst tb
+        pure (WithPos pos (ms', cs', tps', tb'))
+
+    goFun :: Inferred.Fun -> Reader (Set TVar) Inferred.Fun
+    goFun (params, body) = liftA2 (,) (mapM (secondM subst) params) (bimapM goExpr subst body)
 
     goExpr :: Inferred.Expr -> Reader (Set TVar) Inferred.Expr
-    goExpr = mapPosdM $ \case
+    goExpr = \case
         Inferred.Lit c -> pure (Inferred.Lit c)
         Inferred.Var v -> Inferred.Var <$> secondM goTypedVar v
         Inferred.App f as tr -> liftA3 Inferred.App (goExpr f) (mapM goExpr as) (subst tr)
         Inferred.If p c a -> liftA3 Inferred.If (goExpr p) (goExpr c) (goExpr a)
         Inferred.Let ld b -> liftA2 Inferred.Let (goDef ld) (goExpr b)
-        Inferred.FunMatch fm -> fmap Inferred.FunMatch (goFunMatch fm)
+        Inferred.Fun f -> fmap Inferred.Fun (goFun f)
+        Inferred.Match m -> fmap Inferred.Match (goMatch m)
         Inferred.Ctor v sp inst ts ->
             liftA2 (Inferred.Ctor v sp) (secondM (mapM subst) inst) (mapM subst ts)
         Inferred.Sizeof t -> fmap Inferred.Sizeof (subst t)
@@ -204,37 +212,32 @@ compileDecisionTrees tdefs = compDefs
     compDef :: Inferred.Def -> Except TypeErr Checked.Def
     compDef = \case
         Inferred.VarDef (lhs, rhs) -> fmap (Checked.VarDef . (lhs, )) (secondM compExpr rhs)
-        Inferred.RecDefs ds -> fmap Checked.RecDefs $ forM ds $ secondM (secondM compFunMatch)
+        Inferred.RecDefs ds -> fmap Checked.RecDefs $ forM ds $ secondM (secondM compFun)
 
-    compFunMatch :: WithPos Inferred.FunMatch -> Except TypeErr Checked.Fun
-    compFunMatch (WithPos pos (cs, tps, tb)) = do
+    compFun (params, (body, tbody)) = do
+        body' <- compExpr body
+        pure (params, (body', tbody))
+
+    compMatch :: Inferred.Match -> Except TypeErr Checked.Expr
+    compMatch (WithPos pos (ms, cs, tps, tb)) = do
+        ms' <- mapM compExpr ms
         cs' <- mapM (secondM compExpr) cs
-        let vs = zipWith (\p tp -> Checked.Var (NonVirt, Checked.TypedVar p tp)) paramNames tps
         case runExceptT (toDecisionTree tdefs pos tps cs') of
-            Nothing -> pure (zip paramNames tps, (Checked.Absurd tb, tb))
+            Nothing -> pure (Checked.Absurd tb)
             Just e -> do
                 dt <- liftEither e
-                let b = Checked.Match vs dt
-                pure (zip paramNames tps, (b, tb))
-      where
-        paramNames = zipWith fromMaybe (map (("#x" ++) . show) [0 .. length tps - 1]) $ case cs of
-            [(WithPos _ ps, _)] -> map
-                (\(Inferred.Pat _ _ p) -> case p of
-                    Inferred.PVar (Inferred.TypedVar (WithPos _ x) _) -> Just x
-                    _ -> Nothing
-                )
-                ps
-            _ -> repeat Nothing
+                pure (Checked.Match ms' dt)
 
     compExpr :: Inferred.Expr -> Except TypeErr Checked.Expr
-    compExpr (WithPos pos ex) = case ex of
+    compExpr ex = case ex of
         Inferred.Lit c -> pure (Checked.Lit c)
-        Inferred.Var (virt, Inferred.TypedVar (WithPos _ x) t) ->
+        Inferred.Var (virt, Inferred.TypedVar x t) ->
             pure (Checked.Var (virt, Checked.TypedVar x t))
         Inferred.App f as _ -> liftA2 Checked.App (compExpr f) (mapM compExpr as)
         Inferred.If p c a -> liftA3 Checked.If (compExpr p) (compExpr c) (compExpr a)
         Inferred.Let ld b -> liftA2 Checked.Let (compDef ld) (compExpr b)
-        Inferred.FunMatch fm -> fmap Checked.Fun (compFunMatch (WithPos pos fm))
+        Inferred.Fun f -> fmap Checked.Fun (compFun f)
+        Inferred.Match m -> compMatch m
         Inferred.Ctor v span' inst ts ->
             let xs = map (\n -> "x" ++ show n) (take (length ts) [0 ..] :: [Word])
                 params = zip xs ts

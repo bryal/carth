@@ -1,7 +1,7 @@
 (import iter)
 
-(define: pi F64 3.14159265358979323846264338327950288)
-(define: inv-pi F64 0.318309886183790671537767526745028724)
+(defvar pi :of F64 3.14159265358979323846264338327950288)
+(defvar inv-pi :of F64 0.318309886183790671537767526745028724)
 
 (extern sin (Fun F64 F64))
 (extern cos (Fun F64 F64))
@@ -9,30 +9,29 @@
 
 (extern sqrt (Fun F64 F64))
 
-(define: (inc n)
-    (forall (a) (where (Num a) (Cast Int a))
-            (Fun a a))
+(defun inc [n] :of (forall (a) (where (Num a) (Cast Int a))
+                           (Fun a a))
   (+ n (cast 1)))
 
-(define (dec n) (- n (cast 1)))
+(defun dec [n] (- n (cast 1)))
 
-(define (neg x) (- (cast 0) x))
+(defun neg [x] (- (cast 0) x))
 
-(define (min a b) (if (< a b) a b))
-(define (max a b) (if (> a b) a b))
+(defun min [a b] (if (< a b) a b))
+(defun max [a b] (if (> a b) a b))
 
-(define (square x) (* x x))
+(defun square [x] (* x x))
 
-(define (and p q) (if p q    False))
-(define (or  p q) (if p True q))
+(defun and [p q] (if p q    False))
+(defun or  [p q] (if p True q))
 
-(define not (fun* (case [True] False)
-                  (case [False] True)))
+(defun not (case [True] False)
+  (case [False] True))
 
-(define (divisible? n m) (= (rem n m) (cast 0)))
+(defun divisible? [n m] (= (rem n m) (cast 0)))
 
-(define (powi x y)
-  (define (go acc x y)
+(defun powi [x y]
+  (defun go [acc x y]
     (if (= y (cast 0))
         acc
       (if (divisible? y (cast 2))
@@ -40,35 +39,34 @@
         (go (* acc x) x (dec y)))))
   (go (cast 1) x y))
 
-(define (sum xs) (foldl + (cast 0) xs))
-(define (product xs) (foldl * (cast 1) xs))
+(defun sum [xs] (foldl + (cast 0) xs))
+(defun product [xs] (foldl * (cast 1) xs))
 
-(define: nat/maxval Nat (cast -1))
+(defvar nat/maxval :of Nat (cast -1))
 
-(define: (nat/checked+ x y)
-    (Fun Nat Nat (Maybe Nat))
+(defun nat/checked+ [x y] :of (Fun Nat Nat (Maybe Nat))
   (let1 z (+ x y)
     (if (< z x)
         None
       (Some z))))
 
-(define (nat/nowrap+ x y)
-  (unwrap-or-else (fun (Unit) (panic "nat/nowrap+: addition overflowed"))
+(defun nat/nowrap+ [x y]
+  (unwrap-or-else (fun [Unit] (panic "nat/nowrap+: addition overflowed"))
                   (nat/checked+ x y)))
 
-(define (bit-set? i n)
+(defun bit-set? [i n]
   (/= (cast 0) (bit-and n (shift-l (cast 1) i))))
 
-(define (set-bit i b n)
+(defun set-bit [i b n]
   (if b
       (bit-or n (shift-l (cast 1) i))
     (bit-and n (bit-not (shift-l (cast 1) i)))))
 
-(define (index-bit i n)
+(defun index-bit [i n]
   (bit-and 1 (lshift-r n i)))
 
-(define (bit-not n)
+(defun bit-not [n]
   (- (- (cast 0) n) (cast 1)))
 
-(define (abs x) (if (> x 0) x (neg x)))
-(define (sign x) (if (> x 0) 1 -1))
+(defun abs [x] (if (> x 0) x (neg x)))
+(defun sign [x] (if (> x 0) 1 -1))

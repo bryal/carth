@@ -179,7 +179,7 @@ instance Destination Nowhere where
 
     sizedToDest Nowhere = \case
         ZeroSized -> pure $ Low.Block [] ()
-        Sized _ -> ice "Lower.sizedToDest: Sized to Nowhere"
+        Sized x -> ice $ "Lower.sizedToDest: Sized to Nowhere, " ++ show x
 
     indirectToDest Nowhere _ = ice "Lower.indirectToDest: expression to Nowhere"
 

@@ -20,26 +20,21 @@
   (Left a)
   (Right [Int8 Int]))
 
-(define: (seq a b)
-    (Fun (Either Unit) (IO Unit) (IO Unit))
+(defun seq [a b] :of (Fun (Either Unit) (IO Unit) (IO Unit))
   b)
-(define: (foo f)
-    (Fun (Fun Unit Unit) Unit)
+(defun foo [f] :of (Fun (Fun Unit Unit) Unit)
   (f Unit))
-(define: (<o f g)
-    (Fun (Fun Unit Unit) (Fun Unit Unit) (Fun Unit Unit))
-  (fun (a) (f (g a))))
-(define: (id x)
-    (Fun Unit Unit)
+(defun <o [f g] :of (Fun (Fun Unit Unit) (Fun Unit Unit) (Fun Unit Unit))
+  (fun [a] (f (g a))))
+(defun id [x] :of (Fun Unit Unit)
   x)
 
-(define: either/map-left
-    (Fun (Fun (Fun Unit Unit) Unit)
-         (Either (Fun Unit Unit))
-         (Either Unit))
-  (fun* (case [f (Left a)] (Left (f a)))
-        (case [_ (Right b)] (Right b))))
+(defun either/map-left :of (Fun (Fun (Fun Unit Unit) Unit)
+                                (Either (Fun Unit Unit))
+                                (Either Unit))
+  (case [f (Left a)] (Left (f a)))
+  (case [_ (Right b)] (Right b)))
 
-(define main
+(defvar main
   (seq (either/map-left foo (Left (<o id id)))
-       (IO (fun (real-world) [Unit real-world]))))
+       (IO (fun [real-world] [Unit real-world]))))

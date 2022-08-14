@@ -35,7 +35,7 @@ toplevels = fmap mconcat (manyTill toplevel end)
 
 extern :: Parser Extern
 extern = do
-    reserved Kextern
+    reserved Rextern
     x@(Id (WithPos pos x')) <- small
     unless (c_validIdent x') $ tell
         [ Warning
@@ -46,7 +46,7 @@ extern = do
 
 typedef :: Parser TypeDef
 typedef = do
-    _ <- reserved Kdata
+    _ <- reserved Rdata
     let onlyName = fmap (, []) big
     let nameAndSome = parens . liftA2 (,) big . some
     (name, params) <- onlyName <|> nameAndSome small
@@ -54,37 +54,35 @@ typedef = do
     pure (TypeDef name params (ConstructorDefs constrs))
 
 def :: SrcPos -> Parser Def
-def topPos = defUntyped topPos <|> defTyped topPos
-
--- TODO: ~define (foo a b)~ -> ~defun foo [a b]~
-defUntyped :: SrcPos -> Parser Def
-defUntyped pos = reserved Kdefine *> def' (pure Nothing) pos
-
-defTyped :: SrcPos -> Parser Def
-defTyped pos = reserved KdefineColon *> def' (fmap Just scheme) pos
-
-def' :: Parser (Maybe Scheme) -> SrcPos -> Parser Def
-def' schemeParser topPos = varDef <|> funDef
+def topPos = (reserved Rdefun *> funDef) <|> (reserved Rdefvar *> varDef)
   where
-    body = do
+    body inner = do
         ds <- many (tryParens' def)
-        if null ds then expr else fmap (\b -> WithPos (getPos b) (LetRec ds b)) expr
+        if null ds then expr else fmap (\b -> WithPos (getPos b) (LetRec ds b)) inner
     varDef = do
         name <- small
-        scm <- schemeParser
-        VarDef topPos name scm <$> body
+        scm <- option Nothing (fmap Just (keyword "of" *> scheme))
+        VarDef topPos name scm <$> body expr
     funDef = do
-        pos <- getSrcPos
-        (name, params) <- parens (liftM2 (,) small (some pat))
-        scm <- schemeParser
-        FunDef topPos name scm (WithPos pos params) <$> body
+        name <- small
+        (<|>)
+            (do
+                params <- withPos $ brackets (some pat)
+                scm <- option Nothing (fmap Just (keyword "of" *> scheme))
+                FunDef topPos name scm params <$> body expr
+            )
+            (do
+                scm <- option Nothing (fmap Just (keyword "of" *> scheme))
+                cases' <- some
+                    (parens (reserved Rcase *> liftA2 (,) (withPos (brackets (some pat))) expr))
+                pure $ FunMatchDef topPos name scm cases'
+            )
 
 expr :: Parser Expr
 expr = withPos expr'
 
 data BindingLhs
     = VarLhs (Id 'Small)
-    | FunLhs (Id 'Small) FunPats
     | CaseVarLhs Pat
 
 expr' :: Parser Expr'
@@ -99,50 +97,38 @@ expr' = choice [var, lit, eConstructor, etuple, pexpr]
     etuple = fmap unpos $ tuple expr (\p -> WithPos p (Ctor (Id (WithPos p "Unit")))) $ \l r ->
         let p = getPos l in WithPos p (App (WithPos p (Ctor (Id (WithPos p "Cons")))) [l, r])
     var = fmap Var small
-    pexpr = parens'
-        $ \p -> choice [funMatch, match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
-    funMatch = do
-        reserved KfunStar
-        FunMatch <$> some
-            (parens (reserved Kcase *> liftA2 (,) (withPos (brackets (some pat))) expr))
-    match = reserved Kmatch
-        *> liftA2 Match expr (many (parens (reserved Kcase *> liftA2 (,) pat expr)))
-    if' = reserved Kif *> liftM3 If expr expr expr
-    fun = do
-        reserved Kfun
-        -- TODO: Make this brackets. Since it's tuple-like, and we could do with some variation
-        --       when reading...
-        params <- withPos $ parens (some pat)
-        body <- expr
-        pure $ FunMatch [(params, body)]
-    let1 p = reserved Klet1 *> (varLhs <|> funLhs <|> caseVarLhs) >>= \case
+    pexpr = parens' $ \p -> choice [match, if', fun, let1 p, let', letrec, typeAscr, sizeof, app]
+    match = reserved Rmatch
+        *> liftA2 Match expr (many (parens (reserved Rcase *> liftA2 (,) pat expr)))
+    if' = reserved Rif *> liftM3 If expr expr expr
+    fun = reserved Rfun *> (<|>)
+        (liftA2 Fun (withPos (brackets (some pat))) expr)
+        (FunMatch
+        <$> some (parens (reserved Rcase *> liftA2 (,) (withPos (brackets (some pat))) expr))
+        )
+    let1 p = reserved Rlet1 *> (varLhs <|> caseVarLhs) >>= \case
         VarLhs lhs -> liftA2 (Let1 . Def) (varBinding p lhs) expr
-        FunLhs name params -> liftA2 (Let1 . Def) (funBinding p name params) expr
         CaseVarLhs lhs -> liftA2 Let1 (fmap (Deconstr lhs) expr) expr
     let' = do
-        reserved Klet
+        reserved Rlet
         bs <- parens (many pbinding)
         Let bs <$> expr
       where
         pbinding = parens' binding
-        binding p = (varLhs <|> funLhs <|> caseVarLhs) >>= \case
+        binding p = (varLhs <|> caseVarLhs) >>= \case
             VarLhs lhs -> fmap Def (varBinding p lhs)
-            FunLhs name params -> fmap Def (funBinding p name params)
             CaseVarLhs lhs -> fmap (Deconstr lhs) expr
-    letrec = reserved Kletrec *> liftA2 LetRec (parens (many pbinding)) expr
+    letrec = reserved Rletrec *> liftA2 LetRec (parens (many pbinding)) expr
       where
         pbinding = parens' binding
-        binding p = (varLhs <|> funLhs) >>= \case
+        binding p = varLhs >>= \case
             VarLhs lhs -> varBinding p lhs
-            FunLhs name params -> funBinding p name params
             CaseVarLhs _ -> ice "letrec binding: CaseVarLhs"
     varLhs = fmap VarLhs small
-    funLhs = tryParens' (\pos -> liftA2 FunLhs small (fmap (WithPos pos) (some pat)))
     caseVarLhs = fmap CaseVarLhs pat
     varBinding pos lhs = VarDef pos lhs Nothing <$> expr
-    funBinding pos name params = FunDef pos name Nothing params <$> expr
-    typeAscr = reserved Kcolon *> liftA2 TypeAscr expr type_
-    sizeof = reserved Ksizeof *> fmap Sizeof type_
+    typeAscr = reserved Rcolon *> liftA2 TypeAscr expr type_
+    sizeof = reserved Rsizeof *> fmap Sizeof type_
     app = do
         rator <- expr
         rands <- some expr
@@ -163,7 +149,7 @@ pat = choice [patInt, patStr, patCtor, patVar, patTuple, ppat]
     patTuple = tuple pat (\p -> PConstruction p (Id (WithPos p "Unit")) [])
         $ \l r -> let p = getPos l in PConstruction p (Id (WithPos p "Cons")) [l, r]
     ppat = parens' $ \pos -> choice [patBox pos, patCtion pos]
-    patBox pos = reserved KBox *> fmap (PBox pos) pat
+    patBox pos = reserved RBox *> fmap (PBox pos) pat
     patCtion pos = liftM3 PConstruction (pure pos) big (some pat)
 
 scheme :: Parser Scheme
@@ -171,9 +157,9 @@ scheme = do
     pos <- getSrcPos
     let wrap = fmap (Forall pos Set.empty Set.empty)
         universal =
-            reserved Kforall *> liftA3 (Forall pos) tvars (option Set.empty (try constrs)) type_
+            reserved Rforall *> liftA3 (Forall pos) tvars (option Set.empty (try constrs)) type_
         tvars = parens (fmap Set.fromList (some tvar))
-        constrs = parens (reserved Kwhere *> fmap Set.fromList (some (parens tapp)))
+        constrs = parens (reserved Rwhere *> fmap Set.fromList (some (parens tapp)))
     wrap nonptype <|> parens (universal <|> wrap ptype)
 
 type_ :: Parser Type
@@ -199,18 +185,18 @@ tuple p unit f = brackets $ do
     as <- many (try p)
     let ls = a : as
     pos <- gets stOuterPos
-    r <- option (unit pos) (try (reserved Kdot *> p))
+    r <- option (unit pos) (try (reserved Rdot *> p))
     pure $ foldr f r ls
 
 ptype :: Parser Type
 ptype = choice [tfun, tbox, fmap (TConst . second (map snd)) tapp]
   where
     tfun = do
-        reserved KFun
+        reserved RFun
         ts <- some type_
         let (ps, r) = fromJust $ unsnoc ts
         pure (TFun ps r)
-    tbox = reserved KBox *> fmap TBox type_
+    tbox = reserved RBox *> fmap TBox type_
 
 tapp :: Parser (String, [(SrcPos, Type)])
 tapp = liftA2 ((,) . idstr) big (some (liftA2 (,) getSrcPos type_))

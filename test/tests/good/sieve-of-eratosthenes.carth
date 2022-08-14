@@ -2,11 +2,11 @@
 
 (import std)
 
-(define main
+(defvar main
   (let1 primes (sieve (range-from 2))
     (display (show-int (unwrap! (iter/nth (cast 1000) primes))))))
 
-(define (sieve xs)
-  (Iter (fun (_)
+(defun sieve [xs]
+  (Iter (fun [_]
           (let1 [x xs'] (next! xs)
             (Some [x (sieve (filter (<o not (partial-2 (flip divisible?) x)) xs'))])))))

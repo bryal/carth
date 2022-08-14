@@ -4,7 +4,7 @@
 
 (import std)
 
-(define main
+(defvar main
   ((apps <o display show-int first!)
    (eval (list 30 1000)
          (list "dup"
@@ -16,20 +16,20 @@
                "add"
                "add"))))
 
-(define (eval stack instrs)
+(defun eval [stack instrs]
 
-  (define eval-instr
-    (fun* (case ["add"] (let (([a stack] (list/uncons! stack))
-                              ([b stack] (list/uncons! stack)))
-                          (list/cons (+ a b) stack)))
-          (case ["mul"] (let (([a stack] (list/uncons! stack))
-                              ([b stack] (list/uncons! stack)))
-                          (list/cons (* a b) stack)))
-          (case ["swap"] (let (([a stack] (list/uncons! stack))
-                               ([b stack] (list/uncons! stack)))
-                           (list/append (list b a) stack)))
-          (case ["dup"] (list/cons (first! stack) stack))
-          (case [num-s] (list/cons (unwrap! (parse-int num-s)) stack))))
+  (defun eval-instr
+    (case ["add"] (let (([a stack] (list/uncons! stack))
+                        ([b stack] (list/uncons! stack)))
+                    (list/cons (+ a b) stack)))
+    (case ["mul"] (let (([a stack] (list/uncons! stack))
+                        ([b stack] (list/uncons! stack)))
+                    (list/cons (* a b) stack)))
+    (case ["swap"] (let (([a stack] (list/uncons! stack))
+                         ([b stack] (list/uncons! stack)))
+                     (list/append (list b a) stack)))
+    (case ["dup"] (list/cons (first! stack) stack))
+    (case [num-s] (list/cons (unwrap! (parse-int num-s)) stack)))
   
   (match (list/uncons instrs)
     (case None

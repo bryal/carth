@@ -1,4 +1,4 @@
-module Front.Subst (Subst, Subst', subst, subst', substDef, substExpr, substExpr', substFunMatch, substFunMatch', composeSubsts) where
+module Front.Subst (Subst, Subst', subst, subst', substDef, substExpr, substExpr', substFun, composeSubsts) where
 
 import qualified Data.Map as Map
 import Data.Map (Map)
@@ -15,27 +15,34 @@ type Subst' = Map TVar Type
 substDef :: Subst -> Def -> Def
 substDef s = \case
     VarDef d -> VarDef (second (second (substExpr' s)) d)
-    RecDefs ds -> RecDefs (map (second (second (mapPosd (substFunMatch' s)))) ds)
+    RecDefs ds -> RecDefs (map (second (second (substFun' s))) ds)
 
 substExpr :: Map TVar Type -> Expr -> Expr
 substExpr s = substExpr' (flip Map.lookup s)
 
 substExpr' :: Subst -> Expr -> Expr
-substExpr' s (WithPos pos expr) = WithPos pos $ case expr of
+substExpr' s expr = case expr of
     Lit c -> Lit c
     Var v -> Var (second (substTypedVar s) v)
     App f as rt -> App (substExpr' s f) (map (substExpr' s) as) (subst' s rt)
     If p c a -> If (substExpr' s p) (substExpr' s c) (substExpr' s a)
     Let def body -> Let (substDef s def) (substExpr' s body)
-    FunMatch f -> FunMatch (substFunMatch' s f)
+    Fun f -> Fun (substFun' s f)
+    Match m -> Match (substMatch' s m)
     Ctor i span' (tx, tts) ps -> Ctor i span' (tx, map (subst' s) tts) (map (subst' s) ps)
     Sizeof t -> Sizeof (subst' s t)
 
-substFunMatch :: Map TVar Type -> FunMatch -> FunMatch
-substFunMatch s = substFunMatch' (flip Map.lookup s)
+substFun :: Map TVar Type -> Fun -> Fun
+substFun s = substFun' (flip Map.lookup s)
 
-substFunMatch' :: Subst -> FunMatch -> FunMatch
-substFunMatch' s (cs, tp, tb) = (substCases s cs, map (subst' s) tp, subst' s tb)
+substFun' :: Subst -> Fun -> Fun
+substFun' s (ps, b) = (map (second (subst' s)) ps, bimap (substExpr' s) (subst' s) b)
+
+substMatch' :: Subst -> Match -> Match
+substMatch' s = mapPosd
+    (\(ms, cs, tps, tb) ->
+        (map (substExpr' s) ms, substCases s cs, map (subst' s) tps, subst' s tb)
+    )
 
 substCases :: Subst -> Cases -> Cases
 substCases s = map (bimap (mapPosd (map (substPat s))) (substExpr' s))

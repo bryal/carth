@@ -2,8 +2,8 @@
 
 (import std)
 
-(define (foo/to-int a) (: (cast a) Int))
+(defun foo/to-int [a] (: (cast a) Int))
 
-(define main
+(defvar main
   (display (show-int (+ (foo/to-int (: 400.20     F64))
                         (foo/to-int (: (cast 20) Nat))))))

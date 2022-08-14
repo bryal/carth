@@ -6,12 +6,12 @@
 
 (import std)
 
-(define (foo x)
-  (define (go bar)
-    (fun (b) (let1 bar (- bar b)
+(defun foo [x]
+  (defun go [bar]
+    (fun [b] (let1 bar (- bar b)
                (if (> bar 0)
                    ((go bar) b)
                  1337))))
   ((go x) 1))
 
-(define main (display (show-int (foo 10))))
+(defvar main (display (show-int (foo 10))))
