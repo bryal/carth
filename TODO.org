@@ -2,27 +2,6 @@
 
 Features and other stuff to do/implement in/around Carth.
 
-* TODO Sugar for lambdas
-  Look at [[https://clojure.org/guides/learn/functions#_anonymous_function_syntax][Clojure's reader shorthand for anonymous functions]].
-
-  It's basically De Brujin notation. So ~(fn [a b] (* 5 (+ a b)))~ can
-  also be written ~#(* 5 (+ %1 %2))~. That's convenient! If one
-  instead does good point-free compositioning, like ~(<oo (* 5) +)~,
-  the sugar is "unneccesary", but it really is quite concise and
-  readable. Might be nice to have.
-* TODO Stack traces
-I want something like what you get when running a panic:ing Rust
-program with ~RUST_BACKTRACE=1~.
-
-Annotating generated code with good DWARF is not easy, and it wouldn't
-be optimally useful in an expression oriented language anyways. That's
-more for line-by-line / statement oriented languages like C. But
-stacktraces are awesome! Seeing exactly where a panic occurs is
-critical for quick debugging.
-
-So how do we get the traces? Maybe using some kind of shadow
-stack. Such a method might work well for other potential backends as
-well, like a C backend.
 * TODO Migrate TODO to some kind of Kanban board or the like
 Self hosted? Does Sourcehut have anything? Base it on mailing lists (no... or maybe?)
 

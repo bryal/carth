@@ -89,7 +89,7 @@ impl Str {
         }
     }
 
-    pub fn as_str<'s>(&'s self) -> &'s str {
+    pub fn as_str(&self) -> &str {
         unsafe {
             let Array { elems, len } = self.array;
             let slice = slice::from_raw_parts(elems, len as usize);
@@ -191,7 +191,18 @@ pub extern "C" fn _print_int(n: i64) {
 
 #[no_mangle]
 pub extern "C" fn _panic(s: Str) {
-    eprintln!("*** Panic: {}", s.as_str());
+    eprintln!("*** Panic: {}\n", s.as_str());
+
+    unsafe {
+        if !BACKTRACE.is_empty() {
+            eprintln!("*** BACKTRACE");
+            for (frame, entry) in BACKTRACE.iter().enumerate().rev() {
+                eprintln!("{}: {}", frame + 1, entry);
+            }
+            eprintln!("0: main");
+        }
+    }
+
     std::process::abort()
 }
 
@@ -217,6 +228,20 @@ pub extern "C" fn unsafe_read_file(fp: Str) -> Maybe<Str> {
                 .unwrap_or(Maybe::None)
         })
         .unwrap_or(Maybe::None)
+}
+
+static mut BACKTRACE: Vec<String> = Vec::new();
+
+#[no_mangle]
+pub extern "C" fn carth_backtrace_push(entry: Str) {
+    unsafe { BACKTRACE.push(entry.as_str().to_owned()) }
+}
+
+#[no_mangle]
+pub extern "C" fn carth_backtrace_pop() {
+    unsafe {
+        BACKTRACE.pop();
+    }
 }
 
 // NOTE: This is a hack to ensure that Rust links in libm.

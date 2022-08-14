@@ -30,6 +30,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Void
 import Lens.Micro.Platform (makeLenses, modifying, use, view, (<<.=), to, assign)
+
 import Back.Low (typeof , passed , Sized (..), fromSized, sizedMaybe, mapSized, mapSizedM, sized, catSized, OutParam (..), outParamLocal, MemberName (..), MemberIx, Union (..), pointee, asTConst)
 import qualified Back.Low as Low
 import Front.Monomorphize as Ast
@@ -39,6 +40,7 @@ import Misc
 import Sizeof (tagBits, wordsizeBits)
 import qualified Sizeof
 import FreeVars
+import Pretty
 
 data TypeEnv = TypeEnv
     { _tids :: Map Ast.TConst (Sized Low.TypeId)
@@ -65,6 +67,7 @@ data Env = Env
     --   closure captures parameter.
     , _externEnv :: Map TypedVar (Low.Extern, Low.Global)
     , _selfFun :: Maybe (TypedVar, Low.Operand, Low.Global)
+    , _debug :: Bool
     }
 makeLenses ''Env
 
@@ -250,7 +253,7 @@ instance Destination Arg where
             False -> Low.InReg $ Low.Expr (Low.Load ptr) t
 
 lower :: Bool -> Program -> Low.Program
-lower noGC (Program (Topo defs) datas externs) =
+lower debug' (Program (Topo defs) datas externs) =
     let
         externNames = map fst externs
         (gfunDefs, gvarDefs) = partitionGlobDefs
@@ -308,6 +311,7 @@ lower noGC (Program (Topo defs) datas externs) =
                       , _globalEnv = Map.empty
                       , _externEnv = Map.empty
                       , _selfFun = Nothing
+                      , _debug = debug'
                       }
 
     builtinNames :: Seq String
@@ -411,26 +415,37 @@ lower noGC (Program (Topo defs) datas externs) =
         -- | Must be used on globals when running in JIT, as Boehm GC only detects global var roots
         --   when it can scan some segment in the ELF.
         gcAddRoot :: Low.Global -> Lower (Low.Block ())
-        gcAddRoot globRef = if noGC
-            then pure (Low.Block [] ())
-            else do
-                let p0 = Low.CBitcast (Low.CGlobal globRef) Low.VoidPtr
-                    ptrSize = 8
-                    p1 = Low.CBitcast
-                        (Low.CPtrIndex
-                            (Low.CBitcast (Low.CGlobal globRef) (Low.TPtr (Low.TNat 8)))
-                            ptrSize
-                        )
-                        Low.VoidPtr
-                stm <- fromRight (ice "GC_add_roots, not a void call")
-                    <$> callBuiltin "GC_add_roots" Nothing [Low.OConst p0, Low.OConst p1]
-                pure (Low.Block [stm] ())
+        gcAddRoot globRef = do
+            let p0 = Low.CBitcast (Low.CGlobal globRef) Low.VoidPtr
+                ptrSize = 8
+                p1 = Low.CBitcast
+                    (Low.CPtrIndex (Low.CBitcast (Low.CGlobal globRef) (Low.TPtr (Low.TNat 8)))
+                                   ptrSize
+                    )
+                    Low.VoidPtr
+            stm <- fromRight (ice "GC_add_roots, not a void call")
+                <$> callBuiltin "GC_add_roots" Nothing [Low.OConst p0, Low.OConst p1]
+            pure (Low.Block [stm] ())
 
 lowerFunDef :: [TypedVar] -> Maybe TypedVar -> Low.GlobalId -> Fun -> Lower Low.FunDef
 lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty $ do
     -- Gotta remember these for when we return to whichever scope we came from
     oldLocalNames <- replaceLocalNames Seq.empty
     oldAllocs <- replaceAllocs []
+
+    debug' <- view debug
+    (stmsBacktracePush, stmsBacktracePop) <- case lhs of
+        Just (TypedVar x t) | debug' -> do
+            let s = x ++ " :of " ++ pretty t
+            Low.Block stmsPush s' <- load . Low.OGlobal =<< internStr s
+            stmPush <- fromRight (ice "carth_backtrace_push returned sized")
+                <$> callBuiltin "carth_backtrace_push" Nothing [s']
+            stmPop <-
+                fromRight (ice "carth_backtrace_pop returned sized")
+                    <$> callBuiltin "carth_backtrace_pop" Nothing []
+            pure (stmsPush ++ [stmPush], [stmPop])
+        _ -> pure ([], [])
+
     (outParam, ret) <- toRet (newLName "sret") =<< lowerType rt
     capturesName <- newLName "captures"
     let capturesParam = (capturesName, Low.InReg Low.VoidPtr)
@@ -448,7 +463,7 @@ lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty
             in  fmap (, selfCaptures, selfRef) lhs
 
     -- Lower the body and optimize to loop if the function is tail recursive.
-    (outerParams, body'') <- locallySet selfFun selfFun' $ do
+    (outerParams, Low.Block stmsBody termBody) <- locallySet selfFun selfFun' $ do
         let passingStyles = map snd params
         innerParamIds <- mapM (newLName . fst) params
         innerParams <- fmap (zipWith Low.Local innerParamIds) . forM passingStyles $ \p ->
@@ -512,7 +527,9 @@ lowerFunDef freeLocals lhs name (ps, (body, rt)) = locallySet localEnv Map.empty
                     else genOuterParams
                         <&> second (`thenBlock` mapTerm (\() -> Low.TRetVoid) body')
             (Just _, Low.RetVal _) -> unreachable
-    let body''' = Low.Block capturesStms () `thenBlock` body''
+    let body''' = Low.Block
+            (stmsBacktracePush ++ capturesStms ++ stmsBody ++ stmsBacktracePop)
+            termBody
     localNames' <-
         Vec.fromList . Low.resolveNameConflicts [] . toList <$> replaceLocalNames oldLocalNames
     allocs' <- replaceAllocs oldAllocs

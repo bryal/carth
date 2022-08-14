@@ -6,6 +6,7 @@ import Prelude hiding (showChar)
 import Data.Bifunctor
 import qualified Data.Set as Set
 import Data.Set (Set)
+import Data.Void
 import LLVM.AST (Module)
 import LLVM.Pretty ()
 import qualified Prettyprinter as Prettyprint
@@ -67,6 +68,9 @@ instance Pretty Parsed.TVar where
     pretty' _ = prettyTVar
 instance Pretty (Parsed.Id a) where
     pretty' _ = Parsed.idstr
+
+instance Pretty Void where
+    pretty' _ = absurd
 
 prettyType :: Pretty var => Type' var -> String
 prettyType = \case

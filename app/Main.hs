@@ -76,7 +76,7 @@ frontend cfg f = do
     let !mon = monomorphize ann
     when d $ writeFile ".dbg.mono" (show mon)
     verbose cfg "   Lowering"
-    let !low = lower (getNoGC cfg) mon
+    let !low = lower (getDebug cfg) mon
     when d $ writeFile ".dbg.low" (pretty low)
     pure low
 

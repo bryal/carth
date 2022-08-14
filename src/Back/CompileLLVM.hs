@@ -153,7 +153,7 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
             layout <- getTargetMachineDataLayout tm
             triple <- getProcessTargetTriple
             verbose cfg "   Generating LLVM"
-            let amod = codegen layout triple (getNoGC cfg) file pgm
+            let amod = codegen layout triple file pgm
             when (getDebug cfg) (writeFile ".dbg.gen.ll" (pretty amod))
             flip
                     catch
@@ -220,22 +220,21 @@ handleProgram f file cfg pgm = withContext $ \ctx ->
 foreign import ccall "dynamic"
   mkMain :: FunPtr (IO Int32) -> IO Int32
 
-codegen :: DataLayout -> ShortByteString -> Bool -> FilePath -> Program -> Module
-codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames main init) =
-    Module
-        { moduleName = fromString (takeBaseName moduleFilePath)
-        , moduleSourceFileName = fromString moduleFilePath
-        , moduleDataLayout = Just layout
-        , moduleTargetTriple = Just triple
-        , moduleDefinitions = concat
-                                  [ defineTypes
-                                  , defineBuiltinsHidden
-                                  , declareExterns
-                                  , declareGlobals
-                                  , map defineFun funs
-                                  , [defineMain]
-                                  ]
-        }
+codegen :: DataLayout -> ShortByteString -> FilePath -> Program -> Module
+codegen layout triple moduleFilePath (Program funs exts gvars tdefs gnames main init) = Module
+    { moduleName = fromString (takeBaseName moduleFilePath)
+    , moduleSourceFileName = fromString moduleFilePath
+    , moduleDataLayout = Just layout
+    , moduleTargetTriple = Just triple
+    , moduleDefinitions = concat
+                              [ defineTypes
+                              , defineBuiltinsHidden
+                              , declareExterns
+                              , declareGlobals
+                              , map defineFun funs
+                              , [defineMain]
+                              ]
+    }
   where
     tdefs' = Vec.fromList (resolveTypeNameConflicts [] tdefs)
 
@@ -761,14 +760,7 @@ codegen layout triple noGC' moduleFilePath (Program funs exts gvars tdefs gnames
             InReg pt -> genType pt
             OnStack pt -> LL.ptr (genType pt)
 
-    getGName (GID gid) = getName
-        (if noGC'
-            then flip Vec.map gnames $ \case
-                "GC_malloc" -> "malloc"
-                s -> s
-            else gnames
-        )
-        gid
+    getGName (GID gid) = getName gnames gid
 
     litI64 :: Integral a => a -> LL.Operand
     litI64 = LL.ConstantOperand . LL.Int 64 . toInteger

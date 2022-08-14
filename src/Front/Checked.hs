@@ -75,6 +75,8 @@ builtinExterns = Map.fromList
     , ("GC_malloc", TFun [TPrim TNatSize] (TBox tUnit))
     , ("malloc", TFun [TPrim TNatSize] (TBox tUnit))
     , ("str_eq", TFun [tStr, tStr] tBool)
+    , ("carth_backtrace_push", TFun [tStr] tUnit)
+    , ("carth_backtrace_pop", TFun [] tUnit)
     ]
 
 type Defs = TopologicalOrder Def
