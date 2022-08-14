@@ -56,7 +56,7 @@ typedef = do
     pure (TypeDef name params (ConstructorDefs constrs))
 
 def :: SrcPos -> Parser Def
-def topPos = (reserved Rdefun *> funDef) <|> (reserved Rdefvar *> varDef)
+def topPos = (reserved Rdefun *> funDef) <|> (reserved Rdef *> varDef)
   where
     body inner = do
         ds <- many (tryParens' def)

@@ -4,6 +4,6 @@
 
 (defun foo/to-int [a] (: (cast a) Int))
 
-(defvar main
+(def main
   (display (show-int (+ (foo/to-int (: 400.20     F64))
                         (foo/to-int (: (cast 20) Nat))))))

@@ -41,8 +41,8 @@
   (case [f (Some a)] (f a))
   (case [f None] None))
 
-(defvar maybe/bindl maybe/bind)
-(defvar maybe/bindr (flip maybe/bind))
+(def maybe/bindl maybe/bind)
+(def maybe/bindr (flip maybe/bind))
 
 (defun maybe/iter [x] (maybe' iter/nil iter/once x))
 
@@ -63,4 +63,4 @@
     (case [(Some a) (Some b)] (inner= a b))
     (case _                   False)))
 
-(defvar cat-maybes (partial-2 filter-map id))
+(def cat-maybes (partial-2 filter-map id))

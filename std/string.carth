@@ -26,7 +26,7 @@
              (cast 2)]
           [(bit-and b (cast 0b00000111))
            (cast 3)]))))
-  (defvar cont-byte :of (Fun [Nat8] Nat8) (partial-2 bit-and (cast 0b00111111)))
+  (def cont-byte :of (Fun [Nat8] Nat8) (partial-2 bit-and (cast 0b00111111)))
   (defun join [a b] :of (Fun [Nat32 Nat8] Nat32)
     (+ (shift-l (cast a) (cast 6))
        (cast (cont-byte b))))
@@ -144,17 +144,17 @@
 (defun uppercase-byte? [b] (and (>= b ascii-A) (<= b ascii-Z)))
 (defun lowercase-byte? [b] (and (>= b ascii-a) (<= b ascii-z)))
 
-(defvar ascii-carriage-return :of Nat8 (cast 0xD))
-(defvar ascii-newline :of Nat8 (cast 0xA))
-(defvar ascii-space :of Nat8 (cast 0x20))
-(defvar ascii-minus :of Nat8 (cast 0x2D))
-(defvar ascii-0 :of Nat8 (cast 0x30))
-(defvar ascii-1 :of Nat8 (cast 0x31))
-(defvar ascii-9 :of Nat8 (cast 0x39))
-(defvar ascii-A :of Nat8 (cast 0x41))
-(defvar ascii-Z :of Nat8 (cast 0x5A))
-(defvar ascii-a :of Nat8 (cast 0x61))
-(defvar ascii-z :of Nat8 (cast 0x7A))
+(def ascii-carriage-return :of Nat8 (cast 0xD))
+(def ascii-newline :of Nat8 (cast 0xA))
+(def ascii-space :of Nat8 (cast 0x20))
+(def ascii-minus :of Nat8 (cast 0x2D))
+(def ascii-0 :of Nat8 (cast 0x30))
+(def ascii-1 :of Nat8 (cast 0x31))
+(def ascii-9 :of Nat8 (cast 0x39))
+(def ascii-A :of Nat8 (cast 0x41))
+(def ascii-Z :of Nat8 (cast 0x5A))
+(def ascii-a :of Nat8 (cast 0x61))
+(def ascii-z :of Nat8 (cast 0x7A))
 
 (defun parse-int [s]
   (maybe/bindr (next (string/bytes s))
@@ -217,8 +217,8 @@
 (defun string/singleton-byte [b] (Str (array/singleton b)))
 
 (extern str_cmp (Fun [Str Str] Cmp))
-(defvar str-cmp str_cmp)
+(def str-cmp str_cmp)
 (extern str_show (Fun [Str] Str))
-(defvar str-show str_show)
+(def str-show str_show)
 
 (defun string/nth-byte! [i (Str a)] (array/lookup! i a))

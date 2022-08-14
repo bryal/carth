@@ -14,4 +14,4 @@
                  1337))))
   ((go x) 1))
 
-(defvar main (display (show-int (foo 10))))
+(def main (display (show-int (foo 10))))

@@ -2,9 +2,9 @@
 
 (import std)
 
-(defvar tr transmute)
+(def tr transmute)
 
-(defvar main
+(def main
   (display (show-int ((: tr (Fun [Nat] Int))
                       ((: tr (Fun [Int] Nat))
                        123456)))))

@@ -2,4 +2,4 @@
 
 (import std)
 
-(defvar main (io/bind display (io/map (<o show-nat (<o count lines)) get-contents)))
+(def main (io/bind display (io/map (<o show-nat (<o count lines)) get-contents)))

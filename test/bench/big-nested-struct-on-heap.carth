@@ -1,6 +1,6 @@
 (import std)
 
-(defvar main
+(def main
   (io/for (range-from 0) big-allocation))
 
 (defun big-allocation [n]

@@ -6,7 +6,7 @@
   (MTree (Box [k v Nat (Map k v) (Map k v)]))
   MLeaf)
 
-(defvar map/empty MLeaf)
+(def map/empty MLeaf)
 (defun map/singleton [k v] (MTree (box [k v (to-nat 1) MLeaf MLeaf])))
 
 (defun map/size

@@ -35,6 +35,6 @@
   (case [f (Left a)] (Left (f a)))
   (case [_ (Right b)] (Right b)))
 
-(defvar main
+(def main
   (seq (either/map-left foo (Left (<o id id)))
        (IO (fun [real-world] [Unit real-world]))))

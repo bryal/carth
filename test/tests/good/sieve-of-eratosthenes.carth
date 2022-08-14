@@ -2,7 +2,7 @@
 
 (import std)
 
-(defvar main
+(def main
   (let1 primes (sieve (range-from 2))
     (display (show-int (unwrap! (iter/nth (cast 1000) primes))))))
 

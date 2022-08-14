@@ -9,7 +9,7 @@
 (data (Iter a)
   (Iter (Fun [Unit] (Maybe [a (Iter a)]))))
 
-(defvar iter/nil
+(def iter/nil
   (Iter (fun [_] None)))
 
 (defun iter/nil? [it]
@@ -29,7 +29,7 @@
                   (Some [x (iter/chain xs' ys)]))))))
 
 (defun next [(Iter it)] (it Unit))
-(defvar next! (<o unwrap! next))
+(def next! (<o unwrap! next))
 
 (defun iter/first [it] (maybe/map car (next it)))
 (defun iter/first! [it] (car (next! it)))
@@ -138,7 +138,7 @@
 (defun count [xs] :of (forall (a) (Fun [(Iter a)] Nat))
   (foldl (fun [n _] (inc n)) (cast 0) xs))
 
-(defvar enumerate (partial-2 zip (range-from (: (cast 0) Nat))))
+(def enumerate (partial-2 zip (range-from (: (cast 0) Nat))))
 
 (defun zip [xs ys]
   (Iter (fun [_] (match [(next xs) (next ys)]

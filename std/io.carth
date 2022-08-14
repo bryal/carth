@@ -17,7 +17,7 @@
         (let1 [a real-world] (ma real-world)
           ((perform-io (f a)) real-world)))))
 
-(defvar io/bindr (flip io/bind))
+(def io/bindr (flip io/bind))
 
 (defun io/thenl [mb ma] (io/bind (const mb) ma))
 (defun io/thenr [ma mb] (io/bindr ma (const mb)))
@@ -37,10 +37,10 @@
   (display-inline (str-append s "\n")))
 
 (extern _get_contents (Fun [RealWorld] [Str RealWorld]))
-(defvar get-contents (IO _get_contents))
+(def get-contents (IO _get_contents))
 
 (extern unsafe_read_file (Fun [Str] (Maybe Str)))
-(defvar unsafe-read-file unsafe_read_file)
+(def unsafe-read-file unsafe_read_file)
 (defun read-file [f] (IO (fun [real-world] [(unsafe-read-file f) real-world])))
 
 (defun io/write-ref [x ptr]
@@ -76,7 +76,7 @@
             (read-handle' h (array/unsafe-uninit n)))))
 
 (defun handle/read-to-end [h]
-  (defvar bufsize (: (cast (* 8 1024)) Nat))
+  (def bufsize (: (cast (* 8 1024)) Nat))
   (defun go [[xs h]]
     (io/bind (fun
                (case [None] (io/pure None))
@@ -92,7 +92,7 @@
 (defun handle/write-str [(Str a) h] (handle/write a h))
 
 (extern stdrs_stdin_handle (Fun [Unit] Handle'))
-(defvar handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))
+(def handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))
 
 (defun trace-show [show x]
   (trace (show x) x))

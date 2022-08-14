@@ -2,7 +2,7 @@
 
 (data (Set a) (Set (Map a Unit)))
 
-(defvar set/empty (Set map/empty))
+(def set/empty (Set map/empty))
 (defun set/singleton [a] (Set (map/singleton a Unit)))
 
 (defun set/unsingleton! [s]

@@ -1,7 +1,7 @@
 (import std)
 (import net)
 
-(defvar main
+(def main
   (do io/bind
       (let ((host "gemini.circumlunar.space")
             (port (cast 1965))))

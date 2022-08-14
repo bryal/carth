@@ -7,5 +7,5 @@
       (seq (undefined Unit) 123)
     456))
 
-(defvar main
+(def main
   (display (show-int (foo False))))

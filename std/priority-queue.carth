@@ -10,7 +10,7 @@
 (defun pq/rank [(PQTree _ _ r)] r)
 (defun pq/root [(PQTree _ x _)] x)
 (defun pq/trees [(PQHeap ts)] ts)
-(defvar pq/empty (PQHeap LNil))
+(def pq/empty (PQHeap LNil))
 (defun pq/singleton [x] (PQHeap (list/singleton (PQTree LNil x (cast 0)))))
 
 (defun pq/link [cmp t1 t2]

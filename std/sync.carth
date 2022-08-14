@@ -3,7 +3,7 @@
 ;; TODO: Enforce usage invariants with linear types.
 
 ;; The size of a pthread_mutex_t can be found in ~pthreadtypes-arch.h~.
-(defvar sizeof_pthread_mutex_t :of Nat (cast 40))
+(def sizeof_pthread_mutex_t :of Nat (cast 40))
 
 (data Mutex (Mutex (Box Unit)))
 
@@ -13,7 +13,7 @@
 (extern pthread_mutex_trylock (Fun [Mutex] Int32))
 (extern pthread_mutex_unlock (Fun [Mutex] Int32))
 
-(defvar mutex/new :of
+(def mutex/new :of
   (IO Mutex)
   (io/wrap (let ((mx (Mutex (cast-ptr (id@"GC_malloc" sizeof_pthread_mutex_t))))
                  (attrs mem/unsafe-null))

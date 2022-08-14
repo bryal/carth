@@ -42,7 +42,7 @@ instance Pretty Lexd.Reserved where
         Lexd.RFun -> "Fun"
         Lexd.RBox -> "Box"
         Lexd.Rdefun -> "defun"
-        Lexd.Rdefvar -> "defvar"
+        Lexd.Rdef -> "def"
         Lexd.Rimport -> "import"
         Lexd.Rextern -> "extern"
         Lexd.Rdata -> "data"

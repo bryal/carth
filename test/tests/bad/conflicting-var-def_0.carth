@@ -1,4 +1,4 @@
 ;; ConflictingVarDef
 
-(defvar foo +)
-(defvar foo -)
+(def foo +)
+(def foo -)

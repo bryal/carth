@@ -2,4 +2,4 @@
 
 (data Integ (Integ Int))
 
-(defvar type-mismatch (Integ True))
+(def type-mismatch (Integ True))

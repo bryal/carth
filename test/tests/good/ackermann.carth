@@ -2,7 +2,7 @@
 
 (import std)
 
-(defvar main
+(def main
   (display (show-nat (ackermann (cast 3) (cast 10)))))
 
 (defun ackermann [m n] :of (Fun [Nat Nat] Nat)

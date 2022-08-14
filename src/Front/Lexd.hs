@@ -18,7 +18,7 @@ data Reserved
     | RFun
     | RBox
     | Rdefun
-    | Rdefvar
+    | Rdef
     | Rimport
     | Rextern
     | Rdata

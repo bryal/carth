@@ -1,7 +1,7 @@
 (import iter)
 
-(defvar pi :of F64 3.14159265358979323846264338327950288)
-(defvar inv-pi :of F64 0.318309886183790671537767526745028724)
+(def pi :of F64 3.14159265358979323846264338327950288)
+(def inv-pi :of F64 0.318309886183790671537767526745028724)
 
 (extern sin (Fun [F64] F64))
 (extern cos (Fun [F64] F64))
@@ -42,7 +42,7 @@
 (defun sum [xs] (foldl + (cast 0) xs))
 (defun product [xs] (foldl * (cast 1) xs))
 
-(defvar nat/maxval :of Nat (cast -1))
+(def nat/maxval :of Nat (cast -1))
 
 (defun nat/checked+ [x y] :of (Fun [Nat Nat] (Maybe Nat))
   (let1 z (+ x y)

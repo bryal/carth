@@ -2,6 +2,6 @@
 
 (data Integ (Integ Int))
 
-(defvar arity-mismatch-for-constructor
+(def arity-mismatch-for-constructor
   (match (Integ 1)
     (case (Integ foo bar) foo)))

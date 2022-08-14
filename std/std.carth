@@ -111,18 +111,18 @@
 ;;; Strings
 
 (extern show_int (Fun [Int] Str))
-(defvar show-int show_int)
+(def show-int show_int)
 (extern show_nat (Fun [Nat] Str))
-(defvar show-nat show_nat)
+(def show-nat show_nat)
 (extern show_f64 (Fun [F64] Str))
-(defvar show-f64 show_f64)
+(def show-f64 show_f64)
 
 (defun show-bool (case [True] "True") (case [False] "False"))
 
 (extern str_append (Fun [Str Str] Str))
 (defun str-append [s1 s2] (str_append s1 s2))
 
-(defvar str= \(str_eq #0 #1))
+(def str= \(str_eq #0 #1))
 
 ;;; Function
 

@@ -4,7 +4,7 @@
 (data (Queue a)
   (Queue (List a) (List a)))
 
-(defvar queue/empty
+(def queue/empty
   (Queue LNil LNil))
 
 (defun queue/push [x (Queue in out)]

@@ -2,12 +2,12 @@
 
 (import std)
 
-(defvar main
+(def main
 
   (defun twice [f]
     (fun [x] (f (f x))))
 
-  (defvar magic 13)
+  (def magic 13)
 
   (defun remove-magic [x] (- x 13))
 

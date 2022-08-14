@@ -1,8 +1,8 @@
 (import std)
 
-(defvar main fizzbuzz)
+(def main fizzbuzz)
 
-(defvar fizzbuzz
+(def fizzbuzz
   (io/for (range 1 100)
           (<o display fizzbuzz')))
 

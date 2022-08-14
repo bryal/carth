@@ -11,7 +11,7 @@
   (map (fun [i] (deref (ptr/+ ptr (- len (cast i)))))
        (xrange 1 (+ 1 (cast len)))))
 
-(defvar array/nil (Array mem/unsafe-null (cast 0)))
+(def array/nil (Array mem/unsafe-null (cast 0)))
 
 (defun array/nil? [a] (= (cast 0) (array/length a)))
 
@@ -100,7 +100,7 @@
     (case (Some row) (array/lookup j row))
     (case None None)))
 
-(defvar array/lookup2d! (<oo unwrap! array/lookup2d))
+(def array/lookup2d! (<oo unwrap! array/lookup2d))
 
 ;;? Returns index of the first occurence of the element in the array, if it *is* an element
 (defun array/find [x xs]

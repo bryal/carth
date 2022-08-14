@@ -38,7 +38,7 @@
                           (string/substr-to (to-int n) inp)]))
               (Left (ParseErr (ParseInp inp) (str-append "Failed to match literally " (str-show lit))))))))
 
-(defvar parse/take-rest
+(def parse/take-rest
   (Parser (fun [(ParseInp inp)] (Right [(ParseInp "") inp]))))
 
 (defun parse/take-bytes-while [f]
@@ -82,7 +82,7 @@
                 (<- [inp _b] (pb inp))
                 (Right [inp a])))))
 
-(defvar parse/bindr
+(def parse/bindr
   (flip parse/bind))
 
 (defun parse/bind [f (Parser pa)] :of (forall (a b) (Fun [(Fun [a] (Parser b)) (Parser a)] (Parser b)))
@@ -100,11 +100,11 @@
 (defun parse/pure [x] :of (forall (a) (Fun [a] (Parser a)))
   (Parser (fun [inp] (Right [inp x]))))
 
-(defvar parse/nat :of (Parser Nat)
+(def parse/nat :of (Parser Nat)
   (parse/map (fun [s] (unwrap-or-else (fun [_] (panic (str-append "parse/nat: digits not a nat, " (str-show s)))) (parse-nat s)))
              (parse/take-bytes-while1 digit?)))
 
-(defvar parse/int :of (Parser Int)
+(def parse/int :of (Parser Int)
   (parse/or (parse/map (<o neg to-int) (parse/thenr (parse/string "-") parse/nat))
             (parse/map to-int parse/nat)))
 
@@ -132,8 +132,8 @@
          (parse/pure (array/unsafe-uninit n))
          (xrange 0 (to-int n))))
 
-(defvar parse/space (parse/map (const Unit) (parse/take-bytes-while whitespace-byte?)))
-(defvar parse/space1 (parse/map (const Unit) (parse/take-bytes-while1 whitespace-byte?)))
+(def parse/space (parse/map (const Unit) (parse/take-bytes-while whitespace-byte?)))
+(def parse/space1 (parse/map (const Unit) (parse/take-bytes-while1 whitespace-byte?)))
 
 (defun parse/many [(Parser pa)]
   (Parser (fun [inp] (Right (swap (unfoldr' (apps <o (partial-2 maybe/map swap) right-to-maybe pa) inp))))))

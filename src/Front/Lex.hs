@@ -134,7 +134,7 @@ reserved = andSkipSpaceAfter . choice $ map
     , string "Fun" $> RFun
     , string "Box" $> RBox
     , string "defun" $> Rdefun
-    , string "defvar" $> Rdefvar
+    , string "def" $> Rdef
     , string "extern" $> Rextern
     , string "forall" $> Rforall
     , string "where" $> Rwhere
