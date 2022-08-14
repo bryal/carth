@@ -2,6 +2,27 @@
 
 Features and other stuff to do/implement in/around Carth.
 
+* TODO Sugar for lambdas
+  Look at [[https://clojure.org/guides/learn/functions#_anonymous_function_syntax][Clojure's reader shorthand for anonymous functions]].
+
+  It's basically De Brujin notation. So ~(fn [a b] (* 5 (+ a b)))~ can
+  also be written ~#(* 5 (+ %1 %2))~. That's convenient! If one
+  instead does good point-free compositioning, like ~(<oo (* 5) +)~,
+  the sugar is "unneccesary", but it really is quite concise and
+  readable. Might be nice to have.
+* TODO Stack traces
+I want something like what you get when running a panic:ing Rust
+program with ~RUST_BACKTRACE=1~.
+
+Annotating generated code with good DWARF is not easy, and it wouldn't
+be optimally useful in an expression oriented language anyways. That's
+more for line-by-line / statement oriented languages like C. But
+stacktraces are awesome! Seeing exactly where a panic occurs is
+critical for quick debugging.
+
+So how do we get the traces? Maybe using some kind of shadow
+stack. Such a method might work well for other potential backends as
+well, like a C backend.
 * TODO Migrate TODO to some kind of Kanban board or the like
 Self hosted? Does Sourcehut have anything? Base it on mailing lists (no... or maybe?)
 
@@ -19,6 +40,195 @@ Another reason is that this file doesn't scale at all. Not that I
 expect or particularly desire to have contributors, but I also don't
 want to scare anyone away xd.
 
+* NEXT Type aliases
+  Like ~type String = [Char]~ in Haskell.
+* NEXT RC / ARC / Refcount / reference counting
+GC is inelegant, needing to stop the world or use a bunch of complex
+methods. Also, latency is bad.
+
+Do good refcounting instead.
+
+There were other reasons, but I can't remember them of the top of my
+head.
+
+https://atp.fm/205-chris-lattner-interview-transcript#gc /
+https://news.ycombinator.com/item?id=31139610
+
+#+BEGIN_QUOTE
+Chris Lattner: Here’s the way I look at it, and as you said, the ship
+has somewhat sailed: I am totally convinced that ARC is the right way
+to go upfront. It is better in a whole bunch of different ways. It
+gives you deterministic behavior, so it doesn’t have the
+unpredictable-stutter problem that people like to bash on GCs.
+
+The stutter problem, to me, isn’t really the issue, even though
+[1:59:30] that’s what GC-haters will bring up all the time. It’s more
+about being able to reason about when the memory goes away. The most
+important aspect of that is that ARC gets rid of finalizers.
+
+If you use a garbage-collected language, you use
+finalizers. Finalizers are the thing that gets run when you’re not
+object gets destroyed. Finalizers have so many problems that there are
+entire bodies of work talking about how to work around problems with
+finalizers.
+
+For example: the finalizer gets run on the wrong thread, it has to get
+run multiple [2:00:00] times, the object can get resurrected while the
+finalizer’s running. It happens non-deterministically later. You can’t
+count on it, and so you can’t use it for resource management for
+database handles and things like that, for example. There are so many
+problems with finalizers that ARC just defines away by having
+deterministic destruction.
+
+There are two arguments that people make [2:00:30] against ARC in
+favor of a tracing garbage collector, one of which is that ARC adds
+overhead because you have retain and release operations that run. That
+is true. The other is that you have to think about cycles in ARC
+because it doesn’t automatically collect cycles, and that is also
+true.
+
+The rebuttal I’d give to people is that those problems are also true
+in garbage collection, just in different ways. In a garbage collector,
+for example, [2:01:00] people don’t think about it, but garbage
+collection injects additional code into your application just like ARC
+does.
+
+There are many different garbage collection algorithms, and not all of
+them are the same. But most modern garbage collectors, that use a
+nursery for short-lifetime objects then promote them out — that are
+generational — use something called a write barrier. Every time you
+store to a property [2:01:30] of an object, say, you have to run
+additional code.
+
+Garbage collectors also need the ability to stop all the threads, or
+at least to be able to stop threads at some point in time, and they
+need to be able to do so within a specific time bound because they
+don’t want the garbage collector to take forever. The artifact of that
+is that typical garbage collectors, in Java for example, will
+introduce what’s called a safepoint into loops. So now, in your loops,
+extra code is being run because of the garbage collector.
+
+On more [2:02:00] aggressive garbage collection algorithms — for
+example, I was reading a blog post recently about Go’s tricolor
+algorithm — they’re touting the advantage of really low latency and
+the ability to guarantee response times in a more fine-grained level
+than most garbage collectors. But to do that, they use this tricolor
+algorithm which dramatically lowers throughput, because they’re doing
+almost exactly the same kinds of operations that ARC is doing.
+
+The problem [2:02:30] that it then introduces, though, is that these
+operations that the garbage collector is introducing are sometimes but
+not nearly as well optimizable as the ARC overhead that the ARC
+optimizer applies to.
+
+Furthermore, there’s no out on it. With ARC, I think and hope that the
+ownership model will give people the ability to take control of those
+overheads. And if it becomes a problem in practice, or if they’re just
+that kind of person, they can take full control over the lifetime of
+their objects, and then know that ARC will never happen. In a garbage
+collector, you don’t have that.
+
+[2:03:00] The performance side of things I think is still up in the
+air because ARC certainly does introduce overhead. Some of that’s
+unavoidable, at least without lots of annotations in your code, but
+also I think that ARC is not done yet. A ton of energy’s been poured
+into research for garbage collection, particularly since Java has come
+up. There’s been hundreds of papers written in the academic circles,
+tons of work in HotSpot and other Java [2:03:30] implementations to do
+different tweaks and different tunings and different new kinds of
+algorithms in garbage collecting. That work really hasn’t been done
+for ARC yet, so really, I think there’s still a a big future ahead.
+
+On the programming side of things, the cycle side of things, I think
+it’s also a really interesting question of how much should people
+think about memory?
+
+When I was baiting you a little bit, you said that the great thing
+about garbage collection is that you don’t have to think about
+memory. Of course we know that’s not true, right? Because if [2:04:00]
+you have a reference to some big object graph that you didn’t mean to
+keep around (maybe it’s in your undo stack), then you will “leak” that
+memory. That’s true of a garbage collector, and that’s true of ARC as
+well. Any automatic memory-management approach has that problem.
+
+There’s this question of if you’re building a large scale system, do
+you want people to [2:04:30] “never think about memory?” Do you want
+them to think about memory all the time, like they did in
+Objective-C’s classic manual retain-and-release? Or do you want
+something in the middle?
+
+I think that ARC strikes a really interesting balance, whether it’s in
+Objective-C or Swift. I look at manual retain-and-release as being a
+very imperative style of memory management, or malloc and free, where
+you’re telling the code, line by line: this is where you should do a
+reference-count operation, [2:05:00] this is where you should release
+the memory, this is what you should do at this point in time.
+
+ARC then takes that model and bubbles it up a big step, and it makes
+it be a very declarative model. So instead of telling the compiler
+that this is the place that you should do a retain, you instead say,
+“This is an owning relationship.” The cool thing about that to me is
+that not only does it get rid of the mechanics of maintaining
+reference counting and define away tons of bugs by doing that, it also
+means that [2:05:30] it is now explicit in your code what your
+intention was. That’s something that people who maintain your code
+benefit from.
+
+By saying that I have a weak point or two, the parent object of my
+thing, that’s a really important relationship to know about and as
+you’re looking at the code, you’re maintaining the code. Having that
+be explicit is very valuable, because that talks about the
+relationship between values. To me, again with the goal of being able
+to write large scale applications in Swift, I think that’s really
+useful. [2:06:00] I also don’t think it’s hugely burdensome, though
+it’s definitely part of the learning curve of learning how Swift works
+that it has to be balanced in there as well.
+
+So I don’t know. ARC has clear advantages in terms of allowing Swift
+to scale down to systems that can’t tolerate having a garbage
+collector, for example, if you want to write firmware in Swift. I
+think that it does provide a better programming model where
+programmers think just [2:06:30] a little bit about memory. And I
+think that going forward, it provides a really high performance model
+that you can get better than garbage collection in almost every way. I
+think that in terms of trade-offs, it’s the right one to push forward.
+
+The third piece that garbage collection is really bad about, which is
+kind of a showstopper for Swift, is interoperability with C code. If
+you’ve ever worked with Java or other [2:07:00] similar
+garbage-collected languages, one of the major advantages the garbage
+collectors give you is that they move objects, and they need to do
+that so they can compact those objects so they can then efficiently do
+allocations. The problem is that once you start moving objects around,
+if you’re interfacing with C code, you can’t have some random C code
+having a pointer to your object and have it move because then you get
+a dangling pointer.
+
+Once you get down that line, you end up with things like JNI, the Java
+Native Interface, where you have to [2:07:30] explicitly pin things,
+you have to maintain them, it’s very complicated, it’s really
+buggy. ARC completely defines this away by just saying that
+something’s in memory, It has predictable lifetime, you can reason
+about it. Swift provides tools for dealing with unsafe pointers and
+things like that, and that makes the interoperability with existing C
+code — but also with Objective-C, and maybe someday C++ code — really
+simple, really natural and really efficient. I think that’s a huge
+advantage that ARC [2:08:00] provides that really would be impossible
+to do with a garbage collector.
+
+That’s my opinion. I think reasonable people disagree, obviously, but
+it’s something that does come up now and then.
+#+END_QUOTE
+
+https://gankra.github.io/blah/deinitialize-me-maybe/
+
+*Update <2022-07-31 sön>*
+
+See another HN thread: https://news.ycombinator.com/item?id=32276580.
+And a supposedly good paper on current state of high perf RC systems: https://users.cecs.anu.edu.au/~steveb/pubs/papers/lxr-pldi-2022.pdf.
+(Low-Latency, High-Throughput Garbage Collection, Wenyu Zhao et al.).
+"A paper I quite enjoyed on automatic reference counting for pure, immutable functional programming: https://arxiv.org/abs/1908.05647".
+Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/en-us/research/uploads/prod/2021/11/flreuse-tr-v1.pdf, about Perceus in Koka.
 * NEXT Module system
   Postfix syntax for module paths? A bit like web-domains -
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
@@ -70,7 +280,124 @@ See https://www.microsoft.com/en-us/research/publication/first-class-modules-for
    (define u (isFirst y))
    #+END_SRC
 
-* NEXT Bidirectional type checking
+* NEXT Benchmark, profile, optimize
+  Check out
+  https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
+  tips!
+* INACTIVE Shrink std a bit, for a while
+Big std => tons of stuff to fix when making changes in the syntax etc.
+While we're still breaking things relatively often, keep std small.
+Even trim it a little.
+E.g. `<ooooo` is definitely not a must-have in std.
+* INACTIVE Selfhost, Carth 2.0
+At some point or another, we ought to selfhost.
+This is a particularly good way of dogfeeding the language, as we have to use it to develop it.
+
+Also, I'm actually falling out of love with Haskell just a tiny bit.
+As soon as you want to add a tiny little effect, you have to rewrite *sooo* much code to use monadic combinators instead of just applying functions.
+
+Then there are parts of the codebase that I figure might be better off rewritten from scratch.
+I've learned some lessons.
+Now, I'd want to encapsulate some types better, restricting how they may be constructed & desctructured etc.
+And if we want to implement on-demand compilation -- which we do -- that would necessitate a really extensive rewrite anyways.
+
+There are just a few features I'd like to have in place beforehand, like modules.
+Just enough to make it something of a "real" language.
+Then we can release 1.0-alpha, and start working on the selfhosted version as 2.0-alpha.
+
+I like the idea of releasing the current state of the compiler as a 1.0, and then doing the rewrite as a 2.0.
+We'd not be beholden to compatibility, and can change the language as we please.
+(Not that we're avoiding breaking backwards compatibility currently, but whatever).
+It will then also be fine if we want to develop the 1.0 language while we're still implementing 2.0.
+It's fine if they diverge, since they're not exactly the same language anymore.
+
+** Refactor type checker
+  keywords: type checking, inferenc, inferrer
+
+  I'm not completely happy with the typechecking. 4 module files
+  (Check, Checked, Infer, Inferred) totalling over 900 SLOC. Also,
+  ~solve~ is not just run once at the outermost level, visiting each
+  constraint at most once. Because of nested ~let~ with polymorphism,
+  we currently run ~solve~ nestedly, and in total, each constraint is
+  likely visited more than once. This is ugly.
+
+  See:
+  - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
+
+** Look at these languages
+  For inspiration, learn from their mistakes, etc.
+  
+  Also add related work to readme, after looking closer at it, if applicable.
+
+  - Hackett
+  - Liskell
+  - Axellang
+  - Kalyn
+    https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
+  - Unison
+    https://github.com/unisonweb/unison
+** Unify the different ASTs / IRs
+  It's just kinda messy right now. Many files must be changed when
+  touching just about any part of the AST representation. Also, takes
+  up a lot of lines for not much apparent gain. Use some kind of
+  attribute-tag to change the AST for different stages. Like:
+
+  #+BEGIN_SRC haskell
+  type Expr attr = Expr attr (Expr' attr)
+
+  type ParsedExpr = Expr (Type, SrcPos)
+  type CheckedExpr = Expr CheckedType
+  #+END_SRC
+** Query-based / on-demand compilation
+  More or less a prerequisite to compile-time evaluation. Also enables
+  good incremental compilation, and better IDE/LSP support.
+
+  https://ollef.github.io/blog/posts/query-based-compilers.html
+* ------------------------------------------
+* ------- AWAIT SELFHOSTED CARTH 2.0 -------
+* ------------------------------------------
+* INACTIVE Variable defs actually could be allowed to recurse in certain cases
+Something like
+    (defvar X (+ 1 x))
+is of course invalid, but a case like
+    (defvar ones (box [1 (Some ones)]))
+actually makes sense, and is easy to codegen.
+We could choose to allow it, if we wish.
+
+* INACTIVE Make Low a bit higher level. Maybe exchange for a Mid
+In practice, we will unlikely have more backends than 2 or 3.
+An abstraction for that few backends doesn't make that much sense to begin with,
+and what's worse is that Low isn't even a very good abstraction for a C backend!
+
+Say we use QBE as a backend.
+In that case, the QBE Intermediate Language is our low level IR already --
+it's a low-level IR abstracting multiple different machine targets.
+
+I'm thinking we should exchange the LLVM IR-like Low for more of a C-- kind of deal.
+Then we can even more easily generate C, and it will be much more readable.
+And compiling a C-- to say LLVM IR ought not to be all that hard either really.
+Of difficulty right between Lower and CompileLLVM I'd imagine, so about 1k lines.
+
+If we were to add a third backend, say Risc-V ASM, the calculation today would be something like:
+1.6k lines Lower + 3 * 800 lines codegen avg = 4000 lines total
+compare this to a higher level IR, with a bit more work in some Compile* modules:
+1.2k lines Lower + 3 * 1200 lines codegen avg = 4800 lines total
+These numbers may well be quite a bit off, but my point is that it would likely not cost us more than a couple of thousand lines total.
+2k lines for much more readable generated C? Yeah, sounds great!
+* INACTIVE Add basic REPL
+  Add a basic repl based on the JIT. Something very similar to
+  http://www.stephendiehl.com/llvm/.
+
+  Could maybe be the starting point for an on-demand architechture?
+  Would probably require some memoization mechanism so that we don't
+  unnecessarily check, monomorphise, and compile stuff we don't need
+  to.
+* INACTIVE Dump everythiong to Graphviz
+  Particularly the pre-LLVM ASTs. They're very hard to read as text,
+  but would probably fit really well as a graph. This could be useful
+  both for debugging the compiler, as well as to debug compiled
+  programs.
+* INACTIVE Bidirectional type checking
 I'm not fully convinced yet, but I believe we might want to use
 bidirectional type checking instead of a unification based, HM-like
 typechecker in Carth.
@@ -84,7 +411,23 @@ do implicit numeric coercions for proper subtypes, afaik.
 - https://www.haskellforall.com/2022/06/the-appeal-of-bidirectional-type.html
 - Complete and Easy Bidirectional Typechecking for Higher-Rank Polymorphism, by Jana Dunfield & Neelakantan R. Krishnaswami
 - Bidirectional Typing, by JANA DUNFIELD & NEEL KRISHNASWAMI
-* NEXT Typeclasses
+* INACTIVE Linear types
+  Linear types would allow predictable performance and behaviour of
+  e.g. IO tasks. Force a single manual file-close or
+  buffer-flush. Force a single free for malloc.  Affine types would
+  allow better performance.  E.g. pure, in-place modification of
+  array.  If noone else points to it, value can be consumed and
+  modified rather than cloned. Something like: ~fn push(mut v:
+  Vec<i32>, x: i32) -> Vec<i32> { v.push(x); v }~ Implemented as maybe
+  a wrapper, or an interface?  Maybe like in haskell with lolly
+  operator?
+
+  Things to consider: Linear arrow vs. `kind` approach or similar?
+
+  Check out Idris Uniqueness types, Linear Haskell's linear arrows,
+  and however Blodwen does it (linear arrows kind of I think).
+* INACTIVE GADTs
+* INACTIVE Typeclasses
   Need some kind of system like type classes for ad hoc
   polymorphism. Maybe Haskell style type classes, Agda style
   implicits, or Ocaml style modules. Not sure.
@@ -155,25 +498,76 @@ do implicit numeric coercions for proper subtypes, afaik.
 
    Probably last update for this section: [[https://old.reddit.com/r/haskell/comments/765ogm/multiple_type_class_instances_for_the_same_type/][this thread]] has convinced me
    that Haskell-/Rust-style typeclasses is the best idea.
+* INACTIVE Higher kinded types
+* INACTIVE Effect system
+  tags: Algebraic effects
+  
+  Seems like it could be more elegant than monad transformers,
+  although maybe not as fast?
 
-* NEXT Linear types
-  Linear types would allow predictable performance and behaviour of
-  e.g. IO tasks. Force a single manual file-close or
-  buffer-flush. Force a single free for malloc.  Affine types would
-  allow better performance.  E.g. pure, in-place modification of
-  array.  If noone else points to it, value can be consumed and
-  modified rather than cloned. Something like: ~fn push(mut v:
-  Vec<i32>, x: i32) -> Vec<i32> { v.push(x); v }~ Implemented as maybe
-  a wrapper, or an interface?  Maybe like in haskell with lolly
-  operator?
+  Effect fusion seems to make it faster?
 
-  Things to consider: Linear arrow vs. `kind` approach or similar?
+  Read Wu, Schrijvers 2014, 2015, 2016. I think their papers basically
+  present the concept of fused effects.
 
-  Check out Idris Uniqueness types, Linear Haskell's linear arrows,
-  and however Blodwen does it (linear arrows kind of I think).
+  github.com/fused-effects/fused-effects
 
-* NEXT Higher kinded types
+  https://youtu.be/vfDazZfxlNs?t=1730
 
+  ^ det makear sense. Bygg basically upp ett träd av den här datatype,
+  och interpreta det med alla handlers. Varje handler kollar om det är
+  dens variant, och isf kör effekten. För varje handler blir trädet
+  simplare, och till sist är det bara Pure kvar.
+
+  Naiv implementering ineffektiv. Bara tänk -- måste interpreta ett
+  träd ist för att bara *göra* effekterna direkt!
+
+  Man kan använda free monads för att bygga upp trädet, men detta är
+  inte så effektivt.
+
+  Grundidén med papret "fusion for free" är att man vill bara traversa
+  trädet en gång, och inte en gång per effect handler.
+
+  Med "fusion" verkar de syfta på funktionaliteten i GHC, att man kan
+  fusionera ihop funktionsanrop av specifika mönster till mer
+  effektiva varianter. E.g., ~map f . map g~ fusioneras till ~map (f
+  . g)~. På liknande vis fusioneras ~fold handleState . build . fold
+  handleReader~ till bara ~fold (handleState . handleReader)~. Kan vi
+  lösa detta utan kompilatorstöd, eller är det kanske värt att lägga
+  till?
+
+  See the talk on polysemy, it's a good complement and alternative to
+  the fused effects one. https://youtu.be/-dHFOjcK6pA.
+
+  We need type-level lists or sets, and a way to implement Member on
+  that thing. If tuple types could contain higher kinded types, I
+  think we only need classes.
+
+  See:
+  - https://youtu.be/z8SI7WBtlcA, https://youtu.be/z8SI7WBtlcA?t=1433
+  - Eff language
+  - https://youtu.be/XAnFUwIaZB8
+
+** INACTIVE Memory allocation as an explicit effect
+   In Rust, you can override the global memory allocator. Situational
+   override is not really possible? I think either you use the global
+   allocator, or you allocate with e.g. an arena explicitly.
+
+   In Zig, all allocation is explicit, and you have to pass around
+   whichever allocator you want the functions to use. Pro: easy to
+   override allocation for an object or sub-program with e.g. an
+   arena. Con: verbose, bothersome, less convenient.
+
+   Maybe we could make heap allocations sort of semi-explicit in
+   Carth, via an Effect system? Easy to override with e.g. arena
+   allocator for specific functions, and not as inconvenient as
+   Zig. Do-notation (or better? (like generalized application)) could
+   make it fairly convenient, and there really is some usefulness to
+   doing it. Would encourage keeping things on the stack whenever
+   possible. But maybe it's too much inconvenience for a high-level
+   lang? I mean, couldn't pretty much any closure actually heap
+   allocate for the captures? Hmm.
+  
 * INACTIVE Type families / functional dependencies and multi-param classes / Dependent types
   I'm on the fence here, but the consensus seems to be that type
   families are better than fundeps. Also, it might be possible to
@@ -414,336 +808,10 @@ do implicit numeric coercions for proper subtypes, afaik.
      }
    #+END_SRC
 
-* NEXT RC / ARC / Refcount / reference counting
-GC is inelegant, needing to stop the world or use a bunch of complex
-methods. Also, latency is bad.
-
-Do good refcounting instead.
-
-There were other reasons, but I can't remember them of the top of my
-head.
-
-https://atp.fm/205-chris-lattner-interview-transcript#gc /
-https://news.ycombinator.com/item?id=31139610
-
-#+BEGIN_QUOTE
-Chris Lattner: Here’s the way I look at it, and as you said, the ship
-has somewhat sailed: I am totally convinced that ARC is the right way
-to go upfront. It is better in a whole bunch of different ways. It
-gives you deterministic behavior, so it doesn’t have the
-unpredictable-stutter problem that people like to bash on GCs.
-
-The stutter problem, to me, isn’t really the issue, even though
-[1:59:30] that’s what GC-haters will bring up all the time. It’s more
-about being able to reason about when the memory goes away. The most
-important aspect of that is that ARC gets rid of finalizers.
-
-If you use a garbage-collected language, you use
-finalizers. Finalizers are the thing that gets run when you’re not
-object gets destroyed. Finalizers have so many problems that there are
-entire bodies of work talking about how to work around problems with
-finalizers.
-
-For example: the finalizer gets run on the wrong thread, it has to get
-run multiple [2:00:00] times, the object can get resurrected while the
-finalizer’s running. It happens non-deterministically later. You can’t
-count on it, and so you can’t use it for resource management for
-database handles and things like that, for example. There are so many
-problems with finalizers that ARC just defines away by having
-deterministic destruction.
-
-There are two arguments that people make [2:00:30] against ARC in
-favor of a tracing garbage collector, one of which is that ARC adds
-overhead because you have retain and release operations that run. That
-is true. The other is that you have to think about cycles in ARC
-because it doesn’t automatically collect cycles, and that is also
-true.
-
-The rebuttal I’d give to people is that those problems are also true
-in garbage collection, just in different ways. In a garbage collector,
-for example, [2:01:00] people don’t think about it, but garbage
-collection injects additional code into your application just like ARC
-does.
-
-There are many different garbage collection algorithms, and not all of
-them are the same. But most modern garbage collectors, that use a
-nursery for short-lifetime objects then promote them out — that are
-generational — use something called a write barrier. Every time you
-store to a property [2:01:30] of an object, say, you have to run
-additional code.
-
-Garbage collectors also need the ability to stop all the threads, or
-at least to be able to stop threads at some point in time, and they
-need to be able to do so within a specific time bound because they
-don’t want the garbage collector to take forever. The artifact of that
-is that typical garbage collectors, in Java for example, will
-introduce what’s called a safepoint into loops. So now, in your loops,
-extra code is being run because of the garbage collector.
-
-On more [2:02:00] aggressive garbage collection algorithms — for
-example, I was reading a blog post recently about Go’s tricolor
-algorithm — they’re touting the advantage of really low latency and
-the ability to guarantee response times in a more fine-grained level
-than most garbage collectors. But to do that, they use this tricolor
-algorithm which dramatically lowers throughput, because they’re doing
-almost exactly the same kinds of operations that ARC is doing.
-
-The problem [2:02:30] that it then introduces, though, is that these
-operations that the garbage collector is introducing are sometimes but
-not nearly as well optimizable as the ARC overhead that the ARC
-optimizer applies to.
-
-Furthermore, there’s no out on it. With ARC, I think and hope that the
-ownership model will give people the ability to take control of those
-overheads. And if it becomes a problem in practice, or if they’re just
-that kind of person, they can take full control over the lifetime of
-their objects, and then know that ARC will never happen. In a garbage
-collector, you don’t have that.
-
-[2:03:00] The performance side of things I think is still up in the
-air because ARC certainly does introduce overhead. Some of that’s
-unavoidable, at least without lots of annotations in your code, but
-also I think that ARC is not done yet. A ton of energy’s been poured
-into research for garbage collection, particularly since Java has come
-up. There’s been hundreds of papers written in the academic circles,
-tons of work in HotSpot and other Java [2:03:30] implementations to do
-different tweaks and different tunings and different new kinds of
-algorithms in garbage collecting. That work really hasn’t been done
-for ARC yet, so really, I think there’s still a a big future ahead.
-
-On the programming side of things, the cycle side of things, I think
-it’s also a really interesting question of how much should people
-think about memory?
-
-When I was baiting you a little bit, you said that the great thing
-about garbage collection is that you don’t have to think about
-memory. Of course we know that’s not true, right? Because if [2:04:00]
-you have a reference to some big object graph that you didn’t mean to
-keep around (maybe it’s in your undo stack), then you will “leak” that
-memory. That’s true of a garbage collector, and that’s true of ARC as
-well. Any automatic memory-management approach has that problem.
-
-There’s this question of if you’re building a large scale system, do
-you want people to [2:04:30] “never think about memory?” Do you want
-them to think about memory all the time, like they did in
-Objective-C’s classic manual retain-and-release? Or do you want
-something in the middle?
-
-I think that ARC strikes a really interesting balance, whether it’s in
-Objective-C or Swift. I look at manual retain-and-release as being a
-very imperative style of memory management, or malloc and free, where
-you’re telling the code, line by line: this is where you should do a
-reference-count operation, [2:05:00] this is where you should release
-the memory, this is what you should do at this point in time.
-
-ARC then takes that model and bubbles it up a big step, and it makes
-it be a very declarative model. So instead of telling the compiler
-that this is the place that you should do a retain, you instead say,
-“This is an owning relationship.” The cool thing about that to me is
-that not only does it get rid of the mechanics of maintaining
-reference counting and define away tons of bugs by doing that, it also
-means that [2:05:30] it is now explicit in your code what your
-intention was. That’s something that people who maintain your code
-benefit from.
-
-By saying that I have a weak point or two, the parent object of my
-thing, that’s a really important relationship to know about and as
-you’re looking at the code, you’re maintaining the code. Having that
-be explicit is very valuable, because that talks about the
-relationship between values. To me, again with the goal of being able
-to write large scale applications in Swift, I think that’s really
-useful. [2:06:00] I also don’t think it’s hugely burdensome, though
-it’s definitely part of the learning curve of learning how Swift works
-that it has to be balanced in there as well.
-
-So I don’t know. ARC has clear advantages in terms of allowing Swift
-to scale down to systems that can’t tolerate having a garbage
-collector, for example, if you want to write firmware in Swift. I
-think that it does provide a better programming model where
-programmers think just [2:06:30] a little bit about memory. And I
-think that going forward, it provides a really high performance model
-that you can get better than garbage collection in almost every way. I
-think that in terms of trade-offs, it’s the right one to push forward.
-
-The third piece that garbage collection is really bad about, which is
-kind of a showstopper for Swift, is interoperability with C code. If
-you’ve ever worked with Java or other [2:07:00] similar
-garbage-collected languages, one of the major advantages the garbage
-collectors give you is that they move objects, and they need to do
-that so they can compact those objects so they can then efficiently do
-allocations. The problem is that once you start moving objects around,
-if you’re interfacing with C code, you can’t have some random C code
-having a pointer to your object and have it move because then you get
-a dangling pointer.
-
-Once you get down that line, you end up with things like JNI, the Java
-Native Interface, where you have to [2:07:30] explicitly pin things,
-you have to maintain them, it’s very complicated, it’s really
-buggy. ARC completely defines this away by just saying that
-something’s in memory, It has predictable lifetime, you can reason
-about it. Swift provides tools for dealing with unsafe pointers and
-things like that, and that makes the interoperability with existing C
-code — but also with Objective-C, and maybe someday C++ code — really
-simple, really natural and really efficient. I think that’s a huge
-advantage that ARC [2:08:00] provides that really would be impossible
-to do with a garbage collector.
-
-That’s my opinion. I think reasonable people disagree, obviously, but
-it’s something that does come up now and then.
-#+END_QUOTE
-
-https://gankra.github.io/blah/deinitialize-me-maybe/
-
-*Update <2022-07-31 sön>*
-
-See another HN thread: https://news.ycombinator.com/item?id=32276580.
-And a supposedly good paper on current state of high perf RC systems: https://users.cecs.anu.edu.au/~steveb/pubs/papers/lxr-pldi-2022.pdf.
-(Low-Latency, High-Throughput Garbage Collection, Wenyu Zhao et al.).
-"A paper I quite enjoyed on automatic reference counting for pure, immutable functional programming: https://arxiv.org/abs/1908.05647".
-Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/en-us/research/uploads/prod/2021/11/flreuse-tr-v1.pdf, about Perceus in Koka.
-
-* CANCELLED Custom GC
-  Update <2022-05-24 tis>: I've actually changed my mind about
-  refcounting. With some ownership analysys, which we'd need anyways
-  for linear types, one could easily ommit most RC increments /
-  decrements in the generated code. And predictable deinitialization +
-  no GC latency is actually really valuable.
-
-  Until we get linear types, and even then, we'll need some form of
-  GC. Boehm's seems to be working well enough, but a conservative
-  collector is not ideal, and I think it would be a fun project to
-  write my own GC.
-
-  There are many problems with refcounting: Generated llvm ir/asm gets
-  polluted; While performance is more predictable, it's typically
-  worse overall; Cycle breaking would either require using weak refs
-  where appropriate, which would in turn require user input or an
-  advanced implementation, or a periodic cycle breaker, which would be
-  costly performance wise. So tracing GC is probably a good idea.
-
-  GHC seems to prefer throughput over latency, so very long pauses are
-  possible when you're working with a nontrial amount of data. "You're
-  actually doing pretty well to have a 51ms pause time with over 200Mb
-  of live data.".
-
-  It could be interesting to add ways of controlling when GC happens
-  so you can reduce spikes of latency. Haskell has ~performGC :: IO
-  ()~ that does this. [[https://old.reddit.com/r/haskell/comments/6d891n/has_anyone_noticed_gc_pause_lag_in_haskell/di0vqb0/][Here is a gameboy]] who eliminates spikes at the
-  cost of overall performance by calling ~performGC~ every frame.
-
-  [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
-
-  A tracing GC would be quite separate from the rest of the
-  program. The only pollution would be calls to the allocator (not
-  much different from the current sitch w malloc) and
-  (de)registrations of local variables in Let forms (a total of two
-  function calls per heap allocated variable).
-
-  Implementing a tracing GC would be a fun challenge, and I'm sure it
-  could be fun to try different algorithms etc.
-
-  Look at
-  - https://github.com/mkirchner/gc
-  - https://youtu.be/FeLHo6tIgKI
-
-* INACTIVE Effect system
-  tags: Algebraic effects
-  
-  Seems like it could be more elegant than monad transformers,
-  although maybe not as fast?
-
-  Effect fusion seems to make it faster?
-
-  Read Wu, Schrijvers 2014, 2015, 2016. I think their papers basically
-  present the concept of fused effects.
-
-  github.com/fused-effects/fused-effects
-
-  https://youtu.be/vfDazZfxlNs?t=1730
-
-  ^ det makear sense. Bygg basically upp ett träd av den här datatype,
-  och interpreta det med alla handlers. Varje handler kollar om det är
-  dens variant, och isf kör effekten. För varje handler blir trädet
-  simplare, och till sist är det bara Pure kvar.
-
-  Naiv implementering ineffektiv. Bara tänk -- måste interpreta ett
-  träd ist för att bara *göra* effekterna direkt!
-
-  Man kan använda free monads för att bygga upp trädet, men detta är
-  inte så effektivt.
-
-  Grundidén med papret "fusion for free" är att man vill bara traversa
-  trädet en gång, och inte en gång per effect handler.
-
-  Med "fusion" verkar de syfta på funktionaliteten i GHC, att man kan
-  fusionera ihop funktionsanrop av specifika mönster till mer
-  effektiva varianter. E.g., ~map f . map g~ fusioneras till ~map (f
-  . g)~. På liknande vis fusioneras ~fold handleState . build . fold
-  handleReader~ till bara ~fold (handleState . handleReader)~. Kan vi
-  lösa detta utan kompilatorstöd, eller är det kanske värt att lägga
-  till?
-
-  See the talk on polysemy, it's a good complement and alternative to
-  the fused effects one. https://youtu.be/-dHFOjcK6pA.
-
-  We need type-level lists or sets, and a way to implement Member on
-  that thing. If tuple types could contain higher kinded types, I
-  think we only need classes.
-
-  See:
-  - https://youtu.be/z8SI7WBtlcA, https://youtu.be/z8SI7WBtlcA?t=1433
-  - Eff language
-  - https://youtu.be/XAnFUwIaZB8
-
-** INACTIVE Memory allocation as an explicit effect
-   In Rust, you can override the global memory allocator. Situational
-   override is not really possible? I think either you use the global
-   allocator, or you allocate with e.g. an arena explicitly.
-
-   In Zig, all allocation is explicit, and you have to pass around
-   whichever allocator you want the functions to use. Pro: easy to
-   override allocation for an object or sub-program with e.g. an
-   arena. Con: verbose, bothersome, less convenient.
-
-   Maybe we could make heap allocations sort of semi-explicit in
-   Carth, via an Effect system? Easy to override with e.g. arena
-   allocator for specific functions, and not as inconvenient as
-   Zig. Do-notation (or better? (like generalized application)) could
-   make it fairly convenient, and there really is some usefulness to
-   doing it. Would encourage keeping things on the stack whenever
-   possible. But maybe it's too much inconvenience for a high-level
-   lang? I mean, couldn't pretty much any closure actually heap
-   allocate for the captures? Hmm.
-  
-* INACTIVE Property system
-  I'm thinking of a system where you annotate functions in a source
-  file with pre- and postconditions, which can then be checked in
-  different modes depending on how much time you've got etc.
-
-  - Proof-mode. Exchaustive checking of conditions. All possible
-     inputs are generated, and the system checks that the precondition
-     always implies the postcondition.
-  - Test-mode. Statistical, random testing. Generate enough inputs
-    such that the precondition is fulfilled for a statistically
-    significant subset of the complete set of possible inputs.
-  - Debug-mode. Functions are not tested ahead of time, instead
-     assertions are inserted and checked at runtime.
-  - Release-mode. Conditions are completely ignored.
-
-* INACTIVE Hoogle equivalent
-  https://wiki.haskell.org/Hoogle
-
 * INACTIVE Language server protocol
   [[https://github.com/Microsoft/language-server-protocol]]
   [[https://internals.rust-lang.org/t/introducing-rust-language-server-source-release/4209]]
 
-* INACTIVE HTML documentation generation
-  Like [[https://www.haskell.org/haddock/][haddock]] and [[https://www.haskell.org/haddock/][rustdoc]].
-
-* INACTIVE Documentation checker
-  Like a typechecker-pass but for generated documentation. Verify that
-  all links are alive, that examples compile and produce the expected
-  output, etc.
 * Standard library (std, stdlib)
   Prefer somewhat big / wide stdlib. Small / bad standard library +
   good package manager => npm / cargo situation, where everything has
@@ -818,37 +886,45 @@ Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/e
   - Random number generator
   - bubble, insertion, selection sort
   - quicksort
-* INACTIVE "Global" memoization
-  This is just an idea I had, and may or may not be wise to implement.
+* INACTIVE HTML documentation generation
+  Like [[https://www.haskell.org/haddock/][haddock]] and [[https://www.haskell.org/haddock/][rustdoc]].
+* INACTIVE Streamline learning the language
+  Not that getting users is a primary concern, but if someone is
+  indeed curious, I don't want them to be scared off by the process of
+  getting started seeming complex.
 
-  Add a special function for "memoized application" that acts like the
-  application function (in Haskell, ($) :: (a -> b) -> a -> b), the
-  difference being that it stores the result in a global, hidden Map
-  from function pointers and arguments to results. The user can then
-  selectively memoize certain functions (or even just certain
-  applications of the function), and not others -- the wise choice
-  would be to not memoize cheap functions, but do memoize computation
-  heavy functions. This is perfectly legal if the language is
-  completely pure, as there can be no side-effects that are not
-  repeated properly yada yada.
+  https://news.ycombinator.com/item?id=23347357
+  https://www.hillelwayne.com/post/learning-a-language/
+* INACTIVE Hygienic macros
+* INACTIVE Destructors
+  System to register a function as a destructor for a value, which can
+  be used to destroy / close resources when the value is no longer
+  used and garbage collection happens. It's not optimal that resources
+  may stay open for quite a while after last usage, but it's better
+  than *never* being closed.
 
-  An alternative could be that the user can mark a function definition
-  as memoized, and then it's always memoized, not just certain
-  applications. Also, there could then be a unique Map for each such
-  function.
-* INACTIVE Async I/O
-  Zig seems to have a smart solution that doesn't require a separate
-  `async` version of the standard library, unlike Rust with
-  `async-std`.
+  Example use case: We don't want to have to use linear types to
+  manually destroy Lazy values when we're done with them, but we still
+  need to make sure that their mutexes are destroyed at some point.
 
-  https://ziglang.org/download/0.6.0/release-notes.html#Async-IO
-
-  Also look at how Haskell does it. It's probably smart.
-
-* INACTIVE Boxing to allow for dynamic linking
+  https://www.hboehm.info/gc/finalization.html
+* INACTIVE Boxing to allow for dynamic dispatch & dynamic linking
   Boxing vs monomorphization. Boxing results in smaller binary and
   dynamically-linkable interface, but results in slower code (but not
   necessarily always, and maybe not by much!).
+
+  Dynamic dispatch: Like Box<dyn TRAIT> in Rust. Might be useful in
+  places. Should not be that hard to implement -- just heap allocate a
+  vtable, and populate it with all of the class functions. Might need
+  to add wrappers so that the functions always accept the type by
+  reference?  Or all args by reference? Unless we modify the compiler
+  to *always* pass args by reference. In Rust, I suppose they defer
+  the problem by only allowing one to call ~&self~ and optionally
+  ~&mut self~ methods on a trait objects. Don't have to consider sizes
+  if you can't even call ~self~ methods in the first place.
+
+  Must consider how this interacts with monomorphization vs. boxing
+  vs. value witness tables for static dispatch.b
 
   Read /Tristan Hume - A Tour of Metaprogramming Models for Generics/
   for an overview of how different languages implement
@@ -1068,23 +1144,80 @@ Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/e
 
   apply(..., thunk, thunk_ctxt, ...);
   #+END_SRC
+* Pattern matching
+** INACTIVE Var pattern syntax, comparison
+  What if we did
 
-* INACTIVE Use GADTs in Infer
-* INACTIVE Add basic repl
-  Add a basic repl based on the JIT. Something very similar to
-  http://www.stephendiehl.com/llvm/.
+  #+BEGIN_SRC carth
+  (define (foo x pair)
+    (match pair
+      (case [x (let y)] (Some y))
+      (case [_ _] None)))
+  #+END_SRC
 
-  Could maybe be the starting point for an on-demand architechture?
-  Would probably require some memoization mechanism so that we don't
-  unnecessarily check, monomorphise, and compile stuff we don't need
-  to.
-* NEXT Type aliases
-  Like ~type String = [Char]~ in Haskell.
-* INACTIVE Query-based / on-demand compilation
-  More or less a prerequisite to compile-time evaluation. Also enables
-  good incremental compilation, and better IDE/LSP support.
+  instead of
 
-  https://ollef.github.io/blog/posts/query-based-compilers.html
+  #+BEGIN_SRC carth
+  (define (foo x pair)
+    (match pair
+      (case [x' y] (if (= x x')
+                       (Some y)
+                     None))))
+  #+END_SRC
+** INACTIVE Or-patterns
+   Like in Rust. Very convenient.
+
+   #+BEGIN_SRC rust
+   match foo {
+       (1, x) | (5, x) => x * 2,
+       (_, y) => y,
+   }
+   #+END_SRC
+** INACTIVE Active Patterns / Pseudo-patterns
+   Like F# has. Something to
+   consider. https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/active-patterns
+
+   Could enable us to use pattern matching more?
+
+   Haskell has something similar.
+   See matching on the ~Seq~ type.
+   
+* INACTIVE Builtin parsing of C header files
+  I think Zig has this, and in Rust you can use the external tool
+  ~bindgen~ to generate Rust declarations for C headers ahead of time.
+
+  I just think it would be nice to not need to manually translate
+  header files to use external libraries like OpenGL or SDL or
+  whatever.
+* INACTIVE ~tail~ keyword AND/OR loop expression
+For infinite recursion/loops, we optimize tail-recursion to loops atm.
+But it's not obvious to the untrained eye when this will happen!
+
+A ~tail~ keyword that simply causes a compiler error when a recursion can't be optimized would be good.
+Sort of like Rust is considering the `become` keyword to work?
+
+Another alternative / complement would be to add syntax in Carth for the ~Loop~ construct in our ~Low~ IR.
+Sort of like Futhark's loops.
+* INACTIVE Better unicode support
+  Possibly using Rust's builtin stuff. Also possibly use some Zig library?
+
+  Otherwise, this Suckless library seems quite nice: https://libs.suckless.org/libgrapheme/
+
+  Very small! That's always a plus :)
+* INACTIVE Borrow checking
+Since I'll likely be adding linear types anyways, adding a borrow checker based on that might not be too difficult.
+I'm not 100% I'll do it -- there's Carp or Rust or whatever if you prefer that.
+I'm more into Rc/GC for this language actually.
+
+But anywho, in case we ever want to add borrow checking, I'll collect some useful notes here.
+
+Check out Polonius, the new borrow checker in Rust. https://youtu.be/H54VDCuT0J0
+
+** TODO Dead code elimination of externs & wrappers
+   We already do dead code elim almost by mistake in Monomorphize, but
+   we still generate declarations and wrappers for all
+   ~extern~:s. Getting rid of them would be nice.
+   
 * INACTIVE Compile-time evaluation
   Could be used at different steps of compilation, for different purposes.
 
@@ -1149,56 +1282,6 @@ Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/e
   of all names necessary to parse the entry definition. Make a
   topological order. Compile them (to interpretable AST) in order. If
   there are any cyclical groups, compilation error.
-* TODO Benchmark, profile, optimize
-  Check out
-  https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
-  tips!
-* INACTIVE Streamline learning the language
-  Not that getting users is a primary concern, but if someone is
-  indeed curious, I don't want them to be scared off by the process of
-  getting started seeming complex.
-
-  https://news.ycombinator.com/item?id=23347357
-  https://www.hillelwayne.com/post/learning-a-language/
-* NEXT Unify the different ASTs / IRs
-  It's just kinda messy right now. Many files must be changed when
-  touching just about any part of the AST representation. Also, takes
-  up a lot of lines for not much apparent gain. Use some kind of
-  attribute-tag to change the AST for different stages. Like:
-
-  #+BEGIN_SRC haskell
-  type Expr attr = Expr attr (Expr' attr)
-
-  type ParsedExpr = Expr (Type, SrcPos)
-  type CheckedExpr = Expr CheckedType
-  #+END_SRC
-* INACTIVE Builtin parsing of C header files
-  I think Zig has this, and in Rust you can use the external tool
-  ~bindgen~ to generate Rust declarations for C headers ahead of time.
-
-  I just think it would be nice to not need to manually translate
-  header files to use external libraries like OpenGL or SDL or
-  whatever.
-* INACTIVE Investigate alternative linkers
-  Linking is one of the bottlenecks. However much caching etc I do in
-  the parser & typechecker etc, the linker still has to do everything
-  from scratch each time. I read somewhere that "gold" is a new GCC
-  linker? Try using that maybe, unless it's already in use?
-
-  https://news.ycombinator.com/item?id=24615916
-
-  This is a new one: *mold*. It has as goal to be really fast. Seems promising!
-  https://github.com/rui314/mold
-
-* INACTIVE Produce .so:s for debug builds
-  Linking is slow, so for debug builds we could try to split the
-  output by module into separate .so:s. Then we'd only have to rebuild
-  the .so of the affected module in incremental compilation.
-
-  https://news.ycombinator.com/item?id=24615916
-
-* INACTIVE Build Future into IO, or have both IO and AsyncIO?
-
 * INACTIVE Union types
   Like Typescript (I think, I'm not all that familiar with it). Could
   be nice for error handling, for example. That's one of the problems
@@ -1226,102 +1309,10 @@ Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/e
       MyOtherErr(OtherErr)
   }
   #+END_SRC
-* INACTIVE Hygienic macros
-* INACTIVE Destructors
-  System to register a function as a destructor for a value, which can
-  be used to destroy / close resources when the value is no longer
-  used and garbage collection happens. It's not optimal that resources
-  may stay open for quite a while after last usage, but it's better
-  than *never* being closed.
+* INACTIVE Have error messages quote section numbers for the spec
+  when there is a spec.
 
-  Example use case: We don't want to have to use linear types to
-  manually destroy Lazy values when we're done with them, but we still
-  need to make sure that their mutexes are destroyed at some point.
-
-  https://www.hboehm.info/gc/finalization.html
-* Pattern matching
-** INACTIVE Var pattern syntax, comparison
-  What if we did
-
-  #+BEGIN_SRC carth
-  (define (foo x pair)
-    (match pair
-      (case [x (let y)] (Some y))
-      (case [_ _] None)))
-  #+END_SRC
-
-  instead of
-
-  #+BEGIN_SRC carth
-  (define (foo x pair)
-    (match pair
-      (case [x' y] (if (= x x')
-                       (Some y)
-                     None))))
-  #+END_SRC
-** INACTIVE Or-patterns
-   Like in Rust. Very convenient.
-
-   #+BEGIN_SRC rust
-   match foo {
-       (1, x) | (5, x) => x * 2,
-       (_, y) => y,
-   }
-   #+END_SRC
-** INACTIVE Active Patterns
-   Like F# has. Something to
-   consider. https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/active-patterns
-
-   Could enable us to use pattern matching more?
-   
-* TODO `tail` keyword to ensure tail call or compiler error
-  Sometimes you want to be sure that tail calls are optimized. To be
-  able to assert this at compile time, so as to not accidentally
-  create a stack consuming function when it really matters, add a
-  `tail` keyword.
-
-  TCO should already performed as an optimization, but with `tail`,
-  you can ensure that you get a compiler error if the call is not
-  actually a tail call, if you've done something wrong or
-  something. Sort of like Rust is considering the `become` keyword to
-  work?
-* TODO Stack traces
-I want something like what you get when running a panic:ing Rust
-program with ~RUST_BACKTRACE=1~.
-
-Annotating generated code with good DWARF is not easy, and it wouldn't
-be optimally useful in an expression oriented language anyways. That's
-more for line-by-line / statement oriented languages like C. But
-stacktraces are awesome! Seeing exactly where a panic occurs is
-critical for quick debugging.
-
-So how do we get the traces? Maybe using some kind of shadow
-stack. Such a method might work well for other potential backends as
-well, like a C backend.
-
-* INACTIVE Add kind of ~apply~ function that takes tuple
-  #+BEGIN_SRC carth
-  (define (foo a b c)
-    (+ a (* b c)))
-
-  (assert-eq (foo 1 2 3) (apply foo [1 2 3]))
-  (assert-eq (foo 1 2) (apply foo [1 2]))
-  #+END_SRC
-
-  In general, ~(apply f [x1 ... xn])~ becomes ~(f x1 ... xn)~.
-
-  I think it could be a function, via a type class instance that
-  recurses on the pairs of a tuple.
-
-  One usage that could be nice in particular is when you want to apply
-  a function with "default" arguments. You could then do ~(apply f
-  default)~ instead of anything more complex.
-
-  Then again, you can do something arguably more convenient with
-  typeclasses and deriving in haskell. Create a record for the
-  specific argument set, derive Default, and call it like ~f (default
-  {foo = 3})~.
-  
+  Would be nice, to have concrete documentation for what is ok and what is not.
 * INACTIVE SoA record attribute
   https://blog.royalsloth.eu/posts/the-compiler-will-optimize-that-away/
 
@@ -1339,193 +1330,86 @@ well, like a C backend.
 
   Maybe deriving functor and/or foldable could include this base
   functor thingy?
+* INACTIVE Hoogle equivalent
+  https://wiki.haskell.org/Hoogle
+* INACTIVE Async I/O
+  Zig seems to have a smart solution that doesn't require a separate
+  `async` version of the standard library, unlike Rust with
+  `async-std`.
 
-* INACTIVE Borrow checking
-  Don't think I'll implement anything like this. There's Carp or Rust
-  or whatever if you prefer that. I kind of want a nice GC actually.
+  https://ziglang.org/download/0.6.0/release-notes.html#Async-IO
 
-  But anywho, in case we ever want to add borrow checking, I'll
-  collect some useful notes here.
-
-  Check out Polonius, the new borrow checker in Rust. https://youtu.be/H54VDCuT0J0
-
-** TODO Dead code elimination of externs & wrappers
-   We already do dead code elim almost by mistake in Monomorphize, but
-   we still generate declarations and wrappers for all
-   ~extern~:s. Getting rid of them would be nice.
-   
+  Also look at how Haskell does it. It's probably smart.
 * INACTIVE GPU targetable
   Either in Carth directly, or via a DSL or something. Some method of
   doing flattening and parallelisation like Futhark? Compile to OpenGL
   & Vulkan maybe.
+* INACTIVE Custom GC
+Update <2022-08-03 ons>: I've uncancelled this.
+Now I'm thinking that while GC will probably not be built into the language / the default allocation method,
+we'll still probably want a separate Gc type for garbage collected pointers.
+Sort of like how Rust has Rc as a standalone type, separate from the compiler itself.
+Anyways, it would probably be fun to implement a GC!
+So why not do it, when there's time?
 
-* NEXT Write c compiler i carth
-  Look at tutorials. There are many minimal c compilers. tinycc(?) is one, IIRC.
+Update <2022-05-24 tis>: I've actually changed my mind about
+  refcounting. With some ownership analysys, which we'd need anyways
+  for linear types, one could easily ommit most RC increments /
+  decrements in the generated code. And predictable deinitialization +
+  no GC latency is actually really valuable.
 
-  At first, just a fun exercise. Seeing how well Carth fares at such a
-  task. Discovering new bugs & limitations of the compiler. Coming up
-  with new features.
+  Until we get linear types, and even then, we'll need some form of
+  GC. Boehm's seems to be working well enough, but a conservative
+  collector is not ideal, and I think it would be a fun project to
+  write my own GC.
 
-  In the future, may be integrated in a self-hosted Carth compiler for
-  C header parsing support, or even full-on C source library
-  support. Kind of like Zig.
+  There are many problems with refcounting: Generated llvm ir/asm gets
+  polluted; While performance is more predictable, it's typically
+  worse overall; Cycle breaking would either require using weak refs
+  where appropriate, which would in turn require user input or an
+  advanced implementation, or a periodic cycle breaker, which would be
+  costly performance wise. So tracing GC is probably a good idea.
 
-* NEXT Sugar for lambdas
-  Look at [[https://clojure.org/guides/learn/functions#_anonymous_function_syntax][Clojure's reader shorthand for anonymous functions]].
+  GHC seems to prefer throughput over latency, so very long pauses are
+  possible when you're working with a nontrial amount of data. "You're
+  actually doing pretty well to have a 51ms pause time with over 200Mb
+  of live data.".
 
-  It's basically De Brujin notation. So ~(fn [a b] (* 5 (+ a b)))~ can
-  also be written ~#(* 5 (+ %1 %2))~. That's convenient! If one
-  instead does good point-free compositioning, like ~(<oo (* 5) +)~,
-  the sugar is "unneccesary", but it really is quite concise and
-  readable. Might be nice to have.
+  It could be interesting to add ways of controlling when GC happens
+  so you can reduce spikes of latency. Haskell has ~performGC :: IO
+  ()~ that does this. [[https://old.reddit.com/r/haskell/comments/6d891n/has_anyone_noticed_gc_pause_lag_in_haskell/di0vqb0/][Here is a gameboy]] who eliminates spikes at the
+  cost of overall performance by calling ~performGC~ every frame.
 
-* NEXT Look at these languages
-  For inspiration, learn from their mistakes, etc.
-  
-  Also add related work to readme, after looking closer at it, if applicable.
+  [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
 
-  - Hackett
-  - Liskell
-  - Axellang
-  - Kalyn
-    https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
-  - Unison
-    https://github.com/unisonweb/unison
-* NEXT Refactor type checker
-  keywords: type checking, inferenc, inferrer
+  A tracing GC would be quite separate from the rest of the
+  program. The only pollution would be calls to the allocator (not
+  much different from the current sitch w malloc) and
+  (de)registrations of local variables in Let forms (a total of two
+  function calls per heap allocated variable).
 
-  I'm not completely happy with the typechecking. 4 module files
-  (Check, Checked, Infer, Inferred) totalling over 900 SLOC. Also,
-  ~solve~ is not just run once at the outermost level, visiting each
-  constraint at most once. Because of nested ~let~ with polymorphism,
-  we currently run ~solve~ nestedly, and in total, each constraint is
-  likely visited more than once. This is ugly.
+  Implementing a tracing GC would be a fun challenge, and I'm sure it
+  could be fun to try different algorithms etc.
 
-  See:
-  - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
+  Look at
+  - https://github.com/mkirchner/gc
+  - https://youtu.be/FeLHo6tIgKI
+* INACTIVE Property system
+  I'm thinking of a system where you annotate functions in a source
+  file with pre- and postconditions, which can then be checked in
+  different modes depending on how much time you've got etc.
 
-* INACTIVE Nonstrict parameters
-  Similar to how you can mark parameters as strict and force
-  evaluation in Haskell, we could benefit from having params marked as
-  nonstrict similarly.
+  - Proof-mode. Exchaustive checking of conditions. All possible
+     inputs are generated, and the system checks that the precondition
+     always implies the postcondition.
+  - Test-mode. Statistical, random testing. Generate enough inputs
+    such that the precondition is fulfilled for a statistically
+    significant subset of the complete set of possible inputs.
+  - Debug-mode. Functions are not tested ahead of time, instead
+     assertions are inserted and checked at runtime.
+  - Release-mode. Conditions are completely ignored.
+* INACTIVE Documentation checker
+  Like a typechecker-pass but for generated documentation. Verify that
+  all links are alive, that examples compile and produce the expected
+  output, etc.
 
-  Then we can write functions that perform some sort of
-  short-circuiting logic, like ~or~, ~parse/or~, ~maybe/or~, ~maybe~,
-  etc, without having to resort to macros or explicit wrappings of
-  ~(fun (Unit) ...)~s.
-
-  It could look something like this
-  
-  #+BEGIN_SRC carth
-  (define (or p #nonstrict q)
-    (if p True q))
-
-  (or (cheap-computation ...)
-      (expensive-computation ...))
-  #+END_SRC
-
-  Also consider the nested case
-
-  #+BEGIN_SRC carth
-  (define (foo a b #nonstrict computation)
-    (if (bar a)
-        (baz b computation)
-      3))
-
-  (define (baz b #nonstrict computation)
-    (or b (f computation)))
-  #+END_SRC
-
-* INACTIVE Better unicode support
-  Possibly using Rust's builtin stuff. Also possibly use some Zig library?
-
-  Otherwise, this Suckless library seems quite nice: https://libs.suckless.org/libgrapheme/
-
-  Very small! That's always a plus :)
-
-* INACTIVE Dynamic dispatch
-  Like Box<dyn TRAIT> in Rust. Might be useful in places. Should not
-  be that hard to implement -- just heap allocate a vtable, and
-  populate it with all of the class functions. Might need to add
-  wrappers so that the functions always accept the type by reference?
-  Or all args by reference? Unless we modify the compiler to *always*
-  pass args by reference. In Rust, I suppose they defer the problem by
-  only allowing one to call ~&self~ and optionally ~&mut self~ methods
-  on a trait objects. Don't have to consider sizes if you can't even
-  call ~self~ methods in the first place.
-
-  Must consider how this interacts with monomorphization vs. boxing
-  vs. value witness tables for static dispatch.b
-* INACTIVE Have error messages quote section numbers for the spec
-  when there is a spec.
-
-  Would be nice, to have concrete documentation for what is ok and what is not.
-* NEXT Dump everythiong to Graphviz
-  Particularly the pre-LLVM ASTs. They're very hard to read as text,
-  but would probably fit really well as a graph. This could be useful
-  both for debugging the compiler, as well as to debug compiled
-  programs.
-* TODO Change syntax of definitions & funs
-  #+BEGIN_EXAMPLE
-  ;; I don't like how it's only the parmeters in parens in fun
-  ;; and Fun, but in define the function name is included as well.
-  (Fun      (a b) c)
-  (fun      (a b) c)
-  (define (f a b) c)
-
-  ;; This would align up much more nicely. More symmetry == better.
-    (Fun   (a b) c)
-    (fun   (a b) c)
-  (defun f (a b) c)
-  #+END_EXAMPLE
-
-  No but really, more symmetry => easier for beginners to make correct
-  extrapolations => less friction.
-
-  Also, it's slightly annoying having to jump back to the ~define~
-  just to make it a ~define:~ when we want to add a type signature to
-  a definition. Maybe instead:
-
-  #+BEGIN_EXAMPLE
-  (defun f (a b) : (Fun (a b) c)
-    c)
-  #+END_EXAMPLE
-
-  Also, since fun:s are essentially treated as a special case of
-  fmatch:es in the frontend, we should support matching immediately in
-  the definition, I'm thinking. Just a bit of extra sugar.
-
-  #+BEGIN_EXAMPLE
-  (defun f (a b)
-    (* a b))  
-  (defvar f
-    (fun (a b)
-      (* a b)))
-
-  (defun* f
-    (case (a True)  (* a 10))
-    (case (a False) (+ a 1)))
-  (defvar f
-    (fun* (case [a True]  (* a 10))
-          (case [a False] (+ a 1))))
-  #+END_EXAMPLE
-
-  Something like this? Would help reduce rightward drift, and would be
-  a fairly common pattern, I believe.
-
-  If we have a defun and defun*, I think we should have a fun and fun*
-  as well. That would essentially entail renaming fmatch to fun*.
-
-  fun*/fmatch lives somewhere between both fun and match. I don't
-  think that leaning towards one or the other is more of a correct
-  choice, so I feel we can just pick something arbitrarily.
-
-  I used to like fmatch, because it matches \case in Haskell, but now
-  I'm leaning more towards fun*. fun* is particularly nice if we go
-  with defun* as well. Nice symmetry.
-
-  Another approach, which I've pretty much already rejected, is to
-  merge fun and fmatch into a single, overloaded fun. Might be nice in
-  some ways, but it might also get kinda confusing. More ambiguity
-  etc. Not as trivial to parse in carth-mode, for indentation etc. No,
-  better to have different special forms, I think.
