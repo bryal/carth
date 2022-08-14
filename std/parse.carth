@@ -89,7 +89,7 @@
   (Parser (fun [inp] (either/bind (fun [[inp a]] (let1 (Parser pb) (f a) (pb inp))) (pa inp)))))
 
 (defun parse/lift2 [f pa pb]
-  (parse/bindr pa (fun [a] (parse/map (f a) pb))))
+  (parse/bindr pa (fun [a] (parse/map \(f a #) pb))))
 
 (defun parse/binary-digit? [b]
   (or (= b ascii-0) (= b ascii-1)))

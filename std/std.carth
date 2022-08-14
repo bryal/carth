@@ -122,6 +122,8 @@
 (extern str_append (Fun [Str Str] Str))
 (defun str-append [s1 s2] (str_append s1 s2))
 
+(defvar str= \(str_eq #0 #1))
+
 ;;; Function
 
 ;; (define (uncurry f [a b]) (f a b))
