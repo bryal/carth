@@ -6,13 +6,16 @@
 *.o
 *.bin
 
-examples/*.bin
-examples/*.ll
-test/**/*.bin
-test/**/*.ll
+/examples/*.bin
+/examples/*.ll
+/examples/*.c
+/test/**/*.bin
+/test/**/*.ll
 /test/**/*.c
 
 .stack-work/
 /dist-newstyle/
 /dist/
 /conflicts/
+
+/weeder.dhall
