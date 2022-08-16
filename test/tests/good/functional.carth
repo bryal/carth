@@ -2,7 +2,7 @@
 
 (import std)
 
-(def main
+(defun main [Unit]
 
   (defun twice [f]
     (fun [x] (f (f x))))

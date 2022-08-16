@@ -7,7 +7,7 @@
 
 (import std)
 
-(def main
+(defun main [Unit]
   (let1 points (array/collect (iter/join (take 1000 (repeat (zip (xrange 0 100) (xrange 0 100))))))
     (display (show-int (count-intersections-plain points)))))
 

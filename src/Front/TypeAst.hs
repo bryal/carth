@@ -29,10 +29,7 @@ unTconst (TConst tc) = Just tc
 unTconst _ = Nothing
 
 mainType :: Type' var
-mainType = tIO tUnit
-
-tIO :: Type' var -> Type' var
-tIO a = TConst ("IO", [a])
+mainType = TFun [tUnit] tUnit
 
 tByte :: Type' var
 tByte = TPrim (TNat 8)

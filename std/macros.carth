@@ -14,11 +14,8 @@
 (defmacro =s ()
   (case (=s-x =s-xs ...) (all (partial-2 = =s-x) (list/iter (list =s-xs ...)))))
 
-(defmacro io/wrap ()
-  (case (computation) (IO (fun [real-world] [computation real-world]))))
-
 (defmacro lazy ()
-  (case (computation) (Lazy [(unsafe-perform-io mutex/new)
+  (case (computation) (Lazy [(mutex/new Unit)
                              (box (Left (fun [Unit] computation)))])))
 
 (defmacro nonstrict ()

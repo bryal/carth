@@ -14,7 +14,7 @@ pub struct Certificate {
 }
 
 #[no_mangle]
-pub extern "C" fn stdrs_tcp_connect(host: Str, port: u16) -> Maybe<FfiHandle> {
+pub unsafe extern "C" fn stdrs_tcp_connect(host: Str, port: u16) -> Maybe<FfiHandle> {
     Maybe::Some(handle_to_ffi(Box::into_raw(Box::new(
         match TcpStream::connect((host.as_str(), port)).ok() {
             Some(x) => x,
@@ -24,7 +24,11 @@ pub extern "C" fn stdrs_tcp_connect(host: Str, port: u16) -> Maybe<FfiHandle> {
 }
 
 #[no_mangle]
-pub extern "C" fn stdrs_tcp_connect_timeout(host: Str, port: u16, ms: u64) -> Maybe<FfiHandle> {
+pub unsafe extern "C" fn stdrs_tcp_connect_timeout(
+    host: Str,
+    port: u16,
+    ms: u64,
+) -> Maybe<FfiHandle> {
     let timeout = Duration::from_millis(ms);
     let addrs = match (host.as_str(), port).to_socket_addrs().ok() {
         Some(x) => x,

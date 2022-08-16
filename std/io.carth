@@ -1,102 +1,22 @@
 (import std)
 
-(defun io/for [xs f] :of (forall (a) (Fun [(Iter a) (Fun [a] (IO Unit))]
-                                          (IO Unit)))
-  (IO (fun [real-world]
-        [Unit (foldl (fun [real-world a] (cadr ((perform-io (f a)) real-world)))
-                     real-world
-                     xs)])))
-
-(defun io/pure [a] (IO (fun [real-world] [a real-world])))
-
-(defun io/map [f (IO ma)] :of (forall (a b) (Fun [(Fun [a] b) (IO a)] (IO b)))
-  (IO (o> ma (partial-2 map-car f))))
-
-(defun io/bind [f (IO ma)] :of (forall (a b) (Fun [(Fun [a] (IO b)) (IO a)] (IO b)))
-  (IO (fun [real-world]
-        (let1 [a real-world] (ma real-world)
-          ((perform-io (f a)) real-world)))))
-
-(def io/bindr (flip io/bind))
-
-(defun io/thenl [mb ma] (io/bind (const mb) ma))
-(defun io/thenr [ma mb] (io/bindr ma (const mb)))
-
-(defun unsafe-perform-io [ma] :of (forall (a) (Fun [(IO a)] a))
-  (car ((perform-io ma) UnsafeRealWorld)))
-
-(defun perform-io [(IO ma)] :of (forall (a) (Fun [(IO a)] (Fun [RealWorld] [a RealWorld])))
-  ma)
-
-(extern unsafe_display_inline (Fun [Str] Unit))
-
-(defun display-inline [s]
-  (IO (fun [real-world] [(unsafe_display_inline s) real-world])))
+(extern display_inline (Fun [Str] Unit))
 
 (defun display [s]
-  (display-inline (str-append s "\n")))
+  (display_inline (str-append s "\n")))
 
-(extern _get_contents (Fun [RealWorld] [Str RealWorld]))
-(def get-contents (IO _get_contents))
+(extern get_contents (Fun [Unit] Str))
 
-(extern unsafe_read_file (Fun [Str] (Maybe Str)))
-(def unsafe-read-file unsafe_read_file)
-(defun read-file [f] (IO (fun [real-world] [(unsafe-read-file f) real-world])))
+(extern read_file (Fun [Str] (Maybe Str)))
 
-(defun io/write-ref [x ptr]
-  (io/wrap (store x ptr)))
-
-(data Handle' (Handle' (Box Nat8) (Box Nat8)))
-
-(defun handle/new [h'] (Handle h' array/nil))
-
-(extern stdrs_close_handle (Fun [Handle'] Unit))
-(extern stdrs_read_handle  (Fun [Handle' (Array Nat8)] (Maybe (Cons (Array Nat8) Nat))))
-(extern stdrs_write_handle (Fun [Handle' (Array Nat8)] (Maybe Nat)))
-
-(defun close-handle' [h] (io/wrap (stdrs_close_handle h)))
-(defun read-handle' [h buf] (io/wrap (stdrs_read_handle h buf)))
-(defun write-handle' [h buf] (io/wrap (stdrs_write_handle h buf)))
-
-(data Handle (Handle Handle' (Array Nat8)))
-
-(defun handle/close [(Handle h _)] (close-handle' h))
-
-(defun handle/write [buf (Handle h _)] :of (Fun [(Array Nat8) Handle] (IO (Maybe Nat)))
-  (write-handle' h buf))
-
-(defun handle/read-byte [h]
-  (io/map (partial-2 maybe/bind (fun [[h xs]] (maybe/map (partial-2 cons' h) (array/lookup (cast 0) xs)))) (handle/read-max (cast 1) h)))
-
-(defun handle/read-max [n (Handle h buf)] :of (Fun [Nat Handle] (IO (Maybe [Handle (Array Nat8)])))
-  (if (not (array/nil? buf))
-      (let1 [out buf] (array/take-split n buf)
-        (io/pure (Some [(Handle h buf) out])))
-    (io/map (partial-2 maybe/map (fun [[(Array p _) . m]] [(Handle h array/nil) (Array p m)]))
-            (read-handle' h (array/unsafe-uninit n)))))
-
-(defun handle/read-to-end [h]
-  (def bufsize (: (cast (* 8 1024)) Nat))
-  (defun go [[xs h]]
-    (io/bind (fun
-               (case [None] (io/pure None))
-               (case [(Some [h ys])] (if (array/nil? ys)
-                                         (io/pure (Some [h xs]))
-                                       (go [(array/append xs ys) h]))))
-             (handle/read-max bufsize h)))
-  (go [array/nil h]))
-
-(defun handle/read-to-str [h]
-  (io/map (partial-2 maybe/map (partial-2 map-cadr Str)) (handle/read-to-end h)))
-
-(defun handle/write-str [(Str a) h] (handle/write a h))
-
-(extern stdrs_stdin_handle (Fun [Unit] Handle'))
-(def handle/stdin (Handle (stdrs_stdin_handle Unit) array/nil))
+(extern write_file (Fun [Str Str] (Maybe Unit)))
 
 (defun trace-show [show x]
   (trace (show x) x))
 
 (defun trace [msg x]
-  (seq (unsafe-perform-io (display msg))
+  (seq (display msg)
        x))
+
+(extern call_process (Fun [Str (Array Str)] (Maybe [(Array Nat8) (Array Nat8) (Maybe Int32)])))
+(extern get_args (Fun [Unit] (Array Str)))

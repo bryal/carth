@@ -7,5 +7,5 @@
       (seq (undefined Unit) 123)
     456))
 
-(def main
+(defun main [Unit]
   (display (show-int (foo False))))

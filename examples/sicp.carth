@@ -1,6 +1,6 @@
 (import std)
 
-(def main
+(defun main [Unit]
   (display (show-int (fib 11))))
 
 (defun fib

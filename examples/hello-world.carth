@@ -1,4 +1,4 @@
 (import std)
 
-(def main
+(defun main [Unit]
   (display "Hello, World!"))

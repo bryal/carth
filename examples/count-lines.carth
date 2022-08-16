@@ -2,4 +2,4 @@
 
 (import std)
 
-(def main (io/bind display (io/map (<o show-nat (<o count lines)) get-contents)))
+(defun main [Unit] (display (show-nat (count (lines (get_contents Unit))))))

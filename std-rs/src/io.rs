@@ -13,8 +13,8 @@ pub type Handle = *mut dyn ReadWrite;
 #[repr(C)]
 pub struct FfiHandle(*mut u8, *mut u8);
 
-pub fn handle_to_ffi(h: Handle) -> FfiHandle {
-    unsafe { mem::transmute(h) }
+pub unsafe fn handle_to_ffi(h: Handle) -> FfiHandle {
+    mem::transmute(h)
 }
 
 pub unsafe fn handle_from_ffi(h: FfiHandle) -> Handle {
@@ -76,4 +76,68 @@ pub unsafe extern "C" fn stdrs_write_handle(h: FfiHandle, buf: Array<u8>) -> May
         Err(ref e) if e.kind() == io::ErrorKind::Interrupted => Maybe::Some(0),
         Err(_) => Maybe::None,
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn call_process(
+    cmd: Str,
+    args: Array<Str>,
+) -> Maybe<Cons<Array<u8>, Cons<Array<u8>, Cons<Maybe<i32>, ()>>>> {
+    if let Ok(output) = std::process::Command::new(cmd.as_str())
+        .args(args.as_slice().iter().map(|s| s.as_str()))
+        .output()
+    {
+        Maybe::Some(Cons(
+            Array::new(&output.stdout),
+            Cons(
+                Array::new(&output.stderr),
+                Cons(output.status.code().into(), ()),
+            ),
+        ))
+    } else {
+        Maybe::None
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn get_contents() -> Str {
+    let mut s = String::new();
+    std::io::stdin()
+        .read_to_string(&mut s)
+        .expect("read all of stdin");
+    Str::new(&s)
+}
+
+#[no_mangle]
+pub extern "C" fn read_file(fp: Str) -> Maybe<Str> {
+    let fp = fp.as_str();
+    File::open(fp)
+        .ok()
+        .map(|mut f| {
+            let mut s = String::new();
+            f.read_to_string(&mut s)
+                .ok()
+                .map(|_| Maybe::Some(Str::new(&s)))
+                .unwrap_or(Maybe::None)
+        })
+        .unwrap_or(Maybe::None)
+}
+
+#[no_mangle]
+pub extern "C" fn write_file(fp: Str, s: Str) -> Maybe<()> {
+    let fp = fp.as_str();
+    File::create(fp)
+        .ok()
+        .map(|mut f| {
+            f.write_all(s.as_str().as_bytes())
+                .ok()
+                .map(|()| Maybe::Some(()))
+                .unwrap_or(Maybe::None)
+        })
+        .unwrap_or(Maybe::None)
+}
+
+#[no_mangle]
+pub extern "C" fn get_args() -> Array<Str> {
+    Array::new(&std::env::args().map(|s| Str::new(&s)).collect::<Vec<Str>>())
 }

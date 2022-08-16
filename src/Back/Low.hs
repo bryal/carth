@@ -358,7 +358,11 @@ mkEOperand op = Expr (EOperand op) (typeof op)
 decodeCharArrayStrLit :: (Word8 -> String) -> [Word8] -> String
 decodeCharArrayStrLit escapeInvisible cs = do
     c <- cs
-    if 0x20 <= c && c <= 0x7E then [chr (fromIntegral c)] else escapeInvisible c
+    if
+        | c == 0x22 -> "\\\""
+        | c == 0x5C -> "\\\\"
+        | 0x20 <= c && c <= 0x7E -> [chr (fromIntegral c)]
+        | otherwise -> escapeInvisible c
 
 resolveTypeNameConflicts :: [String] -> [TypeDef] -> [TypeDef]
 resolveTypeNameConflicts alreadyDefined =

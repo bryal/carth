@@ -1,9 +1,9 @@
 (import std)
 
-(def main
-  (do io/bind
-      (<- s (io/map unwrap! (read-file "read-self.carth")))
-      (display "Printing ourselves...")
-      (display "==================================================")
-      (display s)
-      (display "==================================================")))
+(defun main [Unit]
+  (let1 s (unwrap! (read_file "read-self.carth"))
+    (apps seq
+          (display "Printing ourselves...")
+          (display "==================================================")
+          (display s)
+          (display "=================================================="))))

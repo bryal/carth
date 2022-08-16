@@ -363,43 +363,10 @@ codegen layout triple moduleFilePath (Program funs exts gvars tdefs gnames main 
         (mkName "entry")
         [ LL.Do (callNamed "install_stackoverflow_handler" Nothing [] LL.void)
         , LL.Do (call (LL.ConstantOperand (genGlobal init)) Nothing [])
-        , mkName "mainc_tmp" LL.:= LL.GetElementPtr
-            { inBounds = False
-            , address = LL.ConstantOperand (genGlobal main)
-            , indices = [litI64 (0 :: Word), litI32 (0 :: Word), litI32 (0 :: Word)]
-            , metadata = []
-            }
-        , mkName "mainc" LL.:= LL.Load
-            { volatile = False
-            , address = LL.LocalReference (LL.ptr (LL.ptr LL.i8)) (mkName "mainc_tmp")
-            , maybeAtomicity = Nothing
-            , alignment = 0
-            , metadata = []
-            }
-        , mkName "mainf_tmp" LL.:= LL.GetElementPtr
-            { inBounds = False
-            , address = LL.ConstantOperand (genGlobal main)
-            , indices = [litI64 (0 :: Word), litI32 (0 :: Word), litI32 (1 :: Word)]
-            , metadata = []
-            }
-        , mkName "mainf_tmp2" LL.:= LL.Load
-            { volatile = False
-            , address = LL.LocalReference (LL.ptr (LL.ptr LL.i8)) (mkName "mainf_tmp")
-            , maybeAtomicity = Nothing
-            , alignment = 0
-            , metadata = []
-            }
-        , mkName "mainf"
-            LL.:= LL.BitCast (LL.LocalReference (LL.ptr LL.i8) (mkName "mainf_tmp2"))
-                             (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
-                             []
         , LL.Do
-            (call
-                (LL.LocalReference (LL.ptr (FunctionType LL.void [LL.ptr LL.i8] False))
-                                   (mkName "mainf")
-                )
-                Nothing
-                [InReg (LL.LocalReference (LL.ptr LL.i8) (mkName "mainc"))]
+            (call (LL.ConstantOperand (genGlobal main))
+                  Nothing
+                  [InReg (LL.ConstantOperand (LL.Null (LL.ptr LL.i8)))]
             )
         ]
         (LL.Do (LL.Ret (Just (ConstantOperand (LL.Int 32 0))) []))

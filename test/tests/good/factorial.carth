@@ -2,7 +2,7 @@
 
 (import std)
 
-(def main
+(defun main [Unit]
   (display (show-int (factorial 20))))
 
 (defun factorial [n]

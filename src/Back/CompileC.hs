@@ -344,17 +344,14 @@ codegen (Program fdefs edecls gdefs tdefs_unreplaced gnames_unreplaced main init
         genLocal (Local x _) =
             let x' = (0, lname lnames x) in if localIsAlloc x then preop "&" x' else x'
 
-    defineMain =
-        let (Global mainId _) = main
-            main' = gname mainId
-        in  unlines
-                [ "int main(void) {"
-                , "    install_stackoverflow_handler();"
-                , "    " ++ let Global gid _ = init in gname gid ++ "();"
-                , "    ((void(*)(void*))" ++ main' ++ ".m0.function)(" ++ main' ++ ".m0.captures);"
-                , "    return 0;"
-                , "}"
-                ]
+    defineMain = unlines
+        [ "int main(void) {"
+        , "    install_stackoverflow_handler();"
+        , "    " ++ let Global gid _ = init in gname gid ++ "();"
+        , "    " ++ let Global gid _ = main in gname gid ++ "(NULL);"
+        , "    return 0;"
+        , "}"
+        ]
 
     genConst' = second (either id id) . genConst
     -- Returns "precedence" and either Left on uninitialized (with a zero-value bundled, for when

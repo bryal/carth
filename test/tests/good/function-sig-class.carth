@@ -6,7 +6,7 @@
                     (Fun [a] b))
   transmute)
 
-(def main
+(defun main [Unit]
   (display (show-int ((: tr (Fun [Nat] Int))
                       ((: tr (Fun [Int] Nat))
                        123456)))))

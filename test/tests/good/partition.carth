@@ -12,7 +12,7 @@
   (Left a)
   (Right b))
 
-(def main
+(defun main [Unit]
   (let1 [xs ys] (partition (list (Left 1) (Left 3) (Right 2) (Right 4) (Left 5)))
     (display (show_int (- (sum xs) (sum ys))))))
 
@@ -30,8 +30,8 @@
 (defun display [s]
   (display-inline (str_append s "\n")))
 (defun display-inline [s]
-  (IO (fun [real-world] [(unsafe_display_inline s) real-world])))
-(extern unsafe_display_inline (Fun [Str] Unit))
+  (display_inline s))
+(extern display_inline (Fun [Str] Unit))
 (extern str_append (Fun [Str Str] Str))
 
 (extern show_int (Fun [Int] Str))

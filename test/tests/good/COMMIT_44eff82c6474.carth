@@ -20,7 +20,7 @@
   (Left a)
   (Right [Int8 Int]))
 
-(defun seq [a b] :of (Fun [(Either Unit) (IO Unit)] (IO Unit))
+(defun seq [a b] :of (Fun [(Either Unit) Unit] Unit)
   b)
 (defun foo [f] :of (Fun [(Fun [Unit] Unit)] Unit)
   (f Unit))
@@ -35,6 +35,6 @@
   (case [f (Left a)] (Left (f a)))
   (case [_ (Right b)] (Right b)))
 
-(def main
+(defun main [Unit]
   (seq (either/map-left foo (Left (<o id id)))
-       (IO (fun [real-world] [Unit real-world]))))
+       Unit))

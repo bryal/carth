@@ -8,7 +8,7 @@ pub mod net;
 
 use libc::*;
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::{alloc, mem, slice, str};
 
 #[no_mangle]
@@ -77,7 +77,17 @@ where
     }
 }
 
+impl<A> Clone for Array<A>
+where
+    A: Clone,
+{
+    fn clone(&self) -> Self {
+        Array::new(self.as_slice())
+    }
+}
+
 #[repr(C)]
+#[derive(Clone)]
 pub struct Str {
     pub array: Array<u8>,
 }
@@ -115,6 +125,24 @@ impl<A> Maybe<A> {
         match self {
             Maybe::None => panic!("Maybe::unwrap on None"),
             Maybe::Some(a) => a,
+        }
+    }
+}
+
+impl<A> Into<Option<A>> for Maybe<A> {
+    fn into(self) -> Option<A> {
+        match self {
+            Maybe::Some(a) => Some(a),
+            Maybe::None => None,
+        }
+    }
+}
+
+impl<A> From<Option<A>> for Maybe<A> {
+    fn from(opt: Option<A>) -> Maybe<A> {
+        match opt {
+            Some(a) => Maybe::Some(a),
+            None => Maybe::None,
         }
     }
 }
@@ -157,7 +185,7 @@ pub extern "C" fn str_show(s: Str) -> Str {
 }
 
 #[no_mangle]
-pub extern "C" fn unsafe_display_inline(s: Str) {
+pub extern "C" fn display_inline(s: Str) {
     let s = s.as_str();
     print!("{}", s);
     std::io::stdout().flush().ok();
@@ -204,30 +232,6 @@ pub extern "C" fn _panic(s: Str) {
     }
 
     std::process::abort()
-}
-
-#[no_mangle]
-pub extern "C" fn _get_contents() -> Str {
-    let mut s = String::new();
-    std::io::stdin()
-        .read_to_string(&mut s)
-        .expect("read all of stdin");
-    Str::new(&s)
-}
-
-#[no_mangle]
-pub extern "C" fn unsafe_read_file(fp: Str) -> Maybe<Str> {
-    let fp = fp.as_str();
-    File::open(fp)
-        .ok()
-        .map(|mut f| {
-            let mut s = String::new();
-            f.read_to_string(&mut s)
-                .ok()
-                .map(|_| Maybe::Some(Str::new(&s)))
-                .unwrap_or(Maybe::None)
-        })
-        .unwrap_or(Maybe::None)
 }
 
 static mut BACKTRACE: Vec<String> = Vec::new();

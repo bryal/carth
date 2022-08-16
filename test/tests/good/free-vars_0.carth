@@ -14,4 +14,4 @@
                  1337))))
   ((go x) 1))
 
-(def main (display (show-int (foo 10))))
+(defun main [Unit] (display (show-int (foo 10))))

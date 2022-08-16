@@ -13,18 +13,17 @@
 (extern pthread_mutex_trylock (Fun [Mutex] Int32))
 (extern pthread_mutex_unlock (Fun [Mutex] Int32))
 
-(def mutex/new :of
-  (IO Mutex)
-  (io/wrap (let ((mx (Mutex (cast-ptr (id@"GC_malloc" sizeof_pthread_mutex_t))))
-                 (attrs mem/unsafe-null))
-             (seq (pthread_mutex_init mx attrs)
-                  mx))))
+(defun mutex/new [Unit] :of (Fun [Unit] Mutex)
+  (let ((mx (Mutex (cast-ptr (id@"GC_malloc" sizeof_pthread_mutex_t))))
+        (attrs mem/unsafe-null))
+    (seq (pthread_mutex_init mx attrs)
+         mx)))
 
-(defun mutex/lock [mx] :of (Fun [Mutex] (IO Unit))
-  (io/wrap (seq (pthread_mutex_lock mx) Unit)))
+(defun mutex/lock [mx] :of (Fun [Mutex] Unit)
+  (seq (pthread_mutex_lock mx) Unit))
 
-(defun mutex/try-lock [mx] :of (Fun [Mutex] (IO Bool))
-  (io/wrap (= (pthread_mutex_trylock mx) (cast 0))))
+(defun mutex/try-lock [mx] :of (Fun [Mutex] Bool)
+  (= (pthread_mutex_trylock mx) (cast 0)))
 
-(defun mutex/release [mx] :of (Fun [Mutex] (IO Unit))
-  (io/wrap (seq (pthread_mutex_unlock mx) Unit)))
+(defun mutex/release [mx] :of (Fun [Mutex] Unit)
+  (seq (pthread_mutex_unlock mx) Unit))

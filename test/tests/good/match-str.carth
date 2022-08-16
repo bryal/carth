@@ -4,7 +4,7 @@
 
 (import std)
 
-(def main
+(defun main [Unit]
   ((apps <o display show-int first!)
    (eval (list 30 1000)
          (list "dup"
