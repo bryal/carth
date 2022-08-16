@@ -19,7 +19,7 @@ Another reason is that this file doesn't scale at all. Not that I
 expect or particularly desire to have contributors, but I also don't
 want to scare anyone away xd.
 
-* NEXT Type aliases
+* TODO Type aliases
   Like ~type String = [Char]~ in Haskell.
 * NEXT RC / ARC / Refcount / reference counting
 GC is inelegant, needing to stop the world or use a bunch of complex
@@ -208,7 +208,260 @@ And a supposedly good paper on current state of high perf RC systems: https://us
 (Low-Latency, High-Throughput Garbage Collection, Wenyu Zhao et al.).
 "A paper I quite enjoyed on automatic reference counting for pure, immutable functional programming: https://arxiv.org/abs/1908.05647".
 Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/en-us/research/uploads/prod/2021/11/flreuse-tr-v1.pdf, about Perceus in Koka.
-* NEXT Module system
+* NEXT Namespacing, Ad-hoc polymorphism, compile time evaluation (, dependent types)
+We need some kind of module system for namespacing.
+The current (<2022-08-16 tis>) "module system" only pretends to be one,
+and is really no better than C `#include` with `#pragma once` by default.
+At minimum, I want what Rust has.
+Simple, but competent enough for most purposes.
+It solves the namespacing problem well, but not really anything more than that.
+
+We also need ad-hoc polymorphism, aka. type classes / traits / interfaces / protocols / concepts.
+Here, I thing Rust's trait system actually wouldn't be enough.
+Some limitations in Rust:
+- An `impl` affects only one type. No equivalent of multi-parameter type classes here.
+  Of course, this makes type inference easier / better, but it comes with limitations.
+- No higher kinded types, so no Functor, Monad, etc.
+   With /GADTs/ I understand one can achieve something roughly equivalent, but it doesn't seem practical.
+In Carth I'd want higher kinded types, multi-parameter type classes.
+Multiple instances + implicits could be cool as well, though we'd have to handle the problems they cause.
+Maybe multiple instances could be practical if we have a method of denoting that an instance is canonical,
+and that an API only accepts the canonical instance.
+
+Then there's compile time evaluation.
+This one would on the one hand be *really* cool to have, but at the same time we could probably do without it.
+It might work, and be fairly simple to implement with interpretation,
+if we allow only a subset of the language to be interpreted in a comptime context,
+and disallow certain kinds of values from surviving into the runtime context.
+Later on, it could possibly synergise really well with on-demand compilation.
+If so, the performance of comptime might improve drastically.
+
+Comptime eval also directly bleeds into dependent types.
+Maybe not the full thing, but enough to be really practical.
+E.g. we could be generic over the lengths of fixed-size stack arrays, without having to make it a special case.
+
+So these are things that we want.
+And the thing is that there is a /lot/ of overlap!
+A type class instance shares some similarities with modules.
+What if they were the same thing?
+Then you get ML-style modules (instances) & signatures (type class).
+And aren't modules really similar to records actually?
+One is a structure of values & functions that exists at comptime,
+the other is a structure of values & functions that exists at runtime!
+
+Of course, the overlap isn't total.
+The different systems have different strengths.
+Some stratification --
+i.e. having essentially different languages & namespaces for modules, records, & instances --
+is really not that horrible.
+But it would be really /elegant/ if they were all first class citizens using the same language.
+You could reuse the same abstraction in all contexts.
+No need to e.g. add a separate, complex system to support closed type families --
+just define a function that pattern matches on the type!
+
+I want all of these things, and everytime I revisit any of them, I change my ming on what's the best course.
+
+But right now (<2022-08-16 tis>), I'm feeling that starting out with compile time eval is the right approach.
+Then we can attempt to implement modules on top of that.
+If it works -- great, two birds with one stone!
+If it doesn't -- ok, but we still have comptime eval!
+That's great on its own.
+And we can just attempt a Rust-style module system later instead.
+
+** NEXT Compile time eval
+Start with interpreting a non-strict subset of Carth.
+Like, don't even attempt to handle `extern`s to begin with.
+But what about pointers?
+Like, at runtime I'm imagining that well end up having multiple different pointer types.
+Rc, Gc, Raw, etc.
+But a high-level interpreter actually use the external Gc or whatever.
+
+If we've already got on-demand compilation when attempting this, maybe skip straight to implementing comtime that way.
+** Type class instance resolution with records
+I'm watching https://youtu.be/x3evzO8O9e8, and it got me thinking about how type class instances could be resolved in the case of constrains & polymorphism.
+Consider something like
+#+BEGIN_SRC haskell
+sort   :: forall a. Ord a => [a] -> [a]
+concat :: forall a. [[a]] -> [a]
+
+foo :: forall a. Ord a => [[a]] -> [a]
+foo xss = concat (sort xs)
+#+END_SRC
+
+~sort~ can figure out how to sort a ~[b]~ given an ~Ord b~.
+~foo~ is aware of ~Ord a~.
+But we're giving ~sort~ an ~[[a]]~!
+How is that resolved in our system?
+How would an ~instance Ord a => Ord [a]~ look in Carth with comptime records?
+Maybe something like this.
+
+#+BEGIN_SRC carth
+(data Cmp Lt Eq Gt)
+
+(record Ord [a] :of (Fun Type Type)
+        [cmp (Fun [a a] Cmp)])
+
+(defun ord-list [] ;; can omitt implicit param list. Params are implicitly available in env.
+  
+  ;; braces for implicit parameter list
+  :of (forall [a] (Fun {(Ord a)} [] (Ord (List a))))
+  
+  ;; braces for constructing record
+  { [cmp (fun [xs ys] (cmp-list xs ys))] }) ;; (Ord a) implicitly passed along to cmp-list
+
+;; Can take an implicit param explicitly as well
+(defun cmp-list {ord-a} [xs ys] :of (forall [a] (Fun {(Ord a)} [(List a) (List a)] Cmp))
+  (match [(next xs) (next ys)]
+    (case [(Some [x xs]) (Some [y ys])]
+          (match (ord-a/cmp x y) ;; Resolve instance explicitly
+            (case Eq (cmp-list xs ys))
+            (case c c)))
+    (case [(Some _) None] Gt)
+    (case [None (Some _)] Lt)
+    (case [None None] Eq)))
+
+(extern cmp_int (Fun [Int Int] Cmp))
+
+(def ord-int :of (Ord Int)
+  { [cmp cmp_int] })
+#+END_SRC
+
+We'd probably have some sugar for modules & instances of course, just to make it a bit clearer.
+Maybe only record values marked with some keyword like ~instance~ should be considered for resolution, for example.
+But I think the core idea is sane.
+The instance resolver is based on passing instance records as implicits.
+And I suppost it should be able some basic implicit computations as well.
+Like if we have exactly one ~(forall [a] (Fun [(Ord a)] (Ord (List a))))~ and one ~(Ord b)~ and we need a ~(Ord (List b))~,
+then the resolver should be able to perform that application.
+So the resolver looks at the types of variables & return types of functions, to see if there's anyone that matches.
+
+** Older thoughts on the overlap of modules & type classes
+When modules are more powerful, like in ML languages, there is suddenly quite a lot of overlap with traits / type classes.
+Do we feature both?
+Modules are more powerful in some ways, but less powerful in others.
+
+If possible I'd like to have a single powerful solution that solves all the things that modules, OO classes, and Haskell type classes solve.
+
+https://www.reddit.com/r/ProgrammingLanguages/comments/vqx19e/modules_overcoming_stockholm_and_duningkruger/
+https://graydon2.dreamwidth.org/253769.html
+
+https://arxiv.org/abs/1512.01895
+
+https://www.youtube.com/watch?app=desktop&v=hIZxTQP1ifo
+
+I was thinking, impl/instances already seem equivalent to modules in some ways.
+A collection of functions, constants, & types.
+Consider instances in Haskell.
+
+Many module systems mostly only solve namespacing and compilation order. E.g. Rust's.
+
+Differences:
+
+1. an instance must, by definition, be an instance of a class.
+   It cannot exist as a class-less module.
+
+2. an instance is not named. E.g. functions are instead resolved via the class namespace.
+   In Rust, there are multiple syntaxes, depending on context:
+
+   let x = Add::add(1000, 300);
+   let y = Add::<i32>::add(30, 7);
+   let z: <i32 as Add>::Output = x + y;
+
+Another thing to consider: what about multi-parameter type classes?
+From haskell wiki: if a single-parameter type class is a set of types, then a multi-parameter type class is a relation between types.
+
+-----------
+
+Ok, I think I might be on to something.
+This description starts out with Haskell's system, and change things from there.
+
+- Typeclasses that can contain declaration of types, values, & functions.
+- Instances that contain definitions for these types, values, & functions.
+- Now, let's rename "instance" to module.
+- A module may instance 1 or 0 classes.
+- A module is generally bound to a name, except if it instances a class and is marked "canonical".
+- A module is referred to either by name, or by a special form "canon".
+  Something like "(canon Monoid Int)".
+  (it should work for higher kinded types)
+
+#+BEGIN_SRC carth
+(sig Semigroup [a]
+     (def sappend :of (Fun [a a] a)))
+
+(sig Monoid [a] :where [[semi (Semigroup a)]]
+     (defun mappend [a1 a2] :of (Fun [a a] a)
+       (semi/sappend a1 a2))
+     (def mempty :of a))
+;; Actually, why have the modules in a :where, and not do it
+;; more ML style:
+(sig Monoid [a]
+     (mod semi :of (Semigroup a))
+     (defun mappend [a1 a2] :of (Fun [a a] a)
+       (semi/sappend a1 a2))
+     (def mempty :of a))
+;; Starting to look more and more like normal ML modules...
+
+(defun concat [xs]
+  :of (for [a] :where [[mon (Monoid a)]]
+           (Fun [(List a)] a))
+  (foldl mon/mappend mon/mempty xs))
+
+(def concat-result
+  (concat @Int @@Int/monoid+
+          (list 1 2 3)))
+
+(sig Abs [a]
+     (type Positive)
+     (def abs :of (Fun [a] Positive)))
+
+(sig Sqrt  [a] :where [[abs (canon Abs a)]]
+     (def sqrt :of (Fun [a] abs/Positive)))
+;; or alternatively
+(sig Sqrt'  [a] :where [(canon Abs a)]
+     (def sqrt :of (Fun [a] (canon Abs a)/Positive)))
+
+(mod (canon Abs Int)
+     (type Positive Nat)
+     (defun abs [a]
+       (to-nat (if (< a 0) (neg a) a))))
+
+(import Abs/abs)
+;; Now there is visible to the whole module an
+;; `abs` of type (forall [a] :where [[m1 (canon Abs a)]] (Fun [a] m1/abs))
+
+(mod (canon Sqrt Int)
+     (defun sqrt [a]
+       ;; Should be able to infer Abs instance for the
+       ;; `abs`, from the applicand `a`
+       (sqrt_nat (abs a))
+       ;; but if it can't, or we want to be explicit
+       (sqrt_nat (abs ))
+       ))
+
+(mod just-beans
+     (data Bean SmallBean BigBean)
+     (type Beans [Bean])
+     (defun count-beans [beans]
+       (sum (map (fun
+                   (case SmallBean 1)
+                   (case BigBean 2))
+                 beans))))
+
+(mod Int
+     (mod semigroup+ :of (Semigroup Int)
+          (defun sappend [x y] (+ x y)))
+     (mod monoid+ :of (Monoid Int)
+          (mod semi semigroup+)
+          (defun  )))
+#+END_SRC
+
+* NEXT Benchmark, profile, optimize
+  Check out
+  https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
+  tips!
+
+* INACTIVE Module system
+What syntax to 
   Postfix syntax for module paths? A bit like web-domains -
   "sub.main.top". E.g. "vector.collections.std".  Most relevant
   information floats to the left. Maybe a good idea, maybe
@@ -259,10 +512,6 @@ See https://www.microsoft.com/en-us/research/publication/first-class-modules-for
    (define u (isFirst y))
    #+END_SRC
 
-* NEXT Benchmark, profile, optimize
-  Check out
-  https://ollef.github.io/blog/posts/speeding-up-sixty.html. Great
-  tips!
 * INACTIVE Shrink std a bit, for a while
 Big std => tons of stuff to fix when making changes in the syntax etc.
 While we're still breaking things relatively often, keep std small.
@@ -477,6 +726,45 @@ do implicit numeric coercions for proper subtypes, afaik.
 
    Probably last update for this section: [[https://old.reddit.com/r/haskell/comments/765ogm/multiple_type_class_instances_for_the_same_type/][this thread]] has convinced me
    that Haskell-/Rust-style typeclasses is the best idea.
+** Alternative approach: allow multiple implementations of a trait, but only one canonical.
+<2022-08-15 mån>
+
+I see I've already considered something similar in the section above.
+
+Maybe we could get a sort of best-of-both-worlds this way.
+Consider two scenarios:
+
+1. The "Compare" trait and a "Map" structure.
+
+   We don't want to have to specify the comparator every time we call an API function of Map, so some kind of implicits are needed.
+   It's also critical to the correctness of the Map that both "insert" and "lookup" are called with the same "Compare" instance.
+   With plain implicit parameters, this can go wrong.
+   A Map may be constructed in one module with (>) based Compare instance in the context.
+   Then "lookup" is called on the Map in another module with a (<) based Compare instance in the context.
+   No good.
+
+   So for these functions, when a trait instance is passed implicitly, there must only exist one.
+
+2. "Monoid" for lists
+
+   In most contexts, ++ is the operator that makes the most sense for mappend for lists.
+   However, in some cases we may desire another behaviour.
+   For example, mappend could choose the longer of the two lists.
+   In Haskell today, the solution is to newtype wrap the type and provide another instance for that newtype.
+   This works, but is a bit inflexible.
+
+   It would not be a problem if an alternative instance could optionally be provided.
+
+My thoughts are only half formed, but I'm thinking that maybe we could have a system where only one canonical instance for a trait may exist,
+and it may only be provided by the owner of the trait or the type -- no orphans.
+But anyone may provide an alternative instance, and may explicitly override the "canonical" instance in a context using a special form like:
+~(override myIntMulMonoid ...)~
+
+Consider: we create an override context, overriding the Cmp instance.
+In our existing code it may work fine, but what if we call some third party function, and in a future update they add logic to that function that depends on a specific Cmp instance?
+Maybe this could be fixed by allowing one to specify in the function signature how a trait is to be resolved.
+Like, you can choose to either always use the primary/canonical instance, or to primarily use the canonical instance, but use the overriden secondary instance if there is one.
+
 * INACTIVE Higher kinded types
 * INACTIVE Effect system
   tags: Algebraic effects
