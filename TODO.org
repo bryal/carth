@@ -2,6 +2,30 @@
 
 Features and other stuff to do/implement in/around Carth.
 
+* Related work / inspiration / just look at these things!
+<2022-08-16 tis> I just read this. Some really cool stuff! https://dustycloud.org/blog/guile-steel-smelting-pot/
+
+----
+older
+
+For inspiration, learn from their mistakes, etc.
+  
+Also add related work to readme, after looking closer at it, if applicable.
+
+- Hackett
+- Liskell
+- Axellang
+- Kalyn
+  https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
+- Unison
+  https://github.com/unisonweb/unison
+* ------------------------------------------
+* TODO Get rid of IO monad
+While we don't have higher kinded types and do-notation, the IO "monad" fucking sucks!
+We're definitely better off just dropping any idea of enforcing purity & limiting side effects until much later.
+I think that's how it works in many of the ML languages.
+I want one or more of linear/affine types, higher kinded types, & effect system, before making any real attempts at safety etc.
+
 * TODO Migrate TODO to some kind of Kanban board or the like
 Self hosted? Does Sourcehut have anything? Base it on mailing lists (no... or maybe?)
 
@@ -552,18 +576,6 @@ It's fine if they diverge, since they're not exactly the same language anymore.
   See:
   - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
 
-** Look at these languages
-  For inspiration, learn from their mistakes, etc.
-  
-  Also add related work to readme, after looking closer at it, if applicable.
-
-  - Hackett
-  - Liskell
-  - Axellang
-  - Kalyn
-    https://intuitiveexplanations.com/tech/kalyn#preliminary-technical-design-decisions
-  - Unison
-    https://github.com/unisonweb/unison
 ** Unify the different ASTs / IRs
   It's just kinda messy right now. Many files must be changed when
   touching just about any part of the AST representation. Also, takes

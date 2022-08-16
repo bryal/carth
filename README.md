@@ -1,10 +1,7 @@
 The Carth programming language
 ==============================
 
-*Purely functional programming with lisp-syntax. Less infix, more parens!*
-
-Visit <https://carth.pink/> for an overview of
-the language and more info.
+Visit <https://carth.pink/> for an overview of the language and more info.
 
 WORK IN PROGRESS
 ------------------
