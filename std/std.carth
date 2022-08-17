@@ -10,7 +10,6 @@
 (import string)
 (import queue)
 (import io)
-(import net)
 (import parse)
 (import map)
 (import set)
