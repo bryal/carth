@@ -149,6 +149,7 @@ reserved = andSkipSpaceAfter . choice $ map
     , string "import" $> Rimport
     , string "case" $> Rcase
     , string "defmacro" $> Rdefmacro
+    , string "type" $> Rtype
     ]
 
 small, smallSpecial, smallNormal :: Lexer String

@@ -43,6 +43,8 @@ data TypeErr
     | FunCaseArityMismatch SrcPos Int Int
     | FunArityMismatch SrcPos Int Int
     | DeBruijnIndexOutOfRange SrcPos Word
+    | FreeVarsInData SrcPos TVar
+    | FreeVarsInAlias SrcPos TVar
     deriving (Show)
 
 type ClassConstraint = (String, [Type])
@@ -109,7 +111,9 @@ type Defs = TopologicalOrder Def
 data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (String, (Scheme, Expr))
 type RecDefs = [(String, (Scheme, Fun))]
-type TypeDefs = Map String ([TVar], [(WithPos String, [Type])])
+data TypeDefRhs = Data [(WithPos String, [Type])] | Alias SrcPos Type
+type TypeDefs = Map String ([TVar], TypeDefRhs)
+type TypeAliases = Map String ([TVar], Type)
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
 type Externs = Map String Type
 

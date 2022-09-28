@@ -55,6 +55,7 @@ instance Pretty Lexd.Reserved where
         Lexd.Rletrec -> "letrec"
         Lexd.Rsizeof -> "sizeof"
         Lexd.Rdefmacro -> "defmacro"
+        Lexd.Rtype -> "type"
 
 instance Pretty var => Pretty (Type' var) where
     pretty' _ = prettyType

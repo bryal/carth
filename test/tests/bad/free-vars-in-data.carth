@@ -1,0 +1,3 @@
+;; FreeVarsInData
+
+(data (Foo a) (Foo a b))

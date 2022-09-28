@@ -1,0 +1,3 @@
+;; FreeVarsInAlias
+
+(type (Foo a) [a b])

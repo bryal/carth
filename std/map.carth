@@ -66,14 +66,14 @@
 ;; FIXME: Segfault if we accept the tuple wrapped in its box here.
 (defun map/-left-rot' [[k v n l r]]
   (match r
-    (case (MTree (Box [rk rv rn rl rr]))
+    (case (MTree (Box [rk rv _ rl rr]))
           (box [rk rv n (MTree (box [k v (inc (+ (map/size l) (map/size rl))) l rl])) rr]))
     (case MLeaf (panic "map/-left-rot': right child is leaf"))))
 
 (defun map/-right-rot (case [MLeaf] MLeaf) (case [(MTree (Box m))] (MTree (map/-right-rot' m))))
 (defun map/-right-rot' [[k v n l r]]
   (match l
-    (case (MTree (Box [lk lv ln ll lr]))
+    (case (MTree (Box [lk lv _ ll lr]))
           (box [lk lv n ll (MTree (box [k v (inc (+ (map/size lr) (map/size r))) lr r]))]))
     (case MLeaf (panic "map/-right-rot': left child is leaf"))))
 

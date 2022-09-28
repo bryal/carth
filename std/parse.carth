@@ -1,6 +1,6 @@
 (import std)
 
-(data ParseInp (ParseInp Str))
+(type ParseInp Str)
 
 (data ParseErr (ParseErr ParseInp Str))
 
@@ -8,13 +8,13 @@
   (Parser (Fun [ParseInp] (Either ParseErr [ParseInp a]))))
 
 (defun parse! [(Parser p) input] :of (forall (a) (Fun [(Parser a) Str] a))
-  (match (p (ParseInp input))
-    (case (Left (ParseErr (ParseInp remaining) msg))
+  (match (p input)
+    (case (Left (ParseErr remaining msg))
           (panic (str-append "parse!:\n" (parse/format-error input remaining msg))))
     (case (Right [_ x]) x)))
 
 (defun parse [(Parser p) input] :of (forall (a) (Fun [(Parser a) Str] (Either ParseErr a)))
-  (either/map cadr (p (ParseInp input))))
+  (either/map cadr (p input)))
 
 (defun parse/format-error [input remaining msg]
   (let1 i (- (string/length-bytes input) (string/length-bytes remaining))
@@ -31,22 +31,21 @@
 ;; The return-string is the equivalent slice in the input string of the given
 ;; literal. Might be good for reducing memory usage?
 (defun parse/string [lit]
-  (Parser (fun [(ParseInp inp)]
+  (Parser (fun [inp]
             (if (string/prefix? lit inp)
                 (let1 n (string/length-bytes lit)
-                  (Right [(ParseInp (string/substr-from (to-int n) inp))
+                  (Right [(string/substr-from (to-int n) inp)
                           (string/substr-to (to-int n) inp)]))
-              (Left (ParseErr (ParseInp inp) (str-append "Failed to match literally " (str-show lit))))))))
+              (Left (ParseErr inp (str-append "Failed to match literally " (str_show lit))))))))
 
 (def parse/take-rest
-  (Parser (fun [(ParseInp inp)] (Right [(ParseInp "") inp]))))
+  (Parser (fun [inp] (Right ["" inp]))))
 
 (defun parse/take-bytes-while [f]
-  (Parser (fun [(ParseInp inp)]
-            (Right (map-car ParseInp
-                            (match (string/find-byte-by (<o not f) inp)
-                              (case None ["" inp])
-                              (case (Some i) (swap (unwrap! (string/split-at-byte i inp))))))))))
+  (Parser (fun [inp]
+            (Right (match (string/find-byte-by (<o not f) inp)
+                     (case None ["" inp])
+                     (case (Some i) (swap (unwrap! (string/split-at-byte i inp)))))))))
 
 (defun parse/take-bytes-while1 [f]
   (Parser (fun [inp]
@@ -62,15 +61,15 @@
       (case (Some [c s']) (if (f c)
                               (go s')
                             s))))
-  (Parser (fun [(ParseInp inp)]
+  (Parser (fun [inp]
             (let1 i (- (string/length-bytes inp) (string/length-bytes (go inp)))
-              (Right (map-car ParseInp (swap (unwrap! (string/split-at-byte i inp)))))))))
+              (Right (swap (unwrap! (string/split-at-byte i inp))))))))
 
 (defun parse/take-bytes [n]
-  (Parser (fun [(ParseInp inp)]
+  (Parser (fun [inp]
             (match (string/split-at-byte n inp)
-              (case None (Left (ParseErr (ParseInp inp) (apps str-append "Tried to take " (show-nat n) " bytes, but fewer remaining."))))
-              (case (Some [s rest]) (Right [(ParseInp rest) s]))))))
+              (case None (Left (ParseErr inp (apps str-append "Tried to take " (show-nat n) " bytes, but fewer remaining."))))
+              (case (Some [s rest]) (Right [rest s]))))))
 
 (defun parse/thenr [(Parser pa) (Parser pb)] :of (forall (a b) (Fun [(Parser a) (Parser b)] (Parser b)))
   (Parser (fun [inp] (either/bindr (pa inp) (fun [[inp _a]] (pb inp))))))
@@ -101,7 +100,7 @@
   (Parser (fun [inp] (Right [inp x]))))
 
 (def parse/nat :of (Parser Nat)
-  (parse/map (fun [s] (unwrap-or-else (fun [_] (panic (str-append "parse/nat: digits not a nat, " (str-show s)))) (parse-nat s)))
+  (parse/map (fun [s] (unwrap-or-else (fun [_] (panic (str-append "parse/nat: digits not a nat, " (str_show s)))) (parse-nat s)))
              (parse/take-bytes-while1 digit?)))
 
 (def parse/int :of (Parser Int)
@@ -112,17 +111,17 @@
 (defun parse/or [(Parser pa) (Parser pb)] :of (forall (a) (Fun [(Parser a) (Parser a)] (Parser a)))
   (Parser (fun [inp] (match (pa inp)
                        (case (Right res) (Right res))
-                       (case (Left (ParseErr (ParseInp rem1) msg1))
+                       (case (Left (ParseErr rem1 msg1))
                              (match (pb inp)
                                (case (Right res) (Right res))
-                               (case (Left (ParseErr (ParseInp rem2) msg2))
-                                     (let (((ParseInp inp) inp)
+                               (case (Left (ParseErr rem2 msg2))
+                                     (let ((inp inp)
                                            (lin (string/length-bytes inp))
                                            (l1 (- lin  (string/length-bytes rem1)))
                                            (l2 (- lin  (string/length-bytes rem2))))
                                        (Left (if (> l2 l1)
-                                                 (ParseErr (ParseInp rem1) msg1)
-                                               (ParseErr (ParseInp rem2) msg2)))))))))))
+                                                 (ParseErr rem1 msg1)
+                                               (ParseErr rem2 msg2)))))))))))
 
 (defun parse/n-times [n pa]
   (foldl (fun [pacc i] (do parse/bind

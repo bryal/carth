@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell, DataKinds, RankNTypes #-}
 
-module Front.Infer (inferTopDefs, checkType', checkType'') where
+module Front.Infer (inferTopDefs, checkType, checkTConst) where
 
 import Prelude hiding (span)
 import Lens.Micro.Platform (makeLenses, over, view, mapped, to, Lens')
@@ -127,30 +127,35 @@ inferTopDefs tdefs ctors externs defs =
                   )
                 ]
 
-checkType :: SrcPos -> Parsed.Type -> Infer Type
-checkType pos t = view envTypeDefs >>= \tds -> checkType' tds pos t
-
-checkType' :: MonadError TypeErr m => TypeDefs -> SrcPos -> Parsed.Type -> m Type
-checkType' tdefs = checkType'' (\x -> fmap (length . fst) (Map.lookup x tdefs))
-
-checkType'' :: MonadError TypeErr m => (String -> Maybe Int) -> SrcPos -> Parsed.Type -> m Type
-checkType'' tdefsParams pos = go
+checkType :: MonadError TypeErr m => (Parsed.TConst -> m Type) -> Parsed.Type -> m Type
+checkType checkTConst = go
   where
     go = \case
         Parsed.TVar v -> pure (TVar v)
         Parsed.TPrim p -> pure (TPrim p)
-        Parsed.TConst tc -> fmap TConst (checkTConst tc)
+        Parsed.TConst tc -> checkTConst tc
         Parsed.TFun ps r -> liftA2 TFun (mapM go ps) (go r)
         Parsed.TBox t -> fmap TBox (go t)
-    checkTConst (x, inst) = case tdefsParams x of
-        Just expectedN -> do
-            let foundN = length inst
-            if expectedN == foundN
+
+-- TODO: Include SrcPos in Parsed.Type. The `pos` we're given here likely doesn't quite make sense.
+checkType' :: SrcPos -> Parsed.Type -> Infer Type
+checkType' pos t = do
+    tdefs <- view envTypeDefs
+    checkType (checkTConst tdefs pos) t
+
+checkTConst :: MonadError TypeErr m => TypeDefs -> SrcPos -> Parsed.TConst -> m Type
+checkTConst tdefs pos (x, args) = case Map.lookup x tdefs of
+    Nothing -> throwError (UndefType pos x)
+    Just (params, Data _) ->
+        let expectedN = length params
+            foundN = length args
+        in  if expectedN == foundN
                 then do
-                    inst' <- mapM go inst
-                    pure (x, inst')
+                    args' <- mapM go args
+                    pure (TConst (x, args'))
                 else throwError (TypeInstArityMismatch pos x expectedN foundN)
-        Nothing -> throwError (UndefType pos x)
+    Just (params, Alias _ u) -> subst (Map.fromList (zip params args)) <$> go u
+    where go = checkType (checkTConst tdefs pos)
 
 inferDefs :: Lens' Env (Map String Scheme) -> [Parsed.Def] -> Infer Defs
 inferDefs envDefs defs = do
@@ -268,8 +273,8 @@ checkScheme = curry $ \case
         | Set.size vs /= 0 || Set.size cs /= 0 || t /= mainType -> throwError (WrongMainType pos s)
     (_, Nothing) -> pure Nothing
     (_, Just (Parsed.Forall pos vs cs t)) -> do
-        t' <- checkType pos t
-        cs' <- mapM (secondM (mapM (uncurry checkType))) (Set.toList cs)
+        t' <- checkType' pos t
+        cs' <- mapM (secondM (mapM (uncurry checkType'))) (Set.toList cs)
         let s1 = Forall vs (Set.fromList cs') t'
         env <- view envLocalDefs
         s2@(Forall vs2 _ t2) <- generalize env (Just (_scmConstraints s1)) Map.empty t'
@@ -312,7 +317,7 @@ infer (WithPos pos e) = case e of
         foldr withDef (infer b) defs'
     Parsed.TypeAscr x t -> do
         (tx, x') <- infer x
-        t' <- checkType pos t
+        t' <- checkType' pos t
         unify (Expected t') (Found (getPos x) tx)
         pure (t', x')
     Parsed.Fun param body -> fmap (second Fun) (inferFun pos param body)
@@ -330,7 +335,7 @@ infer (WithPos pos e) = case e of
         let tCtion = TConst tdefInst
         let t = if null cParams' then tCtion else TFun cParams' tCtion
         pure (t, Ctor variantIx cSpan tdefInst cParams')
-    Parsed.Sizeof t -> fmap ((TPrim TNatSize, ) . Sizeof) (checkType pos t)
+    Parsed.Sizeof t -> fmap ((TPrim TNatSize, ) . Sizeof) (checkType' pos t)
 
 inferLet1 :: SrcPos -> Parsed.DefLike -> Parsed.Expr -> Infer (Type, Expr)
 inferLet1 pos defl body = case defl of
@@ -619,8 +624,8 @@ solve (eqcs, ccs) = do
         --   polymorphism, the constraint is propagated.
         sameSize :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)
         sameSize (ta, tb) = do
-            sizeof' <- sizeof . sizeofData' <$> view envTypeDefs
-            case liftA2 (==) (sizeof' ta) (sizeof' tb) of
+            sizeof'' <- sizeof . sizeofTypeDef <$> view envTypeDefs
+            case liftA2 (==) (sizeof'' ta) (sizeof'' tb) of
                 _ | ta == tb -> ok
                 Right True -> ok
                 Right False -> err
@@ -628,14 +633,24 @@ solve (eqcs, ccs) = do
                 -- propagate the constraint to the scheme of the definition.
                 Left _ -> propagate
 
-        sizeofData' datas tc =
-            sizeofData (sizeofData' datas) (alignofData' datas) (lookupDatatype datas tc)
-        alignofData' datas tc = alignmentofData (alignofData' datas) (lookupDatatype datas tc)
-
-        lookupDatatype datas (x, args) = case Map.lookup x datas of
-            Just (params, variants) ->
-                let sub = Map.fromList (zip params args) in map (map (subst sub) . snd) variants
-            Nothing -> ice $ "Infer.lookupDatatype: undefined datatype " ++ show x
+        sizeofTypeDef tdefs (x, args) = case Map.lookup x tdefs of
+            Just (params, Data variants) ->
+                let sub = Map.fromList (zip params args)
+                    datas = map (map (subst sub) . snd) variants
+                in  sizeofData (sizeofTypeDef tdefs) (alignofTypeDef tdefs) datas
+            Just (params, Alias _ t) ->
+                let sub = Map.fromList (zip params args)
+                in  sizeof (sizeofTypeDef tdefs) (subst sub t)
+            Nothing -> ice $ "Infer.sizeofTypeDef: undefined type " ++ show x
+        alignofTypeDef tdefs (x, args) = case Map.lookup x tdefs of
+            Just (params, Data variants) ->
+                let sub = Map.fromList (zip params args)
+                    datas = map (map (subst sub) . snd) variants
+                in  alignmentofData (alignofTypeDef tdefs) datas
+            Just (params, Alias _ t) ->
+                let sub = Map.fromList (zip params args)
+                in  alignmentof (alignofTypeDef tdefs) (subst sub t)
+            Nothing -> ice $ "Infer.sizeofTypeDef: undefined type " ++ show x
 
         -- | This class is instanced when the first type can be `cast` to the other.
         cast :: (Type, Type) -> Infer (Map ClassConstraint SrcPos)
