@@ -20,12 +20,6 @@ Also add related work to readme, after looking closer at it, if applicable.
 - Unison
   https://github.com/unisonweb/unison
 * ------------------------------------------
-* TODO Get rid of IO monad
-While we don't have higher kinded types and do-notation, the IO "monad" fucking sucks!
-We're definitely better off just dropping any idea of enforcing purity & limiting side effects until much later.
-I think that's how it works in many of the ML languages.
-I want one or more of linear/affine types, higher kinded types, & effect system, before making any real attempts at safety etc.
-
 * TODO Migrate TODO to some kind of Kanban board or the like
 Self hosted? Does Sourcehut have anything? Base it on mailing lists (no... or maybe?)
 
@@ -232,6 +226,10 @@ And a supposedly good paper on current state of high perf RC systems: https://us
 (Low-Latency, High-Throughput Garbage Collection, Wenyu Zhao et al.).
 "A paper I quite enjoyed on automatic reference counting for pure, immutable functional programming: https://arxiv.org/abs/1908.05647".
 Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/en-us/research/uploads/prod/2021/11/flreuse-tr-v1.pdf, about Perceus in Koka.
+
+*Update <2022-08-29 mån>*
+Another paper I had open:
+[[https://arxiv.org/abs/1908.05647][Counting Immutable Beans:  Reference Counting Optimized for Purely Functional Programming]]
 * NEXT Namespacing, Ad-hoc polymorphism, compile time evaluation (, dependent types)
 We need some kind of module system for namespacing.
 The current (<2022-08-16 tis>) "module system" only pretends to be one,
@@ -293,6 +291,17 @@ That's great on its own.
 And we can just attempt a Rust-style module system later instead.
 
 ** NEXT Compile time eval
+comptime
+Apparently known as /staged compilation/ or /staged programming/ in literature.
+
+Two-Level Type Theory (2LTT) is also related, but I don't think it's anything we'd want.
+I can't really grock the mathy definition of 2LTT, but as I understand, the gist of it is that your language is really 2 languages.
+One language at the type layer, and one at the object layer.
+But we want something more akin to partial evaluation of a single language.
+
+Look at Zig's comptime.
+- https://kristoff.it/blog/what-is-zig-comptime/
+
 Start with interpreting a non-strict subset of Carth.
 Like, don't even attempt to handle `extern`s to begin with.
 But what about pointers?
@@ -300,7 +309,30 @@ Like, at runtime I'm imagining that well end up having multiple different pointe
 Rc, Gc, Raw, etc.
 But a high-level interpreter actually use the external Gc or whatever.
 
-If we've already got on-demand compilation when attempting this, maybe skip straight to implementing comtime that way.
+If we've already got on-demand compilation when attempting this, maybe skip straight to implementing comptime that way.
+
+*** How to handle when types of match branches differ?
+Consider something this:
+
+#+BEGIN_SRC carth
+(defun new-appropriately-sized-vec
+       {_ n} []
+       :of (Fun {a (len :of Nat)}
+                []
+                (if (< len 32) (SmallVec a) (BigVec a)))
+       (if (< n 32)
+           (small-vec/new n)
+         (big-vec/new n)))
+#+END_SRC
+
+With dependent types, this should typecheck.
+But the types of the branches of the ~if~ differ -- they depend on the comptime argument ~len~.
+So how do we typecheck this?
+I guess comptime typechecking would have to be deferred until application basically?
+Like how code in a C++ template isn't typechecked until it's instantiated.
+
+Maybe comptime function is it's own type.
+
 ** Type class instance resolution with records
 I'm watching https://youtu.be/x3evzO8O9e8, and it got me thinking about how type class instances could be resolved in the case of constrains & polymorphism.
 Consider something like
@@ -593,9 +625,66 @@ It's fine if they diverge, since they're not exactly the same language anymore.
   good incremental compilation, and better IDE/LSP support.
 
   https://ollef.github.io/blog/posts/query-based-compilers.html
+
+  paper: [[file:literature/build-systems-final.pdf][Build Systems à la Carte]]
+** When parsing, split into each file/module into interface & implementation
+What Benjamin Pierce calls "Separate development" in his ICFP presentation [[file:literature/modules-icfp.pdf][Advanced Module Systems (A Guide for the Perplexed)]] (p24).
+In order to be able to compile modules independently, which would be very good if we could do, the modules can't be too strongly coupled.
+Some languages solve this by having a separate file that defines the module's ~interface~.
+I think OCaml does this with their ~.mli~ files.
+
+If we go down the route of "comptime records as modules", a module interface would be equivalent to a record type, I think.
+
+Consider a module that implements a type class.
+The module type is a nominal record type.
+In a module like this, one should maybe be able to leave out the type signatures, like in Haskell.
+We thus have a depencency on that definition wherever it is.
+
+If the module does not implement a type class, the record type is strutural.
+In this case, one should be forced to include type signatures for all public members.
+There are then no dependencies.
+
+For a structurally typed module, we could pretty early on, like during
+parsing, extract the signatures of all public members, and construct a
+~module interface~ from that.
+
+So the only step before monomorphisation that needs to be done sequentially would thus be to figure out interfaces for nominally typed modules?
+
+... oh but this isn't true, is it?
+If we have comptime eval, one would have to know the definition of a function in order to evaluate a function application in a type signature.
+So actually scrap all of this. it's probabl not possible for us to employ this stratergy.
+
 * ------------------------------------------
 * ------- AWAIT SELFHOSTED CARTH 2.0 -------
 * ------------------------------------------
+* INACTIVE Term-rewriting / e-graph
+optimization
+
+egg / e-graphs looks cool.
+
+https://github.com/bytecodealliance/rfcs/pull/27
+* INACTIVE Make ~forall~ (or renamed ~for~) syntax sugar for Fun taking comptime implicits
+Universal quantification is equivalent to a dependent function in Dependent Type Theory / Propositions as Types.
+Given we implement comptime eval & passing implicits, we could then get rid of the special semantics of ~forall~, and simply implement it as a sugar for a dependent function.
+
+I'm not sure what the syntax for implicits should be though.
+Maybe coupled with a ~@~ sigil or ~:implicit~ keyword, interspersed with normal params.
+~(Fun [@a b] ...)~
+~(foo @a b)~
+Or maybe in curly brackets, so it looks almost like two separate function calls.
+~(Fun {a} [b] ...)~
+~(foo {a} b)~
+
+* INACTIVE Syntax sugar for unary application without parens
+I'm thinking ~.foo .bar 3~, since it resembles a prefix version of ~(foo ∘ bar) 3~.
+
+This would also serve as sugar for applying a curried function.
+Since ~.foo bar~ is equivalent to ~(foo bar)~, ~(.const 123 456)~ is equivalent to ~((const 123) 456)~.
+
+Alternatively, consider an infix ~$~.
+~((foo (bar 123)) 456)~
+~(.foo .bar 123 456)~
+~(foo (bar 123) $ 456)~
 * INACTIVE Variable defs actually could be allowed to recurse in certain cases
 Something like
     (defvar X (+ 1 x))
@@ -1423,6 +1512,11 @@ Like, you can choose to either always use the primary/canonical instance, or to 
 
   apply(..., thunk, thunk_ctxt, ...);
   #+END_SRC
+
+See:
+- https://gankra.github.io/blah/swift-abi/
+- https://developer.apple.com/videos/play/wwdc2022/110362/
+  
 * Pattern matching
 ** INACTIVE Var pattern syntax, comparison
   What if we did
@@ -1673,6 +1767,7 @@ Update <2022-05-24 tis>: I've actually changed my mind about
   Look at
   - https://github.com/mkirchner/gc
   - https://youtu.be/FeLHo6tIgKI
+  - http://www.cofault.com/2022/07/treadmill.html
 * INACTIVE Property system
   I'm thinking of a system where you annotate functions in a source
   file with pre- and postconditions, which can then be checked in
