@@ -75,7 +75,9 @@ data DefLike = Def Def | Deconstr Pat Expr
 newtype ConstructorDefs = ConstructorDefs [(Id 'Big, [Type])]
     deriving (Show, Eq)
 
-data TypeDef = TypeDef (Id 'Big) [Id 'Small] ConstructorDefs
+data TypeDef
+    = TypeDef (Id 'Big) [Id 'Small] ConstructorDefs
+    | TypeAlias (Id 'Big) [Id 'Small] Type
     deriving (Show, Eq)
 
 data Extern = Extern (Id 'Small) Type

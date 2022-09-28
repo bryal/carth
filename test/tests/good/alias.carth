@@ -1,0 +1,12 @@
+;;;
+
+(type (Pair a b) [a b])
+
+(defun main [Unit]
+  (let1 [a b] pair
+    (match (+ a b)
+      (case 444 Unit)
+      (case _ Unit))))
+
+(def pair :of (Pair Int Int)
+  [123 321])

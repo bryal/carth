@@ -28,9 +28,10 @@ parse = runParser' (fmap (\(ds, ts, es) -> Program ds ts es) toplevels)
 toplevels :: Parser ([Def], [TypeDef], [Extern])
 toplevels = fmap mconcat (manyTill toplevel end)
   where
-    toplevel = parens' $ \topPos -> choice
+    toplevel = tryParens' $ \topPos -> choice
         [ fmap (\d -> ([d], [], [])) (def topPos)
-        , fmap (\t -> ([], [t], [])) typedef
+        , fmap (\t -> ([], [t], [])) data_
+        , fmap (\t -> ([], [t], [])) typealias
         , fmap (\e -> ([], [], [e])) extern
         ]
 
@@ -46,14 +47,22 @@ extern = do
         ]
     Extern x <$> type_
 
-typedef :: Parser TypeDef
-typedef = do
+data_ :: Parser TypeDef
+data_ = do
     _ <- reserved Rdata
     let onlyName = fmap (, []) big
     let nameAndSome = parens . liftA2 (,) big . some
     (name, params) <- onlyName <|> nameAndSome small
     constrs <- many (onlyName <|> nameAndSome type_)
     pure (TypeDef name params (ConstructorDefs constrs))
+
+typealias :: Parser TypeDef
+typealias = do
+    _ <- reserved Rtype
+    let onlyName = fmap (, []) big
+    let nameAndSome = parens . liftA2 (,) big . some
+    (name, params) <- onlyName <|> nameAndSome small
+    TypeAlias name params <$> type_
 
 def :: SrcPos -> Parser Def
 def topPos = (reserved Rdefun *> funDef) <|> (reserved Rdef *> varDef)

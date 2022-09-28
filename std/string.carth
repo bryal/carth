@@ -217,8 +217,6 @@
 (defun string/singleton-byte [b] (Str (array/singleton b)))
 
 (extern str_cmp (Fun [Str Str] Cmp))
-(def str-cmp str_cmp)
 (extern str_show (Fun [Str] Str))
-(def str-show str_show)
 
 (defun string/nth-byte! [i (Str a)] (array/lookup! i a))

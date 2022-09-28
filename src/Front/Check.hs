@@ -36,34 +36,63 @@ typecheck (Parsed.Program defs tdefs externs) = runExcept $ do
     externs' <- checkExterns tdefs' externs
     inferred <- inferTopDefs tdefs' ctors externs' defs
     let bound = unboundTypeVarsToUnit inferred
-    let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs'
+    -- Remove aliases. They are should be replaced in the AST and no longer needed at this point.
+    let tdefs'' = Map.mapMaybe
+            (secondM $ \case
+                Inferred.Data rhs -> Just rhs
+                Inferred.Alias _ _ -> Nothing
+            )
+            tdefs'
+    let mTypeDefs = fmap (map (unpos . fst) . snd) tdefs''
     compiled <- compileDecisionTrees mTypeDefs bound
     checkMainDefined compiled
-    let tdefs'' = fmap (second (map (first unpos))) tdefs'
-    pure (Checked.Program compiled tdefs'' externs')
+    let tdefs''' = fmap (second (map (first unpos))) tdefs''
+    pure (Checked.Program compiled tdefs''' externs')
   where
     checkMainDefined ds =
         unless ("main" `elem` map fst (Checked.flattenDefs ds)) (throwError MainNotDefined)
 
 type CheckTypeDefs a
-    = ReaderT (Map String Int) (StateT (Inferred.TypeDefs, Inferred.Ctors) (Except TypeErr)) a
+    = ReaderT
+          (Map String (Either Int ([TVar], Parsed.Type)))
+          (StateT (Inferred.TypeDefs, Inferred.Ctors) (Except TypeErr))
+          a
 
 checkTypeDefs :: [Parsed.TypeDef] -> Except TypeErr (Inferred.TypeDefs, Inferred.Ctors)
 checkTypeDefs tdefs = do
-    let tdefsParams = Map.union (fmap (length . fst) builtinDataTypes)
-            $ Map.fromList (map (\(Parsed.TypeDef x ps _) -> (idstr x, length ps)) tdefs)
-    (tdefs', ctors) <- execStateT (runReaderT (forM_ tdefs checkTypeDef) tdefsParams)
-                                  (builtinDataTypes, builtinConstructors)
+    let tdefs' = Map.union (fmap (Left . length . fst) builtinTypeDefs) $ Map.fromList
+            (map
+                (\case
+                    Parsed.TypeDef x ps _ -> (idstr x, Left (length ps))
+                    Parsed.TypeAlias x ps t -> (idstr x, Right (map TVExplicit ps, t))
+                )
+                tdefs
+            )
+    (tdefs', ctors) <- execStateT (runReaderT (forM_ tdefs checkTypeDef) tdefs')
+                                  (builtinTypeDefs, builtinConstructors)
     forM_ (Map.toList tdefs') (assertNoRec tdefs')
     pure (tdefs', ctors)
 
 checkTypeDef :: Parsed.TypeDef -> CheckTypeDefs ()
-checkTypeDef (Parsed.TypeDef (Parsed.Id (WithPos xpos x)) ps cs) = do
-    tAlreadyDefined <- gets (Map.member x . fst)
-    when tAlreadyDefined (throwError (ConflictingTypeDef xpos x))
-    let ps' = map TVExplicit ps
-    cs' <- checkCtors (x, ps') cs
-    modify (first (Map.insert x (ps', cs')))
+checkTypeDef = \case
+    Parsed.TypeDef (Parsed.Id x) ps cs -> do
+        checkNotAlreadyDefined x
+        let ps' = map TVExplicit ps
+        cs' <- checkCtors (unpos x, ps') cs
+        forM_ (foldMap (foldMap Inferred.ftv . snd) cs')
+            $ \tv -> unless (tv `elem` ps') (throwError (FreeVarsInData (getPos x) tv))
+        modify (first (Map.insert (unpos x) (ps', Inferred.Data cs')))
+    Parsed.TypeAlias (Parsed.Id x) ps t -> do
+        checkNotAlreadyDefined x
+        let ps' = map TVExplicit ps
+        t' <- checkType' (getPos x) t
+        forM_ (Inferred.ftv t')
+            $ \tv -> unless (tv `elem` ps') (throwError (FreeVarsInAlias (getPos x) tv))
+        modify (first (Map.insert (unpos x) (ps', Inferred.Alias (getPos x) t')))
+  where
+    checkNotAlreadyDefined (WithPos xpos x) = do
+        alreadyDefined <- gets (Map.member x . fst)
+        when alreadyDefined (throwError (ConflictingTypeDef xpos x))
 
 checkCtors
     :: (String, [TVar])
@@ -75,14 +104,31 @@ checkCtors parent (Parsed.ConstructorDefs cs) =
     checkCtor cspan (i, (Id c'@(WithPos pos c), ts)) = do
         cAlreadyDefined <- gets (Map.member c . snd)
         when cAlreadyDefined (throwError (ConflictingCtorDef pos c))
-        ts' <- mapM (checkType pos) ts
+        ts' <- mapM (checkType' pos) ts
         modify (second (Map.insert c (i, parent, ts', cspan)))
         pure (c', ts')
-    checkType pos t = ask >>= \tdefs -> checkType'' (`Map.lookup` tdefs) pos t
 
-builtinDataTypes :: Inferred.TypeDefs
-builtinDataTypes = Map.fromList $ map
-    (\(x, ps, cs) -> (x, (ps, map (first (WithPos (SrcPos "<builtin>" 0 0 Nothing))) cs)))
+checkType' :: SrcPos -> Parsed.Type -> CheckTypeDefs Inferred.Type
+checkType' pos t = do
+    tdefs <- ask
+    let checkTConst (x, args) = case Map.lookup x tdefs of
+            Nothing -> throwError (UndefType pos x)
+            Just (Left expectedN) ->
+                let foundN = length args
+                in  if expectedN == foundN
+                        then do
+                            args' <- mapM go args
+                            pure (TConst (x, args'))
+                        else throwError (TypeInstArityMismatch pos x expectedN foundN)
+            Just (Right (params, u)) -> subst (Map.fromList (zip params args)) <$> go u
+        go = checkType checkTConst
+    go t
+
+builtinTypeDefs :: Inferred.TypeDefs
+builtinTypeDefs = Map.fromList $ map
+    (\(x, ps, cs) ->
+        (x, (ps, Inferred.Data $ map (first (WithPos (SrcPos "<builtin>" 0 0 Nothing))) cs))
+    )
     builtinDataTypes'
 
 builtinConstructors :: Inferred.Ctors
@@ -111,14 +157,12 @@ builtinDataTypes' =
     ]
     where unit' = ("Unit", [])
 
-assertNoRec
-    :: Inferred.TypeDefs
-    -> (String, ([TVar], [(WithPos String, [Inferred.Type])]))
-    -> Except TypeErr ()
-assertNoRec tdefs' (x, (_, ctors)) = assertNoRec' ctors Map.empty
+assertNoRec :: Inferred.TypeDefs -> (String, ([TVar], Inferred.TypeDefRhs)) -> Except TypeErr ()
+assertNoRec tdefs' (x, (_, rhs)) = assertNoRec' rhs Map.empty
   where
-    assertNoRec' cs s =
+    assertNoRec' (Inferred.Data cs) s =
         forM_ cs $ \(WithPos cpos _, cts) -> forM_ cts (assertNoRecType cpos . subst s)
+    assertNoRec' (Inferred.Alias pos t) s = assertNoRecType pos (subst s t)
     assertNoRecType cpos = \case
         Inferred.TConst (y, ts) -> do
             when (x == y) $ throwError (RecTypeDef x cpos)
@@ -134,7 +178,7 @@ checkExterns :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.
 checkExterns tdefs = fmap (Map.union Checked.builtinExterns . Map.fromList) . mapM checkExtern
   where
     checkExtern (Parsed.Extern name t) = do
-        t' <- checkType' tdefs (getPos name) t
+        t' <- checkType (checkTConst tdefs (getPos name)) t
         case Set.lookupMin (Inferred.ftv t') of
             Just tv -> throwError (ExternNotMonomorphic name tv)
             Nothing -> pure (idstr name, t')

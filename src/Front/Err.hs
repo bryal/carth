@@ -93,7 +93,14 @@ printTypeErr = \case
     DeBruijnIndexOutOfRange p _ix -> posd
         p
         "This De Bruijn index does not refer to any implicit function argument in the current context."
-
+    FreeVarsInData p tv ->
+        posd p
+            $ ("The type variable " ++ pretty tv)
+            ++ " occurs in the definition of this data type, but is not bound in the left hand side."
+    FreeVarsInAlias p tv ->
+        posd p
+            $ ("The type variable " ++ pretty tv)
+            ++ " occurs in the definition of this type alias, but is not bound in the left hand side."
 
 posd :: SrcPos -> Message -> IO ()
 posd = posd' "error"

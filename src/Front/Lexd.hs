@@ -31,6 +31,7 @@ data Reserved
     | Rletrec
     | Rsizeof
     | Rdefmacro
+    | Rtype
     deriving (Eq, Show)
 
 data TokenTree'
