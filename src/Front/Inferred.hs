@@ -112,6 +112,7 @@ data Def = VarDef VarDef | RecDefs RecDefs deriving Show
 type VarDef = (String, (Scheme, Expr))
 type RecDefs = [(String, (Scheme, Fun))]
 data TypeDefRhs = Data [(WithPos String, [Type])] | Alias SrcPos Type
+    deriving Show
 type TypeDefs = Map String ([TVar], TypeDefRhs)
 type TypeAliases = Map String ([TVar], Type)
 type Ctors = Map String (VariantIx, (String, [TVar]), [Type], Span)
