@@ -1,0 +1,9 @@
+;; RecTypeDef
+
+;; Correctly returns error
+;; (data B (C A))
+;; (data A (D A))
+
+;; Infinite loop in type checker (?)
+(data A (C B))
+(data B (D B))
