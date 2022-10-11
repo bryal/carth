@@ -68,5 +68,5 @@
 (defun bit-not [n]
   (- (- (cast 0) n) (cast 1)))
 
-(defun abs [x] (if (> x 0) x (neg x)))
-(defun sign [x] (if (> x 0) 1 -1))
+(defun abs [x] (if (> x (cast 0)) x (neg x)))
+(defun sign [x] (if (> x (cast 0)) 1 -1))
