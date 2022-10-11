@@ -158,20 +158,22 @@ builtinDataTypes' =
     where unit' = ("Unit", [])
 
 assertNoRec :: Inferred.TypeDefs -> (String, ([TVar], Inferred.TypeDefRhs)) -> Except TypeErr ()
-assertNoRec tdefs' (x, (_, rhs)) = assertNoRec' rhs Map.empty
+assertNoRec tdefs' (x, (xinst, rhs)) = assertNoRec' (Set.singleton (x, map TVar xinst))
+                                                    rhs
+                                                    Map.empty
   where
-    assertNoRec' (Inferred.Data cs) s =
-        forM_ cs $ \(WithPos cpos _, cts) -> forM_ cts (assertNoRecType cpos . subst s)
-    assertNoRec' (Inferred.Alias pos t) s = assertNoRecType pos (subst s t)
-    assertNoRecType cpos = \case
-        Inferred.TConst (y, ts) -> do
-            when (x == y) $ throwError (RecTypeDef x cpos)
+    assertNoRec' seen (Inferred.Data cs) s =
+        forM_ cs $ \(WithPos cpos _, cts) -> forM_ cts (assertNoRecType seen cpos . subst s)
+    assertNoRec' seen (Inferred.Alias pos t) s = assertNoRecType seen pos (subst s t)
+    assertNoRecType seen cpos = \case
+        Inferred.TConst (y, yinst) -> do
+            when (Set.member (y, yinst) seen) $ throwError (RecTypeDef x cpos)
             let (tvs, cs) = Map.findWithDefault
                     (ice $ "assertNoRec: type id " ++ show y ++ " not in tdefs")
                     y
                     tdefs'
-            let substs = Map.fromList (zip tvs ts)
-            assertNoRec' cs substs
+            let substs = Map.fromList (zip tvs yinst)
+            assertNoRec' (Set.insert (y, yinst) seen) cs substs
         _ -> pure ()
 
 checkExterns :: Inferred.TypeDefs -> [Parsed.Extern] -> Except TypeErr Inferred.Externs
