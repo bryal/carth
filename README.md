@@ -86,17 +86,6 @@ carth c -o examples/fizzbuzz examples/fizzbuzz.carth
 License
 -------
 
-*Preface*
-
-- What's important is the spirit of open source, not the letter of the
-  license. [Licences are not
-  sufficient](https://steveklabnik.com/writing/what-comes-after-open-source)
-  anyways.
-- Copyright is a spook & capitalism is killing this planet.
-- The AGPL is me being pragmatic.
-
----
-
 Carth is dual licensed under the Anti-Capitalist Software License or
 the AGPL version 3 or later. See [LICENSE-ACSL](./LICENSE-ACSL) and
 [LICENSE-AGPLv3](./LICENSE-AGPLv3) for the full license texts. For
