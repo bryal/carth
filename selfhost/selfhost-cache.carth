@@ -1,0 +1,17 @@
+(import selfhost-misc)
+(import selfhost-parse)
+(import selfhost-check)
+
+;; TODO: Include reverse dependencies, so if a file changes, re-parse it.
+;;       If the parse tree is also different, re-check it.
+;;       And so on.
+(data Cache (Cache CheckedCache ResolvedImportsCache ResolvedDefsCache ParsedCache))
+(type CheckedCache (Map QualifiedName CDef))
+(type ResolvedImportsCache (Map QualifiedModuleName (Map Ident QualifiedName)))
+(type ResolvedDefsCache (Map QualifiedName (PDef QualifiedName)))
+(type ParsedCache (Map QualifiedModuleName (PModule RelativeName)))
+
+(def checked-cache          (Lens (fun [(Cache c1 _ _ _)] c1) (fun [(Cache _ c2 c3 c4) c1] (Cache c1 c2 c3 c4))))
+(def resolved-imports-cache (Lens (fun [(Cache _ c2 _ _)] c2) (fun [(Cache c1 _ c3 c4) c2] (Cache c1 c2 c3 c4))))
+(def resolved-defs-cache    (Lens (fun [(Cache _ _ c3 _)] c3) (fun [(Cache c1 c2 _ c4) c3] (Cache c1 c2 c3 c4))))
+(def parsed-modules-cache   (Lens (fun [(Cache _ _ _ c4)] c4) (fun [(Cache c1 c2 c3 _) c4] (Cache c1 c2 c3 c4))))

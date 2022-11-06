@@ -1,42 +1,90 @@
+;; # Self-hosted Carth interpreter
+;;
+;; ## Thoughts & Notes
+;;
+;; Read -> Lex -> Macro -> Parse -> Resolve -> Check -> ...
+;;
+;; A module can be lexed without reading any other files.
+;; Interpret macro definitions during lexing.
+;; Special `use-macro` directive, separate from normal importing with `use`.
+;; `use` doesn't have to be "executed" until Resolve,
+;; but `use-macro` means that the used module must be lexed so that we can access the macro definition.
+;; When executing `use`, the used module must be parsed, so that we know all definitions it exports.
+;; In the Haskell impl, name resolution is very primitive, and happens in the type checker.
+;; Separating it out into it's own step is not strictly necessary, but is good for modularity.
+;; A module can be parsed without reading any other files,
+;; except for those that were necessary for macro expansion.
+;; To resolve a module, all `use`d modules must be parsed, but not resolved.
+;; (at least until we add glob reexports)
+;; We only need to see all definitions that the `use`d module exports,
+;; and for that a Parse is enough.
+;; I'm not sure how this (parsing & resolving not causing a chain reaction) could be useful,
+;; but it might be good for IDE tooling.
+
+
 (import std)
+(import selfhost-cache)
+(import selfhost-parse)
 
 (defun main [Unit]
   (let ((args (get_args Unit))
-        (in-file (array/lookup! (to-nat 1) args))
-        (_ (display (str-append "Compiling " in-file)))
-        (out-file (query-executable in-file))
+        (src-file (array/lookup! (to-nat 1) args))
+        (cache (Cache map/empty map/empty map/empty map/empty))
+        (_ (display (str-append "Interpreting " src-file)))
         )
-    (display (str-append "Finished compiling! Resulting executable: " out-file))))
+    ;; (match (query-executable src-file)
+    ;;   (case (Left err)   (display (str-append "error: " err)))
+    ;;   (case (Right bin-file) (display (str-append "Finished compiling! Resulting executable: " bin-file))))
+    (display (show-int (cadr (eval cache src-file))))))
 
-(defun query-executable [src-file]
-  (let1 [obj-file link-deps] (query-object src-file)
-    (link obj-file link-deps)))
+;; (defun query-executable [src-file]
+;;   (def bin-file (replace-ext src-file "bin"))
+;;   (def libs (set/collect str_cmp (list/iter (list "carth_std_rs" "sigsegv" "dl" "pthread" "m" "gc" "ssl" "crypto"))))
 
-(defun link [obj-file link-deps]
-  (let1 [_ err _] (unwrap! (call_process "gcc" ((<oo array/collect-list list/append)
-                                                (list "-fuse-ld=mold" "-o" "a.out" obj-file)
-                                                (list/map \(str-append "-l" #) link-deps))))
-    (seq (display (str-append "mold stderr: " (Str err)))
-         "a.out")))
+;;   (defun link [obj libs]
+;;     (match (call_process "gcc" ((<o array/collect-list list/concat)
+;;                                 (list (list "-fuse-ld=mold" "-o" bin-file)
+;;                                       (list obj)
+;;                                       (list/collect (map \(str-append "-l" #) (set/iter libs))))))
+;;       (case (Some [_ err (Some code)]) (if (= code (cast 0)) (Right bin-file) (Left (Str err))))
+;;       (case (Some [_ err None]) (Left (Str err)))
+;;       (case None (Left "failed to call linking process"))))
 
-(defun query-object [src-file]
-  (let1 c-file (query-gen-c src-file)
-    [(compile c-file) (list ;; "carth_std_rs" "sigsegv" "dl" "pthread" "m" "gc" "ssl" "crypto"
-                       )]))
+;;   (either/bind \(link # libs) (query-object src-file)))
 
-(defun query-gen-c [src-file]
-  (let1 src (read_file src-file)
-    ((const "generated.c")
-     (write_file "generated.c"
-                 (string/concat-list (list "#include <stdio.h>\n"
-                                           "int main(void) {\n"
-                                           "    printf(\"%d\\n\", " (trim (unwrap! src)) ");\n"
-                                           "}\n"))))))
+;; (defun query-object [src-file]
+;;   (def obj-file (replace-ext src-file "o"))
 
-(defun compile [c-file]
-  (let1 [_ err _] (unwrap! (call_process "gcc" (array/collect-list (list "-c" "-o" "generated.o" c-file))))
-    (seq (display (str-append "gcc stderr: " (Str err)))
-         "generated.o")))
+;;   (defun compile [c-file]
+;;     (match (call_process "gcc" (array/collect-list (list "-c" "-o" obj-file c-file)))
+;;       (case (Some [_ err (Some code)]) (if (= code (cast 0)) (Right obj-file) (Left (Str err))))
+;;       (case (Some [_ err None]) (Left (Str err)))
+;;       (case None (Left "failed to call compilation process"))))
 
-(defun nyi [thing]
-  (panic (str-append "not yet implemented: " thing)))
+;;   (either/bind compile (query-c src-file)))
+
+;; (defun query-c [src-file]
+;;   (def c-file (replace-ext src-file "c"))
+;;   (defun codegen [(LowPgm x)]
+;;     (seq (write_file c-file
+;;                      (string/concat-list (list "#include <stdio.h>\n"
+;;                                                "int main(void) {\n"
+;;                                                "    printf(\"%d\\n\", " (show-int x) ");\n"
+;;                                                "}\n")))
+;;          c-file))
+;;   (Right (codegen (query-low-pgm src-file))))
+
+(defun eval [cache src-file]
+  (let ((src-module-name (QMName (box QMRoot) (strip-ext src-file)))
+        ([cache (CDef _ main')] (query-checked-def cache (QName src-module-name "main"))))
+    (eval-expr cache main')))
+
+(defun eval-expr [cache e]
+  (match e
+    (case (CAdd (Box e1) (Box e2))
+          (let (([cache v1] (eval-expr cache e1))
+                ([cache v2] (eval-expr cache e2)))
+            [cache (+ v1 v2)]))
+    (case (CInt x) [cache x])
+    (case (CVar var) (let1 [cache (CDef _ e')] (query-checked-def cache var)
+                       (eval-expr cache e')))))

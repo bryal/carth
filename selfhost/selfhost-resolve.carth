@@ -1,0 +1,56 @@
+(import selfhost-parse)
+
+(defun query-resolved-def [cache qname]
+  (match (map/lookup qualified-name/cmp qname (get resolved-defs-cache cache))
+    (case (Some d) [cache d])
+    (case None
+          (let (([cache pdef] (query-parsed-def cache qname))
+                ([cache rdef] (resolve-def cache pdef)))
+            [(over resolved-defs-cache \(map/insert qualified-name/cmp qname rdef #) cache)
+             rdef]))))
+
+(defun resolve-def [cache0 (PDef lhs rhs)]
+  (defun resolve-expr
+    (case [cache (PAdd (Box a) (Box b))]
+          (let (([cache a'] (resolve-expr cache a))
+                ([cache b'] (resolve-expr cache b)))
+            [cache (PAdd (box a') (box b'))]))
+    (case [cache (PInt x)] [cache (PInt x)])
+    (case [cache (PVar relative-name)]
+          (map-cadr PVar
+                    (let1 same-module-name (get qualified-name/module lhs)
+                      (match (relative-name/split-first relative-name)
+                        (case [name-in-same-module None]
+                              (let1 [cache same-module] (query-parsed-module cache same-module-name)
+                                (if (map/member? str_cmp name-in-same-module (get pmodule/definitions same-module))
+                                    [cache (qualify-relative same-module-name relative-name)]
+                                  (resolve-var-in-imports cache same-module-name relative-name))))
+                        (case _ (resolve-var-in-imports cache same-module-name relative-name)))))))
+  (defun resolve-var-in-imports [cache same-module-name relative-name]
+    (let (([cache imported-symbols] (query-resolved-imports cache same-module-name))
+          ([relative-name-first relative-name-rest] (relative-name/split-first relative-name)))
+      (match (map/lookup str_cmp relative-name-first imported-symbols)
+        (case None (ice "a relative name could not be resolved"))
+        (case (Some qualified-name-init)
+              (match relative-name-rest
+                (case None [cache qualified-name-init])
+                (case (Some relative-name-rest)
+                      [cache (qualify-relative (qualified-name-as-module-name qualified-name-init)
+                                               relative-name-rest)]))))))
+  (map-cadr \(PDef lhs #) (resolve-expr cache0 rhs)))
+
+(defun query-resolved-imports [cache mod-name]
+  (match (map/lookup qualified-module-name/cmp mod-name (get resolved-imports-cache cache))
+    (case (Some imported-symbols) [cache imported-symbols])
+    (case None
+          (let (([cache (PModule _ imports _)] (query-parsed-module cache mod-name))
+                ([cache imported-symbols] (resolve-imports cache imports)))
+            [(over resolved-imports-cache
+                   \(map/insert qualified-module-name/cmp mod-name imported-symbols #)
+                   cache)
+             imported-symbols]))))
+
+(defun resolve-imports [cache imports]
+  :of (Fun [Cache (Set QualifiedName)] [Cache (Map Ident QualifiedName)])
+  [cache (map/collect str_cmp (map (fun [(QName xs x)] [x (QName xs x)])
+                                   (set/iter imports)))])

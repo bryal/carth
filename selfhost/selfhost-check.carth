@@ -1,0 +1,29 @@
+(import selfhost-cache)
+(import selfhost-resolve)
+
+(data CDef (CDef QualifiedName CExpr))
+(data CExpr
+  (CAdd (Box CExpr) (Box CExpr))
+  (CInt Int)
+  (CVar QualifiedName))
+
+(defun query-checked-def [cache qname] :of (Fun [Cache QualifiedName] [Cache CDef])
+  (match (map/lookup qualified-name/cmp qname (get checked-cache cache))
+    (case (Some d) [cache d])
+    (case None
+          (let (([cache rdef] (query-resolved-def cache qname))
+                ([cache cdef] (check-def cache rdef)))
+            [(over checked-cache \(map/insert qualified-name/cmp qname cdef #) cache)
+             cdef]))))
+
+(defun check-def [cache (PDef lhs rhs)]
+  (map-cadr \(CDef lhs #) (check-expr cache rhs)))
+
+(defun check-expr [cache e] :of (Fun [Cache (PExpr QualifiedName)] [Cache CExpr])
+  (match e
+    (case (PAdd (Box a) (Box b))
+          (let (([cache a'] (check-expr cache a))
+                ([cache b'] (check-expr cache b)))
+            [cache (CAdd (box a') (box b'))]))
+    (case (PInt x) [cache (CInt x)])
+    (case (PVar var) [cache (CVar var)])))

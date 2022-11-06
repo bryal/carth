@@ -1,0 +1,4 @@
+(use /self/lib/foo)
+(use /self/lib/bar/hundred)
+
+(def main (+ (* foo::thirteen hundred) /self/lib/bar/thirty-seven))

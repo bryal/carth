@@ -1,0 +1,21 @@
+(import std)
+
+(data (Lens s t a b) (Lens (Fun [s] a) (Fun [s b] t)))
+
+(defun over [lens f s] (set lens (f (get lens s)) s))
+(defun get [(Lens f _) s] (f s))
+(defun set [(Lens _ f) a s] (f s a))
+
+(defun replace-ext [f ext]
+  (apps str-append (strip-ext f) "." ext))
+
+(defun strip-ext [f]
+  (def dot :of Nat8 (cast 0x2E))
+  (let1 i (unwrap! (array/find-by-end \(= dot #) (string/as-array f)))
+    (string/substr-to (to-int i) f)))
+
+(defun nyi [thing]
+  (panic (str-append "not yet implemented: " thing)))
+
+(defun ice [msg]
+  (panic (str-append "internal compiler error: " msg)))

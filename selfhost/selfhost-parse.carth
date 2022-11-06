@@ -1,0 +1,93 @@
+(import std)
+
+(import selfhost-cache)
+
+(type Ident Str)
+
+(type RelativeModuleName (List Ident)) ; Empty list => "the current module"
+(data QualifiedModuleName
+  QMRoot ; The root module contains builtins & packages
+  (QMName (Box QualifiedModuleName) Ident))
+
+(data RelativeName (RName RelativeModuleName Ident))
+(data QualifiedName (QName QualifiedModuleName Ident))
+
+(data (PModule name)
+  (PModule QualifiedModuleName          ; This module's name
+           (Set QualifiedName)          ; Imports
+           (Map Ident (PDef name))))    ; Definitions
+
+(data (PDef name) (PDef QualifiedName (PExpr name)))
+
+(data (PExpr name)
+  (PAdd (Box (PExpr name)) (Box (PExpr name)))
+  (PInt Int)
+  (PVar name))
+
+(defun query-parsed-module [cache mod-name] :of (Fun [Cache QualifiedModuleName] [Cache (PModule RelativeName)])
+  (match (map/lookup qualified-module-name/cmp mod-name (get parsed-modules-cache cache))
+    (case (Some pmod) [cache pmod])
+    (case None
+          (let ((possible-src-files (qualified-module-name/to-filepaths mod-name))
+                ([cache src] (unwrap-or-else (fun [_] (ice "query-parsed-module: file not found (or error reading file)"))
+                                             (iter/first (filter-map read_file possible-src-files))))
+                (pmod (parse-module src)))
+            [(over parsed-modules-cache \(map/insert qualified-module-name/cmp mod-name pmod #) cache)
+             pmod]))))
+
+(defun query-parsed-def [cache (QName mod-name def-symbol)]
+  (map-cadr (fun [(PModule _ _ pdefs)]
+              (map/lookup-or-do str_cmp
+                                (fun [_] (ice "query-parsed-def: not in parsed module"))
+                                def-symbol
+                                pdefs))
+            (query-parsed-module cache mod-name)))
+
+(defun parse-module [src]
+  (def p-identstart)
+  (def p-ident (do parse/bind
+                   (<- c p-identstart)
+                   (<- cs (parse/many p-identrest))
+                   (parse/pure (string/collect-bytes (list/iter (list/cons c cs))))))
+  (def p-qname (do parse/bind
+                   (parse/string "/")
+                   (<- xs (parse/many (parse/thenl p-ident (parse/string "/"))))
+                   (<- x p-ident)
+                   (parse/pure (QName (foldl \(QMName (box #0) #1) QMRoot xs) x))))
+  (def p-use (p-parens (do parse/bind
+                           (parse/string "use")
+                           parse/space1
+                           p-qname)))
+  (defun p-parens [p] (parse/between (parse/string "(") (parse/string ")") p))
+  (def p-module (do parse/bind
+                    (<- imports (parse/many p-use))
+                    (parse/pure _)))
+
+  (parse! p-module src))
+
+(def qualified-name/module (Lens (fun [(QName m _)] m) (fun [(QName _ x) m] (QName m x))))
+
+(defun qualified-name/cmp [(QName m1 x1) (QName m2 x2)]
+  (cmp-two qualified-module-name/cmp str_cmp [m1 x1] [m2 x2]))
+
+(defun qualified-module-name/cmp
+  (case [QMRoot QMRoot] Eq)
+  (case [QMRoot _] Lt)
+  (case [_ QMRoot] Gt)
+  (case [(QMName (Box a1) b1) (QMName (Box a2) b2)]
+        (cmp-two qualified-module-name/cmp str_cmp [a1 b1] [a2 b2])))
+
+(defun qualified-name-as-module-name [(QName xs x)]
+  (QMName (box xs) x))
+
+(defun relative-name/split-first [(RName xs xn)]
+  (match (list/uncons xs)
+    (case (Some [x0 xs']) [x0 (Some (RName xs' xn))])
+    (case None            [xn None])))
+
+(defun qualify-relative [xs (RName ys yn)] :of (Fun [QualifiedModuleName RelativeName] QualifiedName)
+  (match (list/uncons ys)
+    (case None (QName xs yn))
+    (case (Some [y0 ys']) (qualify-relative (QMName (box xs) y0) (RName ys' yn)))))
+
+(def pmodule/definitions (Lens (fun [(PModule _ _ ds)] ds) (fun [(PModule a1 a2 _) ds] (PModule a1 a2 ds))))
