@@ -109,6 +109,11 @@
 
 (defun map/lookup! [cmp k m] (unwrap! (map/lookup cmp k m)))
 
+(defun map/lookup-or-do [cmp f k m]
+  (match (map/lookup cmp k m)
+    (case None (f Unit))
+    (case (Some x) x)))
+
 (defun map/iter
   (case [MLeaf] iter/nil)
   (case [(MTree (Box [k v _ l r]))]
@@ -162,7 +167,8 @@
 (defun map/keys [m] (map car (map/iter m)))
 (defun map/vals [m] (map cadr (map/iter m)))
 
-(defun map/member? [cmp k m] (some? (map/lookup cmp k m)))
+(defun map/member? [cmp k m] :of (forall (k v) (Fun [(Fun [k k] Cmp) k (Map k v)] Bool))
+  (some? (map/lookup cmp k m)))
 
 (defun map/empty? (case [MLeaf] True) (case [_] False))
 
