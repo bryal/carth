@@ -39,7 +39,12 @@ want to scare anyone away xd.
 
 * TODO Type aliases
   Like ~type String = [Char]~ in Haskell.
-* NEXT RC / ARC / Refcount / reference counting
+* Automatic memory management
+Rc, ARC, refcount, reference counting, gc, garbage collection
+
+https://verdagon.dev/blog/generational-references
+
+** NEXT RC / ARC / Refcount / reference counting
 GC is inelegant, needing to stop the world or use a bunch of complex
 methods. Also, latency is bad.
 
@@ -230,6 +235,57 @@ Also https://xnning.github.io/papers/perceus.pdf and https://www.microsoft.com/e
 *Update <2022-08-29 mån>*
 Another paper I had open:
 [[https://arxiv.org/abs/1908.05647][Counting Immutable Beans:  Reference Counting Optimized for Purely Functional Programming]]
+** INACTIVE Custom GC
+Update <2022-08-03 ons>: I've uncancelled this.
+Now I'm thinking that while GC will probably not be built into the language / the default allocation method,
+we'll still probably want a separate Gc type for garbage collected pointers.
+Sort of like how Rust has Rc as a standalone type, separate from the compiler itself.
+Anyways, it would probably be fun to implement a GC!
+So why not do it, when there's time?
+
+Update <2022-05-24 tis>: I've actually changed my mind about
+  refcounting. With some ownership analysys, which we'd need anyways
+  for linear types, one could easily ommit most RC increments /
+  decrements in the generated code. And predictable deinitialization +
+  no GC latency is actually really valuable.
+
+  Until we get linear types, and even then, we'll need some form of
+  GC. Boehm's seems to be working well enough, but a conservative
+  collector is not ideal, and I think it would be a fun project to
+  write my own GC.
+
+  There are many problems with refcounting: Generated llvm ir/asm gets
+  polluted; While performance is more predictable, it's typically
+  worse overall; Cycle breaking would either require using weak refs
+  where appropriate, which would in turn require user input or an
+  advanced implementation, or a periodic cycle breaker, which would be
+  costly performance wise. So tracing GC is probably a good idea.
+
+  GHC seems to prefer throughput over latency, so very long pauses are
+  possible when you're working with a nontrial amount of data. "You're
+  actually doing pretty well to have a 51ms pause time with over 200Mb
+  of live data.".
+
+  It could be interesting to add ways of controlling when GC happens
+  so you can reduce spikes of latency. Haskell has ~performGC :: IO
+  ()~ that does this. [[https://old.reddit.com/r/haskell/comments/6d891n/has_anyone_noticed_gc_pause_lag_in_haskell/di0vqb0/][Here is a gameboy]] who eliminates spikes at the
+  cost of overall performance by calling ~performGC~ every frame.
+
+  [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
+
+  A tracing GC would be quite separate from the rest of the
+  program. The only pollution would be calls to the allocator (not
+  much different from the current sitch w malloc) and
+  (de)registrations of local variables in Let forms (a total of two
+  function calls per heap allocated variable).
+
+  Implementing a tracing GC would be a fun challenge, and I'm sure it
+  could be fun to try different algorithms etc.
+
+  Look at
+  - https://github.com/mkirchner/gc
+  - https://youtu.be/FeLHo6tIgKI
+  - http://www.cofault.com/2022/07/treadmill.html
 * NEXT Namespacing, Ad-hoc polymorphism, compile time evaluation (, dependent types)
 We need some kind of module system for namespacing.
 The current (<2022-08-16 tis>) "module system" only pretends to be one,
@@ -574,6 +630,19 @@ While we're still breaking things relatively often, keep std small.
 Even trim it a little.
 E.g. `<ooooo` is definitely not a must-have in std.
 * INACTIVE Selfhost, Carth 2.0
+*Update <2022-11-06 sön>*
+
+Implementing Carth in itself right now just isn't much fun really.
+I'm missing a bunch of features.
+And I've also been thinking about the bootstrapping process.
+I don't want us to require a ton of bootstrapping steps.
+Preferarably, there should just be a couple.
+Something like: haskell compiler -> selfhosted gen 1 -> selfhosted gen 2 -> selfhosted current.
+But if I start writing the selfhosted compiler too early, I'll be stuck improving Carth in that still crappy version for a while.
+I think I'd rather improve Carth a bit more before seriously writing the selfhosted compiler.
+
+*Original*
+
 At some point or another, we ought to selfhost.
 This is a particularly good way of dogfeeding the language, as we have to use it to develop it.
 
@@ -607,6 +676,9 @@ It's fine if they diverge, since they're not exactly the same language anymore.
 
   See:
   - https://gilmi.me/blog/post/2021/04/06/giml-type-inference
+
+Not specific to the refactor, but this talk on the type inference in Haskell is good:
+https://youtu.be/x3evzO8O9e8
 
 ** Unify the different ASTs / IRs
   It's just kinda messy right now. Many files must be changed when
@@ -915,6 +987,7 @@ Like, you can choose to either always use the primary/canonical instance, or to 
   - https://youtu.be/z8SI7WBtlcA, https://youtu.be/z8SI7WBtlcA?t=1433
   - Eff language
   - https://youtu.be/XAnFUwIaZB8
+  - https://koka-lang.github.io/koka/doc/book.html#why-effects
 
 ** INACTIVE Memory allocation as an explicit effect
    In Rust, you can override the global memory allocator. Situational
@@ -1204,6 +1277,9 @@ Like, you can choose to either always use the primary/canonical instance, or to 
   easy to use with interpreter and comptime. Conditional compilation
   to use efficient C/Rust versions normally.
 
+** INACTIVE Lenses / Optics
+https://www.tweag.io/blog/2022-05-05-existential-optics/
+https://github.com/hablapps/DontFearTheProfunctorOptics
 ** INACTIVE Numbers, algebra, mathematics
    How to best structure the numeric typeclasses? ~Num~ in Haskell is
    a bit coarse. For example, you have to provide ~*~, which doesn't
@@ -1655,6 +1731,9 @@ Check out Polonius, the new borrow checker in Rust. https://youtu.be/H54VDCuT0J0
   of all names necessary to parse the entry definition. Make a
   topological order. Compile them (to interpretable AST) in order. If
   there are any cyclical groups, compilation error.
+* Platformc & calling conventions
+https://lobste.rs/s/zon0fi/time_i_tried_porting_zig_serenityos#c_w7ghy3 
+"Remember: when in doubt, `clang -c -save-temps -emit-llvm test.c && llvm-dis test.bc && less test.ll`"
 * INACTIVE Union types
   Like Typescript (I think, I'm not all that familiar with it). Could
   be nice for error handling, for example. That's one of the problems
@@ -1717,57 +1796,6 @@ Check out Polonius, the new borrow checker in Rust. https://youtu.be/H54VDCuT0J0
   Either in Carth directly, or via a DSL or something. Some method of
   doing flattening and parallelisation like Futhark? Compile to OpenGL
   & Vulkan maybe.
-* INACTIVE Custom GC
-Update <2022-08-03 ons>: I've uncancelled this.
-Now I'm thinking that while GC will probably not be built into the language / the default allocation method,
-we'll still probably want a separate Gc type for garbage collected pointers.
-Sort of like how Rust has Rc as a standalone type, separate from the compiler itself.
-Anyways, it would probably be fun to implement a GC!
-So why not do it, when there's time?
-
-Update <2022-05-24 tis>: I've actually changed my mind about
-  refcounting. With some ownership analysys, which we'd need anyways
-  for linear types, one could easily ommit most RC increments /
-  decrements in the generated code. And predictable deinitialization +
-  no GC latency is actually really valuable.
-
-  Until we get linear types, and even then, we'll need some form of
-  GC. Boehm's seems to be working well enough, but a conservative
-  collector is not ideal, and I think it would be a fun project to
-  write my own GC.
-
-  There are many problems with refcounting: Generated llvm ir/asm gets
-  polluted; While performance is more predictable, it's typically
-  worse overall; Cycle breaking would either require using weak refs
-  where appropriate, which would in turn require user input or an
-  advanced implementation, or a periodic cycle breaker, which would be
-  costly performance wise. So tracing GC is probably a good idea.
-
-  GHC seems to prefer throughput over latency, so very long pauses are
-  possible when you're working with a nontrial amount of data. "You're
-  actually doing pretty well to have a 51ms pause time with over 200Mb
-  of live data.".
-
-  It could be interesting to add ways of controlling when GC happens
-  so you can reduce spikes of latency. Haskell has ~performGC :: IO
-  ()~ that does this. [[https://old.reddit.com/r/haskell/comments/6d891n/has_anyone_noticed_gc_pause_lag_in_haskell/di0vqb0/][Here is a gameboy]] who eliminates spikes at the
-  cost of overall performance by calling ~performGC~ every frame.
-
-  [[https://github.com/rust-lang/rfcs/blob/master/text/1598-generic_associated_types.md][Some inspiration here]].
-
-  A tracing GC would be quite separate from the rest of the
-  program. The only pollution would be calls to the allocator (not
-  much different from the current sitch w malloc) and
-  (de)registrations of local variables in Let forms (a total of two
-  function calls per heap allocated variable).
-
-  Implementing a tracing GC would be a fun challenge, and I'm sure it
-  could be fun to try different algorithms etc.
-
-  Look at
-  - https://github.com/mkirchner/gc
-  - https://youtu.be/FeLHo6tIgKI
-  - http://www.cofault.com/2022/07/treadmill.html
 * INACTIVE Property system
   I'm thinking of a system where you annotate functions in a source
   file with pre- and postconditions, which can then be checked in
@@ -1786,4 +1814,19 @@ Update <2022-05-24 tis>: I've actually changed my mind about
   Like a typechecker-pass but for generated documentation. Verify that
   all links are alive, that examples compile and produce the expected
   output, etc.
+* INACTIVE User defined integer types w/ custom ranges
+Sort of like in Ada?
+
+"overflowing -10..100"
+"saturating 1..15"
+It automatically implements arithmetic operators to saturate, overflow, or panic by default as specified.
+The range is fit into the smallest integer that can fit it.
+So "256..511" is stored un a u8, and the semantic 256 is represented as 0 in generated code.
+
+When the int is cast, it is not bitwise cast.
+Casting "256 :: 256..511" to u16 results in 256.
+Look at Ada.
+
+Also, niches in Rust is slightly similar.
+In Rust, ~Option<NonZeroU8>~ fits in a single byte, because the ~None~ is stored in the ~0~.
 
